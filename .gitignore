@@ -1,0 +1,37 @@
+node_modules/
+dist/
+release/
+electron/
+build/
+workspace/
+attachments/
+
+# Build output
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+
+# Electron / distribution artifacts
+*.zip
+convert-icon.js
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Debug logs
+debug.log
+*.log
+
+# Environment
+.env
+.env.*
+
+# Temp files
+*.tmp
+*.swp
+*~
