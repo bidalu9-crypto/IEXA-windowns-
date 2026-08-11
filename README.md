@@ -244,12 +244,5 @@ workspace/
 
 ---
 
-## 🔗 相关链接
-
-- 官网：[IEXA.app](https://IEXA.app)
-- iOS / Android：应用商店搜索 **IEXA**
-- 开源地址：<https://github.com/bidalu9-crypto/IEXA-windowns->
-
----
 
 *Made with ❤️ by the IEXA team*
