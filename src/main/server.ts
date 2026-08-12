@@ -289,6 +289,25 @@ function loadSessionContext(sessionId: string): string {
   } catch { return ''; }
 }
 
+/** Load recent memory files and return as a context string. */
+function loadRecentMemories(maxDays = 5): string {
+  try {
+    if (!fs.existsSync(MEMORY_DIR)) return '';
+    const files = fs.readdirSync(MEMORY_DIR)
+      .filter((f) => f.endsWith('.md'))
+      .sort()
+      .reverse()
+      .slice(0, maxDays);
+    if (files.length === 0) return '';
+    const entries: string[] = [];
+    for (const file of files) {
+      const content = fs.readFileSync(path.join(MEMORY_DIR, file), 'utf-8').trim();
+      if (content) entries.push(content);
+    }
+    return entries.join('\n\n---\n\n');
+  } catch { return ''; }
+}
+
 /** Load the persisted Codex-style compaction summary for a session. */
 function loadSessionSummary(sessionId: string): string {
   try {
@@ -1006,7 +1025,16 @@ function createServer(): http.Server {
           saveSessionContext(sessionId, persistedMessages);
           durableContext = loadSessionContext(sessionId);
         }
-        agent.setSessionContext(durableContext);
+        // Auto-inject recent memories into durable context (跨会话记忆)
+        const recentMemories = loadRecentMemories(5);
+        const memorySection = recentMemories
+          ? `
+
+<memory-log>
+${recentMemories}
+</memory-log>`
+          : '';
+        agent.setSessionContext(durableContext + memorySection);
         // Restore Codex-style compaction summary (survives restarts)
         const persistedSummary = loadSessionSummary(sessionId);
         if (persistedSummary) {
