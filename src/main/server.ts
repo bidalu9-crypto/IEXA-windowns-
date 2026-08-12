@@ -348,6 +348,8 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[], summary 
       toolNotes.push(`${call.name}: ${args.substring(0, 900)}${output ? `\n结果: ${output}` : ''}`);
     }
   }
+  // Deduplicate config anchors while keeping last occurrence order.
+  const uniqueConfig = [...new Set(configAnchors)];
   const sections = [
     '持久化会话上下文（来自本会话已保存的消息、工具调用和工具结果；其中的链接、路径、标识符应视为已知事实）：',
     uniqueConfig.length ? `关键配置/参数（最近 ${Math.min(40, uniqueConfig.length)} 条）:\n${uniqueConfig.slice(-40).map((v) => `- ${v}`).join('\n')}` : '',
@@ -536,7 +538,10 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
   const ext = path.extname(fp);
   try {
     const content = fs.readFileSync(fp);
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+    });
     res.end(content);
   } catch { res.writeHead(404); res.end('未找到'); }
 }
@@ -1144,7 +1149,12 @@ function createServer(): http.Server {
             assistantFullText = ft;
             sendSSE(res, 'text', { content: ft });
           },
-          onThinkingDelta: t => sendSSE(res, 'thinking', { content: t }),
+          // Enforce the user's setting at the final transport boundary too.
+          // This covers compatible gateways that emit reasoning despite an
+          // enable_thinking: false request.
+          onThinkingDelta: t => {
+            if (getThinkingLevel() !== 'off') sendSSE(res, 'thinking', { content: t });
+          },
           onToolCallStart: (id, name) => sendSSE(res, 'tool_start', { id, name }),
           onToolInputDelta: (name, acc, id) => sendSSE(res, 'tool_input', { id, name, args: acc }),
           onToolCallComplete: (id, name, args) => {

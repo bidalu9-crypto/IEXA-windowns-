@@ -177,7 +177,10 @@ export class OpenAIProvider {
               (typeof delta.reasoning === 'string' && delta.reasoning) ||
               (typeof delta.thinking === 'string' && delta.thinking) ||
               '';
-            if (reasoningText) {
+            // Some OpenAI-compatible gateways emit reasoning_content even when
+            // their disable flag is ignored. "off" is a local hard boundary:
+            // never forward that stream to the application/UI.
+            if (reasoningText && this.thinkingLevel !== 'off') {
               yield { type: 'thinkingDelta', text: reasoningText };
             }
 
@@ -337,6 +340,8 @@ export class OpenAIProvider {
 
     if (level === 'off') {
       if (model.includes('deepseek') || model.includes('r1') || model.includes('think') || provider === 'deepseek') {
+        // DeepSeek-compatible Chat Completions gateways use this field. Do not
+        // attach a positive reasoning_effort in the off state.
         body.enable_thinking = false;
       } else {
         body.reasoning_effort = 'none';

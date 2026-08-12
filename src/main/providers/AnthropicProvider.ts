@@ -148,7 +148,7 @@ export class AnthropicProvider {
                     accumulated: currentToolArgs,
                     id: currentToolId || undefined,
                   };
-                } else if (delta.type === 'thinking_delta') {
+                } else if (delta.type === 'thinking_delta' && this.thinkingLevel !== 'off') {
                   yield { type: 'thinkingDelta', text: delta.thinking };
                 }
                 break;
