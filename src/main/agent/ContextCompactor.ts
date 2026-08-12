@@ -105,6 +105,16 @@ export class ContextCompactor {
     if (Number.isFinite(inputTokens) && inputTokens > 0) this.lastReportedInputTokens = inputTokens;
   }
 
+  /** Expose the current summary for persistence across restarts. */
+  getSummary(): string {
+    return this.summary;
+  }
+
+  /** Restore a previously persisted summary (e.g. after app restart). */
+  setSummary(summary: string): void {
+    this.summary = summary;
+  }
+
   /** Returns a compacted history only if threshold policy says compaction is needed. */
   async compactIfNeeded(history: AgentMessage[], onStatus: (s: ContextStatus) => void): Promise<AgentMessage[]> {
     const before = this.status(history);

@@ -265,10 +265,12 @@ function saveMessages(sessionId: string, msgs: ChatMessage[]): void {
 }
 
 interface DurableSessionContext {
-  version: 1;
+  version: 2;
   sessionId: string;
   updatedAt: number;
   content: string;
+  /** Codex-style rolling summary of the compacted past (survives restarts). */
+  summary?: string;
 }
 
 function sessionContextPath(sessionId: string): string {
@@ -284,7 +286,17 @@ function loadSessionContext(sessionId: string): string {
   } catch { return ''; }
 }
 
-function saveSessionContext(sessionId: string, messages: ChatMessage[]): void {
+/** Load the persisted Codex-style compaction summary for a session. */
+function loadSessionSummary(sessionId: string): string {
+  try {
+    const fp = sessionContextPath(sessionId);
+    if (!fs.existsSync(fp)) return '';
+    const state = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Partial<DurableSessionContext>;
+    return typeof state.summary === 'string' ? state.summary : '';
+  } catch { return ''; }
+}
+
+function saveSessionContext(sessionId: string, messages: ChatMessage[], summary = ''): void {
   // Build a small durable index from the complete history. The chat transcript
   // remains the source of truth; this index carries high-value anchors through
   // restart, model changes and transcript trimming without replaying huge tool
@@ -293,6 +305,7 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[]): void {
   const paths = new Set<string>();
   const userNotes: string[] = [];
   const toolNotes: string[] = [];
+  const configAnchors: string[] = [];
   const addAnchors = (value: unknown) => {
     const text = typeof value === 'string' ? value : JSON.stringify(value || '');
     for (const match of text.match(/https?:\/\/[^\s<>\])}\\"']+/gi) || []) urls.add(match.replace(/[.,;]+$/, ''));
@@ -303,10 +316,23 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[]): void {
       if (!/^[a-z]:\/\//i.test(normalized)) paths.add(normalized);
     }
   };
+  // Extract config-style facts (key=value pairs) that must survive trimming:
+  // API keys, base URLs, model names, output dirs, file paths.
+  const extractConfigAnchors = (value: unknown) => {
+    const text = typeof value === 'string' ? value : JSON.stringify(value || '');
+    // e.g. API_KEY_EDU = "sk-...", OUTPUT_DIR = "C:\...", --model gpt-image-2-edu
+    const kv = text.match(/(?:API_KEY|BASE_URL|OUTPUT_DIR|BASEURL|API_BASE|MODEL|model|base_url|output_dir|api_key|baseurl)\s*[=:]\s*["']?([A-Za-z0-9_\-.:\\\/]+)["']?/gi) || [];
+    const modelArgs = text.match(/--model\s+([A-Za-z0-9_.\-]+)/gi) || [];
+    for (const m of [...kv, ...modelArgs].slice(-40)) {
+      const clean = m.replace(/[.,;]+$/, '');
+      if (clean.length > 4 && clean.length < 200) configAnchors.push(clean);
+    }
+  };
   for (const message of messages) {
     addAnchors(message.content);
+    extractConfigAnchors(message.content);
     if (message.role === 'user' && message.content?.trim()) {
-      userNotes.push(message.content.trim().substring(0, 700));
+      userNotes.push(message.content.trim().substring(0, 2000));
     }
     for (const attachment of message.attachments || []) {
       addAnchors(attachment.savedPath);
@@ -315,20 +341,23 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[]): void {
     for (const call of message.toolCalls || []) {
       addAnchors(call.args);
       addAnchors(call.result?.output);
+      extractConfigAnchors(call.args);
+      extractConfigAnchors(call.result?.output);
       const args = JSON.stringify(call.args || {});
-      const output = String(call.result?.output || '').trim().substring(0, 900);
+      const output = String(call.result?.output || '').trim().substring(0, 1200);
       toolNotes.push(`${call.name}: ${args.substring(0, 900)}${output ? `\n结果: ${output}` : ''}`);
     }
   }
   const sections = [
     '持久化会话上下文（来自本会话已保存的消息、工具调用和工具结果；其中的链接、路径、标识符应视为已知事实）：',
-    urls.size ? `已出现的链接:\n${[...urls].slice(-80).map((v) => `- ${v}`).join('\n')}` : '',
-    paths.size ? `已出现的文件/路径:\n${[...paths].slice(-80).map((v) => `- ${v}`).join('\n')}` : '',
-    userNotes.length ? `用户的重要原话（最近 ${Math.min(16, userNotes.length)} 条）:\n${userNotes.slice(-16).map((v) => `- ${v}`).join('\n')}` : '',
-    toolNotes.length ? `工具调用及结果摘要（最近 ${Math.min(24, toolNotes.length)} 条）:\n${toolNotes.slice(-24).join('\n\n')}` : '',
+    uniqueConfig.length ? `关键配置/参数（最近 ${Math.min(40, uniqueConfig.length)} 条）:\n${uniqueConfig.slice(-40).map((v) => `- ${v}`).join('\n')}` : '',
+    urls.size ? `已出现的链接:\n${[...urls].slice(-100).map((v) => `- ${v}`).join('\n')}` : '',
+    paths.size ? `已出现的文件/路径:\n${[...paths].slice(-100).map((v) => `- ${v}`).join('\n')}` : '',
+    userNotes.length ? `用户的重要原话（最近 ${Math.min(50, userNotes.length)} 条）:\n${userNotes.slice(-50).map((v) => `- ${v}`).join('\n')}` : '',
+    toolNotes.length ? `工具调用及结果摘要（最近 ${Math.min(40, toolNotes.length)} 条）:\n${toolNotes.slice(-40).join('\n\n')}` : '',
   ].filter(Boolean);
-  const content = sections.join('\n\n').substring(0, 30000);
-  const state: DurableSessionContext = { version: 1, sessionId, updatedAt: Date.now(), content };
+  const content = sections.join('\n\n').substring(0, 60000);
+  const state: DurableSessionContext = { version: 2, sessionId, updatedAt: Date.now(), content, summary: summary || undefined };
   try { fs.writeFileSync(sessionContextPath(sessionId), JSON.stringify(state, null, 2), 'utf-8'); } catch { /* best effort */ }
 }
 
@@ -458,7 +487,11 @@ function saveSessionMessages(
     : updatedMessages;
 
   saveMessages(sessionId, trimmed);
-  saveSessionContext(sessionId, updatedMessages);
+
+  // Grab the Codex-style compaction summary from the agent (if any)
+  const agent = agentCache.get(sessionId);
+  const summary = agent ? agent.getCompactorSummary() : '';
+  saveSessionContext(sessionId, updatedMessages, summary);
 
   // Update session metadata
   const store = loadSessionStore();
@@ -965,6 +998,11 @@ function createServer(): http.Server {
           durableContext = loadSessionContext(sessionId);
         }
         agent.setSessionContext(durableContext);
+        // Restore Codex-style compaction summary (survives restarts)
+        const persistedSummary = loadSessionSummary(sessionId);
+        if (persistedSummary) {
+          agent.setCompactorSummary(persistedSummary);
+        }
         if (needHydrate) {
           // Prior turns from disk → model remembers after reopen / process restart
           agent.seedHistoryFromChat(persistedMessages);

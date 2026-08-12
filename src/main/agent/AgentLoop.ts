@@ -54,6 +54,8 @@ export class AgentLoop {
   private callbacks: AgentLoopCallbacks | null = null;
   /** Durable per-session anchors supplied by the server after rehydration. */
   private sessionContext = '';
+  /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
+  private compactor: ContextCompactor | null = null;'';
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -78,6 +80,18 @@ export class AgentLoop {
 
   setSessionContext(context: string | null | undefined): void {
     this.sessionContext = typeof context === 'string' ? context.trim() : '';
+  }
+
+  /** Current Codex-style compaction summary (persisted across restarts). */
+  getCompactorSummary(): string {
+    return this.compactor ? this.compactor.getSummary() : '';
+  }
+
+  /** Restore a persisted compaction summary after restart. */
+  setCompactorSummary(summary: string | null | undefined): void {
+    if (this.compactor && typeof summary === 'string' && summary.trim()) {
+      this.compactor.setSummary(summary.trim());
+    }
   }
 
   /**
@@ -218,6 +232,7 @@ export class AgentLoop {
       : baseSystemPrompt;
     const contextWindow = contextWindowForModel(this.config.provider.model, this.config.provider.name);
     const compactor = new ContextCompactor(this.config.provider, contextWindow, tools, systemPrompt);
+    this.compactor = compactor;
     let turnCount = 0;
     let streamRetryAttempt = 0;
     const retryDelays = [2000, 5000, 10000];
