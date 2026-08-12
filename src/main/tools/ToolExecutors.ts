@@ -8,6 +8,49 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
 
+const MEDIA_MIME: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime',
+  '.webm': 'video/webm', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
+};
+
+/** Build a ToolExecutionResult that surfaces a local media file to the UI. */
+export async function buildMediaDisplayResult(filePath: string, workspaceDir: string): Promise<ToolExecutionResult> {
+  const absolute = path.isAbsolute(filePath) ? filePath : path.resolve(workspaceDir, filePath);
+  try {
+    const stat = await fs.stat(absolute);
+    if (!stat.isFile()) {
+      return { output: `Display failed: not a file: ${absolute}`, success: false };
+    }
+    const ext = path.extname(absolute).toLowerCase();
+    const mimeType = MEDIA_MIME[ext];
+    if (!mimeType) {
+      return { output: `Display failed: unsupported media type (${ext || 'no extension'}) for ${absolute}`, success: false };
+    }
+    const kind = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'file' as const;
+    // Load image bytes for immediate inline preview; audio/video stream via URL.
+    let imageData: Buffer | undefined;
+    let imageMimeType: string | undefined;
+    if (kind === 'image' && stat.size <= 10 * 1024 * 1024) {
+      imageData = await fs.readFile(absolute);
+      imageMimeType = mimeType;
+    }
+    return {
+      output: kind === 'image' ? `Displaying image: ${absolute}` : `Displaying ${kind}: ${absolute}`,
+      success: true,
+      imageData,
+      imageMimeType,
+      artifacts: [{ kind, path: absolute, mimeType, size: stat.size }],
+    };
+  } catch (err) {
+    return { output: `Display failed: ${(err as Error).message}`, success: false };
+  }
+}
+
 function changeSummary(filePath: string, before: string, after: string): ToolExecutionResult['fileChange'] {
   const limit = 120000;
   if (before.length > limit) before = before.substring(0, limit) + '\n… (truncated)';

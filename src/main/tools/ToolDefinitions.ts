@@ -149,6 +149,23 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
       required: ['tool_title', 'url'],
       propertyOrdering: ['tool_title', 'url', 'max_length'],
     },
+    {
+      name: 'display_file',
+      description:
+        'Display a local media file (image, video, or audio) to the user in the chat. Use this to show ANY file on disk regardless of where it was generated: generated images, downloaded videos, audio clips, etc. The path can be absolute or relative to the workspace. Call this whenever you create or download an image/video/audio that the user should see or play.',
+      parameters: {
+        tool_title: {
+          type: 'string',
+          description: "A concise 5-10 word summary (e.g. 'Show generated image', 'Play downloaded video').",
+        },
+        path: {
+          type: 'string',
+          description: 'Absolute or relative path to the media file to display (e.g. C:\Users\...\image.png or workspace/attachments/clip.mp4)',
+        },
+      },
+      required: ['tool_title', 'path'],
+      propertyOrdering: ['tool_title', 'path'],
+    },
   ];
 
   if (memoryEnabled) {

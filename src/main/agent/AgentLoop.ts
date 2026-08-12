@@ -15,7 +15,7 @@ import {
   LLMUsage,
 } from '../providers/types';
 import { LLMProvider } from '../providers/ProviderFactory';
-import { ShellExecutor, FileTools, MemoryTools, BrowserFetch } from '../tools/ToolExecutors';
+import { ShellExecutor, FileTools, MemoryTools, BrowserFetch, buildMediaDisplayResult } from '../tools/ToolExecutors';
 import { buildSystemPrompt } from './SystemPrompt';
 import { ContextCompactor, contextWindowForModel } from './ContextCompactor';
 
@@ -481,6 +481,11 @@ export class AgentLoop {
         const url = String(args.url || '');
         const maxLength = Number(args.max_length) || 25000;
         return await this.browser.fetch(url, maxLength);
+      }
+
+      case 'display_file': {
+        const filePath = String(args.path || '');
+        return await buildMediaDisplayResult(filePath, this.config.workspaceDir);
       }
 
       case 'memory_write': {
