@@ -2481,6 +2481,16 @@ function updateEditorPlaceholders() {
   b.placeholder = BASE_URL_HINTS[prov] || '';
 }
 
+function formatContextTokensForDisplay(tokens) {
+  if (!tokens || tokens < 1000) return String(tokens);
+  return (tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+}
+
+function formatContextTokensForDisplay(tokens) {
+  if (!tokens || tokens < 1000) return String(tokens);
+  return (tokens / 1000).toFixed(tokens >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+}
+
 async function fetchModels() {
   let baseURL = document.getElementById('profileEditorBaseURL').value.trim();
   const apiKey = document.getElementById('profileEditorApiKey').value.trim();
@@ -2516,10 +2526,19 @@ async function fetchModels() {
       hint.textContent = '❌ ' + (data.error || '获取失败');
       return;
     }
+    // Models can be strings or objects { id, contextWindow?, maxOutputTokens? }
+    const modelList = data.models.map(m => {
+      if (typeof m === 'string') return { id: m };
+      return { id: m.id, contextWindow: m.contextWindow };
+    });
     select.innerHTML = '<option value="">— 选择模型 —</option>' +
-      data.models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+      modelList.map(m => {
+        const label = m.contextWindow ? m.id + '  (' + formatContextTokensForDisplay(m.contextWindow) + ')' : m.id;
+        const val = m.id + '\u0000' + (m.contextWindow || '');
+        return `<option value="${escapeHtml(val)}">${escapeHtml(label)}</option>`;
+      }).join('');
     select.style.display = 'block';
-    hint.textContent = `✅ 找到 ${data.models.length} 个模型，请选择。`;
+    hint.textContent = `✅ 找到 ${modelList.length} 个模型，请选择。`;
   } catch (err) {
     hint.textContent = '❌ 获取失败：' + err.message;
   } finally {
@@ -2529,13 +2548,28 @@ async function fetchModels() {
 
 async function saveProfile() {
   const id = document.getElementById('profileEditorId').value;
+  // Model select stores "id\u0000contextWindow"; extract both
+  const modelSelect = document.getElementById('profileEditorModelSelect');
+  let profileModel = document.getElementById('profileEditorModel').value.trim();
+  let contextWindow = undefined;
+  if (modelSelect && modelSelect.value) {
+    try {
+      const parts = modelSelect.value.split('\u0000');
+      if (parts.length >= 2) {
+        profileModel = parts[0];
+        const cw = Number(parts[1]);
+        if (Number.isFinite(cw) && cw > 0) contextWindow = cw;
+      }
+    } catch { /* ignore */ }
+  }
   const profile = {
     id: id || undefined,
     name: document.getElementById('profileEditorName').value.trim(),
     provider: document.getElementById('profileEditorProvider').value,
-    model: document.getElementById('profileEditorModel').value.trim(),
+    model: profileModel,
     apiKey: document.getElementById('profileEditorApiKey').value.trim(),
     baseURL: document.getElementById('profileEditorBaseURL').value.trim(),
+    contextWindow: contextWindow,
   };
 
   if (!profile.name) profile.name = profile.model || '未命名';

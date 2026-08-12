@@ -127,6 +127,9 @@ interface ModelProfile {
   model: string;
   apiKey: string;
   baseURL?: string;
+  /** API-reported context window from /v1/models (if available). */
+  contextWindow?: number;  /** API-reported max output tokens. */
+  maxOutputTokens?: number;
 }
 
 interface AppSettings {
@@ -451,6 +454,7 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
         console.log('[Skills] reloaded after agent write:', resolvedPath);
       }
     },
+    contextWindow: profile.contextWindow,
   };
   agent = new AgentLoop(config);
   agentCache.set(sessionId, agent);
@@ -1016,7 +1020,9 @@ function createServer(): http.Server {
         // Initial estimate makes the context ring useful before the provider
         // returns its first token-usage receipt.
         const seedHistory = loadMessages(sessionId);
-        const contextWindow = contextWindowForModel(profile.model, profile.provider);
+        const contextWindow = profile.contextWindow != null
+          ? profile.contextWindow
+          : contextWindowForModel(profile.model, profile.provider);
         const estimatedTokens = estimateMessageTokens(seedHistory.map((m) => ({
           role: m.role,
           parts: [{ type: 'text' as const, text: m.content || '' }],
@@ -1257,17 +1263,20 @@ function createServer(): http.Server {
           r.on('end', () => {
             try {
               const parsed = JSON.parse(data);
-              let list: string[] = [];
-              if (Array.isArray(parsed.data)) {
-                list = parsed.data.map((m: any) => m.id).filter(Boolean);
-              } else if (Array.isArray(parsed)) {
-                list = parsed.map((m: any) => m.id).filter(Boolean);
+              // Extract id + context_window + max_completion_tokens from API response.
+              const rawItems = Array.isArray(parsed.data) ? parsed.data : (Array.isArray(parsed) ? parsed : []);
+              const models: Array<{ id: string; contextWindow?: number; maxOutputTokens?: number }> = [];
+              for (const item of rawItems) {
+                if (!item?.id) continue;
+                const ctx = typeof item.context_window === 'number' && item.context_window > 0 ? item.context_window : undefined;
+                const maxOut = typeof item.max_completion_tokens === 'number' && item.max_completion_tokens > 0 ? item.max_completion_tokens : undefined;
+                models.push({ id: item.id, contextWindow: ctx, maxOutputTokens: maxOut });
               }
-              if (list.length === 0) {
+              if (models.length === 0) {
                 jsonReply(res, 404, { error: '未找到可用模型。' });
                 return;
               }
-              jsonReply(res, 200, { models: list });
+              jsonReply(res, 200, { models });
             } catch { jsonReply(res, 500, { error: '无法解析模型列表。' }); }
           });
         }).on('error', (e: Error) => jsonReply(res, 500, { error: `请求失败：${e.message}` }));
@@ -1300,6 +1309,14 @@ function createServer(): http.Server {
           const profile: ModelProfile = JSON.parse(body);
           if (!profile.id) profile.id = 'p_' + Date.now();
           if (!profile.name) profile.name = profile.model || '未命名';
+          if (profile.contextWindow != null) {
+            const cw = Number(profile.contextWindow);
+            profile.contextWindow = Number.isFinite(cw) && cw > 0 ? Math.floor(cw) : undefined;
+          }
+          if (profile.maxOutputTokens != null) {
+            const mo = Number(profile.maxOutputTokens);
+            profile.maxOutputTokens = Number.isFinite(mo) && mo > 0 ? Math.floor(mo) : undefined;
+          }
           const s = loadSettings();
           const idx = s.profiles.findIndex(p => p.id === profile.id);
           if (idx >= 0) s.profiles[idx] = profile;

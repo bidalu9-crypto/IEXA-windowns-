@@ -37,6 +37,8 @@ export interface AgentLoopConfig {
   systemSkillFragment?: string | null;
   /** Absolute skills directory for authoring instructions. */
   skillsDir?: string | null;
+  /** API-reported context window (from /v1/models), overrides model-name guessing. */
+  contextWindow?: number;
   /** Called when model file_reads a skill SKILL.md */
   onSkillRead?: (resolvedPath: string) => void;
   /** Called after model writes/edits a path under skills/ */
@@ -55,7 +57,7 @@ export class AgentLoop {
   /** Durable per-session anchors supplied by the server after rehydration. */
   private sessionContext = '';
   /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
-  private compactor: ContextCompactor | null = null;'';
+  private compactor: ContextCompactor | null = null;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -230,7 +232,9 @@ export class AgentLoop {
     const systemPrompt = this.sessionContext
       ? `${baseSystemPrompt}\n\n<durable-session-context>\n${this.sessionContext}\n</durable-session-context>`
       : baseSystemPrompt;
-    const contextWindow = contextWindowForModel(this.config.provider.model, this.config.provider.name);
+    const contextWindow = this.config.contextWindow != null
+      ? this.config.contextWindow
+      : contextWindowForModel(this.config.provider.model, this.config.provider.name);
     const compactor = new ContextCompactor(this.config.provider, contextWindow, tools, systemPrompt);
     this.compactor = compactor;
     let turnCount = 0;

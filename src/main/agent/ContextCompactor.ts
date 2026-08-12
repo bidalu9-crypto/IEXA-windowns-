@@ -90,12 +90,16 @@ export class ContextCompactor {
     // that response are not included in it. Never let a stale API receipt
     // under-report the next request's actual history.
     const usedTokens = Math.max(this.lastReportedInputTokens, estimatedTokens);
+    // 'estimated' is true only when the displayed number actually came from
+    // local character counting (i.e. we never received an API usage receipt,
+    // or the local estimate is larger than the last API receipt).
+    const estimated = usedTokens === estimatedTokens && estimatedTokens > this.lastReportedInputTokens;
     const threshold = compactThresholdForWindow(this.contextWindow);
     const near = threshold > 0 && usedTokens >= threshold;
     return {
       contextWindow: this.contextWindow,
       usedTokens,
-      estimated: this.lastReportedInputTokens === 0,
+      estimated,
       compactThreshold: threshold,
       state: state === 'ok' && near ? 'near-limit' : state,
     };
