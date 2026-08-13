@@ -86,6 +86,9 @@ export class ShellExecutor {
     const effectiveTimeout = Math.min(timeoutSec, 3600) * 1000;
     const beforeFiles = await this.collectMediaFiles();
 
+    // On Windows, force UTF-8 code page to avoid garbled Chinese output
+    const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
+
     return new Promise((resolve) => {
       const options: ExecOptions = {
         cwd: this.workspaceDir,
@@ -93,10 +96,10 @@ export class ShellExecutor {
         maxBuffer: 10 * 1024 * 1024, // 10MB
         encoding: 'utf8',
         shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-        env: { ...process.env, HOME: this.workspaceDir, CHCP: '65001' },
+        env: { ...process.env, HOME: this.workspaceDir },
       };
 
-      const child = exec(command, options, async (error, stdout, stderr) => {
+      const child = exec(finalCommand, options, async (error, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
         const exitCode = error?.code || 0;
         const afterFiles = await this.collectMediaFiles();
