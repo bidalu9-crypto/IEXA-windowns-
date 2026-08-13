@@ -3030,6 +3030,12 @@ body {
   color: var(--error);
 }
 
+.skill-badge.sys {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
+
 .skill-card-actions {
   display: flex;
   flex-direction: column;

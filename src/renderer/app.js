@@ -3237,6 +3237,7 @@ async function loadSkillsList() {
           <div class="skill-card-title">
             <strong>${escapeHtml(s.name)}</strong>
             <span class="skill-badge">${escapeHtml(s.source || 'file')}</span>
+            ${s.systemPrompt ? '<span class="skill-badge sys">系统级</span>' : ''}
             ${s.enabled ? '' : '<span class="skill-badge off">已关闭</span>'}
           </div>
           <div class="skill-card-desc">${escapeHtml(s.description || '（无描述）')}</div>
@@ -3244,6 +3245,7 @@ async function loadSkillsList() {
         </div>
         <div class="skill-card-actions">
           <button type="button" class="btn-secondary btn-sm" data-act="toggle">${s.enabled ? '禁用' : '启用'}</button>
+          <button type="button" class="btn-secondary btn-sm" data-act="sysprompt">${s.systemPrompt ? '取消系统级' : '系统级'}</button>
           <button type="button" class="btn-secondary btn-sm" data-act="view">查看</button>
           <button type="button" class="btn-secondary btn-sm skill-del" data-act="delete">删除</button>
         </div>
@@ -3262,6 +3264,14 @@ async function loadSkillsList() {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ enabled: !(s && s.enabled) }),
+            });
+            loadSkillsList();
+          } else if (act === 'sysprompt') {
+            const s = skillsCache.find((x) => x.id === id);
+            await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ systemPrompt: !(s && s.systemPrompt) }),
             });
             loadSkillsList();
           } else if (act === 'view') {

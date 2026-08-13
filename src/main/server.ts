@@ -1542,6 +1542,9 @@ ${recentMemories}
           if (typeof data.enabled === 'boolean') {
             skillStore.setEnabled(id, data.enabled);
           }
+          if (typeof data.systemPrompt === 'boolean') {
+            skillStore.setSystemPrompt(id, data.systemPrompt);
+          }
           if (typeof data.content === 'string' && data.content.trim()) {
             // Rewrite SKILL.md
             const skill = skillStore.get(id);

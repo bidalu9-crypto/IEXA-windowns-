@@ -176,6 +176,15 @@ export class SkillStore {
     return true;
   }
 
+  setSystemPrompt(id: string, value: boolean): boolean {
+    const s = this.skills.find((x) => x.id === id);
+    if (!s) return false;
+    s.systemPrompt = value;
+    s.updatedAt = Date.now();
+    this.saveIndex();
+    return true;
+  }
+
   delete(id: string): boolean {
     const idx = this.skills.findIndex((x) => x.id === id);
     if (idx < 0) return false;
