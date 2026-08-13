@@ -91,9 +91,8 @@ export class ShellExecutor {
         cwd: this.workspaceDir,
         timeout: effectiveTimeout,
         maxBuffer: 10 * 1024 * 1024, // 10MB
-        encoding: 'utf8',
         shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-        env: { ...process.env, HOME: this.workspaceDir, CHCP: '65001' },
+        env: { ...process.env, HOME: this.workspaceDir },
       };
 
       const child = exec(command, options, async (error, stdout, stderr) => {

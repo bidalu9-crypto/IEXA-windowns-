@@ -33,10 +33,9 @@ let isQuitting = false;
 function ensureInstanceWorkspace() {
   if (process.env.IEXA_WORKSPACE) return; // caller explicitly set it
   const base = path.join(__dirname, 'workspace');
-  const instance = 'instance-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-  process.env.IEXA_WORKSPACE = path.join(base, instance);
+  process.env.IEXA_WORKSPACE = base;
   fs.mkdirSync(process.env.IEXA_WORKSPACE, { recursive: true });
-  console.log('[IEXA] Instance workspace:', process.env.IEXA_WORKSPACE);
+  console.log('[IEXA] Workspace:', process.env.IEXA_WORKSPACE);
   console.log('[IEXA] Hit Ctrl+C / close window to stop this instance.');
 }
 
