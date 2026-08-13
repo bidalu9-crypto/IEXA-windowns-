@@ -86,7 +86,7 @@ export class ShellExecutor {
     const effectiveTimeout = Math.min(timeoutSec, 3600) * 1000;
     const beforeFiles = await this.collectMediaFiles();
 
-    // On Windows, force UTF-8 code page to avoid garbled Chinese output
+    // On Windows, force UTF-8 output: chcp 65001 + PYTHONIOENCODING for Python
     const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
 
     return new Promise((resolve) => {
@@ -96,7 +96,7 @@ export class ShellExecutor {
         maxBuffer: 10 * 1024 * 1024, // 10MB
         encoding: 'utf8',
         shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-        env: { ...process.env, HOME: this.workspaceDir },
+        env: { ...process.env, HOME: this.workspaceDir, PYTHONIOENCODING: 'utf-8' },
       };
 
       const child = exec(finalCommand, options, async (error, stdout, stderr) => {
