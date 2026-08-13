@@ -1270,8 +1270,14 @@ ${recentMemories}
     if (url.pathname === '/api/profiles/fetch-models' && req.method === 'POST') {
       const body = await readBody(req);
       try {
-        const { baseURL, apiKey } = JSON.parse(body);
-        if (!baseURL || !apiKey) {
+        const { baseURL, apiKey, profileId } = JSON.parse(body);
+        const existingProfile = typeof profileId === 'string'
+          ? loadSettings().profiles.find((profile) => profile.id === profileId)
+          : undefined;
+        const effectiveApiKey = typeof apiKey === 'string' && apiKey.trim()
+          ? apiKey.trim()
+          : existingProfile?.apiKey;
+        if (!baseURL || !effectiveApiKey) {
           jsonReply(res, 400, { error: '请输入接口地址和 API 密钥。' });
           return;
         }
@@ -1283,7 +1289,7 @@ ${recentMemories}
         const endpoint = new URL(modelsUrl);
         const requestModule = endpoint.protocol === 'https:' ? https : http;
         requestModule.get(endpoint, {
-          headers: { 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+          headers: { 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' },
           timeout: 20000,
         }, (r: http.IncomingMessage) => {
           let data = '';
@@ -1347,7 +1353,11 @@ ${recentMemories}
           }
           const s = loadSettings();
           const idx = s.profiles.findIndex(p => p.id === profile.id);
-          if (idx >= 0) s.profiles[idx] = profile;
+          if (idx >= 0) {
+            // Editing a profile never requires exposing or resubmitting its saved key.
+            if (!profile.apiKey?.trim()) profile.apiKey = s.profiles[idx].apiKey;
+            s.profiles[idx] = profile;
+          }
           else s.profiles.push(profile);
           if (!s.activeProfileId) s.activeProfileId = profile.id;
           saveSettings(s);

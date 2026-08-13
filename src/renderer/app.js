@@ -2457,7 +2457,11 @@ function showProfileEditor(profile) {
   document.getElementById('profileEditorProvider').value = profile ? profile.provider : 'anthropic';
   document.getElementById('profileEditorModel').value = profile ? profile.model : '';
   document.getElementById('profileEditorApiKey').value = '';
+  document.getElementById('profileEditorApiKey').placeholder = profile ? '已保存，留空即可继续使用' : 'sk-...';
   document.getElementById('profileEditorBaseURL').value = profile ? (profile.baseURL || '') : '';
+  document.getElementById('profileEditorModelSelect').style.display = 'none';
+  document.getElementById('profileEditorModelSelect').innerHTML = '';
+  document.getElementById('fetchModelsHint').textContent = '';
   overlay.style.display = 'flex';
   updateEditorPlaceholders();
 }
@@ -2494,6 +2498,7 @@ function formatContextTokensForDisplay(tokens) {
 async function fetchModels() {
   let baseURL = document.getElementById('profileEditorBaseURL').value.trim();
   const apiKey = document.getElementById('profileEditorApiKey').value.trim();
+  const profileId = document.getElementById('profileEditorId').value;
   const btn = document.getElementById('fetchModelsBtn');
   const hint = document.getElementById('fetchModelsHint');
   const select = document.getElementById('profileEditorModelSelect');
@@ -2506,7 +2511,7 @@ async function fetchModels() {
     hint.textContent = '⚠️ 请先填写接口地址。';
     return;
   }
-  if (!apiKey) {
+  if (!apiKey && !profileId) {
     hint.textContent = '⚠️ 请先填写 API 密钥。';
     return;
   }
@@ -2519,7 +2524,7 @@ async function fetchModels() {
     const resp = await fetch(`${API_BASE}/api/profiles/fetch-models`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL, apiKey }),
+      body: JSON.stringify({ baseURL, apiKey, profileId }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -2534,8 +2539,8 @@ async function fetchModels() {
     select.innerHTML = '<option value="">— 选择模型 —</option>' +
       modelList.map(m => {
         const label = m.contextWindow ? m.id + '  (' + formatContextTokensForDisplay(m.contextWindow) + ')' : m.id;
-        const val = m.id + '\u0000' + (m.contextWindow || '');
-        return `<option value="${escapeHtml(val)}">${escapeHtml(label)}</option>`;
+        const contextWindow = m.contextWindow || '';
+        return `<option value="${escapeHtml(m.id)}" data-context-window="${escapeHtml(String(contextWindow))}">${escapeHtml(label)}</option>`;
       }).join('');
     select.style.display = 'block';
     hint.textContent = `✅ 找到 ${modelList.length} 个模型，请选择。`;
@@ -2548,19 +2553,14 @@ async function fetchModels() {
 
 async function saveProfile() {
   const id = document.getElementById('profileEditorId').value;
-  // Model select stores "id\u0000contextWindow"; extract both
+  // The ID stays in value; metadata is kept separately to avoid invalid HTML characters.
   const modelSelect = document.getElementById('profileEditorModelSelect');
   let profileModel = document.getElementById('profileEditorModel').value.trim();
   let contextWindow = undefined;
-  if (modelSelect && modelSelect.value) {
-    try {
-      const parts = modelSelect.value.split('\u0000');
-      if (parts.length >= 2) {
-        profileModel = parts[0];
-        const cw = Number(parts[1]);
-        if (Number.isFinite(cw) && cw > 0) contextWindow = cw;
-      }
-    } catch { /* ignore */ }
+  if (modelSelect && modelSelect.value && profileModel === modelSelect.value) {
+    const selectedOption = modelSelect.selectedOptions[0];
+    const cw = Number(selectedOption?.dataset.contextWindow);
+    if (Number.isFinite(cw) && cw > 0) contextWindow = cw;
   }
   const profile = {
     id: id || undefined,
