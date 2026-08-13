@@ -86,18 +86,20 @@ export class ShellExecutor {
     const effectiveTimeout = Math.min(timeoutSec, 3600) * 1000;
     const beforeFiles = await this.collectMediaFiles();
 
+    // On Windows, force UTF-8 output: chcp 65001 + PYTHONIOENCODING for Python
+    const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
+
     return new Promise((resolve) => {
       const options: ExecOptions = {
         cwd: this.workspaceDir,
         timeout: effectiveTimeout,
         maxBuffer: 10 * 1024 * 1024, // 10MB
         encoding: 'utf8',
-        // PowerShell handles UTF-8 natively (cmd.exe has known pipe-mode issues with Chinese)
-        shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
-        env: { ...process.env, HOME: this.workspaceDir },
+        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
+        env: { ...process.env, HOME: this.workspaceDir, PYTHONIOENCODING: 'utf-8' },
       };
 
-      const child = exec(command, options, async (error, stdout, stderr) => {
+      const child = exec(finalCommand, options, async (error, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
         const exitCode = error?.code || 0;
         const afterFiles = await this.collectMediaFiles();
