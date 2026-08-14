@@ -139,9 +139,22 @@ let suppressQueueDrain = false;
 // Session state
 let currentSessionId = '';
 let sessionsCache = [];
+// Ignore late /api/sessions/:id responses after the user has selected another
+// chat. Without this fence a slower earlier switch can repaint the new surface.
+let sessionViewEpoch = 0;
 
 // DOM Elements
-const chatMessages = document.getElementById('chatMessages');
+// The visible chat surface is never reused for background SSE rendering.
+// Background sessions render momentarily in a hidden staging node, then keep
+// their DOM in a per-session fragment. This prevents a visible chat from being
+// unmounted/remounted on every delta received by another conversation.
+const visibleChatMessages = document.getElementById('chatMessages');
+let chatMessages = visibleChatMessages;
+const sessionStreamStage = document.createElement('div');
+sessionStreamStage.id = 'sessionStreamStage';
+sessionStreamStage.setAttribute('aria-hidden', 'true');
+sessionStreamStage.style.display = 'none';
+document.body.appendChild(sessionStreamStage);
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -184,10 +197,11 @@ function snapshotActiveSessionRuntime(detachSurface = false) {
   sessionRuntimes.set(currentSessionId, runtime);
 }
 
-function mountSessionRuntime(sessionId) {
+function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
   const runtime = sessionRuntimes.get(sessionId);
-  while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
-  if (runtime?.fragment) chatMessages.appendChild(runtime.fragment);
+  while (surface.firstChild) surface.removeChild(surface.firstChild);
+  if (runtime?.fragment) surface.appendChild(runtime.fragment);
+  chatMessages = surface;
   isProcessing = !!runtime?.isProcessing;
   currentAssistantMsg = runtime?.currentAssistantMsg || null;
   currentToolBlocks = runtime?.currentToolBlocks || {};
@@ -203,17 +217,23 @@ function mountSessionRuntime(sessionId) {
   suppressQueueDrain = !!runtime?.suppressQueueDrain;
 }
 
+function restoreVisibleSessionRuntime(sessionId) {
+  currentSessionId = sessionId;
+  mountSessionRuntime(sessionId, visibleChatMessages);
+}
+
 function withSessionRuntime(sessionId, work) {
   if (!sessionId || sessionId === currentSessionId) return work();
   const visibleSessionId = currentSessionId;
-  snapshotActiveSessionRuntime(true);
+  // Keep every visible node mounted. Only the background session is moved to
+  // a hidden staging surface for its delta, then placed back in its fragment.
   currentSessionId = sessionId;
-  mountSessionRuntime(sessionId);
+  chatMessages = sessionStreamStage;
+  mountSessionRuntime(sessionId, sessionStreamStage);
   try { return work(); }
   finally {
     snapshotActiveSessionRuntime(true);
-    currentSessionId = visibleSessionId;
-    mountSessionRuntime(visibleSessionId);
+    restoreVisibleSessionRuntime(visibleSessionId);
     syncActiveSessionUI();
   }
 }
@@ -364,6 +384,7 @@ async function createSession() {
 
 async function switchSession(id, updateList = true) {
   if (!id || id === currentSessionId) return;
+  const viewEpoch = ++sessionViewEpoch;
   // Switching only changes the visible surface. Background SSE streams continue.
   snapshotActiveSessionRuntime(true);
   currentSessionId = id;
@@ -379,6 +400,9 @@ async function switchSession(id, updateList = true) {
   try {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`);
     const data = await resp.json();
+    // A newer click selected another session while this request was in flight.
+    // Do not append stale history into the current visible chat.
+    if (viewEpoch !== sessionViewEpoch || currentSessionId !== id) return;
     const msgs = data.messages || [];
 
     // Refresh this session's pinned model metadata from the server.
