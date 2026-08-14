@@ -4039,7 +4039,8 @@ body.is-resizing * {
    complete page content in a dedicated scroll container rather than clipping
    it with the generic .view overflow rule. */
 #view-skills,
-#view-token-calculator {
+#view-token-calculator,
+#view-jobs {
   flex-direction: column;
   align-items: stretch;
   overflow-x: hidden;
@@ -4049,7 +4050,8 @@ body.is-resizing * {
 }
 
 #view-skills > .settings-container,
-#view-token-calculator > .settings-container {
+#view-token-calculator > .settings-container,
+#view-jobs > .settings-container {
   width: min(100%, 608px);
   max-width: none;
   min-height: min-content;
@@ -4064,7 +4066,8 @@ body.is-resizing * {
 
 @media (max-width: 720px) {
   #view-skills > .settings-container,
-  #view-token-calculator > .settings-container {
+  #view-token-calculator > .settings-container,
+  #view-jobs > .settings-container {
     width: 100%;
     margin-top: 24px;
     margin-bottom: 48px;

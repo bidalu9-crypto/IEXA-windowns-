@@ -295,6 +295,9 @@ export class OpenAIProvider {
     let buffer = '';
     let startedText = false;
     let emittedDone = false;
+    // A completed reasoning item repeats the entire summary after streaming
+    // deltas. Retain this flag to use it only as a fallback, not duplicate UI.
+    let sawReasoningDelta = false;
     const calls = new Map<string, { id: string; callId: string; name: string; args: string; started: boolean; completed: boolean }>();
 
     const ensureCall = (item: Record<string, unknown>): { id: string; callId: string; name: string; args: string; started: boolean; completed: boolean } => {
@@ -346,7 +349,10 @@ export class OpenAIProvider {
           }
           if ((type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') && this.thinkingLevel !== 'off') {
             const delta = String(event.delta || '');
-            if (delta) yield { type: 'thinkingDelta', text: delta };
+            if (delta) {
+              sawReasoningDelta = true;
+              yield { type: 'thinkingDelta', text: delta };
+            }
             continue;
           }
           if (type === 'response.output_item.added') {
@@ -381,8 +387,23 @@ export class OpenAIProvider {
             yield* finishCall(call);
             continue;
           }
+          if (type === 'response.reasoning_summary_text.done' || type === 'response.reasoning_text.done') {
+            // The done event normally repeats the text emitted by delta frames;
+            // use it only when a gateway skipped streaming deltas entirely.
+            const text = String(event.text || event.summary || event.delta || '');
+            if (text && this.thinkingLevel !== 'off' && !sawReasoningDelta) {
+              yield { type: 'thinkingDelta', text };
+            }
+            continue;
+          }
           if (type === 'response.output_item.done') {
             const item = (event.item || {}) as Record<string, unknown>;
+            if (item.type === 'reasoning' && this.thinkingLevel !== 'off' && !sawReasoningDelta) {
+              const summary = Array.isArray(item.summary)
+                ? item.summary.map((part: any) => String(part?.text || '')).filter(Boolean).join('\n')
+                : String(item.summary || '');
+              if (summary) yield { type: 'thinkingDelta', text: summary };
+            }
             if (item.type === 'function_call') {
               const call = ensureCall(item);
               if (typeof item.arguments === 'string') call.args = item.arguments;
@@ -458,7 +479,10 @@ export class OpenAIProvider {
     const model = this.model.toLowerCase();
     if (!/gpt-5|o[1-9]|reason|codex/.test(model)) return;
     const effort: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
-    body.reasoning = { effort: effort[this.thinkingLevel] || 'medium' };
+    // Responses does not stream a displayable reasoning trace by default. Ask
+    // for the model-produced summary so the UI can render a thinking block,
+    // without exposing the encrypted private chain of thought.
+    body.reasoning = { effort: effort[this.thinkingLevel] || 'medium', summary: 'auto' };
   }
 
   private convertMessages(
