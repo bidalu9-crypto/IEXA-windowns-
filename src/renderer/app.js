@@ -2533,6 +2533,42 @@ function initThinkingLevelControl() {
 
 // ---- Model Selector (chat bar, same popover pattern as thinking level) ----
 
+function activeSessionProfile() {
+  const boundId = sessionsCache.find((session) => session.id === currentSessionId)?.modelBinding?.profileId;
+  return modelSelectorProfiles.find((profile) => profile.id === boundId)
+    || modelSelectorProfiles.find((profile) => profile.id === activeProfileId)
+    || null;
+}
+function syncFastModeUI() {
+  const button = document.getElementById('fastModeBtn');
+  if (!button) return;
+  const session = sessionsCache.find((item) => item.id === currentSessionId);
+  const profile = activeSessionProfile();
+  const supported = !!profile?.supportsFastMode;
+  const enabled = supported && session?.fastModeEnabled === true;
+  button.style.display = supported ? 'inline-flex' : 'none';
+  button.classList.toggle('is-enabled', enabled);
+  button.setAttribute('aria-pressed', String(enabled));
+  button.title = enabled
+    ? 'Fast 已开启：请求使用 service_tier: priority'
+    : '开启 Codex Fast：请求使用 service_tier: priority';
+}
+async function toggleFastMode() {
+  const session = sessionsCache.find((item) => item.id === currentSessionId);
+  const profile = activeSessionProfile();
+  if (!session || !profile?.supportsFastMode) return;
+  if (isProcessing) { addError('当前会话正在执行任务，请结束或停止后再切换 Fast 模式。'); return; }
+  const enabled = session.fastModeEnabled !== true;
+  const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/fast`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { addError(data.error || '切换 Fast 模式失败。'); return; }
+  const index = sessionsCache.findIndex((item) => item.id === currentSessionId);
+  if (index >= 0 && data.session) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
+  syncFastModeUI();
+}
+
 function setModelMenuOpen(open) {
   const btn = document.getElementById('modelSelector');
   const menu = document.getElementById('modelSelectorMenu');
@@ -2595,7 +2631,9 @@ async function refreshModelSelector() {
   activeProfileId = data.activeProfileId || active.id;
   label.textContent = active.name || (active.provider + '/' + active.model);
   btn.title = `本会话模型：${active.provider} / ${active.model}`;
-  hint.textContent = `本会话 · ${active.provider} · ${active.model}`;
+  const routeName = active.apiMode === 'responses' ? 'Responses' : 'Chat';
+  hint.textContent = `本会话 · ${active.provider} · ${active.model} · ${routeName}`;
+  syncFastModeUI();
   applyThinkingLevelUI(currentThinkingLevel);
   document.dispatchEvent(new Event('token-calculator-profile-change'));
 
@@ -2626,6 +2664,8 @@ function initModelSelectorControl() {
 }
 
 initModelSelectorControl();
+const fastModeBtn = document.getElementById('fastModeBtn');
+if (fastModeBtn) fastModeBtn.addEventListener('click', () => toggleFastMode().catch((error) => addError(error?.message || String(error))));
 initThinkingLevelControl();
 
 // ---- Profile List (settings) ----
@@ -2684,6 +2724,8 @@ function showProfileEditor(profile) {
   document.getElementById('profileEditorApiKey').value = '';
   document.getElementById('profileEditorApiKey').placeholder = profile ? '已保存，留空即可继续使用' : 'sk-...';
   document.getElementById('profileEditorBaseURL').value = profile ? (profile.baseURL || '') : '';
+  document.getElementById('profileEditorFastMode').checked = !!(profile && profile.fastModeSupported);
+  document.getElementById('profileEditorApiMode').value = profile?.apiMode === 'responses' ? 'responses' : 'chat_completions';
   document.getElementById('profileEditorModelSelect').style.display = 'none';
   document.getElementById('profileEditorModelSelect').innerHTML = '';
   document.getElementById('fetchModelsHint').textContent = '';
@@ -2795,6 +2837,8 @@ async function saveProfile() {
     apiKey: document.getElementById('profileEditorApiKey').value.trim(),
     baseURL: document.getElementById('profileEditorBaseURL').value.trim(),
     contextWindow: contextWindow,
+    fastModeSupported: !!document.getElementById('profileEditorFastMode').checked,
+    apiMode: document.getElementById('profileEditorApiMode').value === 'responses' ? 'responses' : 'chat_completions',
   };
 
   if (!profile.name) profile.name = profile.model || '未命名';

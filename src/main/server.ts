@@ -131,6 +131,10 @@ interface ModelProfile {
   /** API-reported context window from /v1/models (if available). */
   contextWindow?: number;  /** API-reported max output tokens. */
   maxOutputTokens?: number;
+  /** Endpoint contract: it accepts Codex Fast's service_tier: priority field. */
+  fastModeSupported?: boolean;
+  /** Wire envelope: /v1/chat/completions or /v1/responses. */
+  apiMode?: 'chat_completions' | 'responses';
 }
 
 interface AppSettings {
@@ -217,6 +221,18 @@ function profileForSession(sessionId: string): ModelProfile | null {
   return fallback;
 }
 
+/** Fast is an endpoint capability, not a model-name promise. A profile must
+ * explicitly opt in because many relays reject unknown service_tier fields. */
+function profileSupportsFastMode(profile: ModelProfile | null | undefined): boolean {
+  if (!profile?.fastModeSupported) return false;
+  const provider = String(profile.provider || '').toLowerCase();
+  const model = String(profile.model || '').toLowerCase();
+  const isOpenAICompatible = provider === 'openai' || provider === 'openrouter' || provider === 'custom';
+  if (profile.apiMode !== 'responses') return false;
+  const isCodexFamily = /(?:^|[-_/])gpt(?:[-_/]|$)|codex/.test(model);
+  return isOpenAICompatible && isCodexFamily;
+}
+
 function maskKey(key: string): string {
   if (!key || key.length < 12) return key ? '***' : '';
   return key.substring(0, 8) + '...' + key.substring(key.length - 4);
@@ -271,6 +287,8 @@ interface Session {
   messageCount: number;
   /** Model is pinned per session so concurrent chats cannot drift with global defaults. */
   modelBinding?: SessionModelBinding;
+  /** Per-conversation Codex Fast setting; sends service_tier: priority on eligible routes. */
+  fastModeEnabled?: boolean;
 }
 
 interface SessionStore {
@@ -557,6 +575,8 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
   const profile = profileForSession(sessionId);
   if (!profile || !profile.apiKey) return null;
 
+  const session = loadSessionStore().sessions.find((item) => item.id === sessionId);
+  const useFastMode = session?.fastModeEnabled === true && profileSupportsFastMode(profile);
   const provider = ProviderFactory.create({
     type: profile.provider as ProviderType,
     name: profile.provider,
@@ -564,6 +584,8 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
     apiKey: profile.apiKey,
     baseURL: profile.baseURL || undefined,
     thinkingLevel: getThinkingLevel(),
+    fastMode: useFastMode,
+    apiMode: profile.apiMode === 'responses' ? 'responses' : 'chat_completions',
   });
 
   // Tools run in the opened project (OpenCode-style); fall back to app workspace
@@ -1051,6 +1073,30 @@ function createServer(): http.Server {
         return;
       }
 
+      // Toggle the real Codex Fast wire mode only for profiles that opted in
+      // to service_tier: priority compatibility. The AgentLoop is recreated so
+      // the next HTTP request cannot reuse a provider with stale mode state.
+      if (req.method === 'PUT' && url.pathname.endsWith('/fast')) {
+        const sessionId = url.pathname.split('/').slice(-2, -1)[0] || '';
+        try {
+          const { enabled } = JSON.parse(await readBody(req));
+          const store = loadSessionStore();
+          const session = store.sessions.find((item) => item.id === sessionId);
+          const profile = profileForSession(sessionId);
+          if (!session || !profile) { jsonReply(res, 404, { error: '会话或模型不存在。' }); return; }
+          if (runningSessionIds.has(sessionId)) { jsonReply(res, 409, { error: '请等待当前会话任务结束后再切换 Fast 模式。' }); return; }
+          if (enabled === true && !profileSupportsFastMode(profile)) {
+            jsonReply(res, 400, { error: '当前模型端点未声明支持 Fast（service_tier: priority）。' }); return;
+          }
+          session.fastModeEnabled = enabled === true;
+          session.updated = Date.now();
+          agentCache.delete(sessionId);
+          saveSessionStore(store);
+          jsonReply(res, 200, { ok: true, enabled: session.fastModeEnabled, session });
+        } catch { jsonReply(res, 400, { error: '无效的 Fast 模式请求。' }); }
+        return;
+      }
+
       // Revert a conversation branch to a selected user message (OpenCode-style).
       // The selected message remains; everything after it is discarded.
       if (req.method === 'POST' && url.pathname.endsWith('/reset')) {
@@ -1520,6 +1566,7 @@ ${recentMemories}
           ...p,
           apiKey: maskKey(p.apiKey),
           maxThinkingLevel: maxThinkingLevel(p.provider, p.model),
+          supportsFastMode: profileSupportsFastMode(p),
         }));
         jsonReply(res, 200, {
           profiles: masked,
@@ -1543,6 +1590,8 @@ ${recentMemories}
             const mo = Number(profile.maxOutputTokens);
             profile.maxOutputTokens = Number.isFinite(mo) && mo > 0 ? Math.floor(mo) : undefined;
           }
+          profile.fastModeSupported = profile.fastModeSupported === true;
+          profile.apiMode = profile.apiMode === 'responses' ? 'responses' : 'chat_completions';
           const s = loadSettings();
           const idx = s.profiles.findIndex(p => p.id === profile.id);
           if (idx >= 0) {
@@ -1553,6 +1602,15 @@ ${recentMemories}
           else s.profiles.push(profile);
           if (!s.activeProfileId) s.activeProfileId = profile.id;
           saveSettings(s);
+          // A profile owns the request envelope (Chat vs Responses) and Fast
+          // capability. Drop only idle agents bound to it so their next turn
+          // reconstructs the provider from the newly persisted contract.
+          const sessions = loadSessionStore().sessions;
+          for (const session of sessions) {
+            if (session.modelBinding?.profileId === profile.id && !runningSessionIds.has(session.id)) {
+              agentCache.delete(session.id);
+            }
+          }
           jsonReply(res, 200, { ok: true, profile: { ...profile, apiKey: maskKey(profile.apiKey) } });
         } catch { jsonReply(res, 400, { error: '无效的 JSON' }); }
         return;

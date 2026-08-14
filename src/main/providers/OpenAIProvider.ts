@@ -13,6 +13,9 @@ export class OpenAIProvider {
   private apiKey: string;
   private baseURL: string;
   private thinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  /** True only after server-side model/endpoint capability validation. */
+  private fastMode: boolean;
+  private apiMode: 'chat_completions' | 'responses';
   readonly defaultMaxTokens: number = 64000;
 
   constructor(config: ProviderConfig) {
@@ -21,9 +24,24 @@ export class OpenAIProvider {
     this.apiKey = config.apiKey;
     this.baseURL = config.baseURL || 'https://api.openai.com';
     this.thinkingLevel = config.thinkingLevel || 'medium';
+    this.fastMode = config.fastMode === true;
+    this.apiMode = config.apiMode === 'responses' ? 'responses' : 'chat_completions';
   }
 
   async *streamMessage(
+    messages: AgentMessage[],
+    systemPrompt: string,
+    tools: AgentToolDefinition[],
+    maxTokens: number = 64000,
+  ): AsyncGenerator<AgentStreamEvent> {
+    if (this.apiMode === 'responses') {
+      yield* this.streamResponses(messages, systemPrompt, tools, maxTokens);
+      return;
+    }
+    yield* this.streamChatCompletions(messages, systemPrompt, tools, maxTokens);
+  }
+
+  private async *streamChatCompletions(
     messages: AgentMessage[],
     systemPrompt: string,
     tools: AgentToolDefinition[],
@@ -44,16 +62,19 @@ export class OpenAIProvider {
     // (o-series, GPT-5, Grok reasoning, many Chinese reverse proxies)
     this.applyThinkingLevel(body);
 
+    // Codex CLI Fast Mode uses the real wire value `priority`, not `fast`.
+    // It is injected only when the session profile explicitly declared endpoint
+    // support; unsupported gateways must reject it visibly rather than silently
+    // pretending the request ran in Fast mode.
+    if (this.fastMode) body.service_tier = 'priority';
+
     if (openaiTools.length > 0) {
       body.tools = openaiTools;
       body.tool_choice = 'auto';
     }
 
     // Normalize base URL
-    let apiURL = this.baseURL;
-    if (!apiURL.endsWith('/v1')) {
-      apiURL = apiURL.replace(/\/+$/, '') + '/v1';
-    }
+    const apiURL = this.apiBaseURL();
 
     const response = await fetchWithRetry(`${apiURL}/chat/completions`, {
       method: 'POST',
@@ -66,6 +87,9 @@ export class OpenAIProvider {
 
     if (!response.ok) {
       const errorText = await response.text();
+      if (this.fastMode && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+        throw new Error(`Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`);
+      }
       throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
     }
 
@@ -224,6 +248,217 @@ export class OpenAIProvider {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  /** OpenAI Responses API (/v1/responses) serializer + SSE parser.
+   * This is a separate wire protocol, not a renamed Chat Completions route. */
+  private async *streamResponses(
+    messages: AgentMessage[],
+    systemPrompt: string,
+    tools: AgentToolDefinition[],
+    maxTokens: number,
+  ): AsyncGenerator<AgentStreamEvent> {
+    const body: Record<string, unknown> = {
+      model: this.model,
+      input: this.convertResponsesInput(messages),
+      stream: true,
+      store: false,
+      parallel_tool_calls: true,
+    };
+    if (systemPrompt) body.instructions = systemPrompt;
+    if (maxTokens > 0) body.max_output_tokens = maxTokens;
+    if (this.fastMode) body.service_tier = 'priority';
+    this.applyResponsesThinkingLevel(body);
+
+    const responseTools = this.convertResponsesTools(tools);
+    if (responseTools.length) {
+      body.tools = responseTools;
+      body.tool_choice = 'auto';
+    }
+
+    const response = await fetchWithRetry(`${this.apiBaseURL()}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (this.fastMode && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+        throw new Error(`Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`);
+      }
+      throw new Error(`OpenAI Responses API error ${response.status}: ${errorText}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let startedText = false;
+    let emittedDone = false;
+    const calls = new Map<string, { id: string; callId: string; name: string; args: string; started: boolean; completed: boolean }>();
+
+    const ensureCall = (item: Record<string, unknown>): { id: string; callId: string; name: string; args: string; started: boolean; completed: boolean } => {
+      const id = String(item.item_id || item.id || item.call_id || `response_call_${calls.size}_${Date.now()}`);
+      let call = calls.get(id);
+      if (!call) {
+        call = { id, callId: String(item.call_id || id), name: String(item.name || ''), args: '', started: false, completed: false };
+        calls.set(id, call);
+      }
+      if (typeof item.call_id === 'string') call.callId = item.call_id;
+      if (typeof item.name === 'string') call.name = item.name;
+      return call;
+    };
+    const finishCall = async function* (call: { id: string; callId: string; name: string; args: string; started: boolean; completed: boolean }): AsyncGenerator<AgentStreamEvent> {
+      if (call.completed || !call.name) return;
+      call.completed = true;
+      let args: Record<string, unknown> = {};
+      try { args = JSON.parse(call.args || '{}'); } catch { /* keep partial stream survivable */ }
+      // callId is the Responses protocol link; preserve it as the tool ID for replay.
+      yield { type: 'toolCallComplete', id: call.callId, name: call.name, args };
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await readWithTimeout(reader);
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        let eventType = '';
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line) continue;
+          if (line.startsWith('event:')) { eventType = line.slice(6).trim(); continue; }
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          let event: Record<string, any>;
+          try { event = JSON.parse(payload); } catch { continue; }
+          const type = String(event.type || eventType || '');
+
+          if (type === 'response.output_text.delta') {
+            const delta = String(event.delta || '');
+            if (delta) {
+              if (!startedText) { startedText = true; yield { type: 'contentBlockStart', block: { type: 'text' } }; }
+              yield { type: 'textDelta', text: delta };
+            }
+            continue;
+          }
+          if ((type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') && this.thinkingLevel !== 'off') {
+            const delta = String(event.delta || '');
+            if (delta) yield { type: 'thinkingDelta', text: delta };
+            continue;
+          }
+          if (type === 'response.output_item.added') {
+            const item = (event.item || {}) as Record<string, unknown>;
+            if (item.type === 'function_call') {
+              const call = ensureCall(item);
+              if (!call.started && call.name) {
+                call.started = true;
+                yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+              }
+            }
+            continue;
+          }
+          if (type === 'response.function_call_arguments.delta') {
+            const call = ensureCall(event);
+            const delta = String(event.delta || '');
+            call.args += delta;
+            if (!call.started && call.name) {
+              call.started = true;
+              yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+            }
+            if (call.name) yield { type: 'toolInputDelta', id: call.callId, name: call.name, accumulated: call.args };
+            continue;
+          }
+          if (type === 'response.function_call_arguments.done') {
+            const call = ensureCall(event);
+            if (typeof event.arguments === 'string') call.args = event.arguments;
+            if (!call.started && call.name) {
+              call.started = true;
+              yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+            }
+            yield* finishCall(call);
+            continue;
+          }
+          if (type === 'response.output_item.done') {
+            const item = (event.item || {}) as Record<string, unknown>;
+            if (item.type === 'function_call') {
+              const call = ensureCall(item);
+              if (typeof item.arguments === 'string') call.args = item.arguments;
+              if (!call.started && call.name) {
+                call.started = true;
+                yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+              }
+              yield* finishCall(call);
+            }
+            continue;
+          }
+          if (type === 'response.completed') {
+            const completed = (event.response || {}) as Record<string, any>;
+            const usage = completed.usage || event.usage;
+            if (usage) yield { type: 'usage', usage: { inputTokens: Number(usage.input_tokens || usage.prompt_tokens || 0), outputTokens: Number(usage.output_tokens || usage.completion_tokens || 0) } };
+            for (const call of calls.values()) yield* finishCall(call);
+            emittedDone = true;
+            yield { type: 'done', stopReason: calls.size ? 'toolUse' : 'endTurn' };
+            return;
+          }
+          if (type === 'error' || type === 'response.failed') {
+            const err = event.error || event.response?.error || event;
+            throw new Error(String(err?.message || 'Responses stream failed'));
+          }
+        }
+      }
+      if (!emittedDone) {
+        for (const call of calls.values()) yield* finishCall(call);
+        yield { type: 'done', stopReason: calls.size ? 'toolUse' : 'endTurn' };
+      }
+    } finally { reader.releaseLock(); }
+  }
+
+  private apiBaseURL(): string {
+    let apiURL = this.baseURL.replace(/\/+$/, '');
+    if (!apiURL.endsWith('/v1')) apiURL += '/v1';
+    return apiURL;
+  }
+
+  private convertResponsesInput(messages: AgentMessage[]): Record<string, unknown>[] {
+    const result: Record<string, unknown>[] = [];
+    for (const message of messages) {
+      const text: string[] = [];
+      const images: Record<string, unknown>[] = [];
+      const calls: Record<string, unknown>[] = [];
+      const outputs: Record<string, unknown>[] = [];
+      for (const part of message.parts) {
+        if (part.type === 'text') text.push(part.text);
+        else if (part.type === 'imageData') images.push({ type: 'input_image', image_url: `data:${part.mimeType};base64,${part.data.toString('base64')}` });
+        else if (part.type === 'toolUse') calls.push({ type: 'function_call', call_id: part.id, name: part.name, arguments: JSON.stringify(part.input) });
+        else if (part.type === 'toolResult') outputs.push({ type: 'function_call_output', call_id: part.id, output: part.content });
+      }
+      if (text.length || images.length) {
+        const content: Record<string, unknown>[] = [];
+        if (text.length) content.push({ type: message.role === 'user' ? 'input_text' : 'output_text', text: text.join('') });
+        content.push(...images);
+        result.push({ role: message.role, content });
+      }
+      result.push(...calls, ...outputs);
+    }
+    return result;
+  }
+
+  private convertResponsesTools(tools: AgentToolDefinition[]): Record<string, unknown>[] {
+    return tools.map((tool) => ({
+      type: 'function', name: tool.name, description: tool.description,
+      parameters: { type: 'object', properties: Object.fromEntries(Object.entries(tool.parameters).map(([key, param]) => [key, { type: param.type, description: param.description, ...(param.enumValues ? { enum: param.enumValues } : {}) }])), required: tool.required },
+    }));
+  }
+
+  private applyResponsesThinkingLevel(body: Record<string, unknown>): void {
+    if (this.thinkingLevel === 'off') return;
+    const model = this.model.toLowerCase();
+    if (!/gpt-5|o[1-9]|reason|codex/.test(model)) return;
+    const effort: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
+    body.reasoning = { effort: effort[this.thinkingLevel] || 'medium' };
   }
 
   private convertMessages(

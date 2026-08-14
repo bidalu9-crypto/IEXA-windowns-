@@ -2620,6 +2620,29 @@ body {
   display: block;
 }
 
+.fast-mode-btn {
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.fast-mode-btn:hover { border-color: #eab308; color: #a16207; background: color-mix(in srgb, #facc15 12%, var(--bg-input)); }
+.fast-mode-btn.is-enabled { border-color: #eab308; color: #a16207; background: color-mix(in srgb, #facc15 18%, var(--bg-input)); box-shadow: 0 0 0 2px color-mix(in srgb, #facc15 13%, transparent); }
+.fast-mode-bolt { color: #eab308; font-size: .9rem; line-height: 1; }
+[data-theme="dark"] .fast-mode-btn.is-enabled, [data-theme="dark"] .fast-mode-btn:hover { color: #fde68a; }
+.fast-capability-setting { align-items: flex-start; gap: 14px; }
+.fast-capability-setting > div { min-width: 0; }
+.fast-capability-setting .setting-hint { max-width: 390px; }
+
 .model-bar-refresh {
   width: 28px;
   height: 28px;

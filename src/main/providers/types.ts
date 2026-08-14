@@ -102,6 +102,10 @@ export interface ProviderConfig {
   model: string;
   maxTokens?: number;
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  /** Codex Fast wire mode: sends service_tier: priority when the endpoint opted in. */
+  fastMode?: boolean;
+  /** OpenAI-compatible request envelope selected by the model profile. */
+  apiMode?: 'chat_completions' | 'responses';
 }
 
 export interface ModelInfo {

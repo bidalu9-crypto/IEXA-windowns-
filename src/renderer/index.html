@@ -151,6 +151,7 @@
                 <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
               </div>
               <button type="button" class="model-bar-refresh" onclick="refreshModelSelector()" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
+              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><span class="fast-mode-bolt" aria-hidden="true">⚡</span><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
                 <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="listbox" aria-expanded="false" data-level="medium">
                   <span class="thinking-level-icon" aria-hidden="true">
@@ -293,6 +294,18 @@
             <div class="setting-group">
               <label>接口地址（可选，自定义端点用）</label>
               <input type="text" id="profileEditorBaseURL" placeholder="按服务商自动识别">
+            </div>
+            <div class="setting-group">
+              <label>请求接口</label>
+              <select id="profileEditorApiMode">
+                <option value="chat_completions">Chat Completions (/v1/chat/completions)</option>
+                <option value="responses">Responses API (/v1/responses)</option>
+              </select>
+              <span class="setting-hint">Responses 使用独立的消息、工具和流式事件协议；仅在端点实际支持时选择。</span>
+            </div>
+            <div class="setting-group setting-switch fast-capability-setting">
+              <div><label for="profileEditorFastMode">支持 Codex Fast</label><span class="setting-hint">仅当此端点真实支持 <code>service_tier: priority</code> 时开启；Fast 可能提高额度消耗。</span></div>
+              <input type="checkbox" id="profileEditorFastMode">
             </div>
             <div class="profile-editor-actions">
               <button class="btn-primary" onclick="saveProfile()">保存</button>
