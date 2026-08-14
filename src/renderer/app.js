@@ -138,23 +138,20 @@ let suppressQueueDrain = false;
 
 // Session state
 let currentSessionId = '';
+// The conversation mounted in the visible chat area. Background SSE work may
+// temporarily load another runtime, but must never replace this DOM surface.
+let visibleSessionId = '';
 let sessionsCache = [];
 // Ignore late /api/sessions/:id responses after the user has selected another
 // chat. Without this fence a slower earlier switch can repaint the new surface.
 let sessionViewEpoch = 0;
 
 // DOM Elements
-// The visible chat surface is never reused for background SSE rendering.
-// Background sessions render momentarily in a hidden staging node, then keep
-// their DOM in a per-session fragment. This prevents a visible chat from being
-// unmounted/remounted on every delta received by another conversation.
+// The visible chat surface belongs only to the selected conversation. Other
+// sessions render directly into their detached fragment, so streaming updates
+// never move or repaint the conversation the user is reading or typing in.
 const visibleChatMessages = document.getElementById('chatMessages');
 let chatMessages = visibleChatMessages;
-const sessionStreamStage = document.createElement('div');
-sessionStreamStage.id = 'sessionStreamStage';
-sessionStreamStage.setAttribute('aria-hidden', 'true');
-sessionStreamStage.style.display = 'none';
-document.body.appendChild(sessionStreamStage);
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -172,14 +169,41 @@ let isNearChatBottom = true;
 // steps, thinking panel and processing state instead of cancelling on switch.
 const sessionRuntimes = new Map();
 
+function runtimeForSession(sessionId) {
+  let runtime = sessionRuntimes.get(sessionId);
+  if (!runtime) {
+    runtime = { fragment: document.createDocumentFragment() };
+    sessionRuntimes.set(sessionId, runtime);
+  }
+  return runtime;
+}
+
+function applySessionRuntime(sessionId) {
+  const runtime = runtimeForSession(sessionId);
+  isProcessing = !!runtime.isProcessing;
+  currentAssistantMsg = runtime.currentAssistantMsg || null;
+  currentToolBlocks = runtime.currentToolBlocks || {};
+  currentTaskTimer = runtime.currentTaskTimer || null;
+  currentTaskStartedAt = runtime.currentTaskStartedAt || 0;
+  currentTaskSummary = runtime.currentTaskSummary || null;
+  currentTaskToolCount = runtime.currentTaskToolCount || 0;
+  activeChatTurnToken = runtime.activeChatTurnToken || 0;
+  latestContextStatus = runtime.latestContextStatus || null;
+  isNearChatBottom = runtime.isNearChatBottom !== false;
+  promptQueue = runtime.promptQueue || [];
+  isDrainingQueue = !!runtime.isDrainingQueue;
+  suppressQueueDrain = !!runtime.suppressQueueDrain;
+  return runtime;
+}
+
 function snapshotActiveSessionRuntime(detachSurface = false) {
   if (!currentSessionId) return;
-  let runtime = sessionRuntimes.get(currentSessionId);
-  if (!runtime) runtime = { fragment: document.createDocumentFragment() };
-  // Keep the visible chat mounted during normal state updates. Move its DOM
-  // only while switching away (or while temporarily routing a background SSE).
-  if (detachSurface) {
+  const runtime = runtimeForSession(currentSessionId);
+  // Only a user-initiated session switch moves visible DOM into storage.
+  // Background SSE updates render against the detached fragment directly.
+  if (detachSurface && currentSessionId === visibleSessionId) {
     while (chatMessages.firstChild) runtime.fragment.appendChild(chatMessages.firstChild);
+    runtime.scrollTop = visibleChatMessages.scrollTop;
   }
   runtime.isProcessing = isProcessing;
   runtime.currentAssistantMsg = currentAssistantMsg;
@@ -198,43 +222,37 @@ function snapshotActiveSessionRuntime(detachSurface = false) {
 }
 
 function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
-  const runtime = sessionRuntimes.get(sessionId);
+  const runtime = runtimeForSession(sessionId);
   while (surface.firstChild) surface.removeChild(surface.firstChild);
-  if (runtime?.fragment) surface.appendChild(runtime.fragment);
+  surface.appendChild(runtime.fragment);
   chatMessages = surface;
-  isProcessing = !!runtime?.isProcessing;
-  currentAssistantMsg = runtime?.currentAssistantMsg || null;
-  currentToolBlocks = runtime?.currentToolBlocks || {};
-  currentTaskTimer = runtime?.currentTaskTimer || null;
-  currentTaskStartedAt = runtime?.currentTaskStartedAt || 0;
-  currentTaskSummary = runtime?.currentTaskSummary || null;
-  currentTaskToolCount = runtime?.currentTaskToolCount || 0;
-  activeChatTurnToken = runtime?.activeChatTurnToken || 0;
-  latestContextStatus = runtime?.latestContextStatus || null;
-  isNearChatBottom = runtime?.isNearChatBottom !== false;
-  promptQueue = runtime?.promptQueue || [];
-  isDrainingQueue = !!runtime?.isDrainingQueue;
-  suppressQueueDrain = !!runtime?.suppressQueueDrain;
+  applySessionRuntime(sessionId);
+  if (surface === visibleChatMessages && Number.isFinite(runtime.scrollTop)) {
+    visibleChatMessages.scrollTop = runtime.scrollTop;
+  }
 }
 
 function restoreVisibleSessionRuntime(sessionId) {
   currentSessionId = sessionId;
-  mountSessionRuntime(sessionId, visibleChatMessages);
+  chatMessages = visibleChatMessages;
+  applySessionRuntime(sessionId);
 }
 
 function withSessionRuntime(sessionId, work) {
   if (!sessionId || sessionId === currentSessionId) return work();
-  const visibleSessionId = currentSessionId;
-  // Keep every visible node mounted. Only the background session is moved to
-  // a hidden staging surface for its delta, then placed back in its fragment.
+  const previousVisibleSessionId = currentSessionId;
+  snapshotActiveSessionRuntime();
   currentSessionId = sessionId;
-  chatMessages = sessionStreamStage;
-  mountSessionRuntime(sessionId, sessionStreamStage);
+  const runtime = runtimeForSession(sessionId);
+  chatMessages = runtime.fragment;
+  applySessionRuntime(sessionId);
   try { return work(); }
   finally {
-    snapshotActiveSessionRuntime(true);
-    restoreVisibleSessionRuntime(visibleSessionId);
-    syncActiveSessionUI();
+    snapshotActiveSessionRuntime();
+    restoreVisibleSessionRuntime(previousVisibleSessionId);
+    // The visible session's controls were never touched while the background
+    // fragment updated. Avoid rebuilding the composer/sidebar for every SSE
+    // delta, which steals focus and makes concurrent chats visibly jump.
   }
 }
 
@@ -368,6 +386,7 @@ async function createSession() {
     const data = await resp.json();
     if (data.session) {
       currentSessionId = data.session.id;
+      visibleSessionId = currentSessionId;
       sessionRuntimes.set(currentSessionId, { fragment: document.createDocumentFragment(), isProcessing: false, currentToolBlocks: {}, promptQueue: [] });
       mountSessionRuntime(currentSessionId);
       clearChat();
@@ -388,6 +407,7 @@ async function switchSession(id, updateList = true) {
   // Switching only changes the visible surface. Background SSE streams continue.
   snapshotActiveSessionRuntime(true);
   currentSessionId = id;
+  visibleSessionId = id;
   if (sessionRuntimes.has(id)) {
     mountSessionRuntime(id);
     syncActiveSessionUI();
@@ -519,6 +539,7 @@ async function deleteSession(id) {
         await switchSession(next.id, false);
       } else {
         currentSessionId = '';
+        visibleSessionId = '';
         clearChat();
         showWelcome();
       }
@@ -1010,6 +1031,10 @@ function markQueuedMessagesActive(ids) {
 
 function updateComposerForQueue() {
   if (!sendBtn || !stopBtn) return;
+  // A queue drain can be triggered by a background conversation. Its state is
+  // stored in that runtime, but it must not rewrite the visible composer's
+  // controls or steal typing focus from the selected conversation.
+  if (currentSessionId !== visibleSessionId) return;
   if (isProcessing) {
     sendBtn.style.display = 'flex';
     stopBtn.style.display = 'flex';
@@ -1032,48 +1057,55 @@ function updateComposerForQueue() {
 }
 
 /** After a turn ends, auto-run the next queued prompt(s). */
-async function drainQueuedPrompts() {
-  if (suppressQueueDrain) {
+async function drainQueuedPrompts(sessionId = currentSessionId) {
+  if (!sessionId) return;
+  const runtime = runtimeForSession(sessionId);
+  if (runtime.suppressQueueDrain) {
     console.log('[Queue] drain suppressed');
     return;
   }
-  if (isDrainingQueue) {
+  if (runtime.isDrainingQueue) {
     console.log('[Queue] already draining');
     return;
   }
-  if (isProcessing) return;
-  if (!promptQueue.some((p) => p.sessionId === currentSessionId)) return;
+  if (runtime.isProcessing) return;
+  if (!(runtime.promptQueue || []).some((p) => p.sessionId === sessionId)) return;
 
-  isDrainingQueue = true;
+  runtime.isDrainingQueue = true;
   try {
-    while (!suppressQueueDrain && !isProcessing) {
-      const nextIdx = promptQueue.findIndex((p) => p.sessionId === currentSessionId);
+    while (!runtime.suppressQueueDrain && !runtime.isProcessing) {
+      const queue = runtime.promptQueue || [];
+      const nextIdx = queue.findIndex((p) => p.sessionId === sessionId);
       if (nextIdx < 0) break;
-      const next = promptQueue.splice(nextIdx, 1)[0];
-      markQueuedMessagesActive([next.id]);
-      console.log('[Queue] draining', next.id, 'remaining=', promptQueue.length);
-      await runChatTurn(next.text, next.displayText, next.attachments, { fromQueue: true, queueId: next.id });
-      if (suppressQueueDrain) break;
+      const next = queue.splice(nextIdx, 1)[0];
+      console.log('[Queue] draining', next.id, 'remaining=', queue.length);
+      await withSessionRuntime(sessionId, function () {
+        markQueuedMessagesActive([next.id]);
+        return runChatTurn(next.text, next.displayText, next.attachments, { fromQueue: true, queueId: next.id });
+      });
+      if (runtime.suppressQueueDrain) break;
       // yield so a last-moment enqueue can land before loop checks length
       await new Promise((r) => setTimeout(r, 0));
     }
   } finally {
-    isDrainingQueue = false;
-    updateComposerForQueue();
+    runtime.isDrainingQueue = false;
+    if (sessionId === visibleSessionId) updateComposerForQueue();
     // Late arrivals enqueued while the last drain turn was finishing
-    if (!suppressQueueDrain && !isProcessing && promptQueue.some((p) => p.sessionId === currentSessionId)) {
-      scheduleQueueDrain();
+    if (!runtime.suppressQueueDrain && !runtime.isProcessing && (runtime.promptQueue || []).some((p) => p.sessionId === sessionId)) {
+      scheduleQueueDrain(sessionId);
     }
   }
 }
 
-function scheduleQueueDrain() {
-  if (suppressQueueDrain || isProcessing || isDrainingQueue) return;
-  if (!promptQueue.some((p) => p.sessionId === currentSessionId)) return;
+function scheduleQueueDrain(sessionId = currentSessionId) {
+  if (!sessionId) return;
+  const runtime = runtimeForSession(sessionId);
+  if (runtime.suppressQueueDrain || runtime.isProcessing || runtime.isDrainingQueue) return;
+  if (!(runtime.promptQueue || []).some((p) => p.sessionId === sessionId)) return;
   // Let SSE finally / setProcessing settle first
   Promise.resolve().then(function () {
     setTimeout(function () {
-      drainQueuedPrompts().catch(function (err) {
+      drainQueuedPrompts(sessionId).catch(function (err) {
         console.error('[Queue] drain failed', err);
       });
     }, 30);
@@ -2090,6 +2122,9 @@ function formatContextTokens(tokens) {
 function handleContextStatus(context) {
   if (!context || !contextProgress || !contextProgressValue || !contextProgressTooltip) return;
   latestContextStatus = context;
+  // Background task pressure belongs to its own runtime. Do not repaint the
+  // selected conversation's context ring on every foreign SSE event.
+  if (currentSessionId !== visibleSessionId) return;
   const windowTokens = Math.max(1, Number(context.contextWindow) || 128000);
   const usedTokens = Math.max(0, Number(context.usedTokens) || 0);
   const percent = Math.min(100, Math.round((usedTokens / windowTokens) * 100));
@@ -2234,6 +2269,7 @@ function handleCancelled(turnToken) {
 }
 
 function clearContextBusy() {
+  if (currentSessionId !== visibleSessionId) return;
   if (!contextProgress) return;
   if (contextProgress.dataset.state !== 'compacting') return;
   contextProgress.dataset.state = 'ok';
@@ -2478,25 +2514,27 @@ function addError(message) {
 }
 
 function isChatNearBottom() {
-  return chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 72;
+  return visibleChatMessages.scrollHeight - visibleChatMessages.scrollTop - visibleChatMessages.clientHeight < 72;
 }
 
 function updateScrollToBottomButton() {
   if (!scrollToBottomBtn) return;
-  const hasOverflow = chatMessages.scrollHeight > chatMessages.clientHeight + 4;
+  if (currentSessionId !== visibleSessionId) return;
+  const hasOverflow = visibleChatMessages.scrollHeight > visibleChatMessages.clientHeight + 4;
   scrollToBottomBtn.style.display = (!isNearChatBottom && hasOverflow) ? 'flex' : 'none';
 }
 
 /** Keep streaming content visible only while the user is already reading the latest messages. */
 function scrollToBottom(force) {
+  if (currentSessionId !== visibleSessionId) return;
   if (force || isNearChatBottom) {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
     isNearChatBottom = true;
   }
   updateScrollToBottomButton();
 }
 
-chatMessages.addEventListener('scroll', function () {
+visibleChatMessages.addEventListener('scroll', function () {
   isNearChatBottom = isChatNearBottom();
   updateScrollToBottomButton();
 }, { passive: true });
@@ -2509,6 +2547,11 @@ if (scrollToBottomBtn) {
 
 function setProcessing(processing) {
   isProcessing = !!processing;
+  const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
+  if (runtime) runtime.isProcessing = isProcessing;
+  // A background task may finish while another conversation is visible. Keep
+  // its state, but leave the selected composer's controls untouched.
+  if (currentSessionId !== visibleSessionId) return;
   // iOS: input stays editable while processing so user can insert follow-ups.
   // Stop is always available during a run; send becomes "queue" mode.
   stopBtn.style.display = processing ? 'flex' : 'none';
@@ -2527,8 +2570,6 @@ function setProcessing(processing) {
   }
   updateComposerForQueue();
   if (currentSessionId) {
-    const runtime = sessionRuntimes.get(currentSessionId);
-    if (runtime) runtime.isProcessing = isProcessing;
     renderSessionList();
   }
 }
