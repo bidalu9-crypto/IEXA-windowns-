@@ -4046,7 +4046,12 @@ async function loadJobs() {
     const scope = jobsFilter === 'current' && currentSessionId ? `?sessionId=${encodeURIComponent(currentSessionId)}` : '';
     const response = await fetch(`${API_BASE}/api/jobs${scope}`, { cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `服务返回 ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('当前桌面窗口仍在使用旧后端。请结束正在运行的任务后，完全退出并重新打开 IEXA。');
+      }
+      throw new Error(data.error || `服务返回 ${response.status}`);
+    }
     jobsCache = Array.isArray(data.jobs) ? data.jobs : [];
     jobsLoadError = '';
     renderJobs();

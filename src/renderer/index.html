@@ -51,6 +51,7 @@
     <symbol id="ui-alert" viewBox="0 0 24 24"><path d="M12 4 21 20H3L12 4Z"/><path d="M12 9v5M12 17h.01"/></symbol>
     <symbol id="ui-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.5V16M12 7.5h.01"/></symbol>
     <symbol id="ui-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/></symbol>
+    <symbol id="ui-bolt" viewBox="0 0 24 24"><path d="m13.1 2.8-8 10.1h6.2l-.6 8.3 8.2-10.5h-6.2l.4-8.1Z"/></symbol>
   </defs>
 </svg>
 <div class="app">
@@ -151,7 +152,7 @@
                 <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
               </div>
               <button type="button" class="model-bar-refresh" onclick="refreshModelSelector()" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
-              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><span class="fast-mode-bolt" aria-hidden="true">⚡</span><span>Fast</span></button>
+              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
                 <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="listbox" aria-expanded="false" data-level="medium">
                   <span class="thinking-level-icon" aria-hidden="true">
