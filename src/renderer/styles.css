@@ -2371,6 +2371,10 @@ body {
 .job-status { color: var(--text-muted); font-size: .72rem; white-space: nowrap; }
 .job-card-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 7px 0 0 16px; color: var(--text-muted); font-size: .7rem; }
 .job-output { max-height: 84px; margin: 9px 0 0 16px; padding: 7px 8px; overflow: auto; border-radius: 6px; background: var(--code-bg); color: var(--text-secondary); font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.job-card.is-turn .job-card-head strong::before { content: '✦'; margin-right: 6px; color: var(--accent); }
+.jobs-load-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; border: 1px solid color-mix(in srgb, var(--error) 48%, var(--border)); border-radius: 10px; color: var(--text-secondary); background: color-mix(in srgb, var(--error) 8%, var(--bg-secondary)); font-size: .82rem; }
+.jobs-load-error strong { color: var(--error); }
+.jobs-load-error span { color: var(--text-muted); }
 
 /* Error Message */
 .error-message {

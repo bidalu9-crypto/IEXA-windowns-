@@ -260,6 +260,7 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     if (view === 'jobs') {
       loadJobs();
     }
+    syncJobsPolling();
   });
 });
 
@@ -3955,6 +3956,8 @@ function initTextContextMenu() {
 // =============================================================================
 let jobsCache = [];
 let jobsFilter = 'current';
+let jobsRefreshTimer = null;
+let jobsLoadError = '';
 
 function jobStatusText(status) {
   return ({ queued: '等待中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' })[status] || '未知';
@@ -3972,32 +3975,55 @@ function renderJobs() {
   const visible = jobsFilter === 'current'
     ? jobsCache.filter((job) => job.sessionId === currentSessionId)
     : jobsCache;
-  if (!visible.length) {
-    list.innerHTML = '<div class="profile-empty">暂无任务记录。</div>';
+  if (jobsLoadError) {
+    list.innerHTML = `<div class="jobs-load-error"><strong>任务中心暂时无法加载</strong><span>${escapeHtml(jobsLoadError)}</span><button type="button" class="btn-secondary btn-sm" data-jobs-retry>重新连接</button></div>`;
+    list.querySelector('[data-jobs-retry]')?.addEventListener('click', loadJobs);
     return;
   }
-  list.innerHTML = visible.map((job) => `
-    <article class="job-card is-${escapeHtml(job.status)}">
-      <div class="job-card-head"><span class="job-status-dot"></span><strong>${escapeHtml(job.title || job.toolName)}</strong><span class="job-status">${jobStatusText(job.status)}</span></div>
-      <div class="job-card-meta"><span>${escapeHtml(job.toolName || 'tool')}</span><span>会话 ${escapeHtml((sessionsCache.find((s) => s.id === job.sessionId)?.title || job.sessionId).slice(0, 32))}</span><time>${jobTime(job.startedAt || job.createdAt)}</time></div>
+  if (!visible.length) {
+    list.innerHTML = '<div class="profile-empty">当前还没有任务。发送消息后会先创建一条 AI 处理任务；调用工具时会额外显示工具子任务。</div>';
+    return;
+  }
+  list.innerHTML = visible.map((job) => {
+    const title = job.title || (job.kind === 'turn' ? 'AI 回复' : job.toolName || '工具任务');
+    const kind = job.kind === 'turn' ? 'AI 回合' : (job.toolName || '工具');
+    const session = (sessionsCache.find((item) => item.id === job.sessionId)?.title || job.sessionId).slice(0, 32);
+    return `
+    <article class="job-card is-${escapeHtml(job.status)} is-${escapeHtml(job.kind || 'tool')}">
+      <div class="job-card-head"><span class="job-status-dot"></span><strong>${escapeHtml(title)}</strong><span class="job-status">${jobStatusText(job.status)}</span></div>
+      <div class="job-card-meta"><span>${escapeHtml(kind)}</span><span>会话 ${escapeHtml(session)}</span><time>${jobTime(job.startedAt || job.createdAt)}</time></div>
       ${job.outputPreview ? `<pre class="job-output">${escapeHtml(job.outputPreview)}</pre>` : ''}
-    </article>`).join('');
+    </article>`;
+  }).join('');
 }
 async function loadJobs() {
+  const list = document.getElementById('jobsList');
   try {
     const scope = jobsFilter === 'current' && currentSessionId ? `?sessionId=${encodeURIComponent(currentSessionId)}` : '';
-    const response = await fetch(`${API_BASE}/api/jobs${scope}`);
-    const data = await response.json();
+    const response = await fetch(`${API_BASE}/api/jobs${scope}`, { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `服务返回 ${response.status}`);
     jobsCache = Array.isArray(data.jobs) ? data.jobs : [];
+    jobsLoadError = '';
     renderJobs();
-  } catch (error) { console.error('Failed to load jobs:', error); }
+  } catch (error) {
+    jobsLoadError = error?.message || '无法连接本地 IEXA 服务。';
+    console.error('Failed to load jobs:', error);
+    if (list) renderJobs();
+  }
 }
 function applyJobUpdate(job) {
   if (!job || !job.id) return;
   const index = jobsCache.findIndex((item) => item.id === job.id);
   if (index >= 0) jobsCache[index] = { ...jobsCache[index], ...job };
   else jobsCache.unshift(job);
+  jobsLoadError = '';
   renderJobs();
+}
+function syncJobsPolling() {
+  const active = document.getElementById('view-jobs')?.classList.contains('active');
+  if (active && !jobsRefreshTimer) jobsRefreshTimer = window.setInterval(loadJobs, 2500);
+  if (!active && jobsRefreshTimer) { window.clearInterval(jobsRefreshTimer); jobsRefreshTimer = null; }
 }
 function initJobsUI() {
   const refresh = document.getElementById('jobsRefreshBtn');
@@ -4100,10 +4126,10 @@ async function init() {
   initSkillsUI();
   initJobsUI();
   loadTokenUsage();
-  loadJobs();
   await loadSystemInfo();
   await refreshModelSelector();
   await loadSessionList();
+  loadJobs();
 }
 
 init();

@@ -23,6 +23,9 @@ convert-icon.js
 .DS_Store
 Thumbs.db
 
+# Local SSH configuration and host fingerprints must never enter the repository.
+.ssh/
+
 # Debug logs
 debug.log
 *.log

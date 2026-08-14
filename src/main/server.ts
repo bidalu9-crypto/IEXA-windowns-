@@ -474,9 +474,10 @@ type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 interface SessionJob {
   id: string;
   sessionId: string;
-  kind: 'tool';
-  toolId: string;
-  toolName: string;
+  kind: 'turn' | 'tool';
+  /** Tool-call ID for tool jobs; turn jobs use their own stable job ID. */
+  toolId?: string;
+  toolName?: string;
   title: string;
   status: JobStatus;
   createdAt: number;
@@ -501,6 +502,30 @@ function updateJob(sessionId: string, toolId: string, mutate: (job: SessionJob) 
   const job = [...jobs].reverse().find((item) => item.sessionId === sessionId && item.toolId === toolId);
   if (!job) return undefined;
   mutate(job);
+  saveJobs(jobs);
+  return job;
+}
+function updateJobById(jobId: string, mutate: (job: SessionJob) => void): SessionJob | undefined {
+  const jobs = loadJobs();
+  const job = jobs.find((item) => item.id === jobId);
+  if (!job) return undefined;
+  mutate(job);
+  saveJobs(jobs);
+  return job;
+}
+function createTurnJob(sessionId: string, message: string): SessionJob {
+  const jobs = loadJobs();
+  const prompt = String(message || '').trim().replace(/\s+/g, ' ');
+  const job: SessionJob = {
+    id: `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+    sessionId,
+    kind: 'turn',
+    title: prompt ? `AI 回复：${prompt.slice(0, 72)}` : 'AI 正在处理附件',
+    status: 'running',
+    createdAt: Date.now(),
+    startedAt: Date.now(),
+  };
+  jobs.push(job);
   saveJobs(jobs);
   return job;
 }
@@ -1265,6 +1290,10 @@ ${recentMemories}
           }
         }
 
+        // A chat turn is a real background task even when no tool is used.
+        // This makes the task center useful for ordinary model-only replies too.
+        const turnJob = createTurnJob(sessionId, message);
+
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache, no-transform',
@@ -1280,6 +1309,7 @@ ${recentMemories}
           compactThreshold,
           state: compactThreshold > 0 && estimatedTokens >= compactThreshold ? 'near-limit' : 'ok',
         });
+        sendSSE(res, 'job', turnJob);
 
         // This session now owns a live turn; the model route cannot change
         // until a terminal callback clears this fence.
@@ -1361,12 +1391,16 @@ ${recentMemories}
           onContext: (context) => sendSSE(res, 'context', context),
           onError: (e) => {
             runningSessionIds.delete(sessionId);
+            const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
+            if (job) sendSSE(res, 'job', job);
             sendSSE(res, 'error', { message: e });
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
           },
           onDone: (sr) => {
             runningSessionIds.delete(sessionId);
+            const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
+            if (job) sendSSE(res, 'job', job);
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
             // Unlock UI first (iOS generates title async in background Task)
             sendSSE(res, 'done', { stopReason: sr });
@@ -1376,6 +1410,8 @@ ${recentMemories}
           },
           onCancelled: () => {
             runningSessionIds.delete(sessionId);
+            const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
+            if (job) sendSSE(res, 'job', job);
             cancelLiveJobs(sessionId);
             sendSSE(res, 'cancelled', {});
             res.end();
