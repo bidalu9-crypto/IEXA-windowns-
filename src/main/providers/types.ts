@@ -130,6 +130,8 @@ export interface AgentLoopCallbacks {
   onToolCallStart: (id: string, name: string) => void;
   onToolInputDelta: (name: string, accumulated: string, id?: string) => void;
   onToolCallComplete: (id: string, name: string, args: Record<string, unknown>) => void;
+  /** Model has finished emitting the call and the executor is about to start it. */
+  onToolExecutionStart?: (id: string, name: string, args: Record<string, unknown>) => void;
   onToolResult: (id: string, result: ToolExecutionResult) => void;
   /** A transient provider/stream failure is being retried on the same model. */
   onRetry?: (attempt: number, delayMs: number, error: string) => void;

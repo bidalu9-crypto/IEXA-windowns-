@@ -20,7 +20,30 @@ import { buildSystemPrompt } from './SystemPrompt';
 import { ContextCompactor, contextWindowForModel } from './ContextCompactor';
 
 const MAX_AGENT_TURNS = 200;
+/** Keep tool evidence useful without letting build logs dominate context. */
 const MAX_TOOL_RESULT_CHARS = 15000;
+const TOOL_RESULT_COMPACT_AT = 12000;
+
+function compactToolResultForContext(output: string): string {
+  if (output.length <= TOOL_RESULT_COMPACT_AT) return output;
+  const head = output.slice(0, 4200);
+  const tail = output.slice(-4200);
+  // Preserve a central diagnostic region when a compiler/runtime reported one.
+  const signal = /(?:error|failed|exception|traceback|warn|错误|失败)/i;
+  const middleAt = output.search(signal);
+  const middle = middleAt >= 0
+    ? output.slice(Math.max(0, middleAt - 900), Math.min(output.length, middleAt + 1700))
+    : output.slice(Math.max(0, Math.floor(output.length / 2) - 900), Math.floor(output.length / 2) + 1700);
+  return `${head}
+
+[... tool output compacted: ${output.length.toLocaleString()} chars total; head + diagnostic/middle + tail retained ...]
+
+${middle}
+
+[... end of compacted tool output ...]
+
+${tail}`;
+}
 
 export interface AgentLoopConfig {
   provider: LLMProvider;
@@ -58,6 +81,10 @@ export class AgentLoop {
   private sessionContext = '';
   /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
   private compactor: ContextCompactor | null = null;
+  /** Summary can be loaded from disk before run() creates a request compactor. */
+  private pendingCompactorSummary = '';
+  /** Restored checkpoints must become model-visible once, not once per turn. */
+  private restoredSummaryInjected = false;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -91,8 +118,9 @@ export class AgentLoop {
 
   /** Restore a persisted compaction summary after restart. */
   setCompactorSummary(summary: string | null | undefined): void {
-    if (this.compactor && typeof summary === 'string' && summary.trim()) {
-      this.compactor.setSummary(summary.trim());
+    this.pendingCompactorSummary = typeof summary === 'string' ? summary.trim() : '';
+    if (this.compactor && this.pendingCompactorSummary) {
+      this.compactor.setSummary(this.pendingCompactorSummary);
     }
   }
 
@@ -213,6 +241,17 @@ export class AgentLoop {
       parts.push({ type: 'text', text: '' });
     }
 
+    // A persisted checkpoint must be model-visible after restart, just as a
+    // Harness compaction checkpoint replaces an older conversation surface.
+    // Prepend it once to the next user message, preserving valid role order.
+    if (this.pendingCompactorSummary && !this.restoredSummaryInjected) {
+      const checkpoint = `<context-summary>\n${this.pendingCompactorSummary}\n</context-summary>\n\nRestored context checkpoint; continue directly from the request below.\n\n`;
+      const firstText = parts.find((part): part is Extract<AgentContentPart, { type: 'text' }> => part.type === 'text');
+      if (firstText) firstText.text = checkpoint + firstText.text;
+      else parts.unshift({ type: 'text', text: checkpoint });
+      this.restoredSummaryInjected = true;
+    }
+
     // Add user message to history
     const userMsg: AgentMessage = {
       role: 'user',
@@ -235,10 +274,18 @@ export class AgentLoop {
     const contextWindow = this.config.contextWindow != null
       ? this.config.contextWindow
       : contextWindowForModel(this.config.provider.model, this.config.provider.name);
-    const compactor = new ContextCompactor(this.config.provider, contextWindow, tools, systemPrompt);
+    const compactor = new ContextCompactor(
+      this.config.provider,
+      contextWindow,
+      tools,
+      systemPrompt,
+      this.config.maxTokens || this.config.provider.defaultMaxTokens,
+    );
     this.compactor = compactor;
+    if (this.pendingCompactorSummary) compactor.setSummary(this.pendingCompactorSummary);
     let turnCount = 0;
     let streamRetryAttempt = 0;
+    let contextOverflowRetryAttempt = 0;
     const retryDelays = [2000, 5000, 10000];
 
     while (turnCount < MAX_AGENT_TURNS && !this.isCancelled) {
@@ -360,6 +407,7 @@ export class AgentLoop {
             return;
           }
 
+          callbacks.onToolExecutionStart?.(tc.id, tc.name, tc.args);
           const result = await this.executeTool(tc.name, tc.args);
           callbacks.onToolResult(tc.id, result);
 
@@ -367,7 +415,7 @@ export class AgentLoop {
             type: 'toolResult',
             id: tc.id,
             name: tc.name,
-            content: result.output.substring(0, MAX_TOOL_RESULT_CHARS),
+            content: compactToolResultForContext(result.output).substring(0, MAX_TOOL_RESULT_CHARS),
             isError: !result.success,
             imageData: result.imageData,
             imageMimeType: result.imageMimeType,
@@ -389,6 +437,23 @@ export class AgentLoop {
         // Otherwise continue loop for next model response
       } catch (error: unknown) {
         const err = error as Error;
+        // Harness-style overflow recovery: only retry after a successful,
+        // model-visible replacement has reduced the current history.
+        if (this.isContextWindowExceededError(err) && contextOverflowRetryAttempt < 1 && !this.isCancelled) {
+          const beforeHistory = this.agentHistory;
+          try {
+            const compacted = await compactor.compactForOverflow(beforeHistory, (status) => callbacks.onContext(status));
+            if (compacted !== beforeHistory) {
+              this.agentHistory = compacted;
+              contextOverflowRetryAttempt++;
+              callbacks.onRetry?.(contextOverflowRetryAttempt, 0, '上下文超限，已压缩历史后重试');
+              continue;
+            }
+          } catch (compactionError: unknown) {
+            callbacks.onError((compactionError as Error).message || '上下文超限后的压缩恢复失败');
+            return;
+          }
+        }
         if (this.isRetryableStreamError(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
           const delayMs = retryDelays[streamRetryAttempt++];
           callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'stream interrupted');
@@ -406,9 +471,14 @@ export class AgentLoop {
     }
   }
 
+  private isContextWindowExceededError(error: Error): boolean {
+    const message = String(error?.message || error || '').toLowerCase();
+    return /context.{0,48}(length|window|limit|exceed)|maximum.{0,48}context|too many tokens|prompt is too long/.test(message);
+  }
+
   private isRetryableStreamError(error: Error): boolean {
     const message = String(error?.message || error || '').toLowerCase();
-    if (/\b(401|403|404|400|422)\b/.test(message)) return false;
+    if (this.isContextWindowExceededError(error) || /\b(401|403|404|400|422)\b/.test(message)) return false;
     return /\b(408|425|429|500|502|503|504|529)\b/.test(message) ||
       /timeout|timed out|network|fetch failed|socket|econn|reset|aborted|stream idle|no response body|premature|overload|temporar|quota_exceeded/.test(message);
   }

@@ -84,8 +84,10 @@ export class ShellExecutor {
 
   async execute(command: string, timeoutSec: number = 900): Promise<ToolExecutionResult> {
     const effectiveTimeout = Math.min(timeoutSec, 3600) * 1000;
-    const beforeFiles = await this.collectMediaFiles();
 
+    // Files created by commands remain in the workspace. They enter the chat
+    // only through an explicit display_file tool call, preserving model tool
+    // order and preventing unrelated workspace media from being auto-attached.
     // On Windows, force UTF-8 output: chcp 65001 + PYTHONIOENCODING for Python
     const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
 
@@ -102,30 +104,11 @@ export class ShellExecutor {
       const child = exec(finalCommand, options, async (error, stdout, stderr) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
         const exitCode = error?.code || 0;
-        const afterFiles = await this.collectMediaFiles();
-        const artifacts = Array.from(afterFiles.entries())
-          .map(([pathName, file]) => ({ path: pathName, ...file }))
-          .filter((file) => !beforeFiles.has(file.path) || beforeFiles.get(file.path)?.signature !== file.signature)
-          .map((file) => ({ kind: file.kind, path: file.path, mimeType: file.mimeType, size: file.size }));
-        let imageData: Buffer | undefined;
-        let imageMimeType: string | undefined;
-        if (artifacts?.[0]?.kind === 'image') {
-          const first = artifacts[0];
-          try {
-            const absolute = path.isAbsolute(first.path) ? first.path : path.resolve(this.workspaceDir, first.path);
-            imageData = await fs.readFile(absolute);
-            imageMimeType = first.mimeType;
-          } catch { /* artifact remains available to the UI */ }
-        }
-
         resolve({
           output: output || '(no output)',
           exitCode: typeof exitCode === 'number' ? exitCode : -1,
           success: !error || exitCode === 0,
           timedOut: error?.killed || false,
-          artifacts,
-          imageData,
-          imageMimeType,
         });
       });
 
@@ -141,44 +124,7 @@ export class ShellExecutor {
     });
   }
 
-  private async collectMediaFiles(): Promise<Map<string, { signature: string; mimeType: string; size: number; kind: 'image' | 'audio' | 'video' }>> {
-    const mimeByExt: Record<string, string> = {
-      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
-      '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime',
-      '.webm': 'video/webm', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
-      '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
-      '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
-    };
-    const result = new Map<string, { signature: string; mimeType: string; size: number; kind: 'image' | 'audio' | 'video' }>();
-    const walk = async (dir: string, depth: number, recurse = true): Promise<void> => {
-      if (depth > 8 || result.size > 2000) return;
-      let entries: import('fs').Dirent[] = [];
-      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
-      for (const entry of entries) {
-        if (entry.name.startsWith('.') || ['node_modules', 'dist', 'build', 'target'].includes(entry.name)) continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) { if (recurse) await walk(full, depth + 1, true); continue; }
-        const ext = path.extname(entry.name).toLowerCase();
-        const mimeType = mimeByExt[ext];
-        if (!mimeType) continue;
-        try {
-          const stat = await fs.stat(full);
-          // Metadata scanning is cheap; the artifact URL streams the bytes on
-          // demand, so allow normal audio/video files without loading them.
-          if (stat.size > 512 * 1024 * 1024) continue;
-          const kind = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : 'audio';
-          result.set(path.resolve(full), { signature: `${stat.size}:${stat.mtimeMs}`, mimeType, size: stat.size, kind });
-        } catch { /* file may disappear while scanning */ }
-      }
-    };
-    await walk(this.workspaceDir, 0);
-    // Image generators sometimes honor an explicit output path beside the
-    // opened project. Scan only that immediate parent, never the whole disk.
-    const parent = path.dirname(path.resolve(this.workspaceDir));
-    if (parent !== path.resolve(this.workspaceDir)) await walk(parent, 0, false);
-    return result;
-  }
+
 
 }
 
@@ -219,12 +165,10 @@ export class FileTools {
           '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
           '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
         };
-        if (imageMime[ext] && buffer.length <= 8 * 1024 * 1024) {
+        if (imageMime[ext]) {
           return {
-            output: `Image: ${filePath}\nSize: ${stat.size} bytes\nMime: ${imageMime[ext]}`,
+            output: `Image file: ${filePath}\nSize: ${stat.size} bytes\nMime: ${imageMime[ext]}\nUse display_file to show it in chat.`,
             success: true,
-            imageData: buffer,
-            imageMimeType: imageMime[ext],
           };
         }
         return {

@@ -34,6 +34,7 @@ const SESSION_CONTEXT_DIR = path.join(WORKSPACE_DIR, '.iexa-session-context');
 const WEBDAV_CONFIG_FILE = path.join(WORKSPACE_DIR, '.iexa-webdav.json');
 const PROJECT_FILE = path.join(WORKSPACE_DIR, '.iexa-project.json');
 const TOKEN_USAGE_FILE = path.join(WORKSPACE_DIR, '.iexa-token-usage.json');
+const JOBS_FILE = path.join(WORKSPACE_DIR, '.iexa-jobs.json');
 const RENDERER_DIR = path.resolve(__dirname, '..', '..', 'src', 'renderer');
 
 setConfigFile(WEBDAV_CONFIG_FILE);
@@ -187,6 +188,35 @@ function activeProfile(): ModelProfile | null {
   return s.profiles.find(p => p.id === s.activeProfileId) || s.profiles[0] || null;
 }
 
+function modelBindingForProfile(profile: ModelProfile): SessionModelBinding {
+  return {
+    profileId: profile.id,
+    provider: profile.provider,
+    model: profile.model,
+    contextWindow: profile.contextWindow,
+    maxOutputTokens: profile.maxOutputTokens,
+  };
+}
+
+/** Resolve a pinned session route. Existing pre-binding sessions migrate lazily. */
+function profileForSession(sessionId: string): ModelProfile | null {
+  const settings = loadSettings();
+  const store = loadSessionStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  const binding = session?.modelBinding;
+  if (binding) {
+    const bound = settings.profiles.find((profile) => profile.id === binding.profileId);
+    if (bound) return bound;
+    return null; // A deleted profile must not silently route a pinned conversation elsewhere.
+  }
+  const fallback = settings.profiles.find((profile) => profile.id === settings.activeProfileId) || settings.profiles[0] || null;
+  if (fallback && session) {
+    session.modelBinding = modelBindingForProfile(fallback);
+    saveSessionStore(store);
+  }
+  return fallback;
+}
+
 function maskKey(key: string): string {
   if (!key || key.length < 12) return key ? '***' : '';
   return key.substring(0, 8) + '...' + key.substring(key.length - 4);
@@ -219,6 +249,14 @@ interface IncomingAttachment {
   text?: string;
 }
 
+interface SessionModelBinding {
+  profileId: string;
+  provider: string;
+  model: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+}
+
 interface Session {
   id: string;
   title: string;
@@ -231,6 +269,8 @@ interface Session {
   created: number;
   updated: number;
   messageCount: number;
+  /** Model is pinned per session so concurrent chats cannot drift with global defaults. */
+  modelBinding?: SessionModelBinding;
 }
 
 interface SessionStore {
@@ -426,13 +466,70 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
 
 // ---- Agent (per session) ----
 const agentCache = new Map<string, AgentLoop>();
+/** Live turns only; cached idle agents remain reusable and are not considered running. */
+const runningSessionIds = new Set<string>();
 const artifactRegistry = new Map<string, { path: string; mimeType: string; size: number; created: number }>();
+
+type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+interface SessionJob {
+  id: string;
+  sessionId: string;
+  kind: 'tool';
+  toolId: string;
+  toolName: string;
+  title: string;
+  status: JobStatus;
+  createdAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  success?: boolean;
+  outputPreview?: string;
+}
+
+function loadJobs(): SessionJob[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf-8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+function saveJobs(jobs: SessionJob[]): void {
+  // Retain a useful recent audit without making the desktop state file unbounded.
+  fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs.slice(-500), null, 2), 'utf-8');
+}
+function updateJob(sessionId: string, toolId: string, mutate: (job: SessionJob) => void): SessionJob | undefined {
+  const jobs = loadJobs();
+  const job = [...jobs].reverse().find((item) => item.sessionId === sessionId && item.toolId === toolId);
+  if (!job) return undefined;
+  mutate(job);
+  saveJobs(jobs);
+  return job;
+}
+function createToolJob(sessionId: string, toolId: string, toolName: string, args: Record<string, unknown>): SessionJob {
+  const jobs = loadJobs();
+  const title = typeof args.tool_title === 'string' && args.tool_title.trim()
+    ? args.tool_title.trim()
+    : `${toolName}: ${typeof args.path === 'string' ? args.path : typeof args.command === 'string' ? args.command.slice(0, 72) : '等待执行'}`;
+  const job: SessionJob = { id: `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, sessionId, kind: 'tool', toolId, toolName, title, status: 'queued', createdAt: Date.now() };
+  jobs.push(job);
+  saveJobs(jobs);
+  return job;
+}
+function cancelLiveJobs(sessionId: string): void {
+  const jobs = loadJobs();
+  let changed = false;
+  for (const job of jobs) {
+    if (job.sessionId === sessionId && (job.status === 'queued' || job.status === 'running')) {
+      job.status = 'cancelled'; job.finishedAt = Date.now(); changed = true;
+    }
+  }
+  if (changed) saveJobs(jobs);
+}
 
 function getOrCreateAgent(sessionId: string): AgentLoop | null {
   let agent = agentCache.get(sessionId);
   if (agent) return agent;
 
-  const profile = activeProfile();
+  const profile = profileForSession(sessionId);
   if (!profile || !profile.apiKey) return null;
 
   const provider = ProviderFactory.create({
@@ -454,7 +551,8 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
     workspaceDir: toolCwd,
     memoryDir: MEMORY_DIR,
     memoryEnabled: true,
-    maxTokens: 64000,
+    // The context policy must reserve against the route's actual output cap.
+    maxTokens: profile.maxOutputTokens || 64000,
     hasProject: !!projectRoot,
     projectName: projectRoot ? path.basename(projectRoot) : null,
     skillFragment: skillStore.skillPromptFragment(),
@@ -872,6 +970,7 @@ function createServer(): http.Server {
 
       if (req.method === 'POST') {
         const store = loadSessionStore();
+        const initialProfile = activeProfile();
         const session: Session = {
           id: 'sess_' + Date.now(),
           title: '新会话',
@@ -880,6 +979,7 @@ function createServer(): http.Server {
           created: Date.now(),
           updated: Date.now(),
           messageCount: 0,
+          modelBinding: initialProfile ? modelBindingForProfile(initialProfile) : undefined,
         };
         store.sessions.push(session);
         store.activeSessionId = session.id;
@@ -898,7 +998,31 @@ function createServer(): http.Server {
 
       if (req.method === 'GET') {
         const msgs = loadMessages(sid);
-        jsonReply(res, 200, { messages: msgs });
+        const session = loadSessionStore().sessions.find((item) => item.id === sid);
+        jsonReply(res, 200, { messages: msgs, session });
+        return;
+      }
+
+      // Explicitly switch only this conversation's route. Existing in-flight
+      // work must finish/cancel before changing the AgentLoop provider.
+      if (req.method === 'PUT' && url.pathname.endsWith('/model')) {
+        const sessionId = url.pathname.split('/').slice(-2, -1)[0] || '';
+        try {
+          const { profileId } = JSON.parse(await readBody(req));
+          const settings = loadSettings();
+          const profile = settings.profiles.find((item) => item.id === profileId);
+          const store = loadSessionStore();
+          const session = store.sessions.find((item) => item.id === sessionId);
+          if (!profile || !session) { jsonReply(res, 404, { error: '会话或模型不存在。' }); return; }
+          if (runningSessionIds.has(sessionId)) { jsonReply(res, 409, { error: '请等待当前会话任务结束后再切换模型。' }); return; }
+          // Drop only this idle cached AgentLoop: its next turn rehydrates under
+          // the newly selected per-session profile and context capacity.
+          agentCache.delete(sessionId);
+          session.modelBinding = modelBindingForProfile(profile);
+          session.updated = Date.now();
+          saveSessionStore(store);
+          jsonReply(res, 200, { ok: true, session });
+        } catch { jsonReply(res, 400, { error: '无效的模型切换请求。' }); }
         return;
       }
 
@@ -996,7 +1120,7 @@ function createServer(): http.Server {
         if (!message && rawAttachments.length === 0) throw new Error('message required');
         if (!sessionId) throw new Error('sessionId required');
 
-        const profile = activeProfile();
+        const profile = profileForSession(sessionId);
         if (!profile || !profile.apiKey) {
           jsonReply(res, 400, { error: '请先在设置中配置至少一个 AI 模型。' });
           return;
@@ -1157,6 +1281,10 @@ ${recentMemories}
           state: compactThreshold > 0 && estimatedTokens >= compactThreshold ? 'near-limit' : 'ok',
         });
 
+        // This session now owns a live turn; the model route cannot change
+        // until a terminal callback clears this fence.
+        runningSessionIds.add(sessionId);
+
         // Accumulate assistant response for saving
         let assistantFullText = '';
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
@@ -1193,7 +1321,13 @@ ${recentMemories}
           onToolInputDelta: (name, acc, id) => sendSSE(res, 'tool_input', { id, name, args: acc }),
           onToolCallComplete: (id, name, args) => {
             assistantToolCalls.push({ id, name, args });
+            const job = createToolJob(sessionId, id, name, args);
             sendSSE(res, 'tool_complete', { id, name, args });
+            sendSSE(res, 'job', job);
+          },
+          onToolExecutionStart: (id) => {
+            const job = updateJob(sessionId, id, (item) => { item.status = 'running'; item.startedAt = Date.now(); });
+            if (job) sendSSE(res, 'job', job);
           },
           onToolResult: (id, r) => {
             const entry = assistantToolCalls.find((tc) => tc.id === id);
@@ -1204,6 +1338,11 @@ ${recentMemories}
               return { ...artifact, path: absolute, url: `/api/artifacts/${artifactId}` };
             });
             if (entry) entry.result = { output: r.output, success: r.success, fileChange: r.fileChange, artifacts };
+            const job = updateJob(sessionId, id, (item) => {
+              item.status = r.success ? 'completed' : 'failed'; item.success = r.success; item.finishedAt = Date.now();
+              item.outputPreview = String(r.output || '').replace(/\s+/g, ' ').slice(0, 320);
+            });
+            if (job) sendSSE(res, 'job', job);
             sendSSE(res, 'tool_result', {
               id, output: r.output, success: r.success,
               fileChange: r.fileChange,
@@ -1221,11 +1360,13 @@ ${recentMemories}
           },
           onContext: (context) => sendSSE(res, 'context', context),
           onError: (e) => {
+            runningSessionIds.delete(sessionId);
             sendSSE(res, 'error', { message: e });
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
           },
           onDone: (sr) => {
+            runningSessionIds.delete(sessionId);
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
             // Unlock UI first (iOS generates title async in background Task)
             sendSSE(res, 'done', { stopReason: sr });
@@ -1234,6 +1375,8 @@ ${recentMemories}
             });
           },
           onCancelled: () => {
+            runningSessionIds.delete(sessionId);
+            cancelLiveJobs(sessionId);
             sendSSE(res, 'cancelled', {});
             res.end();
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
@@ -1244,6 +1387,17 @@ ${recentMemories}
       } catch (err: unknown) {
         if (!res.headersSent) jsonReply(res, 500, { error: (err as Error).message });
       }
+      return;
+    }
+
+    // =====================================================================
+    // Session-scoped background task registry
+    // =====================================================================
+    if (url.pathname === '/api/jobs' && req.method === 'GET') {
+      const sessionId = url.searchParams.get('sessionId') || '';
+      const jobs = loadJobs().filter((job) => !sessionId || job.sessionId === sessionId)
+        .sort((a, b) => b.createdAt - a.createdAt);
+      jsonReply(res, 200, { jobs });
       return;
     }
 
@@ -1259,6 +1413,8 @@ ${recentMemories}
       }
       if (sessionId) {
         cancelSessionAgent(sessionId);
+        runningSessionIds.delete(sessionId);
+        cancelLiveJobs(sessionId);
       }
       jsonReply(res, 200, { ok: true });
       return;

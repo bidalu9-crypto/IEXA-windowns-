@@ -5,6 +5,15 @@
 
 const API_BASE = '';
 
+// Shared application UI icons. The SVG symbols live in index.html; this helper
+// keeps dynamic UI free from emoji fonts and consistent with static controls.
+function uiIcon(name, label = '') {
+  const safeName = String(name || 'info').replace(/[^a-z0-9-]/gi, '');
+  const safeLabel = escapeHtml ? escapeHtml(label) : String(label || '');
+  return `<svg class="ui-icon ui-icon-${safeName}"${label ? ` role="img" aria-label="${safeLabel}"` : ' aria-hidden="true"'}><use href="#ui-${safeName}"></use></svg>`;
+}
+
+
 // =============================================================================
 // Markdown + code highlighting
 // =============================================================================
@@ -55,7 +64,7 @@ function enhanceCodeBlocks(rootEl) {
       const text = codeEl.innerText;
       try {
         await navigator.clipboard.writeText(text);
-        copyBtn.textContent = '✓ 已复制';
+        copyBtn.textContent = '已复制';
       } catch (err) {
         // Fallback for older environments
         const ta = document.createElement('textarea');
@@ -64,7 +73,7 @@ function enhanceCodeBlocks(rootEl) {
         ta.select();
         document.execCommand('copy');
         ta.remove();
-        copyBtn.textContent = '✓ 已复制';
+        copyBtn.textContent = '已复制';
       }
       setTimeout(() => { copyBtn.textContent = '复制'; }, 1600);
     });
@@ -75,6 +84,20 @@ function enhanceCodeBlocks(rootEl) {
     pre.parentNode.insertBefore(wrapper, pre);
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
+  });
+}
+
+// Post-process rendered markdown tables: keep wide tables readable inside chat.
+function enhanceTables(rootEl) {
+  if (!rootEl) return;
+  rootEl.querySelectorAll('table').forEach((table) => {
+    if (table.parentElement && table.parentElement.classList.contains('markdown-table-wrap')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'markdown-table-wrap';
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', '数据表格，可横向滚动');
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
   });
 }
 
@@ -131,6 +154,87 @@ const contextProgressTooltip = document.getElementById('contextProgressTooltip')
 let latestContextStatus = null;
 let isNearChatBottom = true;
 
+// One independent UI runtime per conversation. The server already owns one
+// AgentLoop per sessionId; this cache gives each SSE stream its own DOM, tool
+// steps, thinking panel and processing state instead of cancelling on switch.
+const sessionRuntimes = new Map();
+
+function snapshotActiveSessionRuntime(detachSurface = false) {
+  if (!currentSessionId) return;
+  let runtime = sessionRuntimes.get(currentSessionId);
+  if (!runtime) runtime = { fragment: document.createDocumentFragment() };
+  // Keep the visible chat mounted during normal state updates. Move its DOM
+  // only while switching away (or while temporarily routing a background SSE).
+  if (detachSurface) {
+    while (chatMessages.firstChild) runtime.fragment.appendChild(chatMessages.firstChild);
+  }
+  runtime.isProcessing = isProcessing;
+  runtime.currentAssistantMsg = currentAssistantMsg;
+  runtime.currentToolBlocks = currentToolBlocks;
+  runtime.currentTaskTimer = currentTaskTimer;
+  runtime.currentTaskStartedAt = currentTaskStartedAt;
+  runtime.currentTaskSummary = currentTaskSummary;
+  runtime.currentTaskToolCount = currentTaskToolCount;
+  runtime.activeChatTurnToken = activeChatTurnToken;
+  runtime.latestContextStatus = latestContextStatus;
+  runtime.isNearChatBottom = isNearChatBottom;
+  runtime.promptQueue = promptQueue;
+  runtime.isDrainingQueue = isDrainingQueue;
+  runtime.suppressQueueDrain = suppressQueueDrain;
+  sessionRuntimes.set(currentSessionId, runtime);
+}
+
+function mountSessionRuntime(sessionId) {
+  const runtime = sessionRuntimes.get(sessionId);
+  while (chatMessages.firstChild) chatMessages.removeChild(chatMessages.firstChild);
+  if (runtime?.fragment) chatMessages.appendChild(runtime.fragment);
+  isProcessing = !!runtime?.isProcessing;
+  currentAssistantMsg = runtime?.currentAssistantMsg || null;
+  currentToolBlocks = runtime?.currentToolBlocks || {};
+  currentTaskTimer = runtime?.currentTaskTimer || null;
+  currentTaskStartedAt = runtime?.currentTaskStartedAt || 0;
+  currentTaskSummary = runtime?.currentTaskSummary || null;
+  currentTaskToolCount = runtime?.currentTaskToolCount || 0;
+  activeChatTurnToken = runtime?.activeChatTurnToken || 0;
+  latestContextStatus = runtime?.latestContextStatus || null;
+  isNearChatBottom = runtime?.isNearChatBottom !== false;
+  promptQueue = runtime?.promptQueue || [];
+  isDrainingQueue = !!runtime?.isDrainingQueue;
+  suppressQueueDrain = !!runtime?.suppressQueueDrain;
+}
+
+function withSessionRuntime(sessionId, work) {
+  if (!sessionId || sessionId === currentSessionId) return work();
+  const visibleSessionId = currentSessionId;
+  snapshotActiveSessionRuntime(true);
+  currentSessionId = sessionId;
+  mountSessionRuntime(sessionId);
+  try { return work(); }
+  finally {
+    snapshotActiveSessionRuntime(true);
+    currentSessionId = visibleSessionId;
+    mountSessionRuntime(visibleSessionId);
+    syncActiveSessionUI();
+  }
+}
+
+function syncActiveSessionUI() {
+  const runtime = sessionRuntimes.get(currentSessionId);
+  const processing = runtime ? !!runtime.isProcessing : isProcessing;
+  isProcessing = processing;
+  stopBtn.style.display = processing ? 'flex' : 'none';
+  sendBtn.style.display = 'flex';
+  sendBtn.disabled = false;
+  chatInput.disabled = false;
+  if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
+  statusDot.className = processing ? 'status-dot processing' : 'status-dot';
+  statusText.textContent = processing ? '处理中...' : '就绪';
+  if (latestContextStatus) handleContextStatus(latestContextStatus);
+  updateComposerForQueue();
+  updateScrollToBottomButton();
+  renderSessionList();
+}
+
 // =============================================================================
 // Navigation
 // =============================================================================
@@ -152,6 +256,9 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     }
     if (view === 'token-calculator') {
       loadTokenUsage();
+    }
+    if (view === 'jobs') {
+      loadJobs();
     }
   });
 });
@@ -197,7 +304,7 @@ function renderSessionList() {
       <div class="session-item${active}" data-id="${s.id}">
         <div class="session-item-info" onclick="event.stopPropagation(); switchSession('${s.id}')">
           <span class="session-item-title" data-sid="${s.id}" onclick="event.stopPropagation(); startRename('${s.id}')" title="点击重命名">${escapeHtml(s.title)}</span>
-          <span class="session-item-time">${timeStr}</span>
+          <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
         <button class="session-item-delete" onclick="event.stopPropagation(); deleteSession('${s.id}')" title="删除">×</button>
       </div>
@@ -234,17 +341,18 @@ function formatMessageTimestamp(ts) {
 
 async function createSession() {
   try {
-    // Drop pending inserts when starting a brand-new chat
-    suppressQueueDrain = true;
-    promptQueue = [];
-    if (isProcessing) await stopProcessing();
+    // A new session must not cancel a different session running in background.
+    snapshotActiveSessionRuntime(true);
     const resp = await fetch(`${API_BASE}/api/sessions`, { method: 'POST' });
     const data = await resp.json();
     if (data.session) {
       currentSessionId = data.session.id;
+      sessionRuntimes.set(currentSessionId, { fragment: document.createDocumentFragment(), isProcessing: false, currentToolBlocks: {}, promptQueue: [] });
+      mountSessionRuntime(currentSessionId);
       clearChat();
       showWelcome();
       setProcessing(false);
+      snapshotActiveSessionRuntime();
       await loadSessionList();
       chatInput.focus();
     }
@@ -254,16 +362,17 @@ async function createSession() {
 }
 
 async function switchSession(id, updateList = true) {
-  // Switching sessions: stop current run and do not drain old queue into new chat
-  suppressQueueDrain = true;
-  if (isProcessing) {
-    await stopProcessing();
-  }
-  // clearChat() below resets promptQueue
-
+  if (!id || id === currentSessionId) return;
+  // Switching only changes the visible surface. Background SSE streams continue.
+  snapshotActiveSessionRuntime(true);
   currentSessionId = id;
-  clearChat();
-  setProcessing(false);
+  if (sessionRuntimes.has(id)) {
+    mountSessionRuntime(id);
+    syncActiveSessionUI();
+    refreshModelSelector().catch(() => {});
+  } else {
+    clearChat();
+    setProcessing(false);
 
   // Load messages
   try {
@@ -271,7 +380,11 @@ async function switchSession(id, updateList = true) {
     const data = await resp.json();
     const msgs = data.messages || [];
 
-    // Update title
+    // Refresh this session's pinned model metadata from the server.
+    if (data.session) {
+      const index = sessionsCache.findIndex((item) => item.id === id);
+      if (index >= 0) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
+    }
     const sess = sessionsCache.find(s => s.id === id);
 
     if (msgs.length === 0) {
@@ -306,7 +419,7 @@ async function switchSession(id, updateList = true) {
                 <div class="tool-header" onclick="toggleToolBody('tool-body-${tc.id}')">
                   <span class="tool-icon">${toolIcon(tc.name)}</span>
                   <span class="tool-name">${escapeHtml(histTitle)}</span>
-                  <span class="tool-status done">✓ 完成</span>
+                  <span class="tool-status done">${uiIcon('check')}<span>完成</span></span>
                 </div>
                 <div class="tool-body" id="tool-body-${tc.id}" style="display:none;">
                   <div class="tool-args">${escapeHtml(JSON.stringify(tc.args, null, 2))}</div>
@@ -339,6 +452,11 @@ async function switchSession(id, updateList = true) {
     console.error('Failed to load messages:', err);
     showWelcome();
   }
+  snapshotActiveSessionRuntime();
+  }
+
+  // The composer always describes the selected conversation's pinned route.
+  refreshModelSelector().catch(() => {});
 
   if (updateList) {
     // Update active in store
@@ -360,8 +478,11 @@ async function deleteSession(id) {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
     const data = await resp.json();
 
-    // Remove from cache
+    // Remove both persisted metadata and any in-memory background stream view.
     sessionsCache = sessionsCache.filter(s => s.id !== id);
+    const runtime = sessionRuntimes.get(id);
+    if (runtime?.currentTaskTimer) window.clearInterval(runtime.currentTaskTimer);
+    sessionRuntimes.delete(id);
 
     if (id === currentSessionId) {
       // Switch to another session or create new
@@ -454,23 +575,20 @@ function clearChat() {
 function showWelcome() {
   chatMessages.innerHTML = `
     <div class="welcome">
-      <div class="welcome-icon">🧠</div>
+      <div class="welcome-icon">${uiIcon('brain')}</div>
       <h2>欢迎使用 IEXA-WIN</h2>
       <p>你的私密、设备端 AI 智能体，带真实 Shell 权限。</p>
       <div class="quick-actions">
-        <button class="quick-btn" onclick="sendQuick('列出当前目录的文件')">📂 列出文件</button>
-        <button class="quick-btn" onclick="sendQuick('我的操作系统和硬件配置是什么？')">💻 系统信息</button>
-        <button class="quick-btn" onclick="sendQuick('创建一个简单的 Python Web 服务器脚本')">🐍 生成 Python 脚本</button>
+        <button class="quick-btn" onclick="sendQuick('列出当前目录的文件')">${uiIcon('folder')}<span>列出文件</span></button>
+        <button class="quick-btn" onclick="sendQuick('我的操作系统和硬件配置是什么？')">${uiIcon('monitor')}<span>系统信息</span></button>
+        <button class="quick-btn" onclick="sendQuick('创建一个简单的 Python Web 服务器脚本')">${uiIcon('code')}<span>生成 Python 脚本</span></button>
       </div>
     </div>
   `;
 }
 
 // Event: New session button
-newSessionBtn.addEventListener('click', () => {
-  if (isProcessing) stopProcessing().then(() => createSession());
-  else createSession();
-});
+newSessionBtn.addEventListener('click', () => createSession());
 
 // =============================================================================
 // Search
@@ -520,7 +638,7 @@ async function performSearch() {
         <div class="search-result-item" onclick="switchSession('${r.session.id}')">
           <div class="search-result-title">${escapeHtml(r.session.title)}</div>
           ${r.matches.map(m => `
-            <div class="search-result-snippet"><span class="search-role">${m.role === 'user' ? '👤' : m.role === 'title' ? '📝' : '🤖'}</span> ${highlightMatch(m.snippet, q)}</div>
+            <div class="search-result-snippet"><span class="search-role">${m.role === 'user' ? uiIcon('user') : m.role === 'title' ? uiIcon('edit') : uiIcon('bot')}</span> ${highlightMatch(m.snippet, q)}</div>
           `).join('')}
         </div>
       `).join('');
@@ -764,7 +882,7 @@ function renderAttachPreview() {
   attachPreview.innerHTML = pendingAttachments.map((a) => {
     const thumb = a.kind === 'image' && a.dataUrl
       ? `<img src="${a.dataUrl}" alt="">`
-      : `<span class="attach-chip-icon">${a.kind === 'text' ? '📄' : '📦'}</span>`;
+      : `<span class="attach-chip-icon">${uiIcon(a.kind === 'text' ? 'file' : 'box')}</span>`;
     return `
       <div class="attach-chip" data-id="${a.id}">
         ${thumb}
@@ -978,8 +1096,11 @@ async function sendMessage() {
 async function runChatTurn(message, displayText, attachments, opts) {
   opts = opts || {};
   if (isProcessing) return;
+  const sessionId = currentSessionId;
+  const turnThinkingLevel = currentThinkingLevel;
   const turnToken = ++activeChatTurnToken;
   setProcessing(true);
+  snapshotActiveSessionRuntime();
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
   try {
@@ -988,7 +1109,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: message || displayText,
-        sessionId: currentSessionId,
+        sessionId: sessionId,
         attachments: (attachments || []).map(function (a) {
           return {
             name: a.name,
@@ -1006,13 +1127,21 @@ async function runChatTurn(message, displayText, attachments, opts) {
       throw new Error(data.error || ('服务器错误：' + response.status));
     }
 
-    currentAssistantMsg = addMessage('assistant', '');
-    currentToolBlocks = {};
-    currentTaskToolCount = 0;
-    currentTaskStartedAt = 0;
-    currentTaskSummary = null;
-    if (currentTaskTimer) window.clearInterval(currentTaskTimer);
-    currentTaskTimer = null;
+    // The fetch may resolve after the user has opened another session.
+    // Create this response placeholder in its owning session, never whichever
+    // conversation happens to be visible at that instant.
+    withSessionRuntime(sessionId, () => {
+      currentAssistantMsg = addMessage('assistant', '');
+      currentAssistantMsg.dataset.liveSessionId = sessionId;
+      currentAssistantMsg.dataset.thinkingLevel = turnThinkingLevel;
+      currentToolBlocks = {};
+      currentTaskToolCount = 0;
+      currentTaskStartedAt = 0;
+      currentTaskSummary = null;
+      if (currentTaskTimer) window.clearInterval(currentTaskTimer);
+      currentTaskTimer = null;
+      snapshotActiveSessionRuntime();
+    });
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -1029,23 +1158,28 @@ async function runChatTurn(message, displayText, attachments, opts) {
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (!part.trim()) continue;
-        handleSSEEvent(part.trim(), turnToken);
+        withSessionRuntime(sessionId, () => handleSSEEvent(part.trim(), turnToken));
       }
     }
 
     // Stream closed without done/error/cancelled
-    if (turnToken === activeChatTurnToken && isProcessing) {
+    withSessionRuntime(sessionId, () => {
+      if (turnToken === activeChatTurnToken && isProcessing) {
+        finishTaskSummary();
+        setProcessing(false);
+        scheduleQueueDrain();
+      }
+      snapshotActiveSessionRuntime();
+    });
+  } catch (err) {
+    withSessionRuntime(sessionId, () => {
+      if (turnToken !== activeChatTurnToken) return;
+      addError(err.message || String(err));
       finishTaskSummary();
       setProcessing(false);
       scheduleQueueDrain();
-    }
-  } catch (err) {
-    // A previous SSE response may close after the queued next turn starts.
-    if (turnToken !== activeChatTurnToken) return;
-    addError(err.message || String(err));
-    finishTaskSummary();
-    setProcessing(false);
-    scheduleQueueDrain();
+      snapshotActiveSessionRuntime();
+    });
   }
 }
 // =============================================================================
@@ -1094,6 +1228,9 @@ function handleSSEEvent(raw, turnToken) {
         break;
       case 'usage':
         handleUsage(data);
+        break;
+      case 'job':
+        applyJobUpdate(data);
         break;
       case 'retry':
         handleRetry(data);
@@ -1161,11 +1298,13 @@ function ensureAnswerContentEl() {
 }
 
 function handleTextDelta(fullText) {
+  finishActiveThinkingBlock();
   if (!currentAssistantMsg) return;
   const contentEl = ensureAnswerContentEl();
   contentEl.innerHTML = marked.parse(fullText || '');
   normalizeRenderedAssets(contentEl);
   enhanceCodeBlocks(contentEl);
+  enhanceTables(contentEl);
   // Hide empty preamble bubbles
   currentAssistantMsg.querySelectorAll('.message-content').forEach((node) => {
     if (node === contentEl) {
@@ -1177,20 +1316,54 @@ function handleTextDelta(fullText) {
   scrollToBottom();
 }
 
-function handleThinkingDelta(text) {
+function thinkingEffortLabelFor(level) {
+  const normalized = normalizeThinkingLevel(level || 'medium');
+  return THINKING_LEVELS[normalized]?.label || '标准';
+}
+
+function finishThinkingBlock(thinkBlock) {
+  if (!thinkBlock || thinkBlock.classList.contains('is-complete')) return;
+  // Compatibility cleanup for blocks created before the simplified design.
+  const timerId = Number(thinkBlock.dataset.timerId);
+  if (timerId) window.clearInterval(timerId);
+  delete thinkBlock.dataset.timerId;
+  thinkBlock.open = false;
+  thinkBlock.classList.add('is-complete');
+  const title = thinkBlock.querySelector('.thinking-title');
+  const effort = thinkBlock.querySelector('.thinking-effort');
+  const spinner = thinkBlock.querySelector('.thinking-spinner');
+  if (title) title.textContent = '思考';
+  if (effort) effort.textContent = thinkingEffortLabelFor(thinkBlock.dataset.thinkingLevel);
+  if (spinner) spinner.remove();
+}
+
+function finishActiveThinkingBlock() {
   if (!currentAssistantMsg) return;
+  finishThinkingBlock(currentAssistantMsg.querySelector('.thinking-block'));
+}
+
+function handleThinkingDelta(text) {
+  if (!currentAssistantMsg || !text) return;
   let thinkBlock = currentAssistantMsg.querySelector('.thinking-block');
   if (!thinkBlock) {
-    thinkBlock = document.createElement('div');
+    const level = currentAssistantMsg.dataset.thinkingLevel || currentThinkingLevel;
+    thinkBlock = document.createElement('details');
     thinkBlock.className = 'thinking-block';
-    thinkBlock.textContent = '🤔 思考中...';
+    thinkBlock.open = true;
+    thinkBlock.dataset.startedAt = String(Date.now());
+    thinkBlock.dataset.reasoning = '';
+    thinkBlock.dataset.thinkingLevel = level;
+    thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
     const host = currentAssistantMsg.querySelector('.tool-steps');
     const answer = ensureAnswerContentEl();
     if (host) host.before(thinkBlock);
     else if (answer) answer.before(thinkBlock);
     else currentAssistantMsg.appendChild(thinkBlock);
   }
-  thinkBlock.textContent = '🤔 ' + text.substring(0, 500);
+  const total = (thinkBlock.dataset.reasoning || '') + String(text);
+  thinkBlock.dataset.reasoning = total;
+  const content = thinkBlock.querySelector('.thinking-content');
+  if (content) content.textContent = total;
   scrollToBottom();
 }
 
@@ -1205,13 +1378,13 @@ const TOOL_LABELS = {
 };
 
 const TOOL_ICONS = {
-  shell_execute: '💻',
-  file_read: '📄',
-  file_write: '✏️',
-  file_edit: '📝',
-  browser_fetch: '🌐',
-  memory_write: '🧠',
-  memory_get: '🔎',
+  shell_execute: 'terminal',
+  file_read: 'file',
+  file_write: 'edit',
+  file_edit: 'edit',
+  browser_fetch: 'globe',
+  memory_write: 'memory',
+  memory_get: 'search',
 };
 
 function toolDisplayName(name) {
@@ -1219,7 +1392,7 @@ function toolDisplayName(name) {
 }
 
 function toolIcon(name) {
-  return TOOL_ICONS[name] || '🔧';
+  return uiIcon(TOOL_ICONS[name] || 'settings');
 }
 
 function formatTaskElapsed(ms) {
@@ -1269,7 +1442,15 @@ function updateTaskSummary(label) {
 function beginTaskSummary(label) {
   if (!currentTaskStartedAt) {
     currentTaskStartedAt = Date.now();
-    currentTaskTimer = window.setInterval(function () { updateTaskSummary(); }, 250);
+    // Timers remain owned by the background session that created the tool
+    // step; a later session switch cannot redirect its elapsed-time updates.
+    const ownerSessionId = currentSessionId;
+    currentTaskTimer = window.setInterval(function () {
+      withSessionRuntime(ownerSessionId, function () {
+        updateTaskSummary();
+        snapshotActiveSessionRuntime();
+      });
+    }, 250);
   }
   const summary = taskSummaryForCurrentMessage();
   if (summary) {
@@ -1405,8 +1586,8 @@ function setToolStepStatus(block, status, label) {
   statusEl.className = 'tool-status ' + status;
   if (label != null) statusEl.textContent = label;
   else if (status === 'running' || status === 'streaming') statusEl.textContent = '运行中';
-  else if (status === 'done') statusEl.textContent = '✓ 完成';
-  else if (status === 'error') statusEl.textContent = '✗ 出错';
+  else if (status === 'done') statusEl.innerHTML = uiIcon('check') + '<span>完成</span>';
+  else if (status === 'error') statusEl.innerHTML = uiIcon('alert') + '<span>出错</span>';
   block.dataset.status = status;
   block.classList.toggle('is-active', status === 'running' || status === 'streaming');
   block.classList.toggle('is-done', status === 'done');
@@ -1414,13 +1595,14 @@ function setToolStepStatus(block, status, label) {
 }
 
 function handleToolStart(id, name) {
+  finishActiveThinkingBlock();
   ensureAssistantMessage();
   if (currentToolBlocks[id]) {
     // Already created via tool_input fallback — just ensure visible/active
     const info = currentToolBlocks[id];
     info.name = name || info.name;
     const iconEl = info.block.querySelector('.tool-icon');
-    if (iconEl) iconEl.textContent = toolIcon(info.name);
+    if (iconEl) iconEl.innerHTML = toolIcon(info.name);
     if (!info.block.querySelector('.tool-name').dataset.locked) {
       info.block.querySelector('.tool-name').textContent = toolDisplayName(info.name);
     }
@@ -1577,21 +1759,40 @@ function handleToolResult(id, output, success, fileChange, imageData, imageMimeT
       bodyEl.appendChild(image);
     }
     if (fileChange && fileChange.path) renderFileChange(bodyEl, fileChange);
-    if (artifacts && artifacts.length) renderToolArtifacts(currentAssistantMsg, artifacts);
-    if (imageData && imageMimeType && !(artifacts && artifacts.length)) {
-      renderToolArtifacts(currentAssistantMsg, [{
-        kind: 'image', path: '生成图片', mimeType: imageMimeType,
-        url: `data:${imageMimeType};base64,${imageData}`,
-      }]);
+    const mediaArtifacts = artifacts && artifacts.length
+      ? artifacts
+      : imageData && imageMimeType
+        ? [{ kind: 'image', path: '生成图片', mimeType: imageMimeType, url: `data:${imageMimeType};base64,${imageData}` }]
+        : [];
+    if (mediaArtifacts.length) {
+      // display_file is an explicit model instruction. Place its media after
+      // this exact tool step, not in a shared end-of-message gallery, so the
+      // visible order matches the streamed tool-call/result order.
+      if (info.name === 'display_file') renderToolArtifactsAfterStep(info.block, mediaArtifacts);
+      else renderToolArtifacts(bodyEl, mediaArtifacts);
     }
   }
 
   scrollToBottom();
 }
 
+function renderToolArtifactsAfterStep(stepBlock, artifacts) {
+  if (!stepBlock || !Array.isArray(artifacts) || artifacts.length === 0) return;
+  let card = stepBlock.nextElementSibling;
+  if (!card || !card.classList.contains('tool-artifacts') || card.dataset.toolMediaFor !== stepBlock.dataset.toolId) {
+    card = document.createElement('div');
+    card.className = 'tool-artifacts tool-artifacts-streamed';
+    card.dataset.toolMediaFor = stepBlock.dataset.toolId || '';
+    stepBlock.after(card);
+  }
+  renderToolArtifacts(card, artifacts);
+}
+
 function renderToolArtifacts(host, artifacts) {
   if (!host || !Array.isArray(artifacts)) return;
-  let card = host.querySelector('.tool-artifacts');
+  let card = host.classList && host.classList.contains('tool-artifacts')
+    ? host
+    : host.querySelector('.tool-artifacts');
   if (!card) {
     card = document.createElement('div');
     card.className = 'tool-artifacts';
@@ -1642,7 +1843,7 @@ function renderToolArtifacts(host, artifacts) {
       card.appendChild(link);
     }
   }
-  if (card.children.length) host.appendChild(card);
+  if (card.children.length && card !== host && card.parentElement !== host) host.appendChild(card);
 }
 
 async function copyArtifactImage(src, button) {
@@ -1818,6 +2019,7 @@ function handleUsage(usage) {
 
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  finishActiveThinkingBlock();
   addError(message);
   clearContextBusy();
   setProcessing(false);
@@ -1847,11 +2049,8 @@ function handleDone(stopReason, turnToken) {
   clearContextBusy();
   setProcessing(false);
 
-  // Remove thinking block
-  if (currentAssistantMsg) {
-    const thinkBlock = currentAssistantMsg.querySelector('.thinking-block');
-    if (thinkBlock) thinkBlock.remove();
-  }
+  // Keep the streamed reasoning as a compact completed record.
+  finishActiveThinkingBlock();
 
   currentAssistantMsg = null;
   currentToolBlocks = {};
@@ -1867,6 +2066,7 @@ function handleDone(stopReason, turnToken) {
 
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  finishActiveThinkingBlock();
   finishTaskSummary();
   clearContextBusy();
   setProcessing(false);
@@ -1875,7 +2075,7 @@ function handleCancelled(turnToken) {
 
   const cancelNote = document.createElement('div');
   cancelNote.className = 'error-message';
-  cancelNote.textContent = '⏹ 任务已取消。';
+  cancelNote.innerHTML = uiIcon('info') + '<span>任务已取消。</span>';
   chatMessages.appendChild(cancelNote);
 
   // iOS resumeQueueAfterCancel: stop current turn, then continue queued inserts
@@ -1983,6 +2183,7 @@ function addMessage(role, content, attachments, opts) {
     contentDiv.innerHTML = marked.parse(content || '');
     normalizeRenderedAssets(contentDiv);
     enhanceCodeBlocks(contentDiv);
+    enhanceTables(contentDiv);
   }
 
   msg.appendChild(label);
@@ -2029,7 +2230,7 @@ function addMessage(role, content, attachments, opts) {
         item.appendChild(img);
       } else {
         const icon = document.createElement('span');
-        icon.textContent = a.kind === 'text' ? '📄' : '📦';
+        icon.innerHTML = uiIcon(a.kind === 'text' ? 'file' : 'box');
         item.appendChild(icon);
       }
       const name = document.createElement('span');
@@ -2120,7 +2321,7 @@ async function resetConversationToMessage(messageEl) {
 function addError(message) {
   const err = document.createElement('div');
   err.className = 'error-message';
-  err.textContent = `❌ ${message}`;
+  err.innerHTML = uiIcon('alert') + '<span>' + escapeHtml(message) + '</span>';
   chatMessages.appendChild(err);
   scrollToBottom();
 }
@@ -2174,6 +2375,11 @@ function setProcessing(processing) {
     statusText.textContent = '就绪';
   }
   updateComposerForQueue();
+  if (currentSessionId) {
+    const runtime = sessionRuntimes.get(currentSessionId);
+    if (runtime) runtime.isProcessing = isProcessing;
+    renderSessionList();
+  }
 }
 
 function toggleToolBody(id) {
@@ -2239,7 +2445,9 @@ function thinkingMaxLevelForModel(profile) {
 
 function applyThinkingLevelUI(level) {
   currentThinkingLevel = normalizeThinkingLevel(level);
-  const activeProfile = modelSelectorProfiles.find((p) => p.id === activeProfileId);
+  const boundProfileId = sessionsCache.find((session) => session.id === currentSessionId)?.modelBinding?.profileId;
+  const activeProfile = modelSelectorProfiles.find((profile) => profile.id === boundProfileId)
+    || modelSelectorProfiles.find((profile) => profile.id === activeProfileId);
   const maxLevel = thinkingMaxLevelForModel(activeProfile);
   const maxIndex = THINKING_LEVEL_ORDER.indexOf(maxLevel);
   const currentIndex = THINKING_LEVEL_ORDER.indexOf(currentThinkingLevel);
@@ -2334,16 +2542,28 @@ function setModelMenuOpen(open) {
 }
 
 async function selectModelProfile(id) {
-  if (!id || id === activeProfileId) {
+  const boundId = sessionsCache.find((session) => session.id === currentSessionId)?.modelBinding?.profileId;
+  if (!id || id === boundId || !currentSessionId) {
     setModelMenuOpen(false);
     return;
   }
-  await fetch(`${API_BASE}/api/profiles`, {
+  if (isProcessing) {
+    addError('当前会话正在执行任务，请结束或停止后再切换模型。');
+    setModelMenuOpen(false);
+    return;
+  }
+  const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/model`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ activeProfileId: id }),
+    body: JSON.stringify({ profileId: id }),
   });
-  activeProfileId = id;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    addError(data.error || '切换本会话模型失败。');
+    return;
+  }
+  const index = sessionsCache.findIndex((session) => session.id === currentSessionId);
+  if (index >= 0 && data.session) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
   setModelMenuOpen(false);
   await refreshModelSelector();
 }
@@ -2361,16 +2581,20 @@ async function refreshModelSelector() {
   if (!modelSelectorProfiles.length) {
     label.textContent = '— 尚未配置模型 —';
     btn.disabled = true;
-    hint.textContent = '⚙️ 请在设置中添加模型';
+    hint.textContent = '请在设置中添加模型';
     return;
   }
 
   btn.disabled = false;
-  const active = modelSelectorProfiles.find(p => p.id === data.activeProfileId) || modelSelectorProfiles[0];
-  activeProfileId = active.id;
+  const binding = sessionsCache.find((session) => session.id === currentSessionId)?.modelBinding;
+  const active = modelSelectorProfiles.find((profile) => profile.id === binding?.profileId)
+    || modelSelectorProfiles.find((profile) => profile.id === data.activeProfileId)
+    || modelSelectorProfiles[0];
+  // activeProfileId remains the global default used only for new sessions/settings.
+  activeProfileId = data.activeProfileId || active.id;
   label.textContent = active.name || (active.provider + '/' + active.model);
-  btn.title = active.provider + ' / ' + active.model;
-  hint.textContent = active.provider + ' · ' + active.model;
+  btn.title = `本会话模型：${active.provider} / ${active.model}`;
+  hint.textContent = `本会话 · ${active.provider} · ${active.model}`;
   applyThinkingLevelUI(currentThinkingLevel);
   document.dispatchEvent(new Event('token-calculator-profile-change'));
 
@@ -2423,8 +2647,8 @@ async function renderProfileList() {
       </div>
       <span class="profile-card-badge">${escapeHtml(p.provider)}</span>
       <div class="profile-card-actions" onclick="event.stopPropagation()">
-        <button onclick="editProfile('${p.id}')">✏️</button>
-        <button class="danger" onclick="deleteProfile('${p.id}')">🗑</button>
+        <button onclick="editProfile('${p.id}')" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
+        <button class="danger" onclick="deleteProfile('${p.id}')" title="删除" aria-label="删除">${uiIcon('trash')}</button>
       </div>
     </div>
   `).join('');
@@ -2508,11 +2732,11 @@ async function fetchModels() {
     baseURL = BASE_URL_HINTS[prov] || '';
   }
   if (!baseURL) {
-    hint.textContent = '⚠️ 请先填写接口地址。';
+    hint.textContent = '请先填写接口地址。';
     return;
   }
   if (!apiKey && !profileId) {
-    hint.textContent = '⚠️ 请先填写 API 密钥。';
+    hint.textContent = '请先填写 API 密钥。';
     return;
   }
 
@@ -2528,7 +2752,7 @@ async function fetchModels() {
     });
     const data = await resp.json();
     if (!resp.ok) {
-      hint.textContent = '❌ ' + (data.error || '获取失败');
+      hint.textContent = data.error || '获取失败';
       return;
     }
     // Models can be strings or objects { id, contextWindow?, maxOutputTokens? }
@@ -2543,9 +2767,9 @@ async function fetchModels() {
         return `<option value="${escapeHtml(m.id)}" data-context-window="${escapeHtml(String(contextWindow))}">${escapeHtml(label)}</option>`;
       }).join('');
     select.style.display = 'block';
-    hint.textContent = `✅ 找到 ${modelList.length} 个模型，请选择。`;
+    hint.textContent = `找到 ${modelList.length} 个模型，请选择。`;
   } catch (err) {
-    hint.textContent = '❌ 获取失败：' + err.message;
+    hint.textContent = '获取失败：' + err.message;
   } finally {
     btn.disabled = false;
   }
@@ -2665,34 +2889,38 @@ async function testWebDAV() {
     });
     const data = await resp.json();
     if (data.ok) {
-      showSyncResult('success', '✅ 连接成功！WebDAV 服务器可达。');
+      showSyncResult('success', '连接成功！WebDAV 服务器可达。');
     } else {
-      showSyncResult('error', '❌ 连接失败：' + (data.error || '未知错误'));
+      showSyncResult('error', '连接失败：' + (data.error || '未知错误'));
     }
   } catch (err) {
-    showSyncResult('error', '❌ 连接失败：' + err.message);
+    showSyncResult('error', '连接失败：' + err.message);
   }
 }
 
 async function syncNow() {
   const btn = document.getElementById('syncNowBtn');
   btn.disabled = true;
-  btn.textContent = '⏳ 同步中...';
+  btn.classList.add('is-loading');
+  const syncLabel = btn.querySelector('span');
+  if (syncLabel) syncLabel.textContent = '同步中...';
   showSyncResult('info', '正在同步...');
 
   try {
     const resp = await fetch(`${API_BASE}/api/webdav/sync`, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
-      showSyncResult('success', `✅ 同步完成！上传 ${data.uploaded}，下载 ${data.downloaded} 个文件。`);
+      showSyncResult('success', `同步完成！上传 ${data.uploaded}，下载 ${data.downloaded} 个文件。`);
     } else {
-      showSyncResult('error', '❌ 同步失败：' + (data.error || '未知错误'));
+      showSyncResult('error', '同步失败：' + (data.error || '未知错误'));
     }
   } catch (err) {
-    showSyncResult('error', '❌ 同步失败：' + err.message);
+    showSyncResult('error', '同步失败：' + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '🔄 立即同步';
+    btn.classList.remove('is-loading');
+    const syncLabel = btn.querySelector('span');
+    if (syncLabel) syncLabel.textContent = '立即同步';
     loadWebDAVConfig();
   }
 }
@@ -2703,16 +2931,19 @@ function updateSyncStatus(cfg) {
   const lastTime = document.getElementById('syncLastTime');
 
   if (!cfg.url) {
-    icon.textContent = '⚪';
+    icon.className = 'sync-status-icon is-idle';
+    icon.innerHTML = uiIcon('info');
     text.textContent = '未配置';
     lastTime.textContent = '';
   } else if (cfg.lastSync && cfg.lastSync > 0) {
-    icon.textContent = '🟢';
+    icon.className = 'sync-status-icon is-success';
+    icon.innerHTML = uiIcon('check');
     text.textContent = '已同步';
     const d = new Date(cfg.lastSync);
     lastTime.textContent = '上次：' + d.toLocaleString();
   } else {
-    icon.textContent = '🟡';
+    icon.className = 'sync-status-icon is-pending';
+    icon.innerHTML = uiIcon('alert');
     text.textContent = '已配置，尚未同步';
     lastTime.textContent = '';
   }
@@ -2770,7 +3001,7 @@ function getThemeMode() {
 }
 
 function getAccent() {
-  let a = document.documentElement.getAttribute('data-accent') || 'amber';
+  let a = document.documentElement.getAttribute('data-accent') || 'violet';
   if (a === 'opencode') a = 'amber';
   return a;
 }
@@ -2792,7 +3023,7 @@ function applyHighlightTheme(mode) {
 
 function setAccent(id) {
   const found = ACCENT_PRESETS.find((a) => a.id === id);
-  const accent = found ? found.id : 'amber';
+  const accent = found ? found.id : 'violet';
   document.documentElement.setAttribute('data-accent', accent);
   try { localStorage.setItem('iexa-accent', accent); } catch { /* */ }
   syncThemeUI();
@@ -2821,7 +3052,7 @@ function syncThemeUI() {
 
 function initTheme() {
   let accent = getAccent();
-  if (accent === 'opencode') accent = 'amber';
+  if (accent === 'opencode') accent = 'violet';
   if (!document.documentElement.getAttribute('data-theme')) setThemeMode('light');
   document.documentElement.setAttribute('data-accent', accent);
   applyHighlightTheme(getThemeMode());
@@ -2852,14 +3083,55 @@ function formatFileSize(n) {
 }
 
 function fileIcon(entry) {
-  if (entry.type === 'dir') return '📁';
-  const ext = (entry.name.split('.').pop() || '').toLowerCase();
-  const map = {
-    js: '📜', ts: '📜', tsx: '📜', jsx: '📜', py: '🐍', json: '🗂', md: '📝',
-    html: '🌐', css: '🎨', txt: '📄', log: '📋', png: '🖼', jpg: '🖼', jpeg: '🖼',
-    gif: '🖼', webp: '🖼', svg: '🖼', bat: '⚙️', ps1: '⚙️', sh: '⚙️',
+  const name = String(entry.name || '').toLowerCase();
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  const icon = (kind, label, badge = '') => `
+    <span class="file-type-icon file-type-icon-${kind} ${entry.type === 'dir' ? 'is-folder' : 'is-file'}" role="img" aria-label="${label}" title="${label}">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path class="file-type-icon-folder" d="M2.8 6.7c0-1 .8-1.8 1.8-1.8h5l1.8 2h8.1c1 0 1.8.8 1.8 1.8v8.6c0 1-.8 1.8-1.8 1.8H4.6c-1 0-1.8-.8-1.8-1.8V6.7Z"/>
+        <path class="file-type-icon-document" d="M6 2.8h7.4l4.6 4.6v13.8H6c-1 0-1.8-.8-1.8-1.8V4.6C4.2 3.6 5 2.8 6 2.8Z"/>
+        <path class="file-type-icon-fold" d="M13.2 2.8v4.7h4.8"/>
+      </svg>
+      ${badge ? `<span class="file-type-icon-badge">${badge}</span>` : ''}
+    </span>`;
+
+  if (entry.type === 'dir') {
+    const folders = {
+      '.git': ['git-folder', 'Git 文件夹', '◆'], '.github': ['github-folder', 'GitHub 文件夹', '◆'],
+      'node_modules': ['node-folder', 'Node 依赖', '⬡'], 'src': ['source-folder', '源代码', '‹›'],
+      'dist': ['build-folder', '构建产物', '▣'], 'build': ['build-folder', '构建目录', '▣'],
+      'out': ['build-folder', '输出目录', '▣'], 'public': ['assets-folder', '公共资源', '◈'],
+      'assets': ['assets-folder', '资源目录', '◈'], 'images': ['assets-folder', '图片目录', '◈'],
+      'workspace': ['workspace-folder', '工作区', '⌘'], 'scripts': ['scripts-folder', '脚本目录', '>_'],
+      'test': ['test-folder', '测试目录', 'T'], 'tests': ['test-folder', '测试目录', 'T'],
+    };
+    const found = folders[name] || ['folder', '文件夹', ''];
+    return icon(found[0], found[1], found[2]);
+  }
+
+  const byName = {
+    '.gitignore': ['git', 'Git 忽略文件', '◆'], '.gitattributes': ['git', 'Git 属性文件', '◆'],
+    'package.json': ['npm', 'npm 配置', 'NPM'], 'package-lock.json': ['npm', 'npm 锁定文件', 'NPM'],
+    'tsconfig.json': ['typescript', 'TypeScript 配置', 'TS'], 'readme.md': ['markdown', 'Markdown 文档', 'M↓'],
+    'license': ['license', '许可证', '§'], 'dockerfile': ['docker', 'Docker 文件', '▣'],
+    '.env': ['env', '环境变量', 'E'], '.env.local': ['env', '环境变量', 'E'],
   };
-  return map[ext] || '📄';
+  const byExt = {
+    js: ['javascript', 'JavaScript', 'JS'], mjs: ['javascript', 'JavaScript', 'JS'], cjs: ['javascript', 'JavaScript', 'JS'],
+    ts: ['typescript', 'TypeScript', 'TS'], tsx: ['react', 'TSX React 组件', 'R'], jsx: ['react', 'JSX React 组件', 'R'],
+    py: ['python', 'Python', 'Py'], json: ['json', 'JSON', '{}'], md: ['markdown', 'Markdown', 'M↓'], mdx: ['markdown', 'Markdown', 'M↓'],
+    html: ['html', 'HTML', '5'], htm: ['html', 'HTML', '5'], css: ['css', 'CSS', '#'], scss: ['sass', 'SCSS', 'S'], sass: ['sass', 'Sass', 'S'], less: ['sass', 'Less', 'L'],
+    yml: ['yaml', 'YAML', 'Y'], yaml: ['yaml', 'YAML', 'Y'], xml: ['xml', 'XML', 'XML'], toml: ['config', 'TOML', 'CFG'], ini: ['config', 'INI', 'CFG'], conf: ['config', '配置', 'CFG'],
+    sh: ['shell', 'Shell 脚本', '>_'], bash: ['shell', 'Bash 脚本', '>_'], zsh: ['shell', 'Zsh 脚本', '>_'], bat: ['terminal', '批处理脚本', '>_'], cmd: ['terminal', '命令脚本', '>_'], ps1: ['powershell', 'PowerShell 脚本', 'PS'],
+    png: ['image', 'PNG 图片', '▧'], jpg: ['image', 'JPG 图片', '▧'], jpeg: ['image', 'JPEG 图片', '▧'], gif: ['image', 'GIF 图片', '▧'], webp: ['image', 'WebP 图片', '▧'], svg: ['image', 'SVG 图片', '▧'], ico: ['image', '图标文件', '▧'],
+    txt: ['text', '文本文件', '≡'], log: ['log', '日志文件', '≡'], csv: ['table', 'CSV 数据', '▦'], xlsx: ['table', 'Excel 表格', '▦'],
+    zip: ['archive', '压缩文件', '▤'], rar: ['archive', '压缩文件', '▤'], '7z': ['archive', '压缩文件', '▤'],
+    patch: ['diff', '补丁文件', '±'], diff: ['diff', '差异文件', '±'],
+    c: ['c', 'C 源文件', 'C'], h: ['c', 'C/C++ 头文件', 'H'], cpp: ['cpp', 'C++ 源文件', 'C+'], hpp: ['cpp', 'C++ 头文件', 'H+'],
+    java: ['java', 'Java', 'J'], go: ['go', 'Go', 'Go'], rs: ['rust', 'Rust', 'R'], php: ['php', 'PHP', 'PHP'], rb: ['ruby', 'Ruby', 'Rb'],
+  };
+  const found = byName[name] || byExt[ext] || ['file', '文件', ''];
+  return icon(found[0], found[1], found[2]);
 }
 
 function showFilesEmpty(recent) {
@@ -2890,7 +3162,7 @@ function showFilesEmpty(recent) {
 
   list.innerHTML = `
     <div class="files-empty-state" id="filesEmptyState">
-      <div class="files-empty-icon">📂</div>
+      <div class="files-empty-icon">${uiIcon('folder')}</div>
       <p>尚未打开项目</p>
       <p class="files-empty-hint">打开一个文件夹后，这里会显示项目文件</p>
       <button type="button" class="btn-primary btn-sm" id="filesOpenBtnMain">打开项目</button>
@@ -3557,12 +3829,278 @@ function applySlashSkill(name) {
   chatInput.dispatchEvent(new Event('input'));
 }
 
+// =============================================================================
+// Text selection / editable field context menu
+// =============================================================================
+
+function initTextContextMenu() {
+  const menu = document.getElementById('textContextMenu');
+  if (!menu) return;
+  const copyItem = menu.querySelector('[data-text-action="copy"]');
+  const pasteItem = menu.querySelector('[data-text-action="paste"]');
+  let selectedText = '';
+  let editor = null;
+  let editorSelection = null;
+
+  const isEditable = (el) => el instanceof HTMLTextAreaElement ||
+    (el instanceof HTMLInputElement && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(el.type)) ||
+    (el instanceof HTMLElement && el.isContentEditable);
+
+  const close = () => {
+    menu.style.display = 'none';
+    selectedText = '';
+    editor = null;
+    editorSelection = null;
+  };
+
+  const copyText = async (text) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const fallback = document.createElement('textarea');
+      fallback.value = text;
+      fallback.style.position = 'fixed';
+      fallback.style.opacity = '0';
+      document.body.appendChild(fallback);
+      fallback.select();
+      document.execCommand('copy');
+      fallback.remove();
+    }
+  };
+
+  const insertText = (target, text) => {
+    if (!target || !text) return;
+    target.focus();
+    if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) {
+      const start = editorSelection?.start ?? target.selectionStart ?? target.value.length;
+      const end = editorSelection?.end ?? target.selectionEnd ?? start;
+      target.setRangeText(text, start, end, 'end');
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+    if (target.isContentEditable) {
+      const selection = window.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges();
+      if (editorSelection?.range) selection.addRange(editorSelection.range);
+      document.execCommand('insertText', false, text);
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  };
+
+  const placeMenu = (x, y) => {
+    menu.style.display = 'flex';
+    const margin = 8;
+    const rect = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(margin, Math.min(x, window.innerWidth - rect.width - margin))}px`;
+    menu.style.top = `${Math.max(margin, Math.min(y, window.innerHeight - rect.height - margin))}px`;
+  };
+
+  document.addEventListener('contextmenu', (event) => {
+    if (event.target.closest('.files-context-menu') || event.target.closest('#filesList')) return;
+    const target = event.target instanceof Element ? event.target.closest('textarea, input, [contenteditable="true"]') : null;
+    const editable = isEditable(target);
+    const nativeSelection = window.getSelection();
+    const pageSelection = nativeSelection ? nativeSelection.toString().trim() : '';
+    const fieldSelection = editable && 'value' in target
+      ? String(target.value).slice(target.selectionStart || 0, target.selectionEnd || 0)
+      : '';
+    const text = fieldSelection || pageSelection;
+    if (!text && !editable) return;
+
+    event.preventDefault();
+    selectedText = text;
+    editor = editable ? target : null;
+    editorSelection = null;
+    if (editor instanceof HTMLTextAreaElement || editor instanceof HTMLInputElement) {
+      editorSelection = { start: editor.selectionStart, end: editor.selectionEnd };
+    } else if (editor && editor.isContentEditable && nativeSelection?.rangeCount) {
+      editorSelection = { range: nativeSelection.getRangeAt(0).cloneRange() };
+    }
+    copyItem.hidden = !selectedText;
+    pasteItem.hidden = !editor;
+    placeMenu(event.clientX, event.clientY);
+  });
+
+  menu.addEventListener('click', async (event) => {
+    const item = event.target.closest('[data-text-action]');
+    if (!item) return;
+    const action = item.dataset.textAction;
+    if (action === 'copy') await copyText(selectedText);
+    if (action === 'paste' && editor) {
+      try {
+        const text = await navigator.clipboard.readText();
+        insertText(editor, text);
+      } catch {
+        editor.focus();
+        document.execCommand('paste');
+      }
+    }
+    close();
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!menu.contains(event.target)) close();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') close();
+  });
+  document.addEventListener('scroll', close, true);
+  window.addEventListener('resize', close);
+}
+
+// =============================================================================
+// Session-scoped background task center
+// =============================================================================
+let jobsCache = [];
+let jobsFilter = 'current';
+
+function jobStatusText(status) {
+  return ({ queued: '等待中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' })[status] || '未知';
+}
+function jobTime(value) {
+  const date = Number(value) ? new Date(Number(value)) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+}
+function renderJobs() {
+  const list = document.getElementById('jobsList');
+  const badge = document.getElementById('navJobBadge');
+  if (!list) return;
+  const runningCount = jobsCache.filter((job) => job.status === 'queued' || job.status === 'running').length;
+  if (badge) { badge.hidden = runningCount === 0; badge.textContent = String(runningCount); }
+  const visible = jobsFilter === 'current'
+    ? jobsCache.filter((job) => job.sessionId === currentSessionId)
+    : jobsCache;
+  if (!visible.length) {
+    list.innerHTML = '<div class="profile-empty">暂无任务记录。</div>';
+    return;
+  }
+  list.innerHTML = visible.map((job) => `
+    <article class="job-card is-${escapeHtml(job.status)}">
+      <div class="job-card-head"><span class="job-status-dot"></span><strong>${escapeHtml(job.title || job.toolName)}</strong><span class="job-status">${jobStatusText(job.status)}</span></div>
+      <div class="job-card-meta"><span>${escapeHtml(job.toolName || 'tool')}</span><span>会话 ${escapeHtml((sessionsCache.find((s) => s.id === job.sessionId)?.title || job.sessionId).slice(0, 32))}</span><time>${jobTime(job.startedAt || job.createdAt)}</time></div>
+      ${job.outputPreview ? `<pre class="job-output">${escapeHtml(job.outputPreview)}</pre>` : ''}
+    </article>`).join('');
+}
+async function loadJobs() {
+  try {
+    const scope = jobsFilter === 'current' && currentSessionId ? `?sessionId=${encodeURIComponent(currentSessionId)}` : '';
+    const response = await fetch(`${API_BASE}/api/jobs${scope}`);
+    const data = await response.json();
+    jobsCache = Array.isArray(data.jobs) ? data.jobs : [];
+    renderJobs();
+  } catch (error) { console.error('Failed to load jobs:', error); }
+}
+function applyJobUpdate(job) {
+  if (!job || !job.id) return;
+  const index = jobsCache.findIndex((item) => item.id === job.id);
+  if (index >= 0) jobsCache[index] = { ...jobsCache[index], ...job };
+  else jobsCache.unshift(job);
+  renderJobs();
+}
+function initJobsUI() {
+  const refresh = document.getElementById('jobsRefreshBtn');
+  if (refresh) refresh.addEventListener('click', loadJobs);
+  const filter = document.getElementById('jobsFilter');
+  if (filter) filter.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-jobs-filter]');
+    if (!button) return;
+    jobsFilter = button.dataset.jobsFilter || 'current';
+    filter.querySelectorAll('button').forEach((item) => item.classList.toggle('is-active', item === button));
+    loadJobs();
+  });
+}
+
+// =============================================================================
+// Adjustable desktop panels
+// =============================================================================
+
+function initPanelResizers() {
+  const root = document.documentElement;
+  const sidebarResizer = document.getElementById('sidebarResizer');
+  const filesResizer = document.getElementById('filesResizer');
+  if (!sidebarResizer || !filesResizer) return;
+
+  const defaults = { sidebar: 240, files: 300 };
+  const readWidth = (key) => {
+    const value = Number.parseInt(localStorage.getItem(`iexa-${key}-width`) || '', 10);
+    return Number.isFinite(value) ? value : defaults[key];
+  };
+  let sidebarWidth = readWidth('sidebar');
+  let filesWidth = readWidth('files');
+
+  const limits = (key) => {
+    const other = key === 'sidebar' ? filesWidth : sidebarWidth;
+    return { min: key === 'sidebar' ? 180 : 220, max: Math.max(key === 'sidebar' ? 180 : 220, Math.min(key === 'sidebar' ? 460 : 560, window.innerWidth - other - 420)) };
+  };
+  const clamp = (value, key) => {
+    const { min, max } = limits(key);
+    return Math.round(Math.min(max, Math.max(min, value)));
+  };
+  const apply = (key, value, persist = true) => {
+    const next = clamp(value, key);
+    if (key === 'sidebar') sidebarWidth = next; else filesWidth = next;
+    root.style.setProperty(key === 'sidebar' ? '--sidebar-width' : '--files-panel-width', `${next}px`);
+    if (persist) localStorage.setItem(`iexa-${key}-width`, String(next));
+  };
+  const normalize = () => {
+    apply('sidebar', sidebarWidth);
+    apply('files', filesWidth);
+  };
+
+  normalize();
+  window.addEventListener('resize', normalize);
+
+  const bind = (handle, key) => {
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      handle.classList.add('is-dragging');
+      document.body.classList.add('is-resizing');
+      const resize = (clientX) => apply(key, key === 'sidebar' ? clientX : window.innerWidth - clientX);
+      const move = (moveEvent) => resize(moveEvent.clientX);
+      const finish = () => {
+        handle.classList.remove('is-dragging');
+        document.body.classList.remove('is-resizing');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', finish);
+        handle.removeEventListener('pointercancel', finish);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', finish);
+      handle.addEventListener('pointercancel', finish);
+    });
+
+    handle.addEventListener('dblclick', () => apply(key, defaults[key]));
+    handle.addEventListener('keydown', (event) => {
+      const isSidebar = key === 'sidebar';
+      let next = null;
+      if (event.key === 'Home') next = limits(key).min;
+      if (event.key === 'End') next = limits(key).max;
+      if (event.key === 'ArrowLeft') next = (isSidebar ? sidebarWidth : filesWidth) + (isSidebar ? -16 : 16);
+      if (event.key === 'ArrowRight') next = (isSidebar ? sidebarWidth : filesWidth) + (isSidebar ? 16 : -16);
+      if (next === null) return;
+      event.preventDefault();
+      apply(key, next);
+    });
+  };
+
+  bind(sidebarResizer, 'sidebar');
+  bind(filesResizer, 'files');
+}
+
 // Start
 async function init() {
   initTheme();
+  initPanelResizers();
+  initTextContextMenu();
   initFilesPanel();
   initSkillsUI();
+  initJobsUI();
   loadTokenUsage();
+  loadJobs();
   await loadSystemInfo();
   await refreshModelSelector();
   await loadSessionList();
