@@ -51,7 +51,7 @@ export async function buildMediaDisplayResult(filePath: string, workspaceDir: st
   }
 }
 
-function changeSummary(filePath: string, before: string, after: string): ToolExecutionResult['fileChange'] {
+function changeSummary(filePath: string, before: string, after: string, absolutePath?: string): ToolExecutionResult['fileChange'] {
   const limit = 120000;
   if (before.length > limit) before = before.substring(0, limit) + '\n… (truncated)';
   if (after.length > limit) after = after.substring(0, limit) + '\n… (truncated)';
@@ -64,6 +64,7 @@ function changeSummary(filePath: string, before: string, after: string): ToolExe
     oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
   return {
     path: filePath,
+    absolutePath,
     before,
     after,
     added: Math.max(0, newLines.length - prefix - suffix),
@@ -243,7 +244,7 @@ export class FileTools {
       return {
         output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
         success: true,
-        fileChange: changeSummary(filePath, before, await fs.readFile(resolvedPath, 'utf-8')),
+        fileChange: changeSummary(filePath, before, await fs.readFile(resolvedPath, 'utf-8'), resolvedPath),
       };
     } catch (err: unknown) {
       const error = err as NodeJS.ErrnoException;
@@ -282,7 +283,7 @@ export class FileTools {
         return {
           output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
         };
       } else {
         const firstIndex = content.indexOf(oldString);
@@ -304,7 +305,7 @@ export class FileTools {
         return {
           output: `File edited: ${filePath}\n1 occurrence replaced`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
         };
       }
     } catch (err: unknown) {

@@ -251,7 +251,9 @@ interface ChatAttachmentMeta {
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
+  toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
+  /** Files changed successfully in this assistant turn, independent of final prose. */
+  deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
   usage?: { inputTokens: number; outputTokens: number };
   attachments?: ChatAttachmentMeta[];
   timestamp: number;
@@ -639,13 +641,23 @@ function saveSessionMessages(
   existingMessages: ChatMessage[],
   userMsg: ChatMessage,
   assistantText: string,
-  toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
+  toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
   usage: { inputTokens: number; outputTokens: number } | undefined,
 ): void {
+  const deliverables = toolCalls
+    .filter((call) => call.result?.success && call.result.fileChange?.path)
+    .map((call) => ({
+      path: call.result!.fileChange!.path,
+      absolutePath: call.result!.fileChange!.absolutePath,
+      added: call.result!.fileChange!.added,
+      removed: call.result!.fileChange!.removed,
+    }))
+    .filter((file, index, files) => files.findIndex((item) => (item.absolutePath || item.path) === (file.absolutePath || file.path)) === index);
   const assistantMsg: ChatMessage = {
     role: 'assistant',
     content: assistantText,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    deliverables: deliverables.length > 0 ? deliverables : undefined,
     usage: usage,
     timestamp: Date.now(),
   };
@@ -1413,7 +1425,7 @@ ${recentMemories}
               artifactRegistry.set(artifactId, { path: absolute, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               return { ...artifact, path: absolute, url: `/api/artifacts/${artifactId}` };
             });
-            if (entry) entry.result = { output: r.output, success: r.success, fileChange: r.fileChange, artifacts };
+            if (entry) entry.result = { output: r.output, success: r.success, todos: r.todos, fileChange: r.fileChange, artifacts };
             const job = updateJob(sessionId, id, (item) => {
               item.status = r.success ? 'completed' : 'failed'; item.success = r.success; item.finishedAt = Date.now();
               item.outputPreview = String(r.output || '').replace(/\s+/g, ' ').slice(0, 320);
@@ -1421,6 +1433,7 @@ ${recentMemories}
             if (job) sendSSE(res, 'job', job);
             sendSSE(res, 'tool_result', {
               id, output: r.output, success: r.success,
+              todos: r.todos,
               fileChange: r.fileChange,
               artifacts,
               imageData: r.imageData ? r.imageData.toString('base64') : undefined,

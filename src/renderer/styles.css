@@ -1629,6 +1629,35 @@ body {
 .tool-artifact-action svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tool-artifact-file { color: var(--accent); font-size: .8rem; }
 .file-change-card { margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-secondary); }
+.todo-plan { width: min(100%, 680px); margin: 10px 0 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--accent-light) 35%, var(--bg-secondary)); }
+.todo-plan-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--text-primary); font-size: .79rem; font-weight: 650; }
+.todo-plan-heading > .ui-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--accent); }
+.todo-plan-heading b { margin-left: auto; color: var(--text-muted); font-size: .72rem; font-weight: 600; }
+.todo-plan-items { display: flex; flex-direction: column; gap: 5px; }
+.todo-plan-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-secondary); font-size: .8rem; line-height: 1.35; }
+.todo-plan-item > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-plan-marker { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex: 0 0 15px; color: var(--text-muted); }
+.todo-plan-marker .ui-icon { width: 14px; height: 14px; flex: 0 0 14px; stroke-width: 2.3; }
+.todo-plan-item.is-completed { color: var(--text-muted); }
+.todo-plan-item.is-completed > span:last-child { text-decoration: line-through; }
+.todo-plan-item.is-completed .todo-plan-marker { color: var(--success); }
+.todo-plan-item.is-in_progress { color: var(--text-primary); font-weight: 560; }
+.todo-plan-item.is-in_progress .todo-plan-marker { color: var(--accent); }
+.todo-plan-spinner { width: 12px; height: 12px; border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: taskSpin .72s linear infinite; }
+.todo-plan-dot { width: 7px; height: 7px; border: 1.5px solid currentColor; border-radius: 50%; }
+
+.turn-deliverables { margin: 12px 0 2px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent-light) 36%, var(--bg-secondary)); }
+.turn-deliverables-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--text-primary); font-size: .78rem; font-weight: 650; }
+.turn-deliverables-heading > .ui-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--accent); }
+.turn-deliverables-heading b { margin-left: auto; color: var(--text-muted); font-size: .7rem; font-weight: 500; }
+.turn-deliverable-files { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+.turn-deliverable-chip { display: flex; align-items: center; width: 100%; min-height: 31px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-secondary); }
+.turn-deliverable-chip > .ui-icon { width: 15px; height: 15px; flex: 0 0 15px; margin-left: 9px; color: var(--accent); }
+.turn-deliverable-name { flex: 1 1 auto; min-width: 0; max-width: none; padding: 0 9px 0 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.turn-deliverable-action { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; padding: 0; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+.turn-deliverable-action:hover { color: var(--accent); background: var(--accent-light); }
+.turn-deliverable-action .ui-icon { width: 14px; height: 14px; flex: 0 0 14px; }
+
 .file-change-header { display: flex; align-items: center; gap: 8px; padding: 9px 10px; font-size: .82rem; }
 .file-change-header > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-change-header button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: .76rem; }

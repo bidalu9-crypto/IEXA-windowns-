@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('iexaDesktop', {
   pickFolder: () => ipcRenderer.invoke('iexa:pick-folder'),
   pickSkillFile: () => ipcRenderer.invoke('iexa:pick-skill-file'),
   openPath: (p) => ipcRenderer.invoke('iexa:open-path', p),
+  revealPath: (p) => ipcRenderer.invoke('iexa:reveal-path', p),
   isDesktop: true,
 });

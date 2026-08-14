@@ -488,6 +488,39 @@ export class AgentLoop {
     args: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
     switch (name) {
+      case 'todo_write': {
+        const raw = Array.isArray(args.todos) ? args.todos : null;
+        if (!raw) return { output: 'Error: todos must be an array.', success: false };
+        if (raw.length === 0 || raw.length > 24) {
+          return { output: 'Error: todos must contain between 1 and 24 items.', success: false };
+        }
+        const seen = new Set<string>();
+        const todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
+        let inProgress = 0;
+        for (const item of raw) {
+          if (!item || typeof item !== 'object') return { output: 'Error: every todo must be an object.', success: false };
+          const content = String((item as Record<string, unknown>).content || '').trim();
+          const status = String((item as Record<string, unknown>).status || '');
+          if (!content || content.length > 240) return { output: 'Error: todo content must be 1-240 characters.', success: false };
+          if (!['pending', 'in_progress', 'completed'].includes(status)) {
+            return { output: 'Error: todo status must be pending, in_progress, or completed.', success: false };
+          }
+          const key = content.toLocaleLowerCase();
+          if (seen.has(key)) return { output: `Error: duplicate todo content: ${content}`, success: false };
+          seen.add(key);
+          if (status === 'in_progress') inProgress++;
+          todos.push({ content, status: status as 'pending' | 'in_progress' | 'completed' });
+        }
+        if (inProgress > 1) return { output: 'Error: at most one todo may be in_progress.', success: false };
+        const completed = todos.filter((todo) => todo.status === 'completed').length;
+        const active = todos.filter((todo) => todo.status === 'in_progress').length;
+        return {
+          output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`,
+          success: true,
+          todos,
+        };
+      }
+
       case 'shell_execute': {
         const command = String(args.command || '');
         const timeout = Number(args.timeout) || 900;

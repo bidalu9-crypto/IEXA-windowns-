@@ -8,6 +8,19 @@ import { AgentToolDefinition } from '../providers/types';
 export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefinition[] {
   const tools: AgentToolDefinition[] = [
     {
+      name: 'todo_write',
+      description:
+        'Create or replace the complete task plan for the current user request. Use this for multi-step work: call it at the start with a concise checklist, update it as work progresses, and mark items completed only after verification. Every call replaces the entire list. Keep exactly one item in_progress unless work is genuinely parallel.',
+      parameters: {
+        todos: {
+          type: 'array',
+          description: 'Complete checklist array. Each item must be { content: string, status: pending | in_progress | completed }. Send the full list on every update, not partial edits.',
+        },
+      },
+      required: ['todos'],
+      propertyOrdering: ['todos'],
+    },
+    {
       name: 'shell_execute',
       description:
         'Execute a command in a shell process. The command runs via the system shell (cmd.exe on Windows, /bin/sh on Unix) with stdout and stderr captured separately. Each invocation spawns a fresh process — there is no shared terminal session. Default timeout is 15 minutes (900s).',

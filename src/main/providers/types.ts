@@ -14,7 +14,7 @@ export interface AgentToolDefinition {
 }
 
 export interface AgentToolParam {
-  type: 'string' | 'integer' | 'boolean';
+  type: 'string' | 'integer' | 'boolean' | 'array';
   description: string;
   enumValues?: string[];
 }
@@ -75,12 +75,17 @@ export interface ToolExecutionResult {
   timedOut?: boolean;
   /** Structured artifact metadata for Codex-style UI rendering. */
   fileChange?: {
+    /** Display path supplied to the model (relative when the call used one). */
     path: string;
+    /** Canonical local path for native open/reveal actions; never model-facing. */
+    absolutePath?: string;
     before: string;
     after: string;
     added: number;
     removed: number;
   };
+  /** Structured task-plan snapshot emitted by todo_write. */
+  todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>;
   artifacts?: Array<{
     kind: 'image' | 'audio' | 'video' | 'file';
     path: string;

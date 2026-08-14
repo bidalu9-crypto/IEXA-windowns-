@@ -125,6 +125,18 @@ ipcMain.handle('iexa:open-path', async (_evt, targetPath) => {
   }
 });
 
+ipcMain.handle('iexa:reveal-path', async (_evt, targetPath) => {
+  if (!targetPath || typeof targetPath !== 'string') return { ok: false, error: '路径无效' };
+  try {
+    const abs = path.resolve(targetPath);
+    if (!fs.existsSync(abs)) return { ok: false, error: '文件不存在' };
+    shell.showItemInFolder(abs);
+    return { ok: true, path: abs };
+  } catch (e) {
+    return { ok: false, error: e.message || '打开失败' };
+  }
+});
+
 // ---- Error Dialog Helper ----
 function showError(title, message) {
   console.error(`[IEXA] ${title}: ${message}`);

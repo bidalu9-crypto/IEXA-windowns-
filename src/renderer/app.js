@@ -463,6 +463,9 @@ async function switchSession(id, updateList = true) {
             }
             el.appendChild(steps);
           }
+          const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
+          if (todoPlan) renderTodoPlan(el, todoPlan);
+          if (msg.deliverables) renderDeliverables(el, msg.deliverables);
           // Render usage if present
           if (msg.usage) {
             const usageEl = document.createElement('div');
@@ -1246,7 +1249,7 @@ function handleSSEEvent(raw, turnToken) {
         handleToolComplete(data.id, data.name, data.args);
         break;
       case 'tool_result':
-        handleToolResult(data.id, data.output, data.success, data.fileChange, data.imageData, data.imageMimeType, data.artifacts);
+        handleToolResult(data.id, data.output, data.success, data.todos, data.fileChange, data.imageData, data.imageMimeType, data.artifacts);
         break;
       case 'context':
         handleContextStatus(data);
@@ -1393,6 +1396,7 @@ function handleThinkingDelta(text) {
 }
 
 const TOOL_LABELS = {
+  todo_write: '更新计划',
   shell_execute: '执行命令',
   file_read: '读取文件',
   file_write: '写入文件',
@@ -1403,6 +1407,7 @@ const TOOL_LABELS = {
 };
 
 const TOOL_ICONS = {
+  todo_write: 'check',
   shell_execute: 'terminal',
   file_read: 'file',
   file_write: 'edit',
@@ -1752,11 +1757,15 @@ function handleToolComplete(id, name, args) {
   scrollToBottom();
 }
 
-function handleToolResult(id, output, success, fileChange, imageData, imageMimeType, artifacts) {
+function handleToolResult(id, output, success, todos, fileChange, imageData, imageMimeType, artifacts) {
   const info = currentToolBlocks[id];
   if (!info) return;
 
   setToolStepStatus(info.block, success ? 'done' : 'error');
+
+  if (Array.isArray(todos) && success && currentAssistantMsg) {
+    renderTodoPlan(currentAssistantMsg, todos);
+  }
 
   const bodyEl = info.block.querySelector('.tool-body');
   if (bodyEl) {
@@ -1783,7 +1792,11 @@ function handleToolResult(id, output, success, fileChange, imageData, imageMimeT
       image.addEventListener('click', () => openImagePreview(img.src, '工具生成的图片'));
       bodyEl.appendChild(image);
     }
-    if (fileChange && fileChange.path) renderFileChange(bodyEl, fileChange);
+    if (fileChange && fileChange.path) {
+      info.fileChange = fileChange;
+      info.success = !!success;
+      renderFileChange(bodyEl, fileChange);
+    }
     const mediaArtifacts = artifacts && artifacts.length
       ? artifacts
       : imageData && imageMimeType
@@ -1887,6 +1900,118 @@ async function copyArtifactImage(src, button) {
     alert('当前系统不支持直接复制图片，请使用保存按钮。');
   }
 }
+
+function normalizeTodoItems(todos) {
+  if (!Array.isArray(todos)) return [];
+  const seen = new Set();
+  return todos.map((item) => ({
+    content: String(item?.content || '').trim(),
+    status: String(item?.status || ''),
+  })).filter((item) => item.content && ['pending', 'in_progress', 'completed'].includes(item.status) && !seen.has(item.content.toLowerCase()) && seen.add(item.content.toLowerCase()));
+}
+
+function renderTodoPlan(messageEl, todos) {
+  const items = normalizeTodoItems(todos);
+  if (!messageEl || !items.length) return;
+  let panel = messageEl.querySelector('.todo-plan');
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.className = 'todo-plan';
+    const host = messageEl.querySelector('.tool-steps');
+    const answer = messageEl.querySelector('.message-content.message-answer');
+    if (answer) answer.before(panel);
+    else if (host) host.after(panel);
+    else messageEl.appendChild(panel);
+  }
+  const done = items.filter((item) => item.status === 'completed').length;
+  const active = items.find((item) => item.status === 'in_progress');
+  panel.innerHTML = `<div class="todo-plan-heading">${uiIcon('check')}<span>任务计划</span><b>${done}/${items.length}</b></div><div class="todo-plan-items"></div>`;
+  const list = panel.querySelector('.todo-plan-items');
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = `todo-plan-item is-${item.status}`;
+    const marker = item.status === 'completed' ? uiIcon('check') : item.status === 'in_progress' ? '<i class="todo-plan-spinner" aria-hidden="true"></i>' : '<i class="todo-plan-dot" aria-hidden="true"></i>';
+    row.innerHTML = `<span class="todo-plan-marker">${marker}</span><span>${escapeHtml(item.content)}</span>`;
+    list.appendChild(row);
+  }
+  panel.title = active ? `进行中：${active.content}` : done === items.length ? '计划已完成' : '等待下一步执行';
+}
+
+function latestTodoPlanFromCalls(calls) {
+  let plan = null;
+  for (const call of calls || []) {
+    if (call?.name !== 'todo_write' || call?.result?.success === false) continue;
+    const todos = call?.result?.todos || call?.args?.todos;
+    if (normalizeTodoItems(todos).length) plan = todos;
+  }
+  return plan;
+}
+function renderDeliverables(messageEl, files) {
+  if (!messageEl || !Array.isArray(files)) return;
+  const unique = files.filter((file, index) => file?.path && files.findIndex((item) => (item?.absolutePath || item?.path) === (file.absolutePath || file.path)) === index);
+  let panel = messageEl.querySelector('.turn-deliverables');
+  if (!unique.length) { if (panel) panel.remove(); return; }
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.className = 'turn-deliverables';
+    const usage = messageEl.querySelector('.message-usage');
+    if (usage) messageEl.insertBefore(panel, usage); else messageEl.appendChild(panel);
+  }
+  panel.innerHTML = '';
+  const heading = document.createElement('div');
+  heading.className = 'turn-deliverables-heading';
+  heading.innerHTML = `${uiIcon('file')}<span>本轮交付</span><b>${unique.length} 个文件</b>`;
+  const filesEl = document.createElement('div');
+  filesEl.className = 'turn-deliverable-files';
+  for (const file of unique) {
+    const path = String(file.path || '');
+    const absolutePath = typeof file.absolutePath === 'string' ? file.absolutePath : '';
+    const chip = document.createElement('div');
+    chip.className = 'turn-deliverable-chip';
+    chip.title = path;
+    chip.innerHTML = `${uiIcon('file')}<span class="turn-deliverable-name">${escapeHtml(path)}</span>`;
+    const preview = document.createElement('button');
+    preview.type = 'button';
+    preview.className = 'turn-deliverable-action';
+    preview.title = '查看文件';
+    preview.setAttribute('aria-label', `查看文件：${path}`);
+    preview.innerHTML = uiIcon('search');
+    preview.addEventListener('click', () => openDeliverablePreview(path, absolutePath));
+    chip.appendChild(preview);
+    if (absolutePath && window.iexaDesktop && typeof window.iexaDesktop.revealPath === 'function') {
+      const reveal = document.createElement('button');
+      reveal.type = 'button';
+      reveal.className = 'turn-deliverable-action';
+      reveal.title = '在资源管理器中显示';
+      reveal.setAttribute('aria-label', `在资源管理器中显示：${path}`);
+      reveal.innerHTML = uiIcon('folder');
+      reveal.addEventListener('click', () => window.iexaDesktop.revealPath(absolutePath));
+      chip.appendChild(reveal);
+    }
+    filesEl.appendChild(chip);
+  }
+  panel.append(heading, filesEl);
+}
+
+async function openDeliverablePreview(path, absolutePath) {
+  const normalized = String(path || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  // The project file preview is safer and keeps the user in IEXA when this
+  // deliverable belongs to the currently opened project.
+  if (projectRoot && normalized && !/^(?:[A-Za-z]:\/|\/)/.test(normalized)) {
+    await openFilePreview(normalized);
+    return;
+  }
+  if (absolutePath && window.iexaDesktop && typeof window.iexaDesktop.openPath === 'function') {
+    await window.iexaDesktop.openPath(absolutePath);
+  }
+}
+
+function collectLiveDeliverables() {
+  return Object.values(currentToolBlocks || {})
+    .filter((info) => info?.fileChange && info?.success)
+    .map((info) => info.fileChange);
+}
+
 
 function renderFileChange(host, change) {
   let card = host.querySelector('.file-change-card');
@@ -2077,6 +2202,7 @@ function handleDone(stopReason, turnToken) {
   // Keep the streamed reasoning as a compact completed record.
   finishActiveThinkingBlock();
 
+  if (currentAssistantMsg) renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
   currentAssistantMsg = null;
   currentToolBlocks = {};
 
