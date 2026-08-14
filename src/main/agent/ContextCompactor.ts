@@ -32,10 +32,19 @@ export function contextWindowForModel(model: string, provider = ''): number {
   return 128_000;
 }
 
-/** Harness-style pressure threshold: compact at 80% of combined capacity. */
-export function compactThresholdForWindow(window: number, _maxOutputTokens = 0): number {
+/**
+ * Start compaction before input plus a possible completion can exceed the
+ * model window. Keep the historical 80% ceiling for providers without an
+ * output limit, while reserving at most half the window for an advertised
+ * completion budget.
+ */
+export function compactThresholdForWindow(window: number, maxOutputTokens = 0): number {
   const safeWindow = Math.max(1, Math.floor(Number(window) || 0));
-  return Math.max(1, Math.floor(safeWindow * DEFAULT_THRESHOLD_RATIO));
+  const defaultThreshold = Math.floor(safeWindow * DEFAULT_THRESHOLD_RATIO);
+  const requestedOutput = Math.max(0, Math.floor(Number(maxOutputTokens) || 0));
+  if (requestedOutput <= 0) return Math.max(1, defaultThreshold);
+  const outputReserve = Math.min(requestedOutput, Math.floor(safeWindow * 0.5));
+  return Math.max(1, Math.min(defaultThreshold, safeWindow - outputReserve));
 }
 
 function estimatePartTokens(part: AgentContentPart): number {

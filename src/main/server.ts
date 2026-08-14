@@ -9,7 +9,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { URL } from 'url';
 import { AgentLoop, AgentLoopConfig } from './agent/AgentLoop';
-import { compactThresholdForWindow, contextWindowForModel, estimateMessageTokens } from './agent/ContextCompactor';
 import { ProviderFactory } from './providers/ProviderFactory';
 import { makeAgentTools } from './tools/ToolDefinitions';
 import { AgentLoopCallbacks, LLMUsage, ProviderType } from './providers/types';
@@ -36,6 +35,10 @@ const PROJECT_FILE = path.join(WORKSPACE_DIR, '.iexa-project.json');
 const TOKEN_USAGE_FILE = path.join(WORKSPACE_DIR, '.iexa-token-usage.json');
 const JOBS_FILE = path.join(WORKSPACE_DIR, '.iexa-jobs.json');
 const RENDERER_DIR = path.resolve(__dirname, '..', '..', 'src', 'renderer');
+const MAX_AUTO_MEMORY_CHARS = 6000;
+const MAX_DURABLE_CONTEXT_CHARS = 18000;
+const MAX_DURABLE_USER_NOTES = 10;
+const MAX_DURABLE_TOOL_NOTES = 12;
 
 setConfigFile(WEBDAV_CONFIG_FILE);
 
@@ -349,20 +352,35 @@ function loadSessionContext(sessionId: string): string {
   } catch { return ''; }
 }
 
-/** Load recent memory files and return as a context string. */
-function loadRecentMemories(maxDays = 5): string {
+function compactContextText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const marker = `\n[... compacted from ${text.length.toLocaleString()} chars ...]\n`;
+  const available = Math.max(80, limit - marker.length);
+  const head = Math.ceil(available * 0.7);
+  return (text.slice(0, head) + marker + text.slice(-(available - head))).slice(0, limit);
+}
+
+/** Load newest memories within a hard request-context budget. */
+function loadRecentMemories(maxFiles = 5, maxChars = MAX_AUTO_MEMORY_CHARS): string {
   try {
     if (!fs.existsSync(MEMORY_DIR)) return '';
     const files = fs.readdirSync(MEMORY_DIR)
       .filter((f) => f.endsWith('.md'))
       .sort()
       .reverse()
-      .slice(0, maxDays);
+      .slice(0, maxFiles);
     if (files.length === 0) return '';
     const entries: string[] = [];
+    let remaining = maxChars;
     for (const file of files) {
       const content = fs.readFileSync(path.join(MEMORY_DIR, file), 'utf-8').trim();
-      if (content) entries.push(content);
+      if (!content || remaining <= 0) continue;
+      const separator = entries.length ? 7 : 0;
+      const budget = remaining - separator;
+      if (budget <= 0) break;
+      const clipped = compactContextText(content, budget);
+      entries.push(clipped);
+      remaining -= clipped.length + separator;
     }
     return entries.join('\n\n---\n\n');
   } catch { return ''; }
@@ -414,7 +432,7 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[], summary 
     addAnchors(message.content);
     extractConfigAnchors(message.content);
     if (message.role === 'user' && message.content?.trim()) {
-      userNotes.push(message.content.trim().substring(0, 2000));
+      userNotes.push(compactContextText(message.content.trim(), 600));
     }
     for (const attachment of message.attachments || []) {
       addAnchors(attachment.savedPath);
@@ -426,21 +444,27 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[], summary 
       extractConfigAnchors(call.args);
       extractConfigAnchors(call.result?.output);
       const args = JSON.stringify(call.args || {});
-      const output = String(call.result?.output || '').trim().substring(0, 1200);
-      toolNotes.push(`${call.name}: ${args.substring(0, 900)}${output ? `\n结果: ${output}` : ''}`);
+      const output = compactContextText(String(call.result?.output || '').trim(), 700);
+      toolNotes.push(`${call.name}: ${compactContextText(args, 400)}${output ? `\n结果: ${output}` : ''}`);
     }
   }
   // Deduplicate config anchors while keeping last occurrence order.
   const uniqueConfig = [...new Set(configAnchors)];
   const sections = [
     '持久化会话上下文（来自本会话已保存的消息、工具调用和工具结果；其中的链接、路径、标识符应视为已知事实）：',
-    uniqueConfig.length ? `关键配置/参数（最近 ${Math.min(40, uniqueConfig.length)} 条）:\n${uniqueConfig.slice(-40).map((v) => `- ${v}`).join('\n')}` : '',
-    urls.size ? `已出现的链接:\n${[...urls].slice(-100).map((v) => `- ${v}`).join('\n')}` : '',
-    paths.size ? `已出现的文件/路径:\n${[...paths].slice(-100).map((v) => `- ${v}`).join('\n')}` : '',
-    userNotes.length ? `用户的重要原话（最近 ${Math.min(50, userNotes.length)} 条）:\n${userNotes.slice(-50).map((v) => `- ${v}`).join('\n')}` : '',
-    toolNotes.length ? `工具调用及结果摘要（最近 ${Math.min(40, toolNotes.length)} 条）:\n${toolNotes.slice(-40).join('\n\n')}` : '',
+    userNotes.length ? `用户的重要原话（最近 ${Math.min(MAX_DURABLE_USER_NOTES, userNotes.length)} 条）:\n${userNotes.slice(-MAX_DURABLE_USER_NOTES).map((v) => `- ${v}`).join('\n')}` : '',
+    uniqueConfig.length ? `关键配置/参数（最近 ${Math.min(20, uniqueConfig.length)} 条）:\n${uniqueConfig.slice(-20).map((v) => `- ${v}`).join('\n')}` : '',
+    paths.size ? `已出现的文件/路径:\n${[...paths].slice(-30).map((v) => `- ${v}`).join('\n')}` : '',
+    urls.size ? `已出现的链接:\n${[...urls].slice(-30).map((v) => `- ${v}`).join('\n')}` : '',
+    toolNotes.length ? `最近工具调用及结果摘要（最近 ${Math.min(MAX_DURABLE_TOOL_NOTES, toolNotes.length)} 条）:\n${toolNotes.slice(-MAX_DURABLE_TOOL_NOTES).join('\n\n')}` : '',
   ].filter(Boolean);
-  const content = sections.join('\n\n').substring(0, 60000);
+  let content = '';
+  for (const section of sections) {
+    const separator = content ? '\n\n' : '';
+    const remaining = MAX_DURABLE_CONTEXT_CHARS - content.length - separator.length;
+    if (remaining <= 0) break;
+    content += separator + compactContextText(section, remaining);
+  }
   const state: DurableSessionContext = { version: 2, sessionId, updatedAt: Date.now(), content, summary: summary || undefined };
   try { fs.writeFileSync(sessionContextPath(sessionId), JSON.stringify(state, null, 2), 'utf-8'); } catch { /* best effort */ }
 }
@@ -1252,17 +1276,6 @@ ${recentMemories}
           agent.seedHistoryFromChat(persistedMessages);
         }
         const tools = makeAgentTools(true);
-        // Initial estimate makes the context ring useful before the provider
-        // returns its first token-usage receipt.
-        const seedHistory = loadMessages(sessionId);
-        const contextWindow = profile.contextWindow != null
-          ? profile.contextWindow
-          : contextWindowForModel(profile.model, profile.provider);
-        const estimatedTokens = estimateMessageTokens(seedHistory.map((m) => ({
-          role: m.role,
-          parts: [{ type: 'text' as const, text: m.content || '' }],
-        })));
-        const compactThreshold = compactThresholdForWindow(contextWindow);
 
         // Process attachments: save to workspace, prepare for agent
         const attachDir = path.join(WORKSPACE_DIR, 'uploads', sessionId);
@@ -1360,13 +1373,9 @@ ${recentMemories}
         });
         // Disable Nagle so tiny SSE frames (tool_start) leave the socket immediately.
         try { (res.socket as any)?.setNoDelay?.(true); } catch { /* ignore */ }
-        sendSSE(res, 'context', {
-          contextWindow,
-          usedTokens: estimatedTokens,
-          estimated: true,
-          compactThreshold,
-          state: compactThreshold > 0 && estimatedTokens >= compactThreshold ? 'near-limit' : 'ok',
-        });
+        // AgentLoop reports context after it has assembled the complete model
+        // envelope (system prompt, tools, durable context and history). A
+        // server-side visible-text estimate would undercount this request.
         sendSSE(res, 'job', turnJob);
 
         // This session now owns a live turn; the model route cannot change

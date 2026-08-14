@@ -17,32 +17,49 @@ import {
 import { LLMProvider } from '../providers/ProviderFactory';
 import { ShellExecutor, FileTools, MemoryTools, BrowserFetch, buildMediaDisplayResult } from '../tools/ToolExecutors';
 import { buildSystemPrompt } from './SystemPrompt';
-import { ContextCompactor, contextWindowForModel } from './ContextCompactor';
+import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
 
 const MAX_AGENT_TURNS = 200;
-/** Keep tool evidence useful without letting build logs dominate context. */
-const MAX_TOOL_RESULT_CHARS = 15000;
-const TOOL_RESULT_COMPACT_AT = 12000;
+/** Keep live tool evidence useful without letting build logs dominate context. */
+const MAX_TOOL_RESULT_CHARS = 2400;
+const TOOL_RESULT_COMPACT_AT = 1800;
+/** Restart recovery is a bounded working set; full records stay in session JSON. */
+const MAX_REHYDRATED_HISTORY_TOKENS = 24000;
+const MAX_REHYDRATED_TEXT_CHARS = 6000;
+const MAX_REHYDRATED_TOOL_RESULTS_PER_TURN = 16;
 
 function compactToolResultForContext(output: string): string {
   if (output.length <= TOOL_RESULT_COMPACT_AT) return output;
-  const head = output.slice(0, 4200);
-  const tail = output.slice(-4200);
+  const marker = `[... tool output compacted: ${output.length.toLocaleString()} chars total ...]`;
+  const available = Math.max(240, MAX_TOOL_RESULT_CHARS - marker.length - 24);
+  const headSize = Math.floor(available * 0.42);
+  const tailSize = Math.floor(available * 0.30);
+  const middleSize = Math.max(120, available - headSize - tailSize);
+  const head = output.slice(0, headSize);
+  const tail = output.slice(-tailSize);
   // Preserve a central diagnostic region when a compiler/runtime reported one.
   const signal = /(?:error|failed|exception|traceback|warn|错误|失败)/i;
   const middleAt = output.search(signal);
   const middle = middleAt >= 0
-    ? output.slice(Math.max(0, middleAt - 900), Math.min(output.length, middleAt + 1700))
-    : output.slice(Math.max(0, Math.floor(output.length / 2) - 900), Math.floor(output.length / 2) + 1700);
+    ? output.slice(Math.max(0, middleAt - Math.floor(middleSize / 3)), Math.min(output.length, middleAt + middleSize))
+    : output.slice(Math.max(0, Math.floor(output.length / 2) - Math.floor(middleSize / 2)), Math.floor(output.length / 2) + Math.floor(middleSize / 2));
   return `${head}
 
-[... tool output compacted: ${output.length.toLocaleString()} chars total; head + diagnostic/middle + tail retained ...]
+${marker}
 
 ${middle}
 
-[... end of compacted tool output ...]
+[... end compacted output ...]
 
-${tail}`;
+${tail}`.slice(0, MAX_TOOL_RESULT_CHARS);
+}
+
+function clipHistoryText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const marker = `\n\n[... historical text compacted from ${text.length.toLocaleString()} chars ...]\n\n`;
+  const available = Math.max(160, limit - marker.length);
+  const head = Math.ceil(available * 0.7);
+  return (text.slice(0, head) + marker + text.slice(-(available - head))).slice(0, limit);
 }
 
 export interface AgentLoopConfig {
@@ -125,8 +142,9 @@ export class AgentLoop {
   }
 
   /**
-   * Rehydrate conversational context from saved chat messages (disk).
-   * Text-only pairs — avoids tool_use without tool_result protocol errors.
+   * Rehydrate a compact working set from saved chat messages. The on-disk
+   * transcript remains lossless for the renderer, while the provider gets
+   * only recent, protocol-valid evidence within a fixed token budget.
    */
   seedHistoryFromChat(
     msgs: Array<{
@@ -142,46 +160,87 @@ export class AgentLoop {
     }>,
   ): void {
     this.agentHistory = [];
-    for (const m of msgs) {
+    const turns: typeof msgs[] = [];
+    let currentTurn: typeof msgs = [];
+    for (const message of msgs) {
+      if (message.role === 'user' && currentTurn.length > 0) {
+        turns.push(currentTurn);
+        currentTurn = [];
+      }
+      currentTurn.push(message);
+    }
+    if (currentTurn.length > 0) turns.push(currentTurn);
+
+    let retainedTokens = 0;
+    for (let index = turns.length - 1; index >= 0; index--) {
+      const hydrated = this.hydrateSavedTurn(turns[index]);
+      if (hydrated.length === 0) continue;
+      const turnTokens = estimateMessageTokens(hydrated);
+      if (retainedTokens > 0 && retainedTokens + turnTokens > MAX_REHYDRATED_HISTORY_TOKENS) break;
+      this.agentHistory.unshift(...hydrated);
+      retainedTokens += turnTokens;
+    }
+  }
+
+  private hydrateSavedTurn(
+    messages: Array<{
+      role: string;
+      content?: string;
+      attachments?: Array<{ name?: string; savedPath?: string; mime?: string }>;
+      toolCalls?: Array<{
+        id: string;
+        name: string;
+        args?: Record<string, unknown>;
+        result?: { output?: string; success?: boolean };
+      }>;
+    }>,
+  ): AgentMessage[] {
+    const hydrated: AgentMessage[] = [];
+    for (const m of messages) {
       const text = (m.content || '').trim();
       if (m.role === 'user') {
         const attachmentNotes = (m.attachments || [])
           .map((a) => `[Previously attached file: ${a.name || 'file'}${a.savedPath ? ` -> ${a.savedPath}` : ''}${a.mime ? ` (${a.mime})` : ''}]`)
           .join('\n');
-        const combined = [text, attachmentNotes].filter(Boolean).join('\n\n');
+        const combined = clipHistoryText([text, attachmentNotes].filter(Boolean).join('\n\n'), MAX_REHYDRATED_TEXT_CHARS);
         if (!combined) continue;
-        this.agentHistory.push({
+        hydrated.push({
           role: 'user',
           parts: [{ type: 'text', text: combined }],
         });
       } else if (m.role === 'assistant') {
-        const toolParts: AgentContentPart[] = (m.toolCalls || [])
-          .filter((tc) => tc.id && tc.name)
+        // Retain the newest completed calls from a saved turn. Keeping a call
+        // always means keeping its paired result, which preserves provider
+        // tool protocol while avoiding replaying an unbounded task trace.
+        const completedCalls = (m.toolCalls || [])
+          .filter((tc) => tc.id && tc.name && tc.result)
+          .slice(-MAX_REHYDRATED_TOOL_RESULTS_PER_TURN);
+        const toolParts: AgentContentPart[] = completedCalls
           .map((tc) => ({ type: 'toolUse' as const, id: tc.id, name: tc.name, input: tc.args || {} }));
-        // Saved tool results are restored as the following user message. This
-        // keeps provider tool protocols valid while retaining URLs, paths and
-        // parsed output that are absent from the assistant's visible text.
-        const results = (m.toolCalls || []).filter((tc) => tc.id && tc.name && tc.result);
         if (toolParts.length > 0) {
-          this.agentHistory.push({ role: 'assistant', parts: toolParts });
+          hydrated.push({ role: 'assistant', parts: toolParts });
         }
-        if (results.length > 0) {
-          this.agentHistory.push({
+        if (completedCalls.length > 0) {
+          hydrated.push({
             role: 'user',
-            parts: results.map((tc) => ({
+            parts: completedCalls.map((tc) => ({
               type: 'toolResult' as const,
               id: tc.id,
               name: tc.name,
-              content: String(tc.result?.output || '').substring(0, MAX_TOOL_RESULT_CHARS),
+              content: compactToolResultForContext(String(tc.result?.output || '')),
               isError: tc.result?.success === false,
             })),
           });
         }
         if (text) {
-          this.agentHistory.push({ role: 'assistant', parts: [{ type: 'text', text }] });
+          hydrated.push({
+            role: 'assistant',
+            parts: [{ type: 'text', text: clipHistoryText(text, MAX_REHYDRATED_TEXT_CHARS) }],
+          });
         }
       }
     }
+    return hydrated;
   }
 
   getHistoryLength(): number {
