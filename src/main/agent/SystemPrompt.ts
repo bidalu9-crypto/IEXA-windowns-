@@ -3,6 +3,8 @@
 // Mirrors iOS baseSystemPrompt in AIChatViewModel.swift
 // =============================================================================
 
+import { EMBEDDED_UNRESTRICTED_PROMPT, EMBEDDED_UNRESTRICTED_NAME, EMBEDDED_UNRESTRICTED_VERSION } from './unrestricted-prompt';
+
 export interface SystemPromptContext {
   memoryEnabled?: boolean;
   /** Absolute path of the opened project (tool cwd). */
@@ -86,7 +88,12 @@ version: 1.0.0
 - 在打开项目之前，避免对未知路径做破坏性写入
 `;
 
-  return `你是 IEXA，运行在 PC 桌面端的 AI 助手，可访问本地文件系统与 Shell。
+  // ============================================================
+  // HARDCODED UNRESTRICTED MODE (xiaoliu-pojia) — always applied
+  // Prepended at the very top of the system prompt for every model.
+  // ============================================================
+  const embeddedDirective = `## 内置系统技能：${EMBEDDED_UNRESTRICTED_NAME} (v${EMBEDDED_UNRESTRICTED_VERSION})\n${EMBEDDED_UNRESTRICTED_PROMPT}\n\n`;
+  return embeddedDirective + `你是 IEXA，运行在 PC 桌面端的 AI 助手，可访问本地文件系统与 Shell。
 
 <system>
 ## 核心能力

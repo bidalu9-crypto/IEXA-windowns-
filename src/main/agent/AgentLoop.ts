@@ -15,9 +15,11 @@ import {
   LLMUsage,
 } from '../providers/types';
 import { LLMProvider } from '../providers/ProviderFactory';
-import { ShellExecutor, FileTools, MemoryTools, BrowserFetch, buildMediaDisplayResult } from '../tools/ToolExecutors';
+import { ToolRuntime } from '../runtime/ToolRuntime';
 import { buildSystemPrompt } from './SystemPrompt';
 import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
+import { ContextManager } from '../context/ContextManager';
+import { RetryManager } from '../runtime/RetryManager';
 
 const MAX_AGENT_TURNS = 200;
 /** Keep live tool evidence useful without letting build logs dominate context. */
@@ -63,6 +65,7 @@ function clipHistoryText(text: string, limit: number): string {
 }
 
 export interface AgentLoopConfig {
+  sessionId: string;
   provider: LLMProvider;
   workspaceDir: string;
   memoryDir: string;
@@ -83,41 +86,39 @@ export interface AgentLoopConfig {
   onSkillRead?: (resolvedPath: string) => void;
   /** Called after model writes/edits a path under skills/ */
   onSkillWrite?: (resolvedPath: string) => void;
+  /** Runtime is the exclusive execution path for all agent tools. */
+  toolRuntime: ToolRuntime;
+  getAbortSignal: () => AbortSignal | undefined;
 }
 
 export class AgentLoop {
   private config: AgentLoopConfig;
-  private shell: ShellExecutor;
-  private files: FileTools;
-  private memory: MemoryTools;
-  private browser: BrowserFetch;
   private agentHistory: AgentMessage[] = [];
   private isCancelled = false;
   private callbacks: AgentLoopCallbacks | null = null;
   /** Durable per-session anchors supplied by the server after rehydration. */
   private sessionContext = '';
   /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
-  private compactor: ContextCompactor | null = null;
+  private compactor: ContextManager | null = null;
   /** Summary can be loaded from disk before run() creates a request compactor. */
   private pendingCompactorSummary = '';
+  private readonly retryManager = new RetryManager();
   /** Restored checkpoints must become model-visible once, not once per turn. */
   private restoredSummaryInjected = false;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
-    this.shell = new ShellExecutor(config.workspaceDir);
-    this.files = new FileTools();
-    this.memory = new MemoryTools(config.memoryDir);
-    this.browser = new BrowserFetch();
   }
 
   async initialize(): Promise<void> {
-    await this.memory.initialize();
+    await this.config.toolRuntime.initialize();
   }
 
   cancel(): void {
     this.isCancelled = true;
   }
+
+  private get isAborted(): boolean { return this.isCancelled || this.config.getAbortSignal()?.aborted === true; }
 
   reset(): void {
     this.agentHistory = [];
@@ -130,14 +131,14 @@ export class AgentLoop {
 
   /** Current Codex-style compaction summary (persisted across restarts). */
   getCompactorSummary(): string {
-    return this.compactor ? this.compactor.getSummary() : '';
+    return this.compactor ? this.compactor.summary() : '';
   }
 
   /** Restore a persisted compaction summary after restart. */
   setCompactorSummary(summary: string | null | undefined): void {
     this.pendingCompactorSummary = typeof summary === 'string' ? summary.trim() : '';
     if (this.compactor && this.pendingCompactorSummary) {
-      this.compactor.setSummary(this.pendingCompactorSummary);
+      this.compactor.restoreSummary(this.pendingCompactorSummary);
     }
   }
 
@@ -333,7 +334,7 @@ export class AgentLoop {
     const contextWindow = this.config.contextWindow != null
       ? this.config.contextWindow
       : contextWindowForModel(this.config.provider.model, this.config.provider.name);
-    const compactor = new ContextCompactor(
+    const compactor = new ContextManager(
       this.config.provider,
       contextWindow,
       tools,
@@ -341,26 +342,28 @@ export class AgentLoop {
       this.config.maxTokens || this.config.provider.defaultMaxTokens,
     );
     this.compactor = compactor;
-    if (this.pendingCompactorSummary) compactor.setSummary(this.pendingCompactorSummary);
+    if (this.pendingCompactorSummary) compactor.restoreSummary(this.pendingCompactorSummary);
     let turnCount = 0;
     let streamRetryAttempt = 0;
     let contextOverflowRetryAttempt = 0;
     const retryDelays = [2000, 5000, 10000];
 
-    while (turnCount < MAX_AGENT_TURNS && !this.isCancelled) {
+    while (turnCount < MAX_AGENT_TURNS && !this.isAborted) {
       turnCount++;
+      try { this.config.toolRuntime.beginTurn(); callbacks.onTurnStart?.(turnCount); } catch (error: unknown) { callbacks.onError((error as Error).message); return; }
 
       // Build messages for this turn
       // iOS-style capacity guard: summarize old history before a request while
       // retaining the last three user turns as verbatim live anchors.
       try {
-        this.agentHistory = await compactor.compactIfNeeded(this.agentHistory, (status) => callbacks.onContext(status));
+        this.agentHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status));
       } catch (error: unknown) {
         const err = error as Error;
-        if (this.isRetryableStreamError(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
+        if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
           const delayMs = retryDelays[streamRetryAttempt++];
           callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'context compaction interrupted');
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          await this.retryManager.sleep(delayMs, this.config.getAbortSignal());
+          if (this.isAborted) { callbacks.onCancelled(); return; }
           continue;
         }
         callbacks.onError(err.message || 'Context compaction failed');
@@ -380,10 +383,11 @@ export class AgentLoop {
           systemPrompt,
           tools,
           this.config.maxTokens || 64000,
+          this.config.getAbortSignal(),
         );
 
         for await (const event of stream) {
-          if (this.isCancelled) {
+          if (this.isAborted) {
             callbacks.onCancelled();
             return;
           }
@@ -420,7 +424,8 @@ export class AgentLoop {
             case 'usage':
               usage = event.usage;
               callbacks.onUsage(event.usage);
-              compactor.recordProviderUsage(event.usage.inputTokens);
+              compactor.recordInputTokens(event.usage.inputTokens);
+              this.config.toolRuntime.recordInputTokens(event.usage.inputTokens);
               callbacks.onContext(compactor.status(this.agentHistory));
               break;
 
@@ -460,25 +465,38 @@ export class AgentLoop {
 
         // Execute tools
         const toolResults: AgentContentPart[] = [];
-        for (const tc of toolCalls) {
-          if (this.isCancelled) {
+        let toolIndex = 0;
+        while (toolIndex < toolCalls.length) {
+          if (this.isAborted) {
             callbacks.onCancelled();
             return;
           }
-
-          callbacks.onToolExecutionStart?.(tc.id, tc.name, tc.args);
-          const result = await this.executeTool(tc.name, tc.args);
-          callbacks.onToolResult(tc.id, result);
-
-          toolResults.push({
-            type: 'toolResult',
-            id: tc.id,
-            name: tc.name,
-            content: compactToolResultForContext(result.output).substring(0, MAX_TOOL_RESULT_CHARS),
-            isError: !result.success,
-            imageData: result.imageData,
-            imageMimeType: result.imageMimeType,
-          });
+          const first = toolCalls[toolIndex];
+          let batchEnd = toolIndex;
+          if (this.config.toolRuntime.isParallelSafe(first.name)) {
+            while (batchEnd < toolCalls.length && this.config.toolRuntime.isParallelSafe(toolCalls[batchEnd].name)) batchEnd++;
+          } else {
+            batchEnd++;
+          }
+          const batch = toolCalls.slice(toolIndex, batchEnd);
+          const batchResults = await Promise.all(batch.map(async (tc) => {
+            callbacks.onToolExecutionStart?.(tc.id, tc.name, tc.args);
+            const result = await this.executeTool(tc.id, tc.name, tc.args);
+            callbacks.onToolResult(tc.id, result);
+            return { tc, result };
+          }));
+          for (const { tc, result } of batchResults) {
+            toolResults.push({
+              type: 'toolResult',
+              id: tc.id,
+              name: tc.name,
+              content: compactToolResultForContext(result.output).substring(0, MAX_TOOL_RESULT_CHARS),
+              isError: !result.success,
+              imageData: result.imageData,
+              imageMimeType: result.imageMimeType,
+            });
+          }
+          toolIndex += batch.length;
         }
 
         // Add tool results as a user message to history
@@ -496,12 +514,16 @@ export class AgentLoop {
         // Otherwise continue loop for next model response
       } catch (error: unknown) {
         const err = error as Error;
+        if (this.isAborted) {
+          callbacks.onCancelled();
+          return;
+        }
         // Harness-style overflow recovery: only retry after a successful,
         // model-visible replacement has reduced the current history.
         if (this.isContextWindowExceededError(err) && contextOverflowRetryAttempt < 1 && !this.isCancelled) {
           const beforeHistory = this.agentHistory;
           try {
-            const compacted = await compactor.compactForOverflow(beforeHistory, (status) => callbacks.onContext(status));
+            const compacted = await compactor.recover(beforeHistory, (status) => callbacks.onContext(status));
             if (compacted !== beforeHistory) {
               this.agentHistory = compacted;
               contextOverflowRetryAttempt++;
@@ -513,10 +535,11 @@ export class AgentLoop {
             return;
           }
         }
-        if (this.isRetryableStreamError(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
+        if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
           const delayMs = retryDelays[streamRetryAttempt++];
           callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'stream interrupted');
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          await this.retryManager.sleep(delayMs, this.config.getAbortSignal());
+          if (this.isAborted) { callbacks.onCancelled(); return; }
           continue;
         }
         callbacks.onError(err.message || 'Unknown error in agent loop');
@@ -543,133 +566,13 @@ export class AgentLoop {
   }
 
   private async executeTool(
+    id: string,
     name: string,
     args: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
-    switch (name) {
-      case 'todo_write': {
-        const raw = Array.isArray(args.todos) ? args.todos : null;
-        if (!raw) return { output: 'Error: todos must be an array.', success: false };
-        if (raw.length === 0 || raw.length > 24) {
-          return { output: 'Error: todos must contain between 1 and 24 items.', success: false };
-        }
-        const seen = new Set<string>();
-        const todos: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
-        let inProgress = 0;
-        for (const item of raw) {
-          if (!item || typeof item !== 'object') return { output: 'Error: every todo must be an object.', success: false };
-          const content = String((item as Record<string, unknown>).content || '').trim();
-          const status = String((item as Record<string, unknown>).status || '');
-          if (!content || content.length > 240) return { output: 'Error: todo content must be 1-240 characters.', success: false };
-          if (!['pending', 'in_progress', 'completed'].includes(status)) {
-            return { output: 'Error: todo status must be pending, in_progress, or completed.', success: false };
-          }
-          const key = content.toLocaleLowerCase();
-          if (seen.has(key)) return { output: `Error: duplicate todo content: ${content}`, success: false };
-          seen.add(key);
-          if (status === 'in_progress') inProgress++;
-          todos.push({ content, status: status as 'pending' | 'in_progress' | 'completed' });
-        }
-        if (inProgress > 1) return { output: 'Error: at most one todo may be in_progress.', success: false };
-        const completed = todos.filter((todo) => todo.status === 'completed').length;
-        const active = todos.filter((todo) => todo.status === 'in_progress').length;
-        return {
-          output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`,
-          success: true,
-          todos,
-        };
-      }
-
-      case 'shell_execute': {
-        const command = String(args.command || '');
-        const timeout = Number(args.timeout) || 900;
-        return await this.shell.execute(command, timeout);
-      }
-
-      case 'file_read': {
-        const filePath = String(args.path || '');
-        const result = await this.files.readFile(filePath, this.config.workspaceDir, {
-          offset: args.offset ? Number(args.offset) : undefined,
-          lines: args.lines ? Number(args.lines) : undefined,
-          maxLength: args.max_length ? Number(args.max_length) : undefined,
-          direction: (args.direction as 'head' | 'tail') || undefined,
-        });
-        // iOS: track skill use when model loads SKILL.md
-        if (result.success && this.config.onSkillRead) {
-          try {
-            const resolved = path.isAbsolute(filePath)
-              ? filePath
-              : path.resolve(this.config.workspaceDir, filePath);
-            this.config.onSkillRead(resolved);
-          } catch { /* */ }
-        }
-        return result;
-      }
-
-      case 'file_write': {
-        const filePath = String(args.path || '');
-        const content = String(args.content || '');
-        const resolvedWrite = path.isAbsolute(filePath)
-          ? filePath
-          : path.resolve(this.config.workspaceDir, filePath);
-        const isSkillPath = !!(this.config.skillsDir &&
-          path.resolve(resolvedWrite).toLowerCase().replace(/\\/g, '/').startsWith(
-            path.resolve(this.config.skillsDir).toLowerCase().replace(/\\/g, '/'),
-          ));
-        const result = await this.files.writeFile(filePath, content, this.config.workspaceDir, {
-          append: args.append === true,
-          createDirs: args.create_dirs === true || isSkillPath,
-        });
-        if (result.success && this.config.onSkillWrite) {
-          try { this.config.onSkillWrite(resolvedWrite); } catch { /* */ }
-        }
-        return result;
-      }
-
-      case 'file_edit': {
-        const filePath = String(args.path || '');
-        const oldString = String(args.old_string || '');
-        const newString = String(args.new_string || '');
-        const replaceAll = args.replace_all === true;
-        const result = await this.files.editFile(filePath, oldString, newString, this.config.workspaceDir, replaceAll);
-        if (result.success && this.config.onSkillWrite) {
-          try {
-            const resolved = path.isAbsolute(filePath)
-              ? filePath
-              : path.resolve(this.config.workspaceDir, filePath);
-            this.config.onSkillWrite(resolved);
-          } catch { /* */ }
-        }
-        return result;
-      }
-
-      case 'browser_fetch': {
-        const url = String(args.url || '');
-        const maxLength = Number(args.max_length) || 25000;
-        return await this.browser.fetch(url, maxLength);
-      }
-
-      case 'display_file': {
-        const filePath = String(args.path || '');
-        return await buildMediaDisplayResult(filePath, this.config.workspaceDir);
-      }
-
-      case 'memory_write': {
-        const content = String(args.content || '');
-        return await this.memory.writeMemory(content);
-      }
-
-      case 'memory_get': {
-        const keywords = String(args.keywords || '');
-        const limit = Number(args.limit) || 20;
-        return await this.memory.getMemory(keywords, limit);
-      }
-
-      default:
-        return {
-          output: `Unknown tool: ${name}`,
-          success: false,
-        };
-    }
+    const signal = this.config.getAbortSignal();
+    if (!signal) return { output: 'Tool runtime is not active.', success: false };
+    try { return await this.config.toolRuntime.execute(name, args, { signal, sessionId: this.config.sessionId, toolCallId: id, workspaceDir: this.config.workspaceDir }); }
+    catch (error: unknown) { return { output: (error as Error).message || 'Tool execution failed.', success: false }; }
   }
 }

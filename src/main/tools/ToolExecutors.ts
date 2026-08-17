@@ -3,10 +3,12 @@
 // Shell, File, Memory, Browser operations
 // =============================================================================
 
-import { exec, ExecOptions } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
+import { ProcessManager } from './shell/ProcessManager';
+import { CommandPolicy } from './shell/CommandPolicy';
+import { MemoryRetriever } from '../memory/MemoryRetriever';
 
 const MEDIA_MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -78,51 +80,18 @@ function changeSummary(filePath: string, before: string, after: string, absolute
 
 export class ShellExecutor {
   private workspaceDir: string;
+  private readonly processes = new ProcessManager();
+  private readonly policy = new CommandPolicy();
 
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
   }
 
-  async execute(command: string, timeoutSec: number = 900): Promise<ToolExecutionResult> {
-    const effectiveTimeout = Math.min(timeoutSec, 3600) * 1000;
-
-    // Files created by commands remain in the workspace. They enter the chat
-    // only through an explicit display_file tool call, preserving model tool
-    // order and preventing unrelated workspace media from being auto-attached.
-    // On Windows, force UTF-8 output: chcp 65001 + PYTHONIOENCODING for Python
+  async execute(command: string, timeoutSec: number = 900, signal: AbortSignal = new AbortController().signal): Promise<ToolExecutionResult> {
+    this.policy.assertAllowed(command);
+    const effectiveTimeout = Math.min(Math.max(1, timeoutSec), 3600) * 1000;
     const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
-
-    return new Promise((resolve) => {
-      const options: ExecOptions = {
-        cwd: this.workspaceDir,
-        timeout: effectiveTimeout,
-        maxBuffer: 10 * 1024 * 1024, // 10MB
-        encoding: 'utf8',
-        shell: process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
-        env: { ...process.env, HOME: this.workspaceDir, PYTHONIOENCODING: 'utf-8' },
-      };
-
-      const child = exec(finalCommand, options, async (error, stdout, stderr) => {
-        const output = [stdout, stderr].filter(Boolean).join('\n').trim();
-        const exitCode = error?.code || 0;
-        resolve({
-          output: output || '(no output)',
-          exitCode: typeof exitCode === 'number' ? exitCode : -1,
-          success: !error || exitCode === 0,
-          timedOut: error?.killed || false,
-        });
-      });
-
-      // Handle timeout gracefully
-      child.on('error', (err) => {
-        resolve({
-          output: `Command execution error: ${err.message}`,
-          exitCode: -1,
-          success: false,
-          timedOut: false,
-        });
-      });
-    });
+    return this.processes.run(finalCommand, this.workspaceDir, signal, { timeoutMs: effectiveTimeout, maxOutputBytes: 10 * 1024 * 1024, killGracePeriodMs: 3000 });
   }
 
 
@@ -324,9 +293,11 @@ export class FileTools {
 
 export class MemoryTools {
   private memoryDir: string;
+  private readonly retriever: MemoryRetriever;
 
   constructor(memoryDir: string) {
     this.memoryDir = memoryDir;
+    this.retriever = new MemoryRetriever(memoryDir);
   }
 
   async initialize(): Promise<void> {
@@ -362,34 +333,7 @@ export class MemoryTools {
 
   async getMemory(keywords: string = '', limit: number = 20): Promise<ToolExecutionResult> {
     try {
-      await fs.mkdir(this.memoryDir, { recursive: true });
-      const files = await fs.readdir(this.memoryDir);
-      const mdFiles = files
-        .filter((f) => f.endsWith('.md'))
-        .sort()
-        .reverse()
-        .slice(0, 30); // Last 30 days
-
-      const keywordList = keywords.toLowerCase().split(/\s+/).filter(Boolean);
-      const results: string[] = [];
-
-      for (const file of mdFiles) {
-        const content = await fs.readFile(path.join(this.memoryDir, file), 'utf-8');
-
-        if (keywordList.length === 0) {
-          // Return recent entries
-          results.push(`\n### ${file}\n${content.substring(0, 2000)}`);
-          if (results.length >= limit) break;
-        } else {
-          // Filter by keywords
-          const lowerContent = content.toLowerCase();
-          if (keywordList.every((kw) => lowerContent.includes(kw))) {
-            results.push(`\n### ${file}\n${content.substring(0, 3000)}`);
-            if (results.length >= limit) break;
-          }
-        }
-      }
-
+      const results = await this.retriever.search(keywords, { limit });
       if (results.length === 0) {
         return {
           output: keywords
@@ -400,7 +344,7 @@ export class MemoryTools {
       }
 
       return {
-        output: results.join('\n---\n'),
+        output: results.map((result) => `### ${result.file}\n${result.content}`).join('\n---\n'),
         success: true,
       };
     } catch (err: unknown) {
@@ -415,7 +359,7 @@ export class MemoryTools {
 // =============================================================================
 
 export class BrowserFetch {
-  async fetch(url: string, maxLength: number = 25000): Promise<ToolExecutionResult> {
+  async fetch(url: string, maxLength: number = 25000, signal?: AbortSignal): Promise<ToolExecutionResult> {
     try {
       // Ensure HTTPS
       if (url.startsWith('http://')) {
@@ -429,7 +373,7 @@ export class BrowserFetch {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },
-        signal: AbortSignal.timeout(15000),
+        signal: signal || AbortSignal.timeout(15000),
       });
 
       if (!response.ok) {

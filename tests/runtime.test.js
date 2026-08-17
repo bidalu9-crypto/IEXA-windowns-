@@ -1,0 +1,361 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+
+const { PathSandbox } = require('../dist/main/security/PathSandbox');
+const { NetworkPolicy } = require('../dist/main/security/NetworkPolicy');
+const { BudgetManager } = require('../dist/main/runtime/BudgetManager');
+const { LoopDetector } = require('../dist/main/runtime/LoopDetector');
+const { ProcessManager } = require('../dist/main/tools/shell/ProcessManager');
+const { ToolRuntime } = require('../dist/main/runtime/ToolRuntime');
+const { ArtifactStore } = require('../dist/main/context/ArtifactStore');
+const { AgentRuntime } = require('../dist/main/runtime/AgentRuntime');
+const { PermissionManager, PermissionBroker } = require('../dist/main/security/PermissionManager');
+const { MemoryRetriever } = require('../dist/main/memory/MemoryRetriever');
+const { SkillValidator } = require('../dist/main/skills/SkillValidator');
+const { SessionManager } = require('../dist/main/session/SessionManager');
+const { TraceStore } = require('../dist/main/observability/TraceStore');
+const { hasSyncConflict } = require('../dist/main/webdav-sync');
+const { ToolScheduler } = require('../dist/main/runtime/ToolScheduler');
+const { ContextManager } = require('../dist/main/context/ContextManager');
+const { estimateCostUsd } = require('../dist/main/observability/CostTracker');
+const { JsonStore } = require('../dist/main/persistence/JsonStore');
+const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore');
+
+async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
+
+test('PathSandbox accepts workspace files and rejects traversal and absolute escapes', async () => {
+  const root = await tempWorkspace();
+  const sandbox = new PathSandbox();
+  const inside = await sandbox.resolve('nested/../file.txt', { workspaceDir: root, allowMissing: true });
+  assert.equal(path.basename(inside.path), 'file.txt');
+  await assert.rejects(() => sandbox.resolve('../outside.txt', { workspaceDir: root, allowMissing: true }), /工作区/);
+  await assert.rejects(() => sandbox.resolve(path.parse(root).root, { workspaceDir: root }), /工作区/);
+  await assert.rejects(() => sandbox.resolve('\\\\server\\share\\secret.txt', { workspaceDir: root, allowMissing: true }), /UNC|设备/);
+  await assert.rejects(() => sandbox.resolve('\\\\?\\C:\\secret.txt', { workspaceDir: root, allowMissing: true }), /UNC|设备/);
+});
+
+test('NetworkPolicy rejects local and private targets before network I/O', async () => {
+  const policy = new NetworkPolicy();
+  await assert.rejects(() => policy.assertAllowed('https://127.0.0.1/admin'), /不允许访问/);
+  await assert.rejects(() => policy.assertAllowed('https://192.168.1.1'), /不允许访问/);
+  await assert.rejects(() => policy.assertAllowed('http://example.com'), /HTTPS/);
+});
+
+test('BudgetManager enforces turn and tool limits', () => {
+  const budget = new BudgetManager({ maxTurns: 1, maxToolCalls: 1 });
+  budget.beginTurn(); budget.recordTool();
+  assert.throws(() => budget.beginTurn(), /最大执行轮数/);
+  assert.throws(() => budget.recordTool(), /最大工具调用数/);
+});
+
+test('LoopDetector stops repeated equivalent tool calls', () => {
+  const detector = new LoopDetector(2, 8);
+  detector.record('file_read', { path: 'a.txt' }); detector.record('file_read', { path: 'a.txt' });
+  assert.throws(() => detector.record('file_read', { path: 'a.txt' }), /重复调用/);
+});
+
+test('ProcessManager cancellation settles a running shell process', async () => {
+  const root = await tempWorkspace();
+  const controller = new AbortController();
+  const running = new ProcessManager().run('ping -n 6 127.0.0.1 > nul', root, controller.signal, { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 });
+  setTimeout(() => controller.abort(), 100);
+  const result = await running;
+  assert.equal(result.success, false);
+  assert.match(result.output, /cancelled/i);
+});
+
+test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
+  const root = await tempWorkspace();
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
+  runtime.registerDefaults(); await runtime.initialize();
+  const signal = new AbortController().signal;
+  const write = await runtime.execute('file_write', { tool_title: 'write', path: 'safe.txt', content: 'hello', create_dirs: false }, { signal, sessionId: 'session_1', toolCallId: 'call_1', workspaceDir: root });
+  assert.equal(write.success, true);
+  const read = await runtime.execute('file_read', { tool_title: 'read', path: 'safe.txt' }, { signal, sessionId: 'session_1', toolCallId: 'call_2', workspaceDir: root });
+  assert.equal(read.success, true); assert.match(read.output, /hello/);
+  const escape = await runtime.execute('file_read', { tool_title: 'escape', path: '../outside.txt' }, { signal, sessionId: 'session_1', toolCallId: 'call_3', workspaceDir: root });
+  assert.equal(escape.success, false); assert.match(escape.output, /工作区/);
+  const shell = await runtime.execute('shell_execute', { tool_title: 'run command', command: 'echo runtime-ok' }, { signal, sessionId: 'session_1', toolCallId: 'call_4', workspaceDir: root });
+  assert.equal(shell.success, true); assert.match(shell.output, /runtime-ok/i);
+  const artifact = await new ArtifactStore(path.join(root, 'artifacts')).put('result');
+  assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');
+});
+
+test('AgentRuntime routes an AgentLoop tool call through ToolRuntime', async () => {
+  const root = await tempWorkspace();
+  let calls = 0;
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage() {
+      if (calls++ === 0) {
+        yield { type: 'toolCallComplete', id: 'call_write', name: 'file_write', args: { tool_title: 'write', path: 'agent.txt', content: 'created by runtime' } };
+        yield { type: 'done', stopReason: 'toolUse' };
+      } else {
+        yield { type: 'textDelta', text: 'done' };
+        yield { type: 'done', stopReason: 'endTurn' };
+      }
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'runtime_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  let done = false;
+  const callbacks = {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() { done = true; },
+  };
+  const tools = runtime.toolDefinitions();
+  await runtime.run({ message: 'create file', tools, callbacks });
+  assert.equal(done, true);
+  assert.equal(await fs.readFile(path.join(root, 'agent.txt'), 'utf8'), 'created by runtime');
+  assert.equal(runtime.getState().status, 'completed');
+  assert.equal(runtime.getState().turn, 2);
+  assert.equal(runtime.getObservability().metrics.runs_completed, 1);
+  assert.equal(runtime.getObservability().metrics.tools_succeeded, 1);
+});
+
+test('PermissionBroker supports pending approval and cancellation', async () => {
+  const broker = new PermissionBroker(1_000);
+  const request = { sessionId: 'permission_test', tool: { name: 'shell_execute', risk: 'high', requiresApproval: true }, args: { command: 'whoami' } };
+  const pending = broker.request(request);
+  assert.equal(broker.list('permission_test').length, 1);
+  const item = broker.list('permission_test')[0];
+  assert.equal(broker.resolve(item.id, 'allow_once'), true);
+  assert.equal(await pending, 'allow_once');
+  assert.equal(broker.list('permission_test').length, 0);
+});
+
+test('PermissionManager distinguishes allow-once from session grants', async () => {
+  const root = await tempWorkspace();
+  let prompts = 0;
+  const tool = { name: 'shell_execute', risk: 'high', requiresApproval: true };
+  const manager = new PermissionManager(root, async () => { prompts++; return 'allow_once'; });
+  await manager.authorize({ sessionId: 's', tool, args: { command: 'echo ok' } });
+  await manager.authorize({ sessionId: 's', tool, args: { command: 'echo ok' } });
+  assert.equal(prompts, 2);
+  const sessionManager = new PermissionManager(root, async () => 'allow_session');
+  await sessionManager.authorize({ sessionId: 's', tool, args: { command: 'echo ok' } });
+  let called = false;
+  const granted = new PermissionManager(root, async () => { called = true; return 'deny'; });
+  granted.grant('s', 'shell_execute');
+  await granted.authorize({ sessionId: 's', tool, args: { command: 'echo ok' } });
+  assert.equal(called, false);
+});
+
+test('Security audit records operation fields without leaking secrets', async () => {
+  const root = await tempWorkspace();
+  const manager = new PermissionManager(root, async () => 'allow_once');
+  await manager.authorize({ sessionId: 'audit', tool: { name: 'shell_execute', risk: 'high', requiresApproval: true }, args: { command: 'echo sk-secret-value', path: 'safe.txt', password: 'top-secret' } });
+  const audit = await fs.readFile(path.join(root, 'security-audit.jsonl'), 'utf8');
+  assert.match(audit, /"command":"echo \[REDACTED\]"/);
+  assert.match(audit, /"path":"safe\.txt"/);
+  assert.doesNotMatch(audit, /top-secret|sk-secret-value/);
+});
+
+test('AgentRuntime cancellation reports cancelled when provider aborts the stream', async () => {
+  const root = await tempWorkspace();
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage(_messages, _system, _tools, _maxTokens, signal) {
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      throw new Error('provider stream aborted');
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'cancel_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  let cancelled = false;
+  const run = runtime.run({ message: 'wait', tools: runtime.toolDefinitions(), callbacks: {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { cancelled = true; }, onDone() { throw new Error('unexpected completion'); },
+  } });
+  setTimeout(() => runtime.cancel(), 25);
+  await run;
+  assert.equal(cancelled, true);
+  assert.equal(runtime.getState().status, 'cancelled');
+});
+
+test('MemoryRetriever ranks matching Markdown memory without loading every file into context', async () => {
+  const root = await tempWorkspace();
+  const memory = path.join(root, 'memory');
+  await fs.mkdir(memory);
+  await fs.writeFile(path.join(memory, 'old.md'), '# Notes\nJavaScript preference\n', 'utf8');
+  await fs.writeFile(path.join(memory, 'target.md'), '# Project\nUse TypeScript strict mode for the IEXA runtime.\n', 'utf8');
+  const hits = await new MemoryRetriever(memory).search('TypeScript runtime', { limit: 1 });
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].file, 'target.md');
+  assert.match(hits[0].content, /TypeScript strict mode/);
+});
+
+test('SkillValidator rejects malformed or binary skill content', () => {
+  const validator = new SkillValidator();
+  assert.equal(validator.validate('---\nname valid\n---\nbody').valid, false);
+  assert.equal(validator.validate('---\nname: valid\n---\nbody\0').valid, false);
+  assert.equal(validator.validate('---\nname: valid\ndescription: valid\n---\n# Body').valid, true);
+});
+
+test('SessionManager persists messages atomically through its compatibility API', async () => {
+  const root = await tempWorkspace();
+  const manager = new SessionManager(root);
+  manager.saveSync('session_1', [{ role: 'user', content: 'persisted' }]);
+  assert.deepEqual(manager.loadSync('session_1'), [{ role: 'user', content: 'persisted' }]);
+  await manager.save('session_2', { value: 2 });
+  assert.deepEqual(await manager.load('session_2'), { value: 2 });
+  await manager.save('session_2', { value: 3 });
+  await fs.writeFile(path.join(root, 'session_2.json'), '{broken', 'utf8');
+  assert.deepEqual(await manager.load('session_2'), { value: 2 });
+  manager.deleteSync('session_1');
+  assert.equal(manager.loadSync('session_1'), null);
+});
+
+test('JsonStore recovers a corrupt primary document from its backup', async () => {
+  const root = await tempWorkspace();
+  const file = path.join(root, 'state.json');
+  const store = new JsonStore(file, () => ({ fallback: true }));
+  store.saveSync({ value: 1 });
+  store.saveSync({ value: 2 });
+  await fs.writeFile(file, '{broken', 'utf8');
+  assert.deepEqual(store.loadSync(), { value: 1 });
+});
+
+test('WebDAVConflictStore retains a remote copy and records resolution', async () => {
+  const root = await tempWorkspace();
+  const store = new WebDAVConflictStore(root);
+  const item = store.preserve('session:a.json', path.join(root, 'a.json'), '/IEXA/sessions/a.json', Buffer.from('{"remote":true}'));
+  assert.equal(store.list().length, 1);
+  assert.equal(await fs.readFile(item.remoteCopyPath, 'utf8'), '{"remote":true}');
+  assert.equal(store.resolve(item.id, 'local').status, 'resolved');
+  assert.equal(store.list().length, 0);
+});
+
+test('TraceStore appends and reads session-scoped audit events', async () => {
+  const root = await tempWorkspace();
+  const store = new TraceStore(root);
+  store.append('session_1', [{ at: 1, name: 'run_started' }, { at: 2, name: 'run_completed', data: { ok: true } }]);
+  assert.deepEqual(store.read('session_1'), [{ at: 1, name: 'run_started' }, { at: 2, name: 'run_completed', data: { ok: true } }]);
+});
+
+test('WebDAV conflict detection only triggers after both sides changed from the same baseline', () => {
+  const baseline = { localMtime: 100, remoteMtime: 100 };
+  assert.equal(hasSyncConflict(baseline, 101, 100), false);
+  assert.equal(hasSyncConflict(baseline, 100, 101), false);
+  assert.equal(hasSyncConflict(baseline, 102, 102), true);
+});
+
+test('CostTracker estimates configured model pricing and marks unknown pricing', () => {
+  assert.equal(estimateCostUsd('openai', 'gpt-4o-mini', { inputTokens: 1_000_000, outputTokens: 1_000_000 }), 0.75);
+  assert.equal(estimateCostUsd('custom', 'unknown', { inputTokens: 100, outputTokens: 100 }), null);
+});
+
+test('ToolScheduler supplies duration and returns a timeout result', async () => {
+  const scheduler = new ToolScheduler();
+  let aborted = false;
+  const result = await scheduler.execute({ timeoutMs: 10, execute: async (_args, context) => new Promise((resolve) => {
+    context.signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+    setTimeout(() => resolve({ output: 'late', success: true }), 50);
+  }) }, {}, { signal: new AbortController().signal, sessionId: 's', toolCallId: 't', workspaceDir: process.cwd() });
+  assert.equal(result.timedOut, true);
+  assert.equal(result.success, false);
+  assert.ok(result.durationMs >= 8);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(aborted, true);
+});
+
+test('ProcessManager preserves Unicode and caps large output', async () => {
+  const root = await tempWorkspace();
+  const manager = new ProcessManager();
+  const unicode = await manager.run('echo 中文输出', root, new AbortController().signal, { timeoutMs: 5_000, maxOutputBytes: 8_192, killGracePeriodMs: 50 });
+  assert.equal(unicode.success, true);
+  assert.match(unicode.output, /中文输出/);
+  const large = await manager.run('for /L %i in (1,1,600) do @echo 1234567890', root, new AbortController().signal, { timeoutMs: 5_000, maxOutputBytes: 1_024, killGracePeriodMs: 50 });
+  assert.ok(Buffer.byteLength(large.output) <= 1_024);
+});
+
+test('AgentRuntime remains stable through 50 sequential tool calls', async () => {
+  const root = await tempWorkspace();
+  let calls = 0;
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage() {
+      if (calls < 50) {
+        const index = calls++;
+        yield { type: 'toolCallComplete', id: `call_${index}`, name: 'file_write', args: { tool_title: `write ${index}`, path: `bulk-${index}.txt`, content: String(index) } };
+        yield { type: 'done', stopReason: 'toolUse' };
+      } else {
+        yield { type: 'textDelta', text: 'complete' };
+        yield { type: 'done', stopReason: 'endTurn' };
+      }
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'bulk_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({ message: 'bulk', tools: runtime.toolDefinitions(), callbacks: {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {},
+  } });
+  assert.equal(calls, 50);
+  assert.equal(runtime.getState().toolCalls, 50);
+  assert.equal(runtime.getState().status, 'completed');
+  assert.equal(runtime.getObservability().metrics.tools_succeeded, 50);
+});
+
+test('AgentRuntime retries a provider 429 and then completes', async () => {
+  const root = await tempWorkspace();
+  let attempts = 0;
+  let retries = 0;
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage() {
+      if (attempts++ === 0) throw new Error('HTTP 429 rate limited');
+      yield { type: 'textDelta', text: 'recovered' };
+      yield { type: 'done', stopReason: 'endTurn' };
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'retry_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({ message: 'retry', tools: runtime.toolDefinitions(), callbacks: {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onRetry() { retries++; }, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {},
+  } });
+  assert.equal(attempts, 2);
+  assert.equal(retries, 1);
+  assert.equal(runtime.getState().status, 'completed');
+});
+
+test('ContextManager compacts pressure and supports overflow recovery', async () => {
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 256,
+    async *streamMessage() {
+      yield { type: 'textDelta', text: '## Primary Request and Intent\nKeep the request state.\n## Pending Work / Next Step\nContinue safely.' };
+      yield { type: 'done', stopReason: 'endTurn' };
+    },
+  };
+  const history = Array.from({ length: 8 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    parts: [{ type: 'text', text: `${index % 2 ? 'assistant' : 'user'} ${'x'.repeat(3200)}` }],
+  }));
+  const manager = new ContextManager(provider, 6000, [], 'system', 2000);
+  const statuses = [];
+  const compacted = await manager.compact(history, (status) => statuses.push(status.state));
+  assert.ok(compacted.length < history.length);
+  assert.ok(statuses.includes('compacted'));
+  const recovered = await manager.recover(history, () => {});
+  assert.ok(recovered.length < history.length);
+});
+
+test('HTTP route modules expose runtime and WebDAV conflict endpoints', async () => {
+  const root = await tempWorkspace();
+  process.env.IEXA_WORKSPACE = root;
+  const { startServer } = require('../dist/main/server');
+  const server = await startServer(0, false);
+  const port = server.address().port;
+  try {
+    const mode = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`).then((response) => response.json());
+    assert.equal(mode.mode, 'risk');
+    const updated = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'full' }) }).then((response) => response.json());
+    assert.equal(updated.mode, 'full');
+    const conflicts = await fetch(`http://127.0.0.1:${port}/api/webdav/conflicts`).then((response) => response.json());
+    assert.deepEqual(conflicts.conflicts, []);
+    const traces = await fetch(`http://127.0.0.1:${port}/api/traces`).then((response) => response.json());
+    assert.match(traces.error, /sessionId required/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

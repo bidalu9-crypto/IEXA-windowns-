@@ -18,6 +18,7 @@ export interface LLMProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens?: number,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent>;
 }
 

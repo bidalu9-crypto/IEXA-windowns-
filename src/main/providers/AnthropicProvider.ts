@@ -28,6 +28,7 @@ export class AnthropicProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens: number = 64000,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
     const anthropicMessages = this.convertMessages(messages);
     const anthropicTools = this.convertTools(tools);
@@ -75,6 +76,7 @@ export class AnthropicProvider {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {

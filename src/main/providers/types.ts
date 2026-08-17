@@ -68,6 +68,10 @@ export interface ToolExecutionResult {
   output: string;
   exitCode?: number;
   success: boolean;
+  durationMs?: number;
+  summary?: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
   toolTitle?: string;
   imageData?: Buffer;
   imageMimeType?: string;
@@ -141,6 +145,8 @@ export interface AgentLoopCallbacks {
   onToolCallComplete: (id: string, name: string, args: Record<string, unknown>) => void;
   /** Model has finished emitting the call and the executor is about to start it. */
   onToolExecutionStart?: (id: string, name: string, args: Record<string, unknown>) => void;
+  /** A new model/tool execution turn has started. */
+  onTurnStart?: (turn: number) => void;
   onToolResult: (id: string, result: ToolExecutionResult) => void;
   /** A transient provider/stream failure is being retried on the same model. */
   onRetry?: (attempt: number, delayMs: number, error: string) => void;

@@ -174,6 +174,17 @@
                   <button type="button" class="thinking-level-option" data-level="ultra" role="option"><span class="thinking-level-option-title">Ultra</span><span class="thinking-level-option-desc">更强的深度推理模式</span></button>
                 </div>
               </div>
+              <div class="permission-mode-wrap" id="permissionModeWrap">
+                <button type="button" class="permission-mode-btn" id="permissionModeBtn" title="权限模式" aria-haspopup="menu" aria-expanded="false">
+                  <svg class="permission-mode-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.8 12 2.1 2.1 4.4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span id="permissionModeLabel">帮我批准</span><span class="thinking-level-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="permission-mode-menu" id="permissionModeMenu" role="menu" style="display:none;">
+                  <button type="button" data-permission-menu-mode="ask" role="menuitem"><strong>请求批准</strong><small>编辑、命令和网络操作始终询问</small></button>
+                  <button type="button" data-permission-menu-mode="risk" role="menuitem"><strong>帮我批准</strong><small>仅风险操作请求批准</small></button>
+                  <button type="button" data-permission-menu-mode="full" role="menuitem"><strong>完全访问权限</strong><small>不再逐次请求授权</small></button>
+                </div>
+              </div>
               <button type="button" class="context-progress" id="contextProgress" title="上下文用量：正在估算" aria-label="查看上下文用量" data-state="ok">
                 <svg class="context-progress-ring" viewBox="0 0 36 36" aria-hidden="true">
                   <circle class="context-progress-track" cx="18" cy="18" r="15.5"></circle>
@@ -356,6 +367,7 @@
         </div>
 
         <div class="sync-result" id="syncResult" style="display:none;"></div>
+        <div class="sync-conflicts" id="syncConflicts" style="display:none;" aria-live="polite"></div>
       </div>
     </div>
 
@@ -506,6 +518,8 @@ version: 1.0.0
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="services/ApiClient.js"></script>
+<script src="components/PermissionDialog.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

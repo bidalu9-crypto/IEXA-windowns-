@@ -1204,6 +1204,110 @@ body {
   color: var(--text-primary);
 }
 
+/* Visible immediately while the provider is waiting for its first event. */
+.waiting-indicator {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: 5px 0 9px;
+  padding: 0 2px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: .84rem;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.waiting-indicator__label {
+  position: relative;
+  display: inline-block;
+  color: var(--text-secondary);
+  font-weight: 560;
+  white-space: nowrap;
+  background: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--accent-hover) 46%, var(--text-primary) 50%, var(--accent-hover) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);
+  background-size: 320% 100%;
+  background-position: 160% 0;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: iexa-waiting-text-sweep 2.8s linear infinite;
+}
+
+/* Permission requests pause only the current tool and remain actionable. */
+.permission-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--overlay);
+}
+
+.permission-dialog {
+  width: min(520px, 100%);
+  padding: 20px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.permission-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.permission-dialog p {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: .86rem;
+}
+
+.permission-dialog pre {
+  max-height: 180px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  overflow: auto;
+  color: var(--text-primary);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.permission-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.permission-action {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  cursor: pointer;
+}
+
+.permission-action:disabled { opacity: .55; cursor: wait; }
+.permission-action-primary { color: #fff; background: var(--accent-hover); border-color: var(--accent-hover); }
+.permission-action-danger { color: var(--text-primary); }
+.permission-action-secondary { background: var(--accent-light); }
+
+@keyframes iexa-waiting-text-sweep {
+  0% { background-position: 160% 0; }
+  100% { background-position: -160% 0; }
+}
+
 .message-content p { margin-bottom: 8px; }
 .message-content p:last-child { margin-bottom: 0; }
 
@@ -2267,6 +2371,19 @@ body {
   text-align: center;
 }
 
+.sync-conflicts { margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+.sync-conflict { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.sync-conflict > div:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.sync-conflict strong { color: var(--text-primary); font-size: .84rem; overflow-wrap: anywhere; }
+.sync-conflict small { color: var(--text-secondary); font-size: .75rem; white-space: nowrap; }
+.sync-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sync-conflict-actions button { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); padding: 6px 9px; font: inherit; font-size: .78rem; cursor: pointer; }
+.sync-conflict-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.sync-conflict-editor { margin-top: 10px; }
+.sync-conflict-editor label { display: block; color: var(--text-secondary); font-size: .76rem; margin-bottom: 6px; }
+.sync-conflict-editor textarea { width: 100%; min-height: 180px; resize: vertical; font-family: "Cascadia Code", Consolas, monospace; font-size: .76rem; line-height: 1.45; }
+.sync-conflict-editor div { margin-top: 8px; }
+
 .sync-success {
   background: color-mix(in srgb, var(--success) 12%, transparent);
   border: 1px solid var(--success);
@@ -2794,6 +2911,7 @@ body {
 }
 
 .model-bar-hint {
+  display: none;
   color: var(--text-muted);
   font-size: 0.7rem;
   margin-left: auto;
@@ -2942,6 +3060,57 @@ body {
 .thinking-level-option.is-active .thinking-level-option-desc {
   color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
 }
+
+/* Codex-style permission control stays in the active chat composer. */
+.permission-mode-wrap { position: relative; flex: 0 0 auto; z-index: 50; }
+.permission-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  font-size: .76rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.permission-mode-btn:hover, .permission-mode-btn.is-open { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.permission-mode-btn-icon { width: 14px; height: 14px; }
+.permission-mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 238px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow), 0 -8px 28px rgba(0, 0, 0, .08);
+}
+.permission-mode-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.permission-mode-menu button:hover, .permission-mode-menu button.is-active { background: var(--accent-light); }
+.permission-mode-menu strong { font-size: .78rem; }
+.permission-mode-menu small { color: var(--text-secondary); font-size: .7rem; }
+.permission-mode-menu button.is-active strong { color: var(--accent); }
 
 /* ===== Profile List (settings) ===== */
 .settings-header {

@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { SkillValidator } from './SkillValidator';
 
 export type SkillSource = 'file' | 'paste' | 'bundled' | 'session' | 'url';
 
@@ -49,6 +50,7 @@ export class SkillStore {
   private skillsDir: string;
   private indexFile: string;
   private skills: Skill[] = [];
+  private readonly validator = new SkillValidator();
 
   constructor(baseDir: string) {
     this.skillsDir = path.join(baseDir, 'skills');
@@ -95,6 +97,7 @@ export class SkillStore {
       if (!fs.existsSync(skillPath)) continue;
       let raw = '';
       try { raw = fs.readFileSync(skillPath, 'utf-8'); } catch { continue; }
+      if (!this.validator.validate(raw).valid) continue;
       const parsed = parseSkillMd(raw);
       const meta = byId.get(id);
       const name = parsed.name || meta?.name || id;
@@ -126,6 +129,7 @@ export class SkillStore {
 
   /** Import from SKILL.md text content */
   importFromContent(content: string, source: SkillSource = 'paste'): Skill {
+    this.validator.assertValid(content);
     const parsed = parseSkillMd(content);
     let name = parsed.name || 'Untitled Skill';
     let id = slugify(name);

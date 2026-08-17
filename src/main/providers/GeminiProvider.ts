@@ -25,6 +25,7 @@ export class GeminiProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens: number = 64000,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
     const contents = this.convertMessages(messages);
     const geminiTools = this.convertTools(tools);
@@ -71,6 +72,7 @@ export class GeminiProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {

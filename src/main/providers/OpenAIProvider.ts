@@ -33,12 +33,13 @@ export class OpenAIProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens: number = 64000,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
     if (this.apiMode === 'responses') {
-      yield* this.streamResponses(messages, systemPrompt, tools, maxTokens);
+      yield* this.streamResponses(messages, systemPrompt, tools, maxTokens, signal);
       return;
     }
-    yield* this.streamChatCompletions(messages, systemPrompt, tools, maxTokens);
+    yield* this.streamChatCompletions(messages, systemPrompt, tools, maxTokens, signal);
   }
 
   private async *streamChatCompletions(
@@ -46,6 +47,7 @@ export class OpenAIProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens: number = 64000,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
     const openaiMessages = this.convertMessages(messages, systemPrompt);
     const openaiTools = this.convertTools(tools);
@@ -83,6 +85,7 @@ export class OpenAIProvider {
         'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
 
     if (!response.ok) {
@@ -257,6 +260,7 @@ export class OpenAIProvider {
     systemPrompt: string,
     tools: AgentToolDefinition[],
     maxTokens: number,
+    signal?: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent> {
     const body: Record<string, unknown> = {
       model: this.model,
@@ -280,6 +284,7 @@ export class OpenAIProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
       body: JSON.stringify(body),
+      signal,
     });
     if (!response.ok) {
       const errorText = await response.text();

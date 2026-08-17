@@ -1194,6 +1194,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
       currentAssistantMsg = addMessage('assistant', '');
       currentAssistantMsg.dataset.liveSessionId = sessionId;
       currentAssistantMsg.dataset.thinkingLevel = turnThinkingLevel;
+      showWaitingIndicator();
       currentToolBlocks = {};
       currentTaskToolCount = 0;
       currentTaskStartedAt = 0;
@@ -1225,6 +1226,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     // Stream closed without done/error/cancelled
     withSessionRuntime(sessionId, () => {
       if (turnToken === activeChatTurnToken && isProcessing) {
+        hideWaitingIndicator();
         finishTaskSummary();
         setProcessing(false);
         scheduleQueueDrain();
@@ -1235,6 +1237,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     withSessionRuntime(sessionId, () => {
       if (turnToken !== activeChatTurnToken) return;
       addError(err.message || String(err));
+      hideWaitingIndicator();
       finishTaskSummary();
       setProcessing(false);
       scheduleQueueDrain();
@@ -1295,6 +1298,9 @@ function handleSSEEvent(raw, turnToken) {
       case 'retry':
         handleRetry(data);
         break;
+      case 'permission_required':
+        showPermissionDialog(data);
+        break;
       case 'error':
         handleError(data.message, turnToken);
         break;
@@ -1311,6 +1317,10 @@ function handleSSEEvent(raw, turnToken) {
   } catch (e) {
     // Skip parse errors for partial chunks
   }
+}
+
+function showPermissionDialog(data) {
+  window.IexaPermissionDialog.show(data, { apiBase: API_BASE, onError: addError });
 }
 
 function handleRetry(data) {
@@ -1358,6 +1368,7 @@ function ensureAnswerContentEl() {
 }
 
 function handleTextDelta(fullText) {
+  hideWaitingIndicator();
   finishActiveThinkingBlock();
   if (!currentAssistantMsg) return;
   const contentEl = ensureAnswerContentEl();
@@ -1403,6 +1414,7 @@ function finishActiveThinkingBlock() {
 }
 
 function handleThinkingDelta(text) {
+  hideWaitingIndicator();
   if (!currentAssistantMsg || !text) return;
   let thinkBlock = currentAssistantMsg.querySelector('.thinking-block');
   if (!thinkBlock) {
@@ -1617,6 +1629,26 @@ function ensureAssistantMessage() {
   return currentAssistantMsg;
 }
 
+function showWaitingIndicator() {
+  const msg = ensureAssistantMessage();
+  if (msg.querySelector('.waiting-indicator')) return;
+  const indicator = document.createElement('div');
+  indicator.className = 'waiting-indicator';
+  indicator.setAttribute('role', 'status');
+  indicator.setAttribute('aria-live', 'polite');
+  indicator.innerHTML = '<span class="waiting-indicator__label" data-text="IEXA正在思考...">IEXA正在思考...</span>';
+  const usage = msg.querySelector('.message-usage');
+  if (usage) msg.insertBefore(indicator, usage);
+  else msg.appendChild(indicator);
+  scrollToBottom();
+}
+
+function hideWaitingIndicator() {
+  if (!currentAssistantMsg) return;
+  const indicator = currentAssistantMsg.querySelector('.waiting-indicator');
+  if (indicator) indicator.remove();
+}
+
 function ensureToolStepsHost() {
   const msg = ensureAssistantMessage();
   let host = msg.querySelector('.tool-steps');
@@ -1657,6 +1689,7 @@ function setToolStepStatus(block, status, label) {
 }
 
 function handleToolStart(id, name) {
+  hideWaitingIndicator();
   finishActiveThinkingBlock();
   ensureAssistantMessage();
   if (currentToolBlocks[id]) {
@@ -1842,6 +1875,14 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       else renderToolArtifacts(bodyEl, mediaArtifacts);
     }
   }
+
+  // A tool result is followed by another provider turn. Show the same
+  // lightweight status again only after all visible tool steps are complete.
+  const hasActiveTool = Object.values(currentToolBlocks || {}).some((item) => {
+    const status = item && item.block && item.block.dataset.status;
+    return status === 'running' || status === 'streaming';
+  });
+  if (!hasActiveTool) showWaitingIndicator();
 
   scrollToBottom();
 }
@@ -2150,6 +2191,11 @@ function formatUsageNumber(value) {
   return n.toLocaleString();
 }
 
+function formatEstimatedCost(value) {
+  const cost = Number(value);
+  return Number.isFinite(cost) && cost >= 0 ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}` : '未配置价格';
+}
+
 function renderTokenUsage() {
   const list = document.getElementById('tokenUsageList');
   const updated = document.getElementById('tokenUsageUpdated');
@@ -2173,7 +2219,7 @@ function renderTokenUsage() {
         <div><span>调用次数</span><strong>${Number(r.requests || 0).toLocaleString()}</strong></div>
         ${cache ? `<div><span>缓存</span><strong>${formatUsageNumber(cache)}</strong></div>` : ''}
       </div>
-      <div class="token-usage-model-time">最近更新：${r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}</div>
+      <div class="token-usage-model-time">费用估算：${formatEstimatedCost(r.estimatedCostUsd)} · 最近更新：${r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}</div>
     </div>`;
   }).join('');
   if (updated) updated.textContent = '刚刚自动更新';
@@ -2205,6 +2251,7 @@ function handleUsage(usage) {
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   finishActiveThinkingBlock();
+  hideWaitingIndicator();
   addError(message);
   clearContextBusy();
   setProcessing(false);
@@ -2235,6 +2282,7 @@ function handleDone(stopReason, turnToken) {
   setProcessing(false);
 
   // Keep the streamed reasoning as a compact completed record.
+  hideWaitingIndicator();
   finishActiveThinkingBlock();
 
   if (currentAssistantMsg) renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
@@ -2253,6 +2301,7 @@ function handleDone(stopReason, turnToken) {
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   finishActiveThinkingBlock();
+  hideWaitingIndicator();
   finishTaskSummary();
   clearContextBusy();
   setProcessing(false);
@@ -3077,6 +3126,7 @@ async function loadWebDAVConfig() {
     document.getElementById('webdavPass').value = cfg.password || '';
     document.getElementById('webdavAutoSync').checked = cfg.autoSync || false;
     updateSyncStatus(cfg);
+    loadSyncConflicts();
   } catch (err) {
     console.error('Failed to load WebDAV config:', err);
   }
@@ -3146,7 +3196,12 @@ async function syncNow() {
     const resp = await fetch(`${API_BASE}/api/webdav/sync`, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
-      showSyncResult('success', `同步完成！上传 ${data.uploaded}，下载 ${data.downloaded} 个文件。`);
+      const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+      const conflictNote = conflicts.length
+        ? `检测到 ${conflicts.length} 个双端修改冲突，远端副本已保留到 .iexa-sync-conflicts。`
+        : '';
+      showSyncResult(conflicts.length ? 'info' : 'success', `同步完成！上传 ${data.uploaded}，下载 ${data.downloaded} 个文件。${conflictNote}`);
+      loadSyncConflicts();
     } else {
       showSyncResult('error', '同步失败：' + (data.error || '未知错误'));
     }
@@ -3190,6 +3245,63 @@ function showSyncResult(type, message) {
   el.style.display = 'block';
   el.className = 'sync-result sync-' + type;
   el.textContent = message;
+}
+
+async function loadSyncConflicts() {
+  const host = document.getElementById('syncConflicts');
+  if (!host) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/webdav/conflicts`);
+    const data = await response.json();
+    const conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+    host.style.display = conflicts.length ? 'block' : 'none';
+    host.innerHTML = conflicts.map((conflict) => `<section class="sync-conflict" data-conflict-id="${escapeHtml(conflict.id)}">
+      <div><strong>${escapeHtml(conflict.key)}</strong><small>检测于 ${new Date(conflict.createdAt).toLocaleString()}</small></div>
+      <div class="sync-conflict-actions">
+        <button type="button" data-sync-resolution="local" title="保留本地版本并覆盖远端">保留本地</button>
+        <button type="button" data-sync-resolution="remote" title="用已保存的远端副本覆盖本地">采用远端</button>
+        <button type="button" data-sync-resolution="merge" title="编辑合并后的内容">合并</button>
+      </div>
+      <div class="sync-conflict-editor" hidden></div>
+    </section>`).join('');
+    host.querySelectorAll('[data-sync-resolution]').forEach((button) => button.addEventListener('click', () => handleSyncConflictAction(button)));
+  } catch (error) {
+    host.style.display = 'none';
+  }
+}
+
+async function handleSyncConflictAction(button) {
+  const section = button.closest('.sync-conflict');
+  const id = section?.dataset.conflictId;
+  const resolution = button.dataset.syncResolution;
+  if (!id || !resolution) return;
+  if (resolution === 'merge') {
+    const editor = section.querySelector('.sync-conflict-editor');
+    if (!editor) return;
+    if (!editor.hidden) { editor.hidden = true; return; }
+    try {
+      const response = await fetch(`${API_BASE}/api/webdav/conflicts/${encodeURIComponent(id)}`);
+      const data = await response.json();
+      if (!response.ok || !data.mergeable) { showSyncResult('info', '此冲突包含敏感配置或内容过大，请选择保留本地或采用远端。'); return; }
+      editor.hidden = false;
+      editor.innerHTML = `<label>合并后的完整 JSON</label><textarea spellcheck="false">${escapeHtml(data.localContent || '')}</textarea><div><button type="button" class="btn-primary">保存合并结果</button></div>`;
+      editor.querySelector('button').addEventListener('click', () => resolveSyncConflict(id, 'merge', editor.querySelector('textarea').value));
+    } catch (error) { showSyncResult('error', `读取冲突失败：${error.message}`); }
+    return;
+  }
+  resolveSyncConflict(id, resolution);
+}
+
+async function resolveSyncConflict(id, resolution, content) {
+  try {
+    const response = await fetch(`${API_BASE}/api/webdav/conflicts/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolution, content }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '处理失败');
+    showSyncResult('success', resolution === 'local' ? '已保留本地版本并更新远端。' : resolution === 'remote' ? '已采用远端版本。' : '已保存合并版本。');
+    loadSyncConflicts();
+  } catch (error) { showSyncResult('error', `冲突处理失败：${error.message}`); }
 }
 
 // =============================================================================
@@ -4278,6 +4390,96 @@ function initJobsUI() {
   });
 }
 
+const PERMISSION_MODE_LABELS = {
+  ask: '请求批准',
+  risk: '帮我批准',
+  full: '完全访问权限',
+};
+let permissionMode = 'risk';
+
+function syncPermissionModeUI() {
+  const list = document.getElementById('permissionModeList');
+  if (list) list.querySelectorAll('[data-permission-mode]').forEach((button) => {
+    const active = button.dataset.permissionMode === permissionMode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  const label = document.getElementById('permissionModeLabel');
+  if (label) label.textContent = PERMISSION_MODE_LABELS[permissionMode];
+  const menu = document.getElementById('permissionModeMenu');
+  if (menu) menu.querySelectorAll('[data-permission-menu-mode]').forEach((button) => {
+    const active = button.dataset.permissionMenuMode === permissionMode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+}
+
+function setPermissionMenuOpen(open) {
+  const button = document.getElementById('permissionModeBtn');
+  const menu = document.getElementById('permissionModeMenu');
+  if (!button || !menu) return;
+  menu.style.display = open ? 'flex' : 'none';
+  button.classList.toggle('is-open', open);
+  button.setAttribute('aria-expanded', String(open));
+}
+
+async function setPermissionMode(mode) {
+  if (!Object.prototype.hasOwnProperty.call(PERMISSION_MODE_LABELS, mode)) return;
+  const previous = permissionMode;
+  permissionMode = mode;
+  syncPermissionModeUI();
+  try {
+    const response = await fetch(API_BASE + '/api/permissions/mode', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '权限模式保存失败');
+    setPermissionMenuOpen(false);
+  } catch (error) {
+    permissionMode = previous;
+    syncPermissionModeUI();
+    addError(error.message || String(error));
+  }
+}
+
+async function loadPermissionMode() {
+  try {
+    const response = await fetch(API_BASE + '/api/permissions/mode', { cache: 'no-store' });
+    const data = await response.json();
+    if (data && PERMISSION_MODE_LABELS[data.mode]) permissionMode = data.mode;
+  } catch { /* The default risk mode remains usable while the server starts. */ }
+  syncPermissionModeUI();
+}
+
+function initPermissionModeUI() {
+  const list = document.getElementById('permissionModeList');
+  if (list) list.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-permission-mode]');
+    if (button) setPermissionMode(button.dataset.permissionMode);
+  });
+  const button = document.getElementById('permissionModeBtn');
+  const wrap = document.getElementById('permissionModeWrap');
+  const menu = document.getElementById('permissionModeMenu');
+  if (button && wrap && menu) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPermissionMenuOpen(menu.style.display !== 'flex');
+    });
+    menu.querySelectorAll('[data-permission-menu-mode]').forEach((option) => {
+      option.addEventListener('click', () => setPermissionMode(option.dataset.permissionMenuMode));
+    });
+    document.addEventListener('click', (event) => {
+      if (!wrap.contains(event.target)) setPermissionMenuOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setPermissionMenuOpen(false);
+    });
+  }
+  syncPermissionModeUI();
+}
+
 // =============================================================================
 // Adjustable desktop panels
 // =============================================================================
@@ -4360,6 +4562,8 @@ function initPanelResizers() {
 // Start
 async function init() {
   initTheme();
+  initPermissionModeUI();
+  await loadPermissionMode();
   initPanelResizers();
   initTextContextMenu();
   initFilesPanel();

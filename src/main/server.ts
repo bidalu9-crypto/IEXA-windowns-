@@ -8,11 +8,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { URL } from 'url';
-import { AgentLoop, AgentLoopConfig } from './agent/AgentLoop';
+import { AgentRuntime, AgentRuntimeConfig } from './runtime/AgentRuntime';
 import { ProviderFactory } from './providers/ProviderFactory';
 import { makeAgentTools } from './tools/ToolDefinitions';
 import { AgentLoopCallbacks, LLMUsage, ProviderType } from './providers/types';
-import { setConfigFile, loadConfig, saveConfig, testConnection, syncAll, WebDAVConfig } from './webdav-sync';
+import { setConfigFile, loadConfig, saveConfig, testConnection, syncAll, listSyncConflicts, previewSyncConflict, resolveSyncConflict, WebDAVConfig } from './webdav-sync';
 import {
   MAX_TITLE_ATTEMPTS,
   buildConversationSummary,
@@ -21,6 +21,14 @@ import {
 } from './session-title';
 import { SkillStore, ensureBundledSkills } from './skills/SkillStore';
 import { maxThinkingLevel } from './providers/ModelCapabilities';
+import { PermissionBroker, PermissionRequest, PendingPermission, PermissionDecision, PermissionMode } from './security/PermissionManager';
+import { SessionManager } from './session/SessionManager';
+import { TraceStore } from './observability/TraceStore';
+import { JsonStore } from './persistence/JsonStore';
+import { estimateCostUsd } from './observability/CostTracker';
+import { configureApiResponse, jsonReply, readBody } from './api/HttpServer';
+import { handleWebDAVRoute } from './api/WebDAVRoutes';
+import { handleRuntimeRoute } from './api/RuntimeRoutes';
 
 const PORT = 19840;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -34,6 +42,7 @@ const WEBDAV_CONFIG_FILE = path.join(WORKSPACE_DIR, '.iexa-webdav.json');
 const PROJECT_FILE = path.join(WORKSPACE_DIR, '.iexa-project.json');
 const TOKEN_USAGE_FILE = path.join(WORKSPACE_DIR, '.iexa-token-usage.json');
 const JOBS_FILE = path.join(WORKSPACE_DIR, '.iexa-jobs.json');
+const TRACES_DIR = path.join(WORKSPACE_DIR, '.iexa-traces');
 const RENDERER_DIR = path.resolve(__dirname, '..', '..', 'src', 'renderer');
 const MAX_AUTO_MEMORY_CHARS = 6000;
 const MAX_DURABLE_CONTEXT_CHARS = 18000;
@@ -46,6 +55,7 @@ fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 fs.mkdirSync(MEMORY_DIR, { recursive: true });
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 fs.mkdirSync(SESSION_CONTEXT_DIR, { recursive: true });
+fs.mkdirSync(TRACES_DIR, { recursive: true });
 
 // Skills (iOS-style progressive disclosure via SKILL.md)
 const skillStore = new SkillStore(WORKSPACE_DIR);
@@ -59,8 +69,8 @@ interface ProjectState {
 
 function loadProjectState(): ProjectState {
   try {
-    if (fs.existsSync(PROJECT_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(PROJECT_FILE, 'utf-8'));
+    if (fs.existsSync(PROJECT_FILE) || fs.existsSync(`${PROJECT_FILE}.bak`)) {
+      const raw = new JsonStore<Record<string, unknown>>(PROJECT_FILE, () => ({})).loadSync();
       const root = typeof raw.root === 'string' && raw.root && fs.existsSync(raw.root) && fs.statSync(raw.root).isDirectory()
         ? path.resolve(raw.root)
         : null;
@@ -74,7 +84,7 @@ function loadProjectState(): ProjectState {
 }
 
 function saveProjectState(state: ProjectState): void {
-  fs.writeFileSync(PROJECT_FILE, JSON.stringify(state, null, 2), 'utf-8');
+  new JsonStore<ProjectState>(PROJECT_FILE, () => state).saveSync(state);
 }
 
 let projectState = loadProjectState();
@@ -145,13 +155,14 @@ interface AppSettings {
   activeProfileId: string;
   /** Global thinking effort: off | low | medium | high (iOS-style). */
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  permissionMode?: PermissionMode;
 }
 
 // ---- Settings I/O ----
 function loadSettings(): AppSettings {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+    if (fs.existsSync(SETTINGS_FILE) || fs.existsSync(`${SETTINGS_FILE}.bak`)) {
+      const raw = new JsonStore<Record<string, any>>(SETTINGS_FILE, () => ({})).loadSync();
       // Migrate old format
       if (!raw.profiles && raw.provider) {
         return {
@@ -170,10 +181,16 @@ function loadSettings(): AppSettings {
         profiles: raw.profiles || [],
         activeProfileId: raw.activeProfileId || raw.profiles?.[0]?.id || '',
         thinkingLevel: normalizeThinkingLevel(raw.thinkingLevel),
+        permissionMode: normalizePermissionMode(raw.permissionMode),
       };
     }
   } catch { /* ignore */ }
-  return { profiles: [], activeProfileId: '', thinkingLevel: 'medium' };
+  return { profiles: [], activeProfileId: '', thinkingLevel: 'medium', permissionMode: 'risk' };
+}
+
+function normalizePermissionMode(value: unknown): PermissionMode {
+  const mode = String(value || '').toLowerCase();
+  return mode === 'ask' || mode === 'full' ? mode : 'risk';
 }
 
 function normalizeThinkingLevel(v: unknown): 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra' {
@@ -186,8 +203,12 @@ function getThinkingLevel(): 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   return normalizeThinkingLevel(loadSettings().thinkingLevel);
 }
 
+function getPermissionMode(): PermissionMode {
+  return normalizePermissionMode(loadSettings().permissionMode);
+}
+
 function saveSettings(s: AppSettings): void {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf-8');
+  new JsonStore<AppSettings>(SETTINGS_FILE, () => s).saveSync(s);
 }
 
 function activeProfile(): ModelProfile | null {
@@ -301,33 +322,29 @@ interface SessionStore {
   activeSessionId: string;
 }
 
+const messageStore = new SessionManager<ChatMessage[]>(SESSIONS_DIR);
+
 // ---- Session I/O ----
 function loadSessionStore(): SessionStore {
   try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      return JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf-8'));
-    }
+    if (fs.existsSync(SESSIONS_FILE) || fs.existsSync(`${SESSIONS_FILE}.bak`)) return new JsonStore<SessionStore>(SESSIONS_FILE, () => ({ sessions: [], activeSessionId: '' })).loadSync();
   } catch { /* ignore */ }
   return { sessions: [], activeSessionId: '' };
 }
 
 function saveSessionStore(s: SessionStore): void {
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(s, null, 2), 'utf-8');
+  new JsonStore<SessionStore>(SESSIONS_FILE, () => s).saveSync(s);
 }
 
 function loadMessages(sessionId: string): ChatMessage[] {
   try {
-    const fp = path.join(SESSIONS_DIR, sessionId + '.json');
-    if (fs.existsSync(fp)) {
-      return JSON.parse(fs.readFileSync(fp, 'utf-8'));
-    }
+    return messageStore.loadSync(sessionId) || [];
   } catch { /* ignore */ }
   return [];
 }
 
 function saveMessages(sessionId: string, msgs: ChatMessage[]): void {
-  const fp = path.join(SESSIONS_DIR, sessionId + '.json');
-  fs.writeFileSync(fp, JSON.stringify(msgs, null, 2), 'utf-8');
+  messageStore.saveSync(sessionId, msgs);
 }
 
 interface DurableSessionContext {
@@ -466,7 +483,7 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[], summary 
     content += separator + compactContextText(section, remaining);
   }
   const state: DurableSessionContext = { version: 2, sessionId, updatedAt: Date.now(), content, summary: summary || undefined };
-  try { fs.writeFileSync(sessionContextPath(sessionId), JSON.stringify(state, null, 2), 'utf-8'); } catch { /* best effort */ }
+  try { new JsonStore<DurableSessionContext>(sessionContextPath(sessionId), () => state).saveSync(state); } catch { /* best effort */ }
 }
 
 interface TokenUsageRecord {
@@ -478,13 +495,14 @@ interface TokenUsageRecord {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   requests: number;
+  estimatedCostUsd?: number | null;
   updatedAt: number;
 }
 
 function loadTokenUsage(): TokenUsageRecord[] {
   try {
-    if (fs.existsSync(TOKEN_USAGE_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(TOKEN_USAGE_FILE, 'utf-8'));
+    if (fs.existsSync(TOKEN_USAGE_FILE) || fs.existsSync(`${TOKEN_USAGE_FILE}.bak`)) {
+      const raw = new JsonStore<unknown>(TOKEN_USAGE_FILE, () => []).loadSync();
       return Array.isArray(raw) ? raw : [];
     }
   } catch { /* ignore corrupt statistics */ }
@@ -496,7 +514,7 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
   const records = loadTokenUsage();
   let record = records.find((item) => item.key === key);
   if (!record) {
-    record = { key, provider: profile.provider, model: profile.model, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, requests: 0, updatedAt: Date.now() };
+    record = { key, provider: profile.provider, model: profile.model, inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, requests: 0, estimatedCostUsd: null, updatedAt: Date.now() };
     records.push(record);
   }
   record.inputTokens += Math.max(0, Number(usage.inputTokens) || 0);
@@ -504,12 +522,27 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
   record.cacheCreationInputTokens += Math.max(0, Number(usage.cacheCreationInputTokens) || 0);
   record.cacheReadInputTokens += Math.max(0, Number(usage.cacheReadInputTokens) || 0);
   record.requests += 1;
+  record.estimatedCostUsd = estimateCostUsd(record.provider, record.model, record);
   record.updatedAt = Date.now();
-  fs.writeFileSync(TOKEN_USAGE_FILE, JSON.stringify(records, null, 2), 'utf-8');
+  new JsonStore<TokenUsageRecord[]>(TOKEN_USAGE_FILE, () => records).saveSync(records);
 }
 
 // ---- Agent (per session) ----
-const agentCache = new Map<string, AgentLoop>();
+const agentCache = new Map<string, AgentRuntime>();
+const permissionBroker = new PermissionBroker();
+const permissionSubscriptions = new Map<string, () => void>();
+
+function permissionPayload(item: PendingPermission): Record<string, unknown> {
+  const tool = item.request.tool;
+  return {
+    id: item.id,
+    sessionId: item.request.sessionId,
+    tool: { name: tool.name, description: tool.description, risk: tool.risk },
+    args: item.request.args,
+    createdAt: item.createdAt,
+    expiresAt: item.expiresAt,
+  };
+}
 /** Live turns only; cached idle agents remain reusable and are not considered running. */
 const runningSessionIds = new Set<string>();
 const artifactRegistry = new Map<string, { path: string; mimeType: string; size: number; created: number }>();
@@ -533,13 +566,13 @@ interface SessionJob {
 
 function loadJobs(): SessionJob[] {
   try {
-    const parsed = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf-8'));
+    const parsed = new JsonStore<unknown>(JOBS_FILE, () => []).loadSync();
     return Array.isArray(parsed) ? parsed : [];
   } catch { return []; }
 }
 function saveJobs(jobs: SessionJob[]): void {
   // Retain a useful recent audit without making the desktop state file unbounded.
-  fs.writeFileSync(JOBS_FILE, JSON.stringify(jobs.slice(-500), null, 2), 'utf-8');
+  new JsonStore<SessionJob[]>(JOBS_FILE, () => []).saveSync(jobs.slice(-500));
 }
 function updateJob(sessionId: string, toolId: string, mutate: (job: SessionJob) => void): SessionJob | undefined {
   const jobs = loadJobs();
@@ -594,7 +627,7 @@ function cancelLiveJobs(sessionId: string): void {
   if (changed) saveJobs(jobs);
 }
 
-function getOrCreateAgent(sessionId: string): AgentLoop | null {
+function getOrCreateAgent(sessionId: string): AgentRuntime | null {
   let agent = agentCache.get(sessionId);
   if (agent) return agent;
 
@@ -619,7 +652,7 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
   const toolCwd = projectRoot || WORKSPACE_DIR;
   skillStore.reload();
   const skillsDir = skillStore.getSkillsDir();
-  const config: AgentLoopConfig = {
+  const config: Omit<AgentRuntimeConfig, 'sessionId'> = {
     provider,
     workspaceDir: toolCwd,
     memoryDir: MEMORY_DIR,
@@ -645,8 +678,10 @@ function getOrCreateAgent(sessionId: string): AgentLoop | null {
       }
     },
     contextWindow: profile.contextWindow,
+    permissionResolver: (request: PermissionRequest) => permissionBroker.request(request),
+    permissionMode: getPermissionMode(),
   };
-  agent = new AgentLoop(config);
+  agent = new AgentRuntime({ ...config, sessionId, auditDir: path.join(WORKSPACE_DIR, '.iexa-audit'), traceDir: TRACES_DIR });
   agentCache.set(sessionId, agent);
   return agent;
 }
@@ -656,6 +691,15 @@ function cancelSessionAgent(sessionId: string, dispose = true): void {
   if (agent) {
     agent.cancel();
     if (dispose) agentCache.delete(sessionId);
+  }
+  permissionBroker.cancelSession(sessionId);
+}
+
+function clearPermissionSubscription(sessionId: string): void {
+  const unsubscribe = permissionSubscriptions.get(sessionId);
+  if (unsubscribe) {
+    unsubscribe();
+    permissionSubscriptions.delete(sessionId);
   }
 }
 
@@ -757,19 +801,6 @@ function sendSSE(res: http.ServerResponse, event: string, data: unknown): void {
   if (typeof anyRes.flush === 'function') {
     try { anyRes.flush(); } catch { /* ignore */ }
   }
-}
-
-function jsonReply(res: http.ServerResponse, code: number, body: unknown): void {
-  res.writeHead(code, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
-}
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', () => resolve(body));
-  });
 }
 
 function sanitizeFileName(name: string): string {
@@ -920,78 +951,29 @@ function getSystemInfo(): {
 function createServer(): http.Server {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    configureApiResponse(res);
 
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+    if (await handleWebDAVRoute(req, res, url, {
+      workspaceDir: WORKSPACE_DIR, sessionsDir: SESSIONS_DIR, settingsFile: SETTINGS_FILE, sessionsStoreFile: SESSIONS_FILE,
+      maskPassword: maskKey, loadConfig, saveConfig, testConnection, syncAll,
+      listConflicts: listSyncConflicts, previewConflict: previewSyncConflict, resolveConflict: resolveSyncConflict,
+    })) return;
+
+    if (await handleRuntimeRoute(req, res, url, {
+      agents: agentCache, permissionBroker, permissionPayload,
+      getPermissionMode, normalizePermissionMode,
+      setPermissionMode: (mode) => { const settings = loadSettings(); settings.permissionMode = mode; saveSettings(settings); },
+      loadJobs, readTraces: (sessionId, limit) => new TraceStore(TRACES_DIR).read(sessionId, limit),
+      cancelSession: cancelSessionAgent, clearRunningSession: (sessionId) => runningSessionIds.delete(sessionId), cancelLiveJobs,
+    })) return;
 
     // =====================================================================
     // System info
     // =====================================================================
     if (url.pathname === '/api/system' && req.method === 'GET') {
       jsonReply(res, 200, getSystemInfo());
-      return;
-    }
-
-    // =====================================================================
-    // WebDAV Sync API
-    // =====================================================================
-    if (url.pathname === '/api/webdav/config') {
-      if (req.method === 'GET') {
-        const cfg = loadConfig();
-        // Mask password
-        const masked = { ...cfg, password: maskKey(cfg.password) };
-        jsonReply(res, 200, masked);
-        return;
-      }
-      if (req.method === 'POST') {
-        const body = await readBody(req);
-        try {
-          const input: WebDAVConfig = JSON.parse(body);
-          const existing = loadConfig();
-          // Only update password if a new one is provided (not masked)
-          if (input.password && input.password !== maskKey(existing.password)) {
-            existing.password = input.password;
-          }
-          existing.url = input.url || existing.url;
-          existing.username = input.username || existing.username;
-          existing.enabled = input.enabled !== undefined ? input.enabled : existing.enabled;
-          existing.autoSync = input.autoSync !== undefined ? input.autoSync : existing.autoSync;
-          saveConfig(existing);
-          jsonReply(res, 200, { ok: true });
-        } catch { jsonReply(res, 400, { error: '无效的 JSON' }); }
-        return;
-      }
-    }
-
-    if (url.pathname === '/api/webdav/test' && req.method === 'POST') {
-      const body = await readBody(req);
-      try {
-        const { url, username, password } = JSON.parse(body);
-        const result = await testConnection({ url, username, password, enabled: true, autoSync: false, lastSync: 0 });
-        jsonReply(res, result.ok ? 200 : 400, result);
-      } catch { jsonReply(res, 400, { error: '无效的 JSON' }); }
-      return;
-    }
-
-    if (url.pathname === '/api/webdav/sync' && req.method === 'POST') {
-      const cfg = loadConfig();
-      if (!cfg.url) { jsonReply(res, 400, { error: 'WebDAV 未配置' }); return; }
-
-      const result = await syncAll(cfg, WORKSPACE_DIR, SESSIONS_DIR, SETTINGS_FILE, SESSIONS_FILE);
-      jsonReply(res, result.ok ? 200 : 500, result);
-      return;
-    }
-
-    if (url.pathname === '/api/webdav/status' && req.method === 'GET') {
-      const cfg = loadConfig();
-      jsonReply(res, 200, {
-        configured: !!cfg.url,
-        enabled: cfg.enabled,
-        autoSync: cfg.autoSync,
-        lastSync: cfg.lastSync,
-      });
       return;
     }
 
@@ -1219,10 +1201,12 @@ function createServer(): http.Server {
     // =====================================================================
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       const body = await readBody(req);
+      let requestSessionId = '';
       try {
         const parsed = JSON.parse(body);
         const message: string = parsed.message || '';
         const sessionId: string = parsed.sessionId || '';
+        requestSessionId = sessionId;
         const rawAttachments: IncomingAttachment[] = Array.isArray(parsed.attachments) ? parsed.attachments : [];
         if (!message && rawAttachments.length === 0) throw new Error('message required');
         if (!sessionId) throw new Error('sessionId required');
@@ -1373,6 +1357,10 @@ ${recentMemories}
         });
         // Disable Nagle so tiny SSE frames (tool_start) leave the socket immediately.
         try { (res.socket as any)?.setNoDelay?.(true); } catch { /* ignore */ }
+        clearPermissionSubscription(sessionId);
+        permissionSubscriptions.set(sessionId, permissionBroker.subscribe(sessionId, (pending) => {
+          if (!res.writableEnded) sendSSE(res, 'permission_required', permissionPayload(pending));
+        }));
         // AgentLoop reports context after it has assembled the complete model
         // envelope (system prompt, tools, durable context and history). A
         // server-side visible-text estimate would undercount this request.
@@ -1458,6 +1446,7 @@ ${recentMemories}
           },
           onContext: (context) => sendSSE(res, 'context', context),
           onError: (e) => {
+            clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) sendSSE(res, 'job', job);
@@ -1466,6 +1455,7 @@ ${recentMemories}
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
           },
           onDone: (sr) => {
+            clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) sendSSE(res, 'job', job);
@@ -1477,6 +1467,7 @@ ${recentMemories}
             });
           },
           onCancelled: () => {
+            clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) sendSSE(res, 'job', job);
@@ -1486,41 +1477,13 @@ ${recentMemories}
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
           },
         };
-        await agent.run(message, tools, cb, agentAttachments);
+        await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments });
+        clearPermissionSubscription(sessionId);
         if (titleJob) await titleJob;
       } catch (err: unknown) {
+        clearPermissionSubscription(requestSessionId);
         if (!res.headersSent) jsonReply(res, 500, { error: (err as Error).message });
       }
-      return;
-    }
-
-    // =====================================================================
-    // Session-scoped background task registry
-    // =====================================================================
-    if (url.pathname === '/api/jobs' && req.method === 'GET') {
-      const sessionId = url.searchParams.get('sessionId') || '';
-      const jobs = loadJobs().filter((job) => !sessionId || job.sessionId === sessionId)
-        .sort((a, b) => b.createdAt - a.createdAt);
-      jsonReply(res, 200, { jobs });
-      return;
-    }
-
-    if (url.pathname === '/api/cancel') {
-      let sessionId = url.searchParams.get('sessionId') || '';
-      if (!sessionId) {
-        // Legacy fallback: try reading body
-        try {
-          const body = await readBody(req);
-          const parsed = JSON.parse(body);
-          sessionId = parsed.sessionId || '';
-        } catch { /* ignore */ }
-      }
-      if (sessionId) {
-        cancelSessionAgent(sessionId);
-        runningSessionIds.delete(sessionId);
-        cancelLiveJobs(sessionId);
-      }
-      jsonReply(res, 200, { ok: true });
       return;
     }
 
