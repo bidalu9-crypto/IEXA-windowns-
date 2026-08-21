@@ -26,13 +26,16 @@ const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore')
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 
-test('PathSandbox accepts workspace files and rejects traversal and absolute escapes', async () => {
+test('PathSandbox resolves workspace and explicitly addressed local paths', async () => {
   const root = await tempWorkspace();
+  const externalRoot = await tempWorkspace();
   const sandbox = new PathSandbox();
   const inside = await sandbox.resolve('nested/../file.txt', { workspaceDir: root, allowMissing: true });
   assert.equal(path.basename(inside.path), 'file.txt');
-  await assert.rejects(() => sandbox.resolve('../outside.txt', { workspaceDir: root, allowMissing: true }), /工作区/);
-  await assert.rejects(() => sandbox.resolve(path.parse(root).root, { workspaceDir: root }), /工作区/);
+  const parentRelative = await sandbox.resolve('../outside.txt', { workspaceDir: root, allowMissing: true });
+  assert.equal(parentRelative.path, path.resolve(root, '../outside.txt'));
+  const absolute = await sandbox.resolve(path.join(externalRoot, 'external.txt'), { workspaceDir: root, allowMissing: true });
+  assert.equal(absolute.path, path.join(externalRoot, 'external.txt'));
   await assert.rejects(() => sandbox.resolve('\\\\server\\share\\secret.txt', { workspaceDir: root, allowMissing: true }), /UNC|设备/);
   await assert.rejects(() => sandbox.resolve('\\\\?\\C:\\secret.txt', { workspaceDir: root, allowMissing: true }), /UNC|设备/);
 });
@@ -67,8 +70,29 @@ test('ProcessManager cancellation settles a running shell process', async () => 
   assert.match(result.output, /cancelled/i);
 });
 
+test('ProcessManager preserves quoted Windows CMD and PowerShell commands', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const policy = { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 };
+  const manager = new ProcessManager();
+  const signal = new AbortController().signal;
+  const windowsDir = process.env.SystemRoot || 'C:\\Windows';
+
+  const cmd = await manager.run(`dir "${windowsDir}" > nul`, root, signal, policy);
+  assert.equal(cmd.success, true, cmd.output);
+
+  const powershell = await manager.run(
+    `powershell -NoProfile -Command "Write-Output 'powershell-quoted-ok'"`,
+    root,
+    signal,
+    policy,
+  );
+  assert.equal(powershell.success, true, powershell.output);
+  assert.match(powershell.output, /powershell-quoted-ok/);
+});
+
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   const root = await tempWorkspace();
+  const externalRoot = await tempWorkspace();
   const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
   runtime.registerDefaults(); await runtime.initialize();
   const signal = new AbortController().signal;
@@ -76,9 +100,15 @@ test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   assert.equal(write.success, true);
   const read = await runtime.execute('file_read', { tool_title: 'read', path: 'safe.txt' }, { signal, sessionId: 'session_1', toolCallId: 'call_2', workspaceDir: root });
   assert.equal(read.success, true); assert.match(read.output, /hello/);
-  const escape = await runtime.execute('file_read', { tool_title: 'escape', path: '../outside.txt' }, { signal, sessionId: 'session_1', toolCallId: 'call_3', workspaceDir: root });
-  assert.equal(escape.success, false); assert.match(escape.output, /工作区/);
-  const shell = await runtime.execute('shell_execute', { tool_title: 'run command', command: 'echo runtime-ok' }, { signal, sessionId: 'session_1', toolCallId: 'call_4', workspaceDir: root });
+  const externalPath = path.join(externalRoot, 'external.txt');
+  const externalWrite = await runtime.execute('file_write', { tool_title: 'write external', path: externalPath, content: 'outside', create_dirs: false }, { signal, sessionId: 'session_1', toolCallId: 'call_3', workspaceDir: root });
+  assert.equal(externalWrite.success, true, externalWrite.output);
+  const externalRead = await runtime.execute('file_read', { tool_title: 'read external', path: externalPath }, { signal, sessionId: 'session_1', toolCallId: 'call_4', workspaceDir: root });
+  assert.equal(externalRead.success, true, externalRead.output); assert.match(externalRead.output, /outside/);
+  const externalEdit = await runtime.execute('file_edit', { tool_title: 'edit external', path: externalPath, old_string: 'outside', new_string: 'updated' }, { signal, sessionId: 'session_1', toolCallId: 'call_5', workspaceDir: root });
+  assert.equal(externalEdit.success, true, externalEdit.output);
+  assert.equal(await fs.readFile(externalPath, 'utf8'), 'updated');
+  const shell = await runtime.execute('shell_execute', { tool_title: 'run command', command: 'echo runtime-ok' }, { signal, sessionId: 'session_1', toolCallId: 'call_6', workspaceDir: root });
   assert.equal(shell.success, true); assert.match(shell.output, /runtime-ok/i);
   const artifact = await new ArtifactStore(path.join(root, 'artifacts')).put('result');
   assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');

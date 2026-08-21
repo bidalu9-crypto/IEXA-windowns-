@@ -7,8 +7,16 @@ export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; kill
 export class ProcessManager {
   async run(command: string, cwd: string, signal: AbortSignal, policy: ProcessPolicy): Promise<ToolExecutionResult> {
     return new Promise((resolve) => {
-      const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'; const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command];
-      const child = spawn(shell, args, { cwd, env: { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' }, windowsHide: true });
+      const env = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
+      // Passing a command containing quotes as the final argument to cmd.exe
+      // makes Node escape those quotes on Windows. CMD then passes literal
+      // backslashes/quotes to child tools, breaking paths such as
+      // `dir "C:\\Program Files"` and PowerShell's `-Command "..."` form.
+      // Let Node invoke the complete command through ComSpec instead, so the
+      // command string reaches CMD with its original quote structure intact.
+      const child = process.platform === 'win32'
+        ? spawn(command, { cwd, env, shell: process.env.ComSpec || 'cmd.exe', windowsHide: true })
+        : spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true });
       const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = []; let outputBytes = 0; let settled = false; let timedOut = false;
       const finish = (result: ToolExecutionResult) => { if (settled) return; settled = true; clearTimeout(timer); signal.removeEventListener('abort', abort); resolve(result); };
       const append = (value: Buffer, target: 'stdout' | 'stderr') => {
