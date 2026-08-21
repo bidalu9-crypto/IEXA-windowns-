@@ -90,6 +90,37 @@ test('ProcessManager preserves quoted Windows CMD and PowerShell commands', { sk
   assert.match(powershell.output, /powershell-quoted-ok/);
 });
 
+test('ProcessManager executes every line of a Windows CMD command', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const policy = { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 };
+  const manager = new ProcessManager();
+
+  const result = await manager.run(
+    'setlocal\r\nset "IEXA_MULTI_LINE=works"\r\necho first:%IEXA_MULTI_LINE%\r\necho second:%IEXA_MULTI_LINE%',
+    root,
+    new AbortController().signal,
+    policy,
+  );
+
+  assert.equal(result.success, true, result.output);
+  assert.match(result.output, /first:works/);
+  assert.match(result.output, /second:works/);
+});
+
+test('ProcessManager preserves a multi-line CMD script exit code', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const result = await new ProcessManager().run(
+    'echo before-exit\r\nexit /b 23',
+    root,
+    new AbortController().signal,
+    { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 },
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.exitCode, 23);
+  assert.match(result.output, /before-exit/);
+});
+
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   const root = await tempWorkspace();
   const externalRoot = await tempWorkspace();

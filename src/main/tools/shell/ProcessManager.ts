@@ -1,24 +1,41 @@
 import { spawn, ChildProcess } from 'child_process';
+import { promises as fs } from 'fs';
 import * as iconv from 'iconv-lite';
+import * as os from 'os';
+import * as path from 'path';
 import { ToolExecutionResult } from '../../providers/types';
 import { IexaError } from '../../errors/IexaError';
 
 export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; killGracePeriodMs: number; }
+
+interface ProcessLaunch {
+  child: ChildProcess;
+  cleanup?: () => Promise<void>;
+}
+
 export class ProcessManager {
   async run(command: string, cwd: string, signal: AbortSignal, policy: ProcessPolicy): Promise<ToolExecutionResult> {
+    let launch: ProcessLaunch;
+    try {
+      launch = await this.launch(command, cwd);
+    } catch (error) {
+      return {
+        output: `Command execution error: ${(error as Error).message}`,
+        success: false,
+        exitCode: -1,
+      };
+    }
+
     return new Promise((resolve) => {
-      const env = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
-      // Passing a command containing quotes as the final argument to cmd.exe
-      // makes Node escape those quotes on Windows. CMD then passes literal
-      // backslashes/quotes to child tools, breaking paths such as
-      // `dir "C:\\Program Files"` and PowerShell's `-Command "..."` form.
-      // Let Node invoke the complete command through ComSpec instead, so the
-      // command string reaches CMD with its original quote structure intact.
-      const child = process.platform === 'win32'
-        ? spawn(command, { cwd, env, shell: process.env.ComSpec || 'cmd.exe', windowsHide: true })
-        : spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true });
+      const { child } = launch;
       const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = []; let outputBytes = 0; let settled = false; let timedOut = false;
-      const finish = (result: ToolExecutionResult) => { if (settled) return; settled = true; clearTimeout(timer); signal.removeEventListener('abort', abort); resolve(result); };
+      const finish = (result: ToolExecutionResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener('abort', abort);
+        void (launch.cleanup?.() ?? Promise.resolve()).finally(() => resolve(result));
+      };
       const append = (value: Buffer, target: 'stdout' | 'stderr') => {
         const remaining = policy.maxOutputBytes - outputBytes;
         if (remaining > 0) {
@@ -40,6 +57,58 @@ export class ProcessManager {
       if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true });
     });
   }
+
+  private async launch(command: string, cwd: string): Promise<ProcessLaunch> {
+    const env = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
+    if (process.platform !== 'win32') {
+      return { child: spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true }) };
+    }
+
+    // cmd.exe executes only the first physical line supplied through /c.  Use a
+    // short-lived batch file for true multi-line input so command blocks,
+    // conditionals and one-command-per-line snippets retain CMD semantics.
+    if (/\r|\n/.test(command)) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-cmd-'));
+      const scriptPath = path.join(tempDir, 'command.cmd');
+      try {
+        // No UTF-8 BOM: CMD treats it as part of the first token.  The command
+        // prefix supplied by ShellExecutor switches to UTF-8 before user input.
+        await fs.writeFile(scriptPath, `@echo off\r\n${normalizeCmdNewlines(command)}\r\n`, 'utf8');
+      } catch (error) {
+        await fs.rm(tempDir, { recursive: true, force: true });
+        throw error;
+      }
+
+      return {
+        // Pass the script path as the command argument rather than constructing
+        // `call "..."`.  Node quotes a single argv item that contains embedded
+        // quotes when it builds the Windows command line; CMD then sees those
+        // quotes literally and tries to execute a command whose name includes
+        // quote characters.  CMD's /c accepts a batch-file path directly and
+        // preserves the batch file's final errorlevel.
+        child: spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', scriptPath], {
+          cwd,
+          env,
+          windowsHide: true,
+        }),
+        cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
+      };
+    }
+
+    // Passing a command containing quotes as the final argument to cmd.exe
+    // makes Node escape those quotes on Windows. CMD then passes literal
+    // backslashes/quotes to child tools, breaking paths such as
+    // `dir "C:\\Program Files"` and PowerShell's `-Command "..."` form.
+    // Let Node invoke the complete command through ComSpec instead, so the
+    // command string reaches CMD with its original quote structure intact.
+    return {
+      child: spawn(command, { cwd, env, shell: process.env.ComSpec || 'cmd.exe', windowsHide: true }),
+    };
+  }
+}
+
+function normalizeCmdNewlines(command: string): string {
+  return command.replace(/\r\n|\r|\n/g, '\r\n');
 }
 
 function decodeOutput(value: Buffer): string {
