@@ -1980,6 +1980,27 @@ body {
 .permission-dialog { border-radius: 10px; box-shadow: 0 18px 56px rgba(0,0,0,.2); }
 @media (max-width: 820px) { .message { max-width: none; } .tool-body { padding-left: 14px; } .tool-block::before, .tool-steps:not(.is-collapsed)::before { display: none; } .tool-header { padding-left: 12px; } }
 
+/* Match the VS Code Codex transcript: command/result surfaces are quiet,
+   while file changes become the prominent review card. */
+.tool-steps:not(.is-collapsed)::before,
+.tool-block::before { display: none; }
+.tool-block { border-radius: 7px; background: var(--bg-secondary); }
+.tool-header { min-height: 40px; padding: 7px 11px; }
+.tool-body { padding: 9px 11px 11px; background: var(--bg-secondary); }
+.tool-heading { gap: 1px; }
+.tool-header .tool-name { font-weight: 580; }
+.tool-section-label { display: none; }
+.tool-body pre.tool-args { display: none; }
+.tool-body .tool-result { margin: 0; padding: 12px; border: 0; border-radius: 5px; background: var(--code-bg); font-size: .76rem; }
+.tool-copy-output { float: right; margin-top: 6px; }
+.file-change-card { margin-top: 12px; border-radius: 9px; border-color: var(--border-strong); background: var(--bg-secondary); }
+.file-change-header { min-height: 46px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.file-change-header > span { font-weight: 620; }
+.file-change-header button { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
+.file-change-header button:hover { border-color: var(--accent); background: var(--accent-light); }
+.file-change-diff { background: var(--code-bg); }
+.turn-deliverables { border-color: var(--border-strong); background: var(--bg-secondary); }
+
 /* Harness-style streamed reasoning: compact by default after completion,
    expandable without discarding the provider's actual reasoning deltas. */
 .thinking-block {
