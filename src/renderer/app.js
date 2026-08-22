@@ -3426,6 +3426,10 @@ let filesLastSig = '';
 let workbenchView = 'files';
 let workspaceSearchTimer = null;
 let workspaceSearchEpoch = 0;
+let terminalSessions = [];
+let activeTerminalId = '';
+let terminalLastSeq = 0;
+let terminalPollTimer = null;
 
 function formatFileSize(n) {
   if (n < 1024) return n + ' B';
@@ -3434,21 +3438,24 @@ function formatFileSize(n) {
 }
 
 function switchWorkbenchView(view) {
-  if (!['files', 'git', 'search'].includes(view)) return;
+  if (!['files', 'git', 'search', 'terminal'].includes(view)) return;
   workbenchView = view;
   const filesList = document.getElementById('filesList');
   const filesPreview = document.getElementById('filesPreview');
   const gitPanel = document.getElementById('gitPanel');
   const searchPanel = document.getElementById('searchPanel');
+  const terminalPanel = document.getElementById('terminalPanel');
   if (filesList) filesList.style.display = view === 'files' ? '' : 'none';
   if (filesPreview) filesPreview.style.display = view === 'files' && filesPreview.dataset.open === 'true' ? 'flex' : 'none';
   if (gitPanel) gitPanel.style.display = view === 'git' ? 'block' : 'none';
   if (searchPanel) searchPanel.style.display = view === 'search' ? 'flex' : 'none';
+  if (terminalPanel) terminalPanel.style.display = view === 'terminal' ? 'flex' : 'none';
   document.querySelectorAll('.workbench-tab').forEach((button) => {
     button.classList.toggle('active', button.dataset.workbenchView === view);
   });
   if (view === 'git') loadGitWorkbench();
   if (view === 'search') document.getElementById('workspaceSearchInput')?.focus();
+  if (view === 'terminal') loadTerminalSessions();
 }
 
 function renderGitStatus(data) {
@@ -3612,6 +3619,152 @@ async function openGitDiff(target, staged) {
   } catch (error) {
     host.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
   }
+}
+
+function renderTerminalTabs() {
+  const tabs = document.getElementById('terminalTabs');
+  const stop = document.getElementById('terminalStopBtn');
+  if (!tabs) return;
+  tabs.innerHTML = terminalSessions.length ? terminalSessions.map((session) => {
+    const active = session.id === activeTerminalId;
+    const state = session.running ? '●' : '○';
+    return `<button type="button" class="terminal-tab${active ? ' active' : ''}${session.running ? '' : ' ended'}" data-terminal-id="${escapeHtml(session.id)}" title="${escapeHtml(session.cwd)}">${state} ${escapeHtml(session.shell)}</button>`;
+  }).join('') : '<span class="terminal-tabs-empty">没有运行中的终端</span>';
+  tabs.querySelectorAll('[data-terminal-id]').forEach((button) => {
+    button.addEventListener('click', () => selectTerminalSession(button.dataset.terminalId));
+  });
+  const active = terminalSessions.find((session) => session.id === activeTerminalId);
+  if (stop) stop.disabled = !active || !active.running;
+}
+
+function selectTerminalSession(id) {
+  if (!terminalSessions.some((session) => session.id === id)) return;
+  activeTerminalId = id;
+  terminalLastSeq = 0;
+  const output = document.getElementById('terminalOutput');
+  if (output) output.textContent = '';
+  renderTerminalTabs();
+  pollTerminalOutput();
+}
+
+function appendTerminalOutput(text) {
+  const output = document.getElementById('terminalOutput');
+  if (!output || !text) return;
+  const next = output.textContent + text;
+  output.textContent = next.length > 1_000_000 ? `…（早期终端输出已截断）\n${next.slice(-1_000_000)}` : next;
+  output.scrollTop = output.scrollHeight;
+}
+
+async function loadTerminalSessions() {
+  if (workbenchView !== 'terminal') return;
+  try {
+    const response = await fetch(`${API_BASE}/api/terminal/sessions`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取终端失败');
+    terminalSessions = data.sessions || [];
+    if (!activeTerminalId || !terminalSessions.some((session) => session.id === activeTerminalId)) {
+      activeTerminalId = terminalSessions.find((session) => session.running)?.id || terminalSessions[0]?.id || '';
+      terminalLastSeq = 0;
+      const output = document.getElementById('terminalOutput');
+      if (output) output.textContent = activeTerminalId ? '' : '打开项目后可新建终端。';
+    }
+    renderTerminalTabs();
+    if (activeTerminalId) pollTerminalOutput();
+  } catch (error) {
+    const output = document.getElementById('terminalOutput');
+    if (output) output.textContent = '终端不可用：' + (error.message || error);
+  }
+}
+
+async function createTerminalSession() {
+  const shell = document.getElementById('terminalShell')?.value || 'powershell';
+  try {
+    const response = await fetch(`${API_BASE}/api/terminal/sessions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shell }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '创建终端失败');
+    activeTerminalId = data.session.id;
+    terminalLastSeq = 0;
+    const output = document.getElementById('terminalOutput');
+    if (output) output.textContent = `[${data.session.shell} · ${data.session.cwd}]\n`;
+    await loadTerminalSessions();
+  } catch (error) {
+    addError('创建终端失败：' + (error.message || error));
+  }
+}
+
+async function pollTerminalOutput() {
+  if (workbenchView !== 'terminal' || !activeTerminalId) return;
+  const id = activeTerminalId;
+  try {
+    const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(id)}?after=${terminalLastSeq}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取终端输出失败');
+    if (id !== activeTerminalId) return;
+    (data.chunks || []).forEach((chunk) => appendTerminalOutput(chunk.text));
+    terminalLastSeq = Math.max(terminalLastSeq, Number(data.lastSeq) || 0);
+    const known = terminalSessions.find((session) => session.id === id);
+    if (known && known.running !== data.running) loadTerminalSessions();
+  } catch (error) {
+    appendTerminalOutput(`\n[终端连接错误：${error.message || error}]\n`);
+  }
+}
+
+async function executeTerminalCommand() {
+  const input = document.getElementById('terminalCommand');
+  const command = input?.value || '';
+  if (!activeTerminalId || !command.trim()) return;
+  try {
+    appendTerminalOutput(`\n$ ${command}\n`);
+    if (input) input.value = '';
+    const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(activeTerminalId)}/execute`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '终端命令执行失败');
+    setTimeout(pollTerminalOutput, 80);
+  } catch (error) {
+    appendTerminalOutput(`[命令失败：${error.message || error}]\n`);
+  }
+}
+
+async function terminateTerminalSession() {
+  if (!activeTerminalId) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(activeTerminalId)}/terminate`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '终止终端失败');
+    setTimeout(loadTerminalSessions, 120);
+  } catch (error) {
+    addError('终止终端失败：' + (error.message || error));
+  }
+}
+
+async function interruptTerminalSession() {
+  if (!activeTerminalId) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(activeTerminalId)}/input`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: '\u0003' }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '发送 Ctrl+C 失败');
+    appendTerminalOutput('^C\n');
+  } catch (error) {
+    addError('终端中断失败：' + (error.message || error));
+  }
+}
+
+function initTerminalPanel() {
+  document.getElementById('terminalNewBtn')?.addEventListener('click', createTerminalSession);
+  document.getElementById('terminalRunBtn')?.addEventListener('click', executeTerminalCommand);
+  document.getElementById('terminalInterruptBtn')?.addEventListener('click', interruptTerminalSession);
+  document.getElementById('terminalStopBtn')?.addEventListener('click', terminateTerminalSession);
+  document.getElementById('terminalCommand')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && event.ctrlKey) { event.preventDefault(); executeTerminalCommand(); }
+  });
+  if (terminalPollTimer) clearInterval(terminalPollTimer);
+  terminalPollTimer = setInterval(() => pollTerminalOutput(), 350);
 }
 
 async function searchWorkspaceText(query) {
@@ -4805,6 +4958,7 @@ async function init() {
   initPanelResizers();
   initTextContextMenu();
   initFilesPanel();
+  initTerminalPanel();
   initSkillsUI();
   initJobsUI();
   loadTokenUsage();

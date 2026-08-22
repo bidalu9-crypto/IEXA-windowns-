@@ -26,10 +26,19 @@ const { estimateCostUsd } = require('../dist/main/observability/CostTracker');
 const { JsonStore } = require('../dist/main/persistence/JsonStore');
 const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore');
 const { GitService } = require('../dist/main/git/GitService');
+const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
 async function git(cwd, args) { await execFileAsync('git', args, { cwd, windowsHide: true }); }
+async function waitFor(check, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  throw new Error('Timed out waiting for expected terminal output');
+}
 
 test('PathSandbox resolves workspace and explicitly addressed local paths', async () => {
   const root = await tempWorkspace();
@@ -165,6 +174,30 @@ test('GitService returns structured changes, diffs, and staged state', async () 
   assert.equal(log[0].subject, 'add workbench fixture');
   await assert.rejects(() => service.createBranch(root, '../invalid'), /分支名称无效/);
   await assert.rejects(() => service.diff(root, '../outside.txt'), /超出项目目录/);
+});
+
+test('TerminalManager keeps shell state and streams command output', async () => {
+  const root = await tempWorkspace();
+  const manager = new TerminalManager();
+  const shell = process.platform === 'win32' ? 'cmd' : 'bash';
+  const session = manager.create(root, shell);
+  let after = 0;
+  let output = '';
+  const read = () => {
+    const next = manager.output(session.id, after);
+    after = next.lastSeq;
+    output += next.chunks.map((chunk) => chunk.text).join('');
+  };
+  try {
+    manager.write(session.id, process.platform === 'win32' ? 'set IEXA_TERMINAL_STATE=alive' : 'export IEXA_TERMINAL_STATE=alive', true);
+    manager.write(session.id, process.platform === 'win32' ? 'echo state:%IEXA_TERMINAL_STATE%' : 'echo state:$IEXA_TERMINAL_STATE', true);
+    await waitFor(() => { read(); return /state:alive/.test(output); });
+    assert.match(output, /state:alive/);
+    manager.terminate(session.id);
+    await waitFor(() => !manager.output(session.id, after).running);
+  } finally {
+    manager.terminate(session.id);
+  }
 });
 
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {

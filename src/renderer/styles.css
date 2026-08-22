@@ -830,6 +830,22 @@ body {
 
 .search-panel { flex-direction: column; overflow: hidden; }
 .workspace-search-results { flex: 1; min-height: 0; overflow: auto; }
+.terminal-panel { flex-direction: column; overflow: hidden; background: var(--code-bg); }
+.terminal-toolbar { display: flex; gap: 5px; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+.terminal-toolbar select { flex: 1; min-width: 0; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font-size: .72rem; outline: none; }
+.terminal-toolbar button { padding: 4px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); font-size: .68rem; cursor: pointer; }
+.terminal-toolbar button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+.terminal-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.terminal-tabs { display: flex; min-height: 34px; gap: 4px; overflow-x: auto; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+.terminal-tabs-empty { padding: 4px; color: var(--text-muted); font-size: .7rem; }
+.terminal-tab { max-width: 110px; padding: 4px 7px; overflow: hidden; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--bg-primary); font: .68rem ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.terminal-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+.terminal-tab.ended { opacity: .58; }
+.terminal-output { flex: 1; min-height: 0; margin: 0; padding: 11px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #c9d1d9; background: #11151c; font: 12px/1.48 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.terminal-command-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 8px; border-top: 1px solid var(--border); background: var(--bg-secondary); }
+.terminal-command-row textarea { min-width: 0; resize: vertical; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font: .74rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; outline: none; }
+.terminal-command-row textarea:focus { border-color: var(--accent); }
+.terminal-command-row button { padding: 0 10px; border: 1px solid var(--accent); border-radius: 6px; color: #fff; background: var(--accent); font-size: .72rem; cursor: pointer; }
 
 .workbench-empty {
   padding: 28px 16px;

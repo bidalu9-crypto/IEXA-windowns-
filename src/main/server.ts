@@ -30,6 +30,7 @@ import { configureApiResponse, jsonReply, readBody } from './api/HttpServer';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
+import { TerminalManager } from './terminals/TerminalManager';
 
 const PORT = 19840;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -50,6 +51,7 @@ const MAX_DURABLE_CONTEXT_CHARS = 18000;
 const MAX_DURABLE_USER_NOTES = 10;
 const MAX_DURABLE_TOOL_NOTES = 12;
 const gitService = new GitService();
+const terminalManager = new TerminalManager();
 
 setConfigFile(WEBDAV_CONFIG_FILE);
 
@@ -1900,6 +1902,54 @@ ${recentMemories}
     if (url.pathname === '/api/project/clear' && req.method === 'POST') {
       const result = setProjectRoot(null);
       jsonReply(res, 200, result.project);
+      return;
+    }
+
+    // =====================================================================
+    // Persistent terminal sessions for the project workbench
+    // =====================================================================
+    if (url.pathname === '/api/terminal/sessions' && req.method === 'GET') {
+      jsonReply(res, 200, { sessions: terminalManager.list() });
+      return;
+    }
+
+    if (url.pathname === '/api/terminal/sessions' && req.method === 'POST') {
+      const projectRoot = getProjectRoot() || WORKSPACE_DIR;
+      try {
+        const body = JSON.parse(await readBody(req) || '{}');
+        jsonReply(res, 201, { session: terminalManager.create(projectRoot, body.shell) });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/terminal/sessions/')) {
+      const parts = url.pathname.split('/').filter(Boolean);
+      const id = parts[3] || '';
+      const action = parts[4] || '';
+      try {
+        if (!id) throw new Error('终端会话 ID 无效。');
+        if (!action && req.method === 'GET') {
+          const after = Number(url.searchParams.get('after') || '0');
+          jsonReply(res, 200, terminalManager.output(id, after));
+          return;
+        }
+        if ((action === 'input' || action === 'execute') && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          terminalManager.write(id, action === 'input' ? String(body.input || '') : String(body.command || ''), action === 'execute');
+          jsonReply(res, 200, { ok: true });
+          return;
+        }
+        if (action === 'terminate' && req.method === 'POST') {
+          terminalManager.terminate(id);
+          jsonReply(res, 200, { ok: true });
+          return;
+        }
+        jsonReply(res, 404, { error: '终端接口不存在' });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
       return;
     }
 
