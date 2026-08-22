@@ -1938,7 +1938,7 @@ body {
 .chat-messages { padding-bottom: 24px; }
 .message { max-width: 900px; margin-left: auto; margin-right: auto; }
 .message.user { max-width: min(85%, 720px); margin-left: auto; margin-right: 0; }
-.message.user .message-content { border: 1px solid color-mix(in srgb, var(--border) 92%, transparent); border-radius: 10px; padding: 10px 13px; background: var(--bg-tertiary); }
+.message.user .message-content { border: 1px solid color-mix(in srgb, var(--border) 92%, transparent); border-radius: 18px; padding: 10px 14px; background: var(--bg-tertiary); }
 .message.assistant .message-content { padding: 8px 0; line-height: 1.62; }
 .tool-steps { position: relative; gap: 7px; margin: 12px 0 8px; }
 .tool-steps:not(.is-collapsed)::before { content: ''; position: absolute; z-index: 0; left: 20px; top: 38px; bottom: 20px; width: 1px; background: var(--border); }
