@@ -1968,8 +1968,6 @@ body {
 .tool-section-label { margin: 0 0 5px; color: var(--text-muted); font-size: .64rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .tool-args, .tool-body pre.tool-args { max-height: 135px; margin: 0 0 10px; padding: 8px 10px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); font: .7rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .tool-body .tool-result { max-height: 340px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--code-bg); font: .73rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.tool-copy-output { display: inline-flex; align-items: center; min-height: 25px; margin-top: 7px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--bg-primary); font-size: .67rem; cursor: pointer; }
-.tool-copy-output:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 .tool-block[data-kind="terminal"] .tool-icon { color: #58a6ff; }
 .tool-block[data-kind="file"] .tool-icon { color: #3fb950; }
 .tool-block[data-kind="mcp"] .tool-icon { color: #d2a8ff; }
@@ -1996,9 +1994,10 @@ body {
 .tool-copy-output { float: right; margin-top: 6px; }
 .file-change-card { margin-top: 12px; border-radius: 9px; border-color: var(--border-strong); background: var(--bg-secondary); }
 .file-change-header { min-height: 46px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.file-change-header > span { font-weight: 620; }
-.file-change-header button { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
-.file-change-header button:hover { border-color: var(--accent); background: var(--accent-light); }
+.file-change-path { flex: 1; min-width: 0; padding: 0 !important; overflow: hidden; border: 0 !important; border-radius: 0 !important; color: var(--text-primary) !important; background: transparent !important; font: inherit; font-weight: 620; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.file-change-path:hover { color: var(--accent) !important; text-decoration: underline; }
+.file-change-review { min-height: 27px; padding: 4px 10px !important; border: 1px solid var(--border) !important; border-radius: 6px !important; color: var(--text-secondary); background: var(--bg-primary) !important; font-weight: 560; }
+.file-change-review:hover { color: var(--accent); border-color: var(--accent) !important; background: var(--accent-light) !important; }
 .file-change-diff { background: var(--code-bg); }
 .turn-deliverables { border-color: var(--border-strong); background: var(--bg-secondary); }
 

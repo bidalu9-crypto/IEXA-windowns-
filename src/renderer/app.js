@@ -1884,14 +1884,6 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
     const duration = startedAt ? ((Date.now() - startedAt) / 1000).toFixed(Date.now() - startedAt > 10_000 ? 1 : 2) + 's' : '';
     const status = info.block.querySelector('.tool-status');
     if (status && duration) status.insertAdjacentHTML('beforeend', `<span class="tool-duration">${duration}</span>`);
-    if (!bodyEl.querySelector('.tool-copy-output')) {
-      const copy = document.createElement('button');
-      copy.type = 'button'; copy.className = 'tool-copy-output'; copy.textContent = '复制输出';
-      copy.addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(resultPre.textContent || ''); copy.textContent = '已复制'; setTimeout(() => { copy.textContent = '复制输出'; }, 1300); } catch { /* browser clipboard fallback is not required here */ }
-      });
-      bodyEl.appendChild(copy);
-    }
     if (imageData && imageMimeType && !(artifacts && artifacts.length)) {
       const image = document.createElement('button');
       image.type = 'button';
@@ -2142,13 +2134,13 @@ function renderFileChange(host, change) {
   const after = String(change.after || '').split(/\r?\n/);
   const oldLines = before.map((line) => `<div class="diff-line diff-removed"><span>-</span>${escapeHtml(line)}</div>`).join('');
   const newLines = after.map((line) => `<div class="diff-line diff-added"><span>+</span>${escapeHtml(line)}</div>`).join('');
-  card.innerHTML = `<div class="file-change-header"><span>已编辑 ${escapeHtml(change.path)}</span><b class="diff-add">+${Number(change.added) || 0}</b><b class="diff-del">-${Number(change.removed) || 0}</b><button type="button" class="file-change-open">查看文件</button><button type="button" class="file-change-toggle">展开 diff</button></div><div class="file-change-diff" hidden>${oldLines}${newLines}</div>`;
-  card.querySelector('.file-change-toggle').addEventListener('click', (e) => {
+  card.innerHTML = `<div class="file-change-header"><button type="button" class="file-change-path" title="打开文件">已编辑 ${escapeHtml(change.path)}</button><b class="diff-add">+${Number(change.added) || 0}</b><b class="diff-del">-${Number(change.removed) || 0}</b><button type="button" class="file-change-review">审查</button></div><div class="file-change-diff" hidden>${oldLines}${newLines}</div>`;
+  card.querySelector('.file-change-review').addEventListener('click', (e) => {
     const diff = card.querySelector('.file-change-diff');
     diff.hidden = !diff.hidden;
-    e.currentTarget.textContent = diff.hidden ? '展开 diff' : '收起 diff';
+    e.currentTarget.textContent = diff.hidden ? '审查' : '收起';
   });
-  card.querySelector('.file-change-open').addEventListener('click', () => {
+  card.querySelector('.file-change-path').addEventListener('click', () => {
     if (typeof openFilePreview === 'function') openFilePreview(change.path);
   });
   host.appendChild(card);
