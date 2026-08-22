@@ -2965,7 +2965,7 @@ async function loadVisionProfileSetting() {
     const response = await fetch(`${API_BASE}/api/vision-profile`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '读取视觉配置失败');
-    select.innerHTML = '<option value="">不使用视觉代理</option>' + (data.profiles || []).filter((profile) => profile.eligible).map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('');
+    select.innerHTML = '<option value="">不使用视觉代理</option>' + (data.profiles || []).map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('');
     select.value = data.visionProfileId || '';
   } catch (error) { console.error('Failed to load vision profile:', error); }
 }

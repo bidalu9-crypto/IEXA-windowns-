@@ -276,7 +276,9 @@ function profileLikelySupportsVision(profile: ModelProfile | null | undefined): 
 function configuredVisionProfile(currentProfileId?: string): ModelProfile | null {
   const settings = loadSettings();
   const profile = settings.profiles.find((item) => item.id === settings.visionProfileId) || null;
-  return profile && profile.id !== currentProfileId && profileLikelySupportsVision(profile) && Boolean(profile.apiKey) ? profile : null;
+  // Compatible gateways commonly use private model aliases. The user chooses
+  // the vision route explicitly, so every configured profile is eligible.
+  return profile && Boolean(profile.apiKey) ? profile : null;
 }
 
 function imageMimeType(filePath: string): string | null {
@@ -1795,7 +1797,7 @@ ${recentMemories}
           const body = JSON.parse(await readBody(req) || '{}');
           const id = String(body.visionProfileId || '');
           const settings = loadSettings();
-          if (id && !settings.profiles.some((profile) => profile.id === id && profileLikelySupportsVision(profile))) throw new Error('请选择支持图片输入的视觉模型。');
+          if (id && !settings.profiles.some((profile) => profile.id === id)) throw new Error('请选择已配置的模型。');
           settings.visionProfileId = id || undefined;
           saveSettings(settings);
           for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
