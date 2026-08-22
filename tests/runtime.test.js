@@ -173,6 +173,9 @@ test('GitService returns structured changes, diffs, and staged state', async () 
   await service.commit(root, 'add workbench fixture');
   const log = await service.log(root);
   assert.equal(log[0].subject, 'add workbench fixture');
+  await fs.writeFile(path.join(root, 'tracked.txt'), 'restore me\n', 'utf8');
+  await service.restore(root, ['tracked.txt']);
+  assert.equal((await fs.readFile(path.join(root, 'tracked.txt'), 'utf8')).replace(/\r\n/g, '\n'), 'after\n');
   await assert.rejects(() => service.createBranch(root, '../invalid'), /分支名称无效/);
   await assert.rejects(() => service.diff(root, '../outside.txt'), /超出项目目录/);
 });

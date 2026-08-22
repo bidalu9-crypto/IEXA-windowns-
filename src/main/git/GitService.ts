@@ -116,6 +116,12 @@ export class GitService {
     await this.run(root, ['restore', '--staged', '--', ...normalized]);
   }
 
+  async restore(root: string, paths: string[]): Promise<void> {
+    const normalized = this.relativePaths(root, paths);
+    if (normalized.length === 0) throw new Error('请选择至少一个文件。');
+    await this.run(root, ['restore', '--worktree', '--', ...normalized]);
+  }
+
   async stageAll(root: string): Promise<void> {
     await this.run(root, ['add', '--all']);
   }

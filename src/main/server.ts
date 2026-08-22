@@ -2093,7 +2093,7 @@ ${recentMemories}
       return;
     }
 
-    if ((url.pathname === '/api/git/stage' || url.pathname === '/api/git/unstage') && req.method === 'POST') {
+    if ((url.pathname === '/api/git/stage' || url.pathname === '/api/git/unstage' || url.pathname === '/api/git/restore') && req.method === 'POST') {
       const projectRoot = getProjectRoot();
       if (!projectRoot) {
         jsonReply(res, 400, { error: '尚未打开项目' });
@@ -2103,7 +2103,8 @@ ${recentMemories}
         const body = JSON.parse(await readBody(req) || '{}');
         const paths = Array.isArray(body.paths) ? body.paths.filter((value: unknown): value is string => typeof value === 'string') : [];
         if (url.pathname.endsWith('/stage')) await gitService.stage(projectRoot, paths);
-        else await gitService.unstage(projectRoot, paths);
+        else if (url.pathname.endsWith('/unstage')) await gitService.unstage(projectRoot, paths);
+        else await gitService.restore(projectRoot, paths);
         jsonReply(res, 200, await gitService.status(projectRoot));
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });

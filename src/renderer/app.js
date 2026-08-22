@@ -3486,9 +3486,9 @@ function renderGitStatus(data) {
     const staged = file.index && file.index !== ' ';
     const working = file.workTree && file.workTree !== ' ';
     const label = `${staged ? file.index : ' '}${working ? file.workTree : ' '}`.trim() || '??';
-    const action = staged
+    const action = `${staged
       ? '<button type="button" class="git-file-action" data-git-action="unstage">取消暂存</button>'
-      : '<button type="button" class="git-file-action" data-git-action="stage">暂存</button>';
+      : '<button type="button" class="git-file-action" data-git-action="stage">暂存</button>'}${working ? '<button type="button" class="git-file-action git-file-restore" data-git-action="restore">回滚</button>' : ''}`;
     return `<div class="git-file" data-path="${escapeHtml(file.path)}" data-staged="${staged && !working ? '1' : '0'}">
       <span class="git-file-status${staged ? ' is-staged' : ''}">${escapeHtml(label)}</span>
       <span class="git-file-path" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span>
@@ -3521,6 +3521,7 @@ function renderGitStatus(data) {
       if (!target) return;
       if (action) {
         event.stopPropagation();
+        if (action.dataset.gitAction === 'restore' && !confirm(`确定回滚「${target}」的未暂存修改吗？`)) return;
         runGitMutation(action.dataset.gitAction, target);
       } else {
         openGitDiff(target, row.dataset.staged === '1');
