@@ -3467,6 +3467,8 @@ function renderGitStatus(data) {
     return;
   }
   const files = data.files || [];
+  const branches = data.branches || [];
+  const commits = data.commits || [];
   const counts = [];
   if (Number.isFinite(data.ahead) && data.ahead) counts.push(`↑${data.ahead}`);
   if (Number.isFinite(data.behind) && data.behind) counts.push(`↓${data.behind}`);
@@ -3483,12 +3485,23 @@ function renderGitStatus(data) {
       ${action}
     </div>`;
   }).join('') : '<div class="workbench-empty">工作区干净，没有待提交的更改。</div>';
+  const branchOptions = branches.map((branch) => `<option value="${escapeHtml(branch.name)}"${branch.current ? ' selected' : ''}>${escapeHtml(branch.name)}</option>`).join('');
+  const commitHtml = commits.length ? commits.map((commit) => `<div class="git-log-entry" title="${escapeHtml(`${commit.hash}\n${commit.author}\n${commit.committedAt}`)}"><code>${escapeHtml(commit.shortHash)}</code><span>${escapeHtml(commit.subject)}</span></div>`).join('') : '<div class="git-log-empty">暂无提交记录</div>';
   panel.innerHTML = `
     <div class="git-overview">
       <span class="git-branch" title="${escapeHtml(data.branch || '')}">⌥ ${escapeHtml(data.branch || '(detached HEAD)')}</span>
       <span class="git-counts">${escapeHtml(counts.join(' ') || (files.length ? `${files.length} 项更改` : '已同步'))}</span>
     </div>
+    <div class="git-toolbar">
+      <select id="gitBranchSelect" aria-label="切换 Git 分支">${branchOptions || `<option>${escapeHtml(data.branch || '(detached HEAD)')}</option>`}</select>
+      <button type="button" data-git-operation="create-branch" title="新建分支">＋</button>
+      <button type="button" data-git-operation="pull" title="拉取（仅 fast-forward）">↓</button>
+      <button type="button" data-git-operation="push" title="推送当前分支">↑</button>
+    </div>
     ${files.length ? `<div class="git-section-label">更改 (${files.length})</div>${fileHtml}` : fileHtml}
+    ${files.length ? `<div class="git-commit-box"><button type="button" class="git-stage-all" data-git-operation="stage-all">暂存全部</button><textarea id="gitCommitMessage" rows="2" placeholder="提交信息"></textarea><button type="button" class="git-commit-submit" data-git-operation="commit">提交</button></div>` : ''}
+    <div class="git-section-label">最近提交</div>
+    <div class="git-log">${commitHtml}</div>
     <div id="gitDiffHost"></div>
   `;
   panel.querySelectorAll('.git-file').forEach((row) => {
@@ -3504,6 +3517,25 @@ function renderGitStatus(data) {
       }
     });
   });
+  panel.querySelector('#gitBranchSelect')?.addEventListener('change', (event) => {
+    runGitOperation('switch', { branch: event.target.value });
+  });
+  panel.querySelectorAll('[data-git-operation]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const operation = button.dataset.gitOperation;
+      if (operation === 'create-branch') {
+        const branch = window.prompt('输入新分支名称：');
+        if (branch && branch.trim()) runGitOperation(operation, { branch: branch.trim() });
+        return;
+      }
+      if (operation === 'commit') {
+        const message = panel.querySelector('#gitCommitMessage')?.value || '';
+        runGitOperation(operation, { message });
+        return;
+      }
+      runGitOperation(operation, {});
+    });
+  });
 }
 
 async function loadGitWorkbench() {
@@ -3516,9 +3548,35 @@ async function loadGitWorkbench() {
     const response = await fetch(`${API_BASE}/api/git/status`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '读取 Git 状态失败');
+    if (data.repository) {
+      const [branchesResponse, logResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/git/branches`),
+        fetch(`${API_BASE}/api/git/log?limit=12`),
+      ]);
+      const branchesData = await branchesResponse.json();
+      const logData = await logResponse.json();
+      if (branchesResponse.ok) data.branches = branchesData.branches || [];
+      if (logResponse.ok) data.commits = logData.entries || [];
+    }
     renderGitStatus(data);
   } catch (error) {
     panel.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+async function runGitOperation(operation, body) {
+  if (!operation) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/git/${operation}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Git 操作失败');
+    await loadGitWorkbench();
+  } catch (error) {
+    addError('Git 操作失败：' + (error.message || error));
   }
 }
 

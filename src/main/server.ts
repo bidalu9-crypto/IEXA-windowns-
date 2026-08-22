@@ -1932,6 +1932,34 @@ ${recentMemories}
       return;
     }
 
+    if (url.pathname === '/api/git/branches' && req.method === 'GET') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      try {
+        jsonReply(res, 200, { branches: await gitService.branches(projectRoot) });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if (url.pathname === '/api/git/log' && req.method === 'GET') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      try {
+        jsonReply(res, 200, { entries: await gitService.log(projectRoot, Number(url.searchParams.get('limit') || 12)) });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
     if ((url.pathname === '/api/git/stage' || url.pathname === '/api/git/unstage') && req.method === 'POST') {
       const projectRoot = getProjectRoot();
       if (!projectRoot) {
@@ -1944,6 +1972,27 @@ ${recentMemories}
         if (url.pathname.endsWith('/stage')) await gitService.stage(projectRoot, paths);
         else await gitService.unstage(projectRoot, paths);
         jsonReply(res, 200, await gitService.status(projectRoot));
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if (['/api/git/stage-all', '/api/git/switch', '/api/git/create-branch', '/api/git/commit', '/api/git/pull', '/api/git/push'].includes(url.pathname) && req.method === 'POST') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      try {
+        const body = JSON.parse(await readBody(req) || '{}');
+        if (url.pathname.endsWith('/stage-all')) await gitService.stageAll(projectRoot);
+        if (url.pathname.endsWith('/switch')) await gitService.switchBranch(projectRoot, String(body.branch || ''));
+        if (url.pathname.endsWith('/create-branch')) await gitService.createBranch(projectRoot, String(body.branch || ''));
+        if (url.pathname.endsWith('/commit')) await gitService.commit(projectRoot, String(body.message || ''));
+        if (url.pathname.endsWith('/pull')) await gitService.pull(projectRoot);
+        if (url.pathname.endsWith('/push')) await gitService.push(projectRoot);
+        jsonReply(res, 200, { status: await gitService.status(projectRoot) });
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });
       }

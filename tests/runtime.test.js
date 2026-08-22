@@ -133,6 +133,8 @@ test('GitService returns structured changes, diffs, and staged state', async () 
   assert.equal(nonRepository.available, true);
   assert.equal(nonRepository.repository, false);
   await git(root, ['init']);
+  await git(root, ['config', 'user.name', 'IEXA Test']);
+  await git(root, ['config', 'user.email', 'iexa@example.test']);
   await fs.writeFile(path.join(root, 'tracked.txt'), 'before\n', 'utf8');
   await git(root, ['add', 'tracked.txt']);
   await git(root, ['-c', 'user.name=IEXA Test', '-c', 'user.email=iexa@example.test', 'commit', '-m', 'baseline']);
@@ -148,10 +150,20 @@ test('GitService returns structured changes, diffs, and staged state', async () 
   assert.match(diff.content, /-before/);
   assert.match(diff.content, /\+after/);
 
+  const branches = await service.branches(root);
+  assert.equal(branches.filter((branch) => branch.current).length, 1);
+  await service.createBranch(root, 'feature/workbench');
+  assert.equal((await service.status(root)).branch, 'feature/workbench');
+
   await service.stage(root, ['new.txt']);
   const staged = await service.status(root);
   assert.equal(staged.files.find((file) => file.path === 'new.txt').index, 'A');
   await service.unstage(root, ['new.txt']);
+  await service.stageAll(root);
+  await service.commit(root, 'add workbench fixture');
+  const log = await service.log(root);
+  assert.equal(log[0].subject, 'add workbench fixture');
+  await assert.rejects(() => service.createBranch(root, '../invalid'), /分支名称无效/);
   await assert.rejects(() => service.diff(root, '../outside.txt'), /超出项目目录/);
 });
 

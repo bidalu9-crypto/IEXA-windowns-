@@ -25,6 +25,19 @@ export interface GitDiff {
   truncated: boolean;
 }
 
+export interface GitBranch {
+  name: string;
+  current: boolean;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  committedAt: string;
+}
+
 const MAX_GIT_OUTPUT = 512 * 1024;
 
 /**
@@ -103,6 +116,52 @@ export class GitService {
     await this.run(root, ['restore', '--staged', '--', ...normalized]);
   }
 
+  async stageAll(root: string): Promise<void> {
+    await this.run(root, ['add', '--all']);
+  }
+
+  async branches(root: string): Promise<GitBranch[]> {
+    const { stdout } = await this.run(root, ['for-each-ref', '--format=%(refname:short)%00%(HEAD)', 'refs/heads']);
+    return stdout.split(/\r?\n/).map((line) => {
+      const [name, head] = line.split('\0');
+      return { name: name || '', current: head === '*' };
+    }).filter((branch) => Boolean(branch.name));
+  }
+
+  async switchBranch(root: string, name: string): Promise<void> {
+    const branch = this.branchName(name);
+    await this.run(root, ['switch', branch]);
+  }
+
+  async createBranch(root: string, name: string): Promise<void> {
+    const branch = this.branchName(name);
+    await this.run(root, ['switch', '-c', branch]);
+  }
+
+  async commit(root: string, message: string): Promise<void> {
+    const subject = String(message || '').trim();
+    if (!subject) throw new Error('请输入提交信息。');
+    if (subject.length > 4_000) throw new Error('提交信息不能超过 4000 个字符。');
+    await this.run(root, ['commit', '-m', subject], MAX_GIT_OUTPUT);
+  }
+
+  async pull(root: string): Promise<void> {
+    await this.run(root, ['pull', '--ff-only'], MAX_GIT_OUTPUT);
+  }
+
+  async push(root: string): Promise<void> {
+    await this.run(root, ['push'], MAX_GIT_OUTPUT);
+  }
+
+  async log(root: string, limit = 12): Promise<GitLogEntry[]> {
+    const count = Math.max(1, Math.min(50, Math.floor(limit)));
+    const { stdout } = await this.run(root, ['log', `-n${count}`, '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e']);
+    return stdout.split('\x1e').map((record) => {
+      const [hash, shortHash, subject, author, committedAt] = record.trim().split('\x1f');
+      return { hash: hash || '', shortHash: shortHash || '', subject: subject || '', author: author || '', committedAt: committedAt || '' };
+    }).filter((entry) => Boolean(entry.hash));
+  }
+
   private relativePaths(root: string, paths: string[]): string[] {
     return [...new Set(paths.map((candidate) => this.relativePath(root, candidate)))];
   }
@@ -115,6 +174,14 @@ export class GitService {
     const relative = path.relative(resolvedRoot, target);
     if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Git 文件路径超出项目目录。');
     return relative.replace(/\\/g, '/');
+  }
+
+  private branchName(value: string): string {
+    const branch = String(value || '').trim();
+    if (!branch || branch.length > 255 || /[\s~^:?*\\[\\]|]|\.\.|@\{|\/$|^\.|\.$/.test(branch)) {
+      throw new Error('分支名称无效。');
+    }
+    return branch;
   }
 
   private run(cwd: string, args: string[], maxBuffer = MAX_GIT_OUTPUT): Promise<{ stdout: string; stderr: string }> {

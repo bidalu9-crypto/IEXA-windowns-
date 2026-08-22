@@ -853,6 +853,11 @@ body {
 .git-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 600; }
 .git-counts { flex: 0 0 auto; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .git-section-label { padding: 12px 12px 5px; color: var(--text-muted); font-size: .69rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.git-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 27px); gap: 5px; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.git-toolbar select { min-width: 0; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font-size: .72rem; outline: none; }
+.git-toolbar select:focus { border-color: var(--accent); }
+.git-toolbar button, .git-stage-all, .git-commit-submit { border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); cursor: pointer; }
+.git-toolbar button:hover, .git-stage-all:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 
 .git-file {
   display: grid;
@@ -875,6 +880,18 @@ body {
 .git-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: .76rem ui-monospace, SFMono-Regular, Consolas, monospace; }
 .git-file-action { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--bg-primary); font-size: .67rem; cursor: pointer; }
 .git-file-action:hover { color: var(--accent); border-color: var(--accent); }
+
+.git-commit-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: stretch; padding: 10px 12px; border-top: 1px solid var(--border); }
+.git-commit-box textarea { min-width: 0; resize: vertical; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font: .74rem/1.35 inherit; outline: none; }
+.git-commit-box textarea:focus { border-color: var(--accent); }
+.git-stage-all, .git-commit-submit { padding: 0 8px; font-size: .69rem; }
+.git-commit-submit { color: #fff; border-color: var(--accent); background: var(--accent); }
+.git-commit-submit:hover { filter: brightness(1.06); }
+.git-log { border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent); }
+.git-log-entry { display: flex; gap: 7px; padding: 6px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 48%, transparent); color: var(--text-secondary); font-size: .72rem; }
+.git-log-entry code { flex: 0 0 auto; color: var(--accent); font: .68rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+.git-log-entry span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-log-empty { padding: 8px 12px; color: var(--text-muted); font-size: .74rem; }
 
 .git-diff-head { display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .git-diff-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: .75rem ui-monospace, SFMono-Regular, Consolas, monospace; }
