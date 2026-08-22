@@ -462,15 +462,17 @@ async function switchSession(id, updateList = true) {
             for (const tc of msg.toolCalls) {
               const block = document.createElement('div');
               block.className = 'tool-block is-done';
+              block.dataset.kind = toolKind(tc.name || '');
               const histTitle = (tc.args && tc.args.tool_title) || toolDisplayName(tc.name);
               block.innerHTML = `
                 <div class="tool-header" onclick="toggleToolBody('tool-body-${tc.id}')">
                   <span class="tool-icon">${toolIcon(tc.name)}</span>
-                  <span class="tool-name">${escapeHtml(histTitle)}</span>
+                  <span class="tool-heading"><span class="tool-name">${escapeHtml(histTitle)}</span><span class="tool-meta">${escapeHtml(toolMeta(tc.name, tc.args))}</span></span>
                   <span class="tool-status done">${uiIcon('check')}<span>完成</span></span>
+                  <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
                 <div class="tool-body" id="tool-body-${tc.id}" style="display:none;">
-                  <div class="tool-args">${escapeHtml(JSON.stringify(tc.args, null, 2))}</div>
+                  <div class="tool-section-label">输入</div><pre class="tool-args">${escapeHtml(JSON.stringify(tc.args, null, 2))}</pre>
                 </div>
               `;
               if (tc.result) {
@@ -1691,6 +1693,26 @@ function setToolStepStatus(block, status, label) {
   block.classList.toggle('is-error', status === 'error');
 }
 
+function toolKind(name) {
+  if (name === 'shell_execute' || name.startsWith('terminal_')) return 'terminal';
+  if (name === 'file_read' || name === 'file_write' || name === 'file_edit' || name === 'display_file') return 'file';
+  if (name.startsWith('mcp_')) return 'mcp';
+  if (name === 'browser_fetch') return 'web';
+  if (name === 'read_image') return 'vision';
+  if (name.startsWith('memory_')) return 'memory';
+  return 'agent';
+}
+
+function toolMeta(name, args) {
+  const source = args && typeof args === 'object' ? args : {};
+  if (name === 'shell_execute') return '工作区命令';
+  if (name.startsWith('mcp_')) return 'MCP 工具';
+  if (name === 'read_image') return '视觉代理';
+  if (name === 'browser_fetch') return '网页读取';
+  if (source.path) return String(source.path);
+  return 'IEXA 工具';
+}
+
 function handleToolStart(id, name) {
   hideWaitingIndicator();
   finishActiveThinkingBlock();
@@ -1716,14 +1738,16 @@ function handleToolStart(id, name) {
   block.dataset.toolId = id;
   block.dataset.toolName = name || '';
   block.dataset.status = 'streaming';
+  block.dataset.startedAt = String(Date.now());
+  block.dataset.kind = toolKind(name || '');
   block.innerHTML =
     '<div class="tool-header" onclick="toggleToolBody(\'tool-body-' + id + '\')">' +
-      '<span class="tool-icon">' + toolIcon(name) + '</span>' +
-      '<span class="tool-name">' + escapeHtml(toolDisplayName(name)) + '</span>' +
+      '<span class="tool-icon">' + toolIcon(name) + '</span><span class="tool-heading"><span class="tool-name">' + escapeHtml(toolDisplayName(name)) + '</span><span class="tool-meta">' + escapeHtml(toolMeta(name)) + '</span></span>' +
       '<span class="tool-status running">准备中</span>' +
+      '<span class="tool-chevron" aria-hidden="true"></span>' +
     '</div>' +
     '<div class="tool-body" id="tool-body-' + id + '" style="display:none;">' +
-      '<div class="tool-args">准备中...</div>' +
+      '<div class="tool-section-label">输入</div><pre class="tool-args">准备中...</pre>' +
     '</div>';
 
   // Insert the compact task bar once, above the individual capsules.
@@ -1778,6 +1802,8 @@ function handleToolInput(name, args, id) {
       argsEl.textContent = String(args || '');
     }
   }
+  const metaEl = info.block.querySelector('.tool-meta');
+  if (metaEl && args && typeof args === 'object') metaEl.textContent = toolMeta(name || info.name, args);
 
   const nameEl = info.block.querySelector('.tool-name');
   if (nameEl) {
@@ -1813,6 +1839,8 @@ function handleToolComplete(id, name, args) {
       argsEl.textContent = String(args || '');
     }
   }
+  const metaEl = info.block.querySelector('.tool-meta');
+  if (metaEl) metaEl.textContent = toolMeta(name || info.name, args);
 
   const nameEl = info.block.querySelector('.tool-name');
   if (nameEl) {
@@ -1842,12 +1870,28 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
     if (!resultPre) {
       resultPre = document.createElement('pre');
       resultPre.className = 'tool-result';
+      const outputLabel = document.createElement('div');
+      outputLabel.className = 'tool-section-label tool-output-label';
+      outputLabel.textContent = '输出';
+      bodyEl.appendChild(outputLabel);
       bodyEl.appendChild(resultPre);
     }
     const truncated = (output || '').length > 5000
       ? output.substring(0, 5000) + '\n\n...（已截断）'
       : (output || '');
     resultPre.textContent = truncated;
+    const startedAt = Number(info.block.dataset.startedAt || 0);
+    const duration = startedAt ? ((Date.now() - startedAt) / 1000).toFixed(Date.now() - startedAt > 10_000 ? 1 : 2) + 's' : '';
+    const status = info.block.querySelector('.tool-status');
+    if (status && duration) status.insertAdjacentHTML('beforeend', `<span class="tool-duration">${duration}</span>`);
+    if (!bodyEl.querySelector('.tool-copy-output')) {
+      const copy = document.createElement('button');
+      copy.type = 'button'; copy.className = 'tool-copy-output'; copy.textContent = '复制输出';
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(resultPre.textContent || ''); copy.textContent = '已复制'; setTimeout(() => { copy.textContent = '复制输出'; }, 1300); } catch { /* browser clipboard fallback is not required here */ }
+      });
+      bodyEl.appendChild(copy);
+    }
     if (imageData && imageMimeType && !(artifacts && artifacts.length)) {
       const image = document.createElement('button');
       image.type = 'button';
@@ -2629,7 +2673,9 @@ function setProcessing(processing) {
 function toggleToolBody(id) {
   const body = document.getElementById(id);
   if (body) {
-    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    const open = body.style.display === 'none';
+    body.style.display = open ? 'block' : 'none';
+    body.closest('.tool-block')?.classList.toggle('is-expanded', open);
   }
 }
 
