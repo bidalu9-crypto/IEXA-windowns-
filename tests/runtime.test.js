@@ -27,6 +27,7 @@ const { JsonStore } = require('../dist/main/persistence/JsonStore');
 const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore');
 const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
+const { McpManager } = require('../dist/main/mcp/McpManager');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -198,6 +199,24 @@ test('TerminalManager keeps shell state and streams command output', async () =>
   } finally {
     manager.terminate(session.id);
   }
+});
+
+test('McpManager connects to a stdio server and calls its tools', async () => {
+  const root = await tempWorkspace();
+  const fixture = path.join(root, 'mcp-fixture.js');
+  await fs.writeFile(fixture, `
+process.stdin.setEncoding('utf8'); let buffer = '';
+process.stdin.on('data', (chunk) => { buffer += chunk; let index; while ((index = buffer.indexOf('\\n')) >= 0) { const line = buffer.slice(0, index); buffer = buffer.slice(index + 1); if (!line.trim()) continue; const req = JSON.parse(line); if (req.id == null) continue; let result = {}; if (req.method === 'initialize') result = { protocolVersion: '2025-03-26', serverInfo: { name: 'fixture' }, capabilities: {} }; if (req.method === 'tools/list') result = { tools: [{ name: 'echo', description: 'Echo a value', inputSchema: { type: 'object' } }] }; if (req.method === 'tools/call') result = { content: [{ type: 'text', text: String(req.params.arguments.value) }] }; process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n'); } });
+`, 'utf8');
+  const manager = new McpManager(path.join(root, 'mcp.json'));
+  const added = manager.add({ name: 'fixture', transport: 'stdio', command: process.execPath, args: [fixture], enabled: true });
+  const connected = await manager.connect(added.id);
+  assert.equal(connected.status, 'connected', connected.error);
+  assert.equal(connected.tools[0].name, 'echo');
+  const result = await manager.callTool(added.id, 'echo', { value: 'mcp-ok' });
+  assert.equal(result.content[0].text, 'mcp-ok');
+  assert.equal(manager.disconnect(added.id).status, 'disconnected');
+  manager.remove(added.id);
 });
 
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {

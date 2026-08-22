@@ -71,6 +71,10 @@ export class ToolRuntime {
   beginRun(): void { this.budget.reset(); this.loopDetector.reset(); }
   beginTurn(): void { this.budget.beginTurn(); }
   recordInputTokens(tokens: number): void { this.budget.recordInputTokens(tokens); }
+  registerDynamicTool(definition: AgentToolDefinition, execute: ToolDefinition['execute']): void {
+    if (this.registry.has(definition.name)) return;
+    this.registry.register({ ...definition, risk: 'medium', parallelSafe: false, cancellable: true, requiresApproval: true, execute });
+  }
 
   registerDefaults(onSkillRead?: (p: string) => void, onSkillWrite?: (p: string) => void): void {
     const add = (definition: AgentToolDefinition, execute: ToolDefinition['execute'], options: Partial<ToolDefinition> = {}) => this.registry.register({ ...definition, risk: options.risk || risk[definition.name] || 'medium', parallelSafe: options.parallelSafe ?? false, cancellable: options.cancellable ?? false, requiresApproval: options.requiresApproval ?? ((options.risk || risk[definition.name]) === 'high'), ...options, execute });

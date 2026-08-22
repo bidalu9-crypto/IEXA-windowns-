@@ -236,6 +236,7 @@
               <button type="button" class="workbench-tab" data-workbench-view="git">更改</button>
               <button type="button" class="workbench-tab" data-workbench-view="search">搜索</button>
               <button type="button" class="workbench-tab" data-workbench-view="terminal">终端</button>
+              <button type="button" class="workbench-tab" data-workbench-view="mcp">MCP</button>
             </div>
           </div>
           <div class="files-list" id="filesList">
@@ -276,6 +277,18 @@
               <textarea id="terminalCommand" rows="2" placeholder="输入命令，Ctrl+Enter 执行"></textarea>
               <button type="button" id="terminalRunBtn">运行</button>
             </div>
+          </section>
+          <section class="workbench-panel mcp-panel" id="mcpPanel" style="display:none;" aria-label="MCP Servers">
+            <form class="mcp-add-form" id="mcpAddForm">
+              <input id="mcpName" placeholder="Server 名称" required>
+              <select id="mcpTransport" aria-label="MCP 传输方式"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
+              <input id="mcpCommand" placeholder="命令，例如 npx">
+              <input id="mcpArgs" placeholder="参数，空格分隔">
+              <input id="mcpUrl" placeholder="HTTP URL（HTTP 模式）" style="display:none;">
+              <button type="submit">添加 Server</button>
+            </form>
+            <div class="mcp-server-list" id="mcpServerList"><div class="workbench-empty">还没有配置 MCP Server。</div></div>
+            <pre class="mcp-output" id="mcpOutput">选择一个 MCP 工具可在此查看结果。</pre>
           </section>
           <div class="files-preview" id="filesPreview" style="display:none;">
             <div class="files-preview-header">

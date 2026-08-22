@@ -53,6 +53,7 @@ export class AgentRuntime {
   getObservability(): { metrics: Record<string, number>; cost: ReturnType<CostTracker['snapshot']>; trace: ReturnType<Trace['snapshot']> } { return { metrics: this.metrics.snapshot(), cost: this.costs.snapshot(), trace: this.trace.snapshot() }; }
   getHistoryLength(): number { return this.loop.getHistoryLength(); }
   toolDefinitions(): AgentToolDefinition[] { return this.tools.definitions(); }
+  registerDynamicTool(...args: Parameters<ToolRuntime['registerDynamicTool']>): void { this.tools.registerDynamicTool(...args); }
   grantPermission(toolName: string): void { this.tools.grantPermission(this.config.sessionId, toolName); }
   setPermissionMode(mode: PermissionMode): void { this.tools.setPermissionMode(mode); }
   setSessionContext(value: string | null | undefined): void { this.loop.setSessionContext(value); }

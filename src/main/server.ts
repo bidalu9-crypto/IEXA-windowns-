@@ -31,6 +31,7 @@ import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
 import { TerminalManager } from './terminals/TerminalManager';
+import { McpManager } from './mcp/McpManager';
 
 const PORT = 19840;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -52,6 +53,21 @@ const MAX_DURABLE_USER_NOTES = 10;
 const MAX_DURABLE_TOOL_NOTES = 12;
 const gitService = new GitService();
 const terminalManager = new TerminalManager();
+const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
+
+interface McpAgentBinding { name: string; serverId: string; toolName: string; description: string; }
+
+function activeMcpAgentBindings(): McpAgentBinding[] {
+  return mcpManager.list().filter((server) => server.status === 'connected').flatMap((server) => server.tools.map((tool) => {
+    const safeTool = tool.name.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40) || 'tool';
+    return {
+      name: `mcp_${server.id.replace(/-/g, '').slice(0, 10)}_${safeTool}`.slice(0, 64),
+      serverId: server.id,
+      toolName: tool.name,
+      description: `MCP ${server.name} · ${tool.description || tool.name}`,
+    };
+  }));
+}
 
 setConfigFile(WEBDAV_CONFIG_FILE);
 
@@ -1318,7 +1334,32 @@ ${recentMemories}
           // Prior turns from disk → model remembers after reopen / process restart
           agent.seedHistoryFromChat(persistedMessages);
         }
-        const tools = makeAgentTools(true);
+        const mcpBindings = activeMcpAgentBindings();
+        for (const binding of mcpBindings) {
+          agent.registerDynamicTool({
+            name: binding.name,
+            description: `${binding.description}。arguments_json 必须是传给该 MCP 工具的 JSON 对象字符串。`,
+            parameters: { arguments_json: { type: 'string', description: 'JSON object arguments for this MCP tool.' } },
+            required: ['arguments_json'],
+            propertyOrdering: ['arguments_json'],
+          }, async (args) => {
+            try {
+              const raw = String(args.arguments_json || '{}');
+              const parsed = JSON.parse(raw);
+              if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('arguments_json 必须是 JSON 对象。');
+              const result = await mcpManager.callTool(binding.serverId, binding.toolName, parsed as Record<string, unknown>);
+              return { output: typeof result === 'string' ? result : JSON.stringify(result, null, 2), success: true };
+            } catch (error) {
+              return { output: `MCP 工具调用失败：${(error as Error).message}`, success: false };
+            }
+          });
+        }
+        const tools = [...makeAgentTools(true), ...mcpBindings.map((binding) => ({
+          name: binding.name,
+          description: `${binding.description}。arguments_json 必须是传给该 MCP 工具的 JSON 对象字符串。`,
+          parameters: { arguments_json: { type: 'string' as const, description: 'JSON object arguments for this MCP tool.' } },
+          required: ['arguments_json'], propertyOrdering: ['arguments_json'],
+        }))];
 
         // Process attachments: save to workspace, prepare for agent
         const attachDir = path.join(WORKSPACE_DIR, 'uploads', sessionId);
@@ -1947,6 +1988,48 @@ ${recentMemories}
           return;
         }
         jsonReply(res, 404, { error: '终端接口不存在' });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    // =====================================================================
+    // MCP server catalog and desktop-side tool calls
+    // =====================================================================
+    if (url.pathname === '/api/mcp/servers' && req.method === 'GET') {
+      jsonReply(res, 200, { servers: mcpManager.list() });
+      return;
+    }
+
+    if (url.pathname === '/api/mcp/servers' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req) || '{}');
+        jsonReply(res, 201, { server: mcpManager.add({
+          name: String(body.name || ''), transport: body.transport === 'http' ? 'http' : 'stdio', command: body.command,
+          args: Array.isArray(body.args) ? body.args : [], url: body.url, enabled: body.enabled !== false,
+        }) });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/mcp/servers/')) {
+      const parts = url.pathname.split('/').filter(Boolean);
+      const id = parts[3] || '';
+      const action = parts[4] || '';
+      try {
+        if (!id) throw new Error('MCP Server ID 无效。');
+        if (!action && req.method === 'DELETE') { mcpManager.remove(id); jsonReply(res, 200, { ok: true }); return; }
+        if (action === 'connect' && req.method === 'POST') { jsonReply(res, 200, { server: await mcpManager.connect(id) }); return; }
+        if (action === 'disconnect' && req.method === 'POST') { jsonReply(res, 200, { server: mcpManager.disconnect(id) }); return; }
+        if (action === 'call' && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          const result = await mcpManager.callTool(id, String(body.name || ''), body.arguments && typeof body.arguments === 'object' ? body.arguments : {});
+          jsonReply(res, 200, { result }); return;
+        }
+        jsonReply(res, 404, { error: 'MCP 接口不存在' });
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });
       }
