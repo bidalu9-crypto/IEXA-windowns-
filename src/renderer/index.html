@@ -231,6 +231,11 @@
             </div>
             <div class="files-path" id="filesPath" style="display:none;"></div>
             <div class="files-crumb" id="filesCrumb" style="display:none;"></div>
+            <div class="workbench-tabs" id="workbenchTabs" aria-label="项目工作台">
+              <button type="button" class="workbench-tab active" data-workbench-view="files">文件</button>
+              <button type="button" class="workbench-tab" data-workbench-view="git">更改</button>
+              <button type="button" class="workbench-tab" data-workbench-view="search">搜索</button>
+            </div>
           </div>
           <div class="files-list" id="filesList">
             <div class="files-empty-state" id="filesEmptyState">
@@ -241,6 +246,17 @@
               <div class="files-recent" id="filesRecent" style="display:none;"></div>
             </div>
           </div>
+          <section class="workbench-panel git-panel" id="gitPanel" style="display:none;" aria-label="Git 更改">
+            <div class="workbench-empty">打开项目后可查看 Git 更改。</div>
+          </section>
+          <section class="workbench-panel search-panel" id="searchPanel" style="display:none;" aria-label="项目搜索">
+            <div class="workspace-search-box">
+              <input id="workspaceSearchInput" type="search" placeholder="搜索项目内容（至少 2 个字符）" autocomplete="off">
+            </div>
+            <div class="workspace-search-results" id="workspaceSearchResults">
+              <div class="workbench-empty">输入内容以搜索项目文件。</div>
+            </div>
+          </section>
           <div class="files-preview" id="filesPreview" style="display:none;">
             <div class="files-preview-header">
               <span class="files-preview-name" id="filesPreviewName"></span>

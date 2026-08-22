@@ -29,6 +29,7 @@ import { estimateCostUsd } from './observability/CostTracker';
 import { configureApiResponse, jsonReply, readBody } from './api/HttpServer';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
+import { GitService } from './git/GitService';
 
 const PORT = 19840;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -48,6 +49,7 @@ const MAX_AUTO_MEMORY_CHARS = 6000;
 const MAX_DURABLE_CONTEXT_CHARS = 18000;
 const MAX_DURABLE_USER_NOTES = 10;
 const MAX_DURABLE_TOOL_NOTES = 12;
+const gitService = new GitService();
 
 setConfigFile(WEBDAV_CONFIG_FILE);
 
@@ -131,6 +133,61 @@ function setProjectRoot(root: string | null): {
   saveProjectState(projectState);
   for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
   return { ok: true, project: projectInfo() };
+}
+
+interface WorkspaceSearchResult {
+  path: string;
+  line: number;
+  column: number;
+  preview: string;
+}
+
+const WORKSPACE_SEARCH_SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv', 'coverage']);
+
+/** Bounded literal text search used by the project workbench search panel. */
+function searchProjectText(root: string, query: string, limit: number): WorkspaceSearchResult[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  const results: WorkspaceSearchResult[] = [];
+  const pending = [root];
+  let visitedFiles = 0;
+  const maxFiles = 2_500;
+
+  while (pending.length && results.length < limit && visitedFiles < maxFiles) {
+    const directory = pending.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (results.length >= limit || visitedFiles >= maxFiles) break;
+      if (entry.name === '.' || entry.name === '..' || WORKSPACE_SEARCH_SKIP.has(entry.name)) continue;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.')) pending.push(target);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      visitedFiles++;
+      let data: Buffer;
+      try {
+        const stat = fs.statSync(target);
+        if (stat.size > 1024 * 1024) continue;
+        data = fs.readFileSync(target);
+      } catch { continue; }
+      if (data.subarray(0, Math.min(data.length, 8192)).includes(0)) continue;
+      const lines = data.toString('utf8').split(/\r?\n/);
+      for (let index = 0; index < lines.length && results.length < limit; index++) {
+        const column = lines[index].toLocaleLowerCase().indexOf(needle);
+        if (column < 0) continue;
+        results.push({
+          path: path.relative(root, target).replace(/\\/g, '/'),
+          line: index + 1,
+          column: column + 1,
+          preview: lines[index].trim().slice(0, 300),
+        });
+      }
+    }
+  }
+  return results;
 }
 
 // ---- Profile Types ----
@@ -1843,6 +1900,70 @@ ${recentMemories}
     if (url.pathname === '/api/project/clear' && req.method === 'POST') {
       const result = setProjectRoot(null);
       jsonReply(res, 200, result.project);
+      return;
+    }
+
+    // =====================================================================
+    // Project workbench: structured Git status/diff plus bounded text search
+    // =====================================================================
+    if (url.pathname === '/api/git/status' && req.method === 'GET') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      jsonReply(res, 200, await gitService.status(projectRoot));
+      return;
+    }
+
+    if (url.pathname === '/api/git/diff' && req.method === 'GET') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      try {
+        const target = url.searchParams.get('path') || undefined;
+        const staged = url.searchParams.get('staged') === '1';
+        jsonReply(res, 200, await gitService.diff(projectRoot, target, staged));
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if ((url.pathname === '/api/git/stage' || url.pathname === '/api/git/unstage') && req.method === 'POST') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      try {
+        const body = JSON.parse(await readBody(req) || '{}');
+        const paths = Array.isArray(body.paths) ? body.paths.filter((value: unknown): value is string => typeof value === 'string') : [];
+        if (url.pathname.endsWith('/stage')) await gitService.stage(projectRoot, paths);
+        else await gitService.unstage(projectRoot, paths);
+        jsonReply(res, 200, await gitService.status(projectRoot));
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message });
+      }
+      return;
+    }
+
+    if (url.pathname === '/api/fs/search' && req.method === 'GET') {
+      const projectRoot = getProjectRoot();
+      if (!projectRoot) {
+        jsonReply(res, 400, { error: '尚未打开项目' });
+        return;
+      }
+      const query = (url.searchParams.get('q') || '').trim();
+      if (query.length < 2) {
+        jsonReply(res, 200, { query, results: [], scanned: false });
+        return;
+      }
+      const requestedLimit = Number(url.searchParams.get('limit') || '100');
+      const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, Math.floor(requestedLimit))) : 100;
+      jsonReply(res, 200, { query, results: searchProjectText(projectRoot, query, limit), scanned: true });
       return;
     }
 

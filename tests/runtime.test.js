@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 
 const { PathSandbox } = require('../dist/main/security/PathSandbox');
 const { NetworkPolicy } = require('../dist/main/security/NetworkPolicy');
@@ -23,8 +25,11 @@ const { ContextManager } = require('../dist/main/context/ContextManager');
 const { estimateCostUsd } = require('../dist/main/observability/CostTracker');
 const { JsonStore } = require('../dist/main/persistence/JsonStore');
 const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore');
+const { GitService } = require('../dist/main/git/GitService');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
+const execFileAsync = promisify(execFile);
+async function git(cwd, args) { await execFileAsync('git', args, { cwd, windowsHide: true }); }
 
 test('PathSandbox resolves workspace and explicitly addressed local paths', async () => {
   const root = await tempWorkspace();
@@ -119,6 +124,35 @@ test('ProcessManager preserves a multi-line CMD script exit code', { skip: proce
   assert.equal(result.success, false);
   assert.equal(result.exitCode, 23);
   assert.match(result.output, /before-exit/);
+});
+
+test('GitService returns structured changes, diffs, and staged state', async () => {
+  const root = await tempWorkspace();
+  const service = new GitService();
+  const nonRepository = await service.status(root);
+  assert.equal(nonRepository.available, true);
+  assert.equal(nonRepository.repository, false);
+  await git(root, ['init']);
+  await fs.writeFile(path.join(root, 'tracked.txt'), 'before\n', 'utf8');
+  await git(root, ['add', 'tracked.txt']);
+  await git(root, ['-c', 'user.name=IEXA Test', '-c', 'user.email=iexa@example.test', 'commit', '-m', 'baseline']);
+  await fs.writeFile(path.join(root, 'tracked.txt'), 'after\n', 'utf8');
+  await fs.writeFile(path.join(root, 'new.txt'), 'new\n', 'utf8');
+
+  const status = await service.status(root);
+  assert.equal(status.repository, true, status.error);
+  assert.deepEqual(status.files.map((file) => file.path).sort(), ['new.txt', 'tracked.txt']);
+  assert.equal(status.files.find((file) => file.path === 'tracked.txt').workTree, 'M');
+
+  const diff = await service.diff(root, 'tracked.txt');
+  assert.match(diff.content, /-before/);
+  assert.match(diff.content, /\+after/);
+
+  await service.stage(root, ['new.txt']);
+  const staged = await service.status(root);
+  assert.equal(staged.files.find((file) => file.path === 'new.txt').index, 'A');
+  await service.unstage(root, ['new.txt']);
+  await assert.rejects(() => service.diff(root, '../outside.txt'), /超出项目目录/);
 });
 
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {

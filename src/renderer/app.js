@@ -3423,11 +3423,175 @@ let filesCurrentPath = '.';
 let filesSelectedPath = '';
 let filesPollTimer = null;
 let filesLastSig = '';
+let workbenchView = 'files';
+let workspaceSearchTimer = null;
+let workspaceSearchEpoch = 0;
 
 function formatFileSize(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
   return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function switchWorkbenchView(view) {
+  if (!['files', 'git', 'search'].includes(view)) return;
+  workbenchView = view;
+  const filesList = document.getElementById('filesList');
+  const filesPreview = document.getElementById('filesPreview');
+  const gitPanel = document.getElementById('gitPanel');
+  const searchPanel = document.getElementById('searchPanel');
+  if (filesList) filesList.style.display = view === 'files' ? '' : 'none';
+  if (filesPreview) filesPreview.style.display = view === 'files' && filesPreview.dataset.open === 'true' ? 'flex' : 'none';
+  if (gitPanel) gitPanel.style.display = view === 'git' ? 'block' : 'none';
+  if (searchPanel) searchPanel.style.display = view === 'search' ? 'flex' : 'none';
+  document.querySelectorAll('.workbench-tab').forEach((button) => {
+    button.classList.toggle('active', button.dataset.workbenchView === view);
+  });
+  if (view === 'git') loadGitWorkbench();
+  if (view === 'search') document.getElementById('workspaceSearchInput')?.focus();
+}
+
+function renderGitStatus(data) {
+  const panel = document.getElementById('gitPanel');
+  if (!panel) return;
+  if (!projectRoot) {
+    panel.innerHTML = '<div class="workbench-empty">打开项目后可查看 Git 更改。</div>';
+    return;
+  }
+  if (!data.available || data.error) {
+    panel.innerHTML = `<div class="workbench-empty">${escapeHtml(data.error || '无法读取 Git 状态。')}</div>`;
+    return;
+  }
+  if (!data.repository) {
+    panel.innerHTML = '<div class="workbench-empty">当前项目不是 Git 仓库。</div>';
+    return;
+  }
+  const files = data.files || [];
+  const counts = [];
+  if (Number.isFinite(data.ahead) && data.ahead) counts.push(`↑${data.ahead}`);
+  if (Number.isFinite(data.behind) && data.behind) counts.push(`↓${data.behind}`);
+  const fileHtml = files.length ? files.map((file) => {
+    const staged = file.index && file.index !== ' ';
+    const working = file.workTree && file.workTree !== ' ';
+    const label = `${staged ? file.index : ' '}${working ? file.workTree : ' '}`.trim() || '??';
+    const action = staged
+      ? '<button type="button" class="git-file-action" data-git-action="unstage">取消暂存</button>'
+      : '<button type="button" class="git-file-action" data-git-action="stage">暂存</button>';
+    return `<div class="git-file" data-path="${escapeHtml(file.path)}" data-staged="${staged && !working ? '1' : '0'}">
+      <span class="git-file-status${staged ? ' is-staged' : ''}">${escapeHtml(label)}</span>
+      <span class="git-file-path" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span>
+      ${action}
+    </div>`;
+  }).join('') : '<div class="workbench-empty">工作区干净，没有待提交的更改。</div>';
+  panel.innerHTML = `
+    <div class="git-overview">
+      <span class="git-branch" title="${escapeHtml(data.branch || '')}">⌥ ${escapeHtml(data.branch || '(detached HEAD)')}</span>
+      <span class="git-counts">${escapeHtml(counts.join(' ') || (files.length ? `${files.length} 项更改` : '已同步'))}</span>
+    </div>
+    ${files.length ? `<div class="git-section-label">更改 (${files.length})</div>${fileHtml}` : fileHtml}
+    <div id="gitDiffHost"></div>
+  `;
+  panel.querySelectorAll('.git-file').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      const action = event.target.closest('[data-git-action]');
+      const target = row.dataset.path;
+      if (!target) return;
+      if (action) {
+        event.stopPropagation();
+        runGitMutation(action.dataset.gitAction, target);
+      } else {
+        openGitDiff(target, row.dataset.staged === '1');
+      }
+    });
+  });
+}
+
+async function loadGitWorkbench() {
+  if (workbenchView !== 'git') return;
+  const panel = document.getElementById('gitPanel');
+  if (!panel) return;
+  if (!projectRoot) { renderGitStatus({}); return; }
+  panel.innerHTML = '<div class="workbench-empty">正在读取 Git 状态…</div>';
+  try {
+    const response = await fetch(`${API_BASE}/api/git/status`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取 Git 状态失败');
+    renderGitStatus(data);
+  } catch (error) {
+    panel.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+async function runGitMutation(action, target) {
+  try {
+    const response = await fetch(`${API_BASE}/api/git/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths: [target] }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Git 操作失败');
+    renderGitStatus(data);
+  } catch (error) {
+    addError('Git 操作失败：' + (error.message || error));
+  }
+}
+
+async function openGitDiff(target, staged) {
+  const host = document.getElementById('gitDiffHost');
+  if (!host) return;
+  host.innerHTML = '<div class="workbench-empty">正在加载 Diff…</div>';
+  try {
+    const response = await fetch(`${API_BASE}/api/git/diff?path=${encodeURIComponent(target)}&staged=${staged ? '1' : '0'}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取 Diff 失败');
+    const title = `${data.staged ? '已暂存' : '未暂存'} · ${data.path || target}`;
+    host.innerHTML = `<div class="git-diff-head"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><button type="button" class="git-diff-close" aria-label="关闭 Diff">×</button></div><pre class="git-diff"></pre>`;
+    const diff = host.querySelector('.git-diff');
+    if (diff) diff.textContent = data.content || '没有可显示的差异。';
+    if (data.truncated && diff) diff.textContent += '\n\n… Diff 已截断（最大 512 KB）';
+    host.querySelector('.git-diff-close')?.addEventListener('click', () => { host.innerHTML = ''; });
+  } catch (error) {
+    host.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+async function searchWorkspaceText(query) {
+  const resultsHost = document.getElementById('workspaceSearchResults');
+  if (!resultsHost) return;
+  const trimmed = String(query || '').trim();
+  const epoch = ++workspaceSearchEpoch;
+  if (!projectRoot) {
+    resultsHost.innerHTML = '<div class="workbench-empty">请先打开项目。</div>';
+    return;
+  }
+  if (trimmed.length < 2) {
+    resultsHost.innerHTML = '<div class="workbench-empty">输入至少 2 个字符以搜索项目内容。</div>';
+    return;
+  }
+  resultsHost.innerHTML = '<div class="workbench-empty">正在搜索…</div>';
+  try {
+    const response = await fetch(`${API_BASE}/api/fs/search?q=${encodeURIComponent(trimmed)}&limit=100`);
+    const data = await response.json();
+    if (epoch !== workspaceSearchEpoch) return;
+    if (!response.ok) throw new Error(data.error || '搜索失败');
+    const results = data.results || [];
+    if (!results.length) {
+      resultsHost.innerHTML = '<div class="workbench-empty">没有找到匹配内容。</div>';
+      return;
+    }
+    resultsHost.innerHTML = results.map((result) => `<button type="button" class="workspace-search-result" data-path="${escapeHtml(result.path)}" title="${escapeHtml(result.path)}:${result.line}"><span class="workspace-search-path">${escapeHtml(result.path)}:${result.line}:${result.column}</span><span class="workspace-search-preview">${escapeHtml(result.preview)}</span></button>`).join('');
+    resultsHost.querySelectorAll('.workspace-search-result').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const target = button.dataset.path;
+        if (!target) return;
+        switchWorkbenchView('files');
+        await openFilePreview(target);
+      });
+    });
+  } catch (error) {
+    if (epoch === workspaceSearchEpoch) resultsHost.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+  }
 }
 
 function fileIcon(entry) {
@@ -3576,6 +3740,7 @@ async function openProjectPath(rootPath) {
     filesLastSig = '';
     closeFilePreview();
     await loadFilesList('.', false);
+    if (workbenchView === 'git') loadGitWorkbench();
   } catch (err) {
     addError('打开项目失败：' + (err.message || err));
   }
@@ -3605,6 +3770,7 @@ async function closeProject() {
   projectName = null;
   filesCurrentPath = '.';
   filesLastSig = '';
+  switchWorkbenchView('files');
   await loadProjectState();
 }
 
@@ -3708,6 +3874,7 @@ async function openFilePreview(relPath) {
     filesSelectedPath = relPath;
     const ext = (relPath.split('.').pop() || '').toLowerCase();
     if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) {
+      box.dataset.open = 'true';
       box.style.display = 'flex';
       if (nameEl) nameEl.textContent = relPath.split('/').pop() || relPath;
       bodyEl.innerHTML = `<img class="files-preview-image" src="${API_BASE}/api/fs/raw?path=${encodeURIComponent(relPath)}" alt="${escapeHtml(relPath)}">`;
@@ -3716,10 +3883,12 @@ async function openFilePreview(relPath) {
     const resp = await fetch(`${API_BASE}/api/fs/read?path=${encodeURIComponent(relPath)}`);
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || '读取失败');
+    box.dataset.open = 'true';
     box.style.display = 'flex';
     if (nameEl) nameEl.textContent = data.name || relPath;
     bodyEl.textContent = data.content || '';
   } catch (err) {
+    box.dataset.open = 'true';
     box.style.display = 'flex';
     if (nameEl) nameEl.textContent = relPath;
     bodyEl.textContent = '无法预览：' + (err.message || err);
@@ -3728,12 +3897,22 @@ async function openFilePreview(relPath) {
 
 function closeFilePreview() {
   const box = document.getElementById('filesPreview');
-  if (box) box.style.display = 'none';
+  if (box) { box.dataset.open = 'false'; box.style.display = 'none'; }
   filesSelectedPath = '';
   document.querySelectorAll('.files-item.active').forEach((b) => b.classList.remove('active'));
 }
 
 function initFilesPanel() {
+  document.querySelectorAll('.workbench-tab').forEach((button) => {
+    button.addEventListener('click', () => switchWorkbenchView(button.dataset.workbenchView));
+  });
+  const searchInput = document.getElementById('workspaceSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      if (workspaceSearchTimer) clearTimeout(workspaceSearchTimer);
+      workspaceSearchTimer = setTimeout(() => searchWorkspaceText(searchInput.value), 220);
+    });
+  }
   const openBtn = document.getElementById('filesOpenBtn');
   if (openBtn) openBtn.addEventListener('click', openProjectPicker);
   const refreshBtn = document.getElementById('filesRefreshBtn');
@@ -3827,6 +4006,7 @@ function initFilesPanel() {
   if (filesPollTimer) clearInterval(filesPollTimer);
   filesPollTimer = setInterval(() => {
     if (projectRoot) loadFilesList(filesCurrentPath, true);
+    if (projectRoot && workbenchView === 'git') loadGitWorkbench();
   }, 4000);
 }
 
