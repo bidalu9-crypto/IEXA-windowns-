@@ -1982,6 +1982,12 @@ ${recentMemories}
           jsonReply(res, 200, { ok: true });
           return;
         }
+        if (action === 'resize' && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          terminalManager.resize(id, Number(body.cols), Number(body.rows));
+          jsonReply(res, 200, { ok: true });
+          return;
+        }
         if (action === 'terminate' && req.method === 'POST') {
           terminalManager.terminate(id);
           jsonReply(res, 200, { ok: true });

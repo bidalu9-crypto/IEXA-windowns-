@@ -3659,6 +3659,16 @@ function appendTerminalOutput(text) {
   output.scrollTop = output.scrollHeight;
 }
 
+function resizeActiveTerminal() {
+  const output = document.getElementById('terminalOutput');
+  if (!activeTerminalId || !output || output.clientWidth < 1 || output.clientHeight < 1) return;
+  const cols = Math.max(20, Math.floor((output.clientWidth - 22) / 8));
+  const rows = Math.max(5, Math.floor((output.clientHeight - 22) / 18));
+  fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(activeTerminalId)}/resize`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cols, rows }),
+  }).catch(() => {});
+}
+
 async function loadTerminalSessions() {
   if (workbenchView !== 'terminal') return;
   try {
@@ -3673,7 +3683,7 @@ async function loadTerminalSessions() {
       if (output) output.textContent = activeTerminalId ? '' : '打开项目后可新建终端。';
     }
     renderTerminalTabs();
-    if (activeTerminalId) pollTerminalOutput();
+    if (activeTerminalId) { resizeActiveTerminal(); pollTerminalOutput(); }
   } catch (error) {
     const output = document.getElementById('terminalOutput');
     if (output) output.textContent = '终端不可用：' + (error.message || error);
@@ -3769,6 +3779,8 @@ function initTerminalPanel() {
   });
   if (terminalPollTimer) clearInterval(terminalPollTimer);
   terminalPollTimer = setInterval(() => pollTerminalOutput(), 350);
+  const output = document.getElementById('terminalOutput');
+  if (output && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => resizeActiveTerminal()).observe(output);
 }
 
 function setMcpOutput(value) {

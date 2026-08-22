@@ -1,5 +1,5 @@
-import { ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
+import { IPty, spawn as spawnPty } from 'node-pty';
 
 export type TerminalShell = 'cmd' | 'powershell' | 'bash' | 'wsl';
 
@@ -12,13 +12,15 @@ interface TerminalSessionRecord {
   id: string;
   shell: TerminalShell;
   cwd: string;
-  child: ChildProcess;
+  pty: IPty;
   createdAt: number;
   endedAt?: number;
   exitCode?: number | null;
   chunks: TerminalChunk[];
   outputBytes: number;
   nextSeq: number;
+  cols: number;
+  rows: number;
 }
 
 export interface TerminalSessionInfo {
@@ -29,6 +31,8 @@ export interface TerminalSessionInfo {
   endedAt?: number;
   exitCode?: number | null;
   running: boolean;
+  cols: number;
+  rows: number;
 }
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -46,23 +50,18 @@ export class TerminalManager {
     this.trimSessions();
     const shell = this.resolveShell(requestedShell);
     const command = this.commandFor(shell);
-    const child = spawn(command.file, command.args, {
-      cwd,
-      env: { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' },
-      windowsHide: true,
-      stdio: 'pipe',
-    });
+    const cols = 120; const rows = 32;
+    const env = Object.fromEntries(Object.entries({ ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' }).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+    const pty = spawnPty(command.file, command.args, { name: 'xterm-256color', cols, rows, cwd, env, useConpty: process.platform === 'win32' });
     const record: TerminalSessionRecord = {
-      id: crypto.randomUUID(), shell, cwd, child, createdAt: Date.now(), chunks: [], outputBytes: 0, nextSeq: 1,
+      id: crypto.randomUUID(), shell, cwd, pty, createdAt: Date.now(), chunks: [], outputBytes: 0, nextSeq: 1, cols, rows,
     };
     this.sessions.set(record.id, record);
-    child.stdout?.on('data', (value: Buffer) => this.append(record, value));
-    child.stderr?.on('data', (value: Buffer) => this.append(record, value));
-    child.on('error', (error) => this.append(record, `\n[终端启动失败：${error.message}]\n`));
-    child.on('close', (code) => {
+    pty.onData((value) => this.append(record, value));
+    pty.onExit(({ exitCode }) => {
       record.endedAt = Date.now();
-      record.exitCode = code;
-      this.append(record, `\n[终端会话已结束，退出码：${code ?? -1}]\n`);
+      record.exitCode = exitCode;
+      this.append(record, `\n[终端会话已结束，退出码：${exitCode ?? -1}]\n`);
     });
     return this.info(record);
   }
@@ -83,20 +82,24 @@ export class TerminalManager {
 
   write(id: string, input: string, appendNewline = false): void {
     const record = this.get(id);
-    if (record.endedAt || !record.child.stdin?.writable) throw new Error('终端会话已结束。');
+    if (record.endedAt) throw new Error('终端会话已结束。');
     const value = String(input || '');
     if (!value || value.length > 100_000) throw new Error('终端输入不能为空且不能超过 100000 个字符。');
-    record.child.stdin.write(appendNewline ? `${value.replace(/\r?\n$/, '')}\r\n` : value);
+    record.pty.write(appendNewline ? `${value.replace(/\r?\n$/, '')}\r` : value);
+  }
+
+  resize(id: string, cols: number, rows: number): void {
+    const record = this.get(id);
+    if (record.endedAt) return;
+    record.cols = Math.max(20, Math.min(500, Math.floor(cols)));
+    record.rows = Math.max(5, Math.min(300, Math.floor(rows)));
+    record.pty.resize(record.cols, record.rows);
   }
 
   terminate(id: string): void {
     const record = this.get(id);
-    if (record.endedAt || !record.child.pid) return;
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(record.child.pid), '/t', '/f'], { windowsHide: true });
-    } else {
-      record.child.kill('SIGTERM');
-    }
+    if (record.endedAt) return;
+    record.pty.kill();
   }
 
   private get(id: string): TerminalSessionRecord {
@@ -119,7 +122,7 @@ export class TerminalManager {
   private info(record: TerminalSessionRecord): TerminalSessionInfo {
     return {
       id: record.id, shell: record.shell, cwd: record.cwd, createdAt: record.createdAt,
-      endedAt: record.endedAt, exitCode: record.exitCode, running: !record.endedAt,
+      endedAt: record.endedAt, exitCode: record.exitCode, running: !record.endedAt, cols: record.cols, rows: record.rows,
     };
   }
 
