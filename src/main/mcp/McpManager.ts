@@ -17,7 +17,8 @@ export interface McpServerConfig {
 }
 
 export interface McpToolInfo { name: string; description?: string; inputSchema?: Record<string, unknown>; }
-export interface McpServerInfo extends McpServerConfig { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; tools: McpToolInfo[]; logs: string[]; }
+export interface McpResourceInfo { uri: string; name?: string; mimeType?: string; }
+export interface McpServerInfo extends McpServerConfig { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string; tools: McpToolInfo[]; resources: McpResourceInfo[]; logs: string[]; }
 
 interface StdioConnection { child: ChildProcess; buffer: string; nextId: number; pending: Map<number, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>; }
 
@@ -36,7 +37,7 @@ export class McpManager {
   add(input: Omit<McpServerConfig, 'id'>): McpServerInfo {
     const config = this.validate({ ...input, id: crypto.randomUUID() });
     this.configs.set(config.id, config);
-    this.state.set(config.id, { status: 'disconnected', tools: [], logs: [] });
+    this.state.set(config.id, { status: 'disconnected', tools: [], resources: [], logs: [] });
     this.save();
     return this.info(config);
   }
@@ -52,7 +53,7 @@ export class McpManager {
     const config = this.getConfig(id);
     if (!config.enabled) throw new Error('该 MCP Server 已禁用。');
     this.disconnect(id);
-    this.setState(id, { status: 'connecting', error: undefined, tools: [], logs: [] });
+    this.setState(id, { status: 'connecting', error: undefined, tools: [], resources: [], logs: [] });
     try {
       const initialize = await this.request(config, 'initialize', {
         protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'IEXA-WIN', version: '1.0.0' },
@@ -60,9 +61,14 @@ export class McpManager {
       await this.notify(config, 'notifications/initialized', {});
       const listed = await this.request(config, 'tools/list', {});
       const tools = Array.isArray((listed as { tools?: unknown[] })?.tools) ? (listed as { tools: unknown[] }).tools.map(toTool).filter(Boolean) as McpToolInfo[] : [];
+      let resources: McpResourceInfo[] = [];
+      try {
+        const listedResources = await this.request(config, 'resources/list', {});
+        resources = Array.isArray((listedResources as { resources?: unknown[] })?.resources) ? (listedResources as { resources: unknown[] }).resources.map(toResource).filter(Boolean) as McpResourceInfo[] : [];
+      } catch { /* Resources are optional. */ }
       const serverName = String((initialize as { serverInfo?: { name?: string } })?.serverInfo?.name || config.name);
-      this.log(id, `已连接：${serverName}；发现 ${tools.length} 个工具。`);
-      this.setState(id, { status: 'connected', error: undefined, tools });
+      this.log(id, `已连接：${serverName}；发现 ${tools.length} 个工具、${resources.length} 个资源。`);
+      this.setState(id, { status: 'connected', error: undefined, tools, resources });
     } catch (error) {
       this.disconnect(id);
       const message = (error as Error).message;
@@ -81,7 +87,7 @@ export class McpManager {
     }
     const config = this.getConfig(id);
     const previous = this.state.get(id);
-    this.setState(id, { status: 'disconnected', error: undefined, tools: previous?.tools || [] });
+    this.setState(id, { status: 'disconnected', error: undefined, tools: previous?.tools || [], resources: previous?.resources || [] });
     return this.info(config);
   }
 
@@ -90,6 +96,13 @@ export class McpManager {
     if (this.info(config).status !== 'connected') await this.connect(id);
     this.log(id, `调用工具：${name}`);
     return this.request(config, 'tools/call', { name, arguments: args });
+  }
+
+  async readResource(id: string, uri: string): Promise<unknown> {
+    const config = this.getConfig(id);
+    if (this.info(config).status !== 'connected') await this.connect(id);
+    this.log(id, `读取资源：${uri}`);
+    return this.request(config, 'resources/read', { uri });
   }
 
   private async request(config: McpServerConfig, method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -178,18 +191,18 @@ export class McpManager {
   }
 
   private info(config: McpServerConfig): McpServerInfo {
-    const state = this.state.get(config.id) || { status: 'disconnected' as const, tools: [], logs: [] };
-    return { ...config, ...state, tools: state.tools || [], logs: state.logs || [] };
+    const state = this.state.get(config.id) || { status: 'disconnected' as const, tools: [], resources: [], logs: [] };
+    return { ...config, ...state, tools: state.tools || [], resources: state.resources || [], logs: state.logs || [] };
   }
 
   private setState(id: string, update: Partial<Omit<McpServerInfo, keyof McpServerConfig>>): void {
-    const current = this.state.get(id) || { status: 'disconnected' as const, tools: [], logs: [] };
+    const current = this.state.get(id) || { status: 'disconnected' as const, tools: [], resources: [], logs: [] };
     this.state.set(id, { ...current, ...update });
   }
 
   private log(id: string, message: string): void {
     if (!message) return;
-    const current = this.state.get(id) || { status: 'disconnected' as const, tools: [], logs: [] };
+    const current = this.state.get(id) || { status: 'disconnected' as const, tools: [], resources: [], logs: [] };
     const logs = [...(current.logs || []), `[${new Date().toLocaleTimeString('zh-CN')}] ${message}`].slice(-80);
     this.state.set(id, { ...current, logs });
   }
@@ -210,7 +223,7 @@ export class McpManager {
       const raw = JSON.parse(fs.readFileSync(this.configFile, 'utf8')) as { servers?: McpServerConfig[] };
       for (const value of raw.servers || []) {
         const config = this.validate(value);
-        this.configs.set(config.id, config); this.state.set(config.id, { status: 'disconnected', tools: [], logs: [] });
+        this.configs.set(config.id, config); this.state.set(config.id, { status: 'disconnected', tools: [], resources: [], logs: [] });
       }
     } catch { /* First run or invalid local config: start with no MCP servers. */ }
   }
@@ -229,4 +242,12 @@ function toTool(value: unknown): McpToolInfo | null {
   const name = typeof source.name === 'string' ? source.name : '';
   if (!name) return null;
   return { name, description: typeof source.description === 'string' ? source.description : undefined, inputSchema: source.inputSchema && typeof source.inputSchema === 'object' ? source.inputSchema as Record<string, unknown> : undefined };
+}
+
+function toResource(value: unknown): McpResourceInfo | null {
+  if (!value || typeof value !== 'object') return null;
+  const source = value as { uri?: unknown; name?: unknown; mimeType?: unknown };
+  const uri = typeof source.uri === 'string' ? source.uri : '';
+  if (!uri) return null;
+  return { uri, name: typeof source.name === 'string' ? source.name : undefined, mimeType: typeof source.mimeType === 'string' ? source.mimeType : undefined };
 }

@@ -298,6 +298,9 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     if (view === 'jobs') {
       loadJobs();
     }
+    if (view === 'mcp') {
+      loadMcpServers();
+    }
     syncJobsPolling();
   });
 });
@@ -3438,27 +3441,24 @@ function formatFileSize(n) {
 }
 
 function switchWorkbenchView(view) {
-  if (!['files', 'git', 'search', 'terminal', 'mcp'].includes(view)) return;
+  if (!['files', 'git', 'search', 'terminal'].includes(view)) return;
   workbenchView = view;
   const filesList = document.getElementById('filesList');
   const filesPreview = document.getElementById('filesPreview');
   const gitPanel = document.getElementById('gitPanel');
   const searchPanel = document.getElementById('searchPanel');
   const terminalPanel = document.getElementById('terminalPanel');
-  const mcpPanel = document.getElementById('mcpPanel');
   if (filesList) filesList.style.display = view === 'files' ? '' : 'none';
   if (filesPreview) filesPreview.style.display = view === 'files' && filesPreview.dataset.open === 'true' ? 'flex' : 'none';
   if (gitPanel) gitPanel.style.display = view === 'git' ? 'block' : 'none';
   if (searchPanel) searchPanel.style.display = view === 'search' ? 'flex' : 'none';
   if (terminalPanel) terminalPanel.style.display = view === 'terminal' ? 'flex' : 'none';
-  if (mcpPanel) mcpPanel.style.display = view === 'mcp' ? 'flex' : 'none';
   document.querySelectorAll('.workbench-tab').forEach((button) => {
     button.classList.toggle('active', button.dataset.workbenchView === view);
   });
   if (view === 'git') loadGitWorkbench();
   if (view === 'search') document.getElementById('workspaceSearchInput')?.focus();
   if (view === 'terminal') loadTerminalSessions();
-  if (view === 'mcp') loadMcpServers();
 }
 
 function renderGitStatus(data) {
@@ -3785,6 +3785,7 @@ function renderMcpServers(servers) {
   }
   list.innerHTML = servers.map((server) => {
     const tools = (server.tools || []).map((tool) => `<button type="button" class="mcp-tool" data-mcp-call="${escapeHtml(tool.name)}" title="${escapeHtml(tool.description || tool.name)}">${escapeHtml(tool.name)}</button>`).join('');
+    const resources = (server.resources || []).map((resource) => `<button type="button" class="mcp-tool" data-mcp-resource="${escapeHtml(resource.uri)}" title="${escapeHtml(resource.uri)}">${escapeHtml(resource.name || resource.uri)}</button>`).join('');
     const logs = (server.logs || []).join('\n');
     return `<article class="mcp-server-card" data-mcp-server="${escapeHtml(server.id)}">
       <div class="mcp-server-head"><strong>${escapeHtml(server.name)}</strong><span class="mcp-state ${escapeHtml(server.status)}">${escapeHtml(server.status)}</span></div>
@@ -3796,6 +3797,7 @@ function renderMcpServers(servers) {
         <button type="button" data-mcp-action="remove">删除</button>
       </div>
       ${tools ? `<div class="mcp-tools">${tools}</div>` : ''}
+      ${resources ? `<div class="mcp-tools mcp-resources">${resources}</div>` : ''}
       ${logs ? `<details class="mcp-logs"><summary>日志</summary><pre>${escapeHtml(logs)}</pre></details>` : ''}
     </article>`;
   }).join('');
@@ -3803,11 +3805,11 @@ function renderMcpServers(servers) {
     const id = card.dataset.mcpServer;
     card.querySelectorAll('[data-mcp-action]').forEach((button) => button.addEventListener('click', () => runMcpAction(id, button.dataset.mcpAction)));
     card.querySelectorAll('[data-mcp-call]').forEach((button) => button.addEventListener('click', () => callMcpTool(id, button.dataset.mcpCall)));
+    card.querySelectorAll('[data-mcp-resource]').forEach((button) => button.addEventListener('click', () => readMcpResource(id, button.dataset.mcpResource)));
   });
 }
 
 async function loadMcpServers() {
-  if (workbenchView !== 'mcp') return;
   const list = document.getElementById('mcpServerList');
   if (list) list.innerHTML = '<div class="workbench-empty">正在加载 MCP Server…</div>';
   try {
@@ -3849,6 +3851,19 @@ async function callMcpTool(id, name) {
     await loadMcpServers();
   } catch (error) {
     setMcpOutput('MCP 工具调用失败：' + (error.message || error));
+  }
+}
+
+async function readMcpResource(id, uri) {
+  if (!id || !uri) return;
+  try {
+    setMcpOutput(`正在读取资源 ${uri}…`);
+    const response = await fetch(`${API_BASE}/api/mcp/servers/${encodeURIComponent(id)}/resource`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uri }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取 MCP Resource 失败');
+    setMcpOutput(data.result);
+  } catch (error) {
+    setMcpOutput('读取 MCP Resource 失败：' + (error.message || error));
   }
 }
 

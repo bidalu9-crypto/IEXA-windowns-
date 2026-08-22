@@ -846,7 +846,8 @@ body {
 .terminal-command-row textarea { min-width: 0; resize: vertical; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font: .74rem/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; outline: none; }
 .terminal-command-row textarea:focus { border-color: var(--accent); }
 .terminal-command-row button { padding: 0 10px; border: 1px solid var(--accent); border-radius: 6px; color: #fff; background: var(--accent); font-size: .72rem; cursor: pointer; }
-.mcp-panel { flex-direction: column; overflow: hidden; }
+.mcp-panel { display: flex; flex-direction: column; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); }
+.mcp-settings-container { max-width: 900px; }
 .mcp-add-form { display: grid; grid-template-columns: minmax(0, 1fr) 70px auto; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
 .mcp-add-form input, .mcp-add-form select { min-width: 0; padding: 6px 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font-size: .72rem; outline: none; }
 .mcp-add-form input:focus, .mcp-add-form select:focus { border-color: var(--accent); }

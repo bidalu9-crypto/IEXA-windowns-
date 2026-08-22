@@ -2029,6 +2029,11 @@ ${recentMemories}
           const result = await mcpManager.callTool(id, String(body.name || ''), body.arguments && typeof body.arguments === 'object' ? body.arguments : {});
           jsonReply(res, 200, { result }); return;
         }
+        if (action === 'resource' && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          const result = await mcpManager.readResource(id, String(body.uri || ''));
+          jsonReply(res, 200, { result }); return;
+        }
         jsonReply(res, 404, { error: 'MCP 接口不存在' });
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });

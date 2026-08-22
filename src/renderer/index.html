@@ -95,6 +95,7 @@
         <span>Token 用量</span>
       </button>
       <button class="nav-btn nav-btn-jobs" data-view="jobs"><svg class="ui-icon" aria-hidden="true"><use href="#ui-terminal"/></svg><span>任务中心</span><b class="nav-job-badge" id="navJobBadge" hidden>0</b></button>
+      <button class="nav-btn" data-view="mcp"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>MCP</span></button>
       <button class="nav-btn" data-view="settings"><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span>配置</span></button>
       <button class="nav-btn" data-view="sync">
         <svg class="nav-device-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -236,7 +237,6 @@
               <button type="button" class="workbench-tab" data-workbench-view="git">更改</button>
               <button type="button" class="workbench-tab" data-workbench-view="search">搜索</button>
               <button type="button" class="workbench-tab" data-workbench-view="terminal">终端</button>
-              <button type="button" class="workbench-tab" data-workbench-view="mcp">MCP</button>
             </div>
           </div>
           <div class="files-list" id="filesList">
@@ -278,18 +278,6 @@
               <button type="button" id="terminalRunBtn">运行</button>
             </div>
           </section>
-          <section class="workbench-panel mcp-panel" id="mcpPanel" style="display:none;" aria-label="MCP Servers">
-            <form class="mcp-add-form" id="mcpAddForm">
-              <input id="mcpName" placeholder="Server 名称" required>
-              <select id="mcpTransport" aria-label="MCP 传输方式"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
-              <input id="mcpCommand" placeholder="命令，例如 npx">
-              <input id="mcpArgs" placeholder="参数，空格分隔">
-              <input id="mcpUrl" placeholder="HTTP URL（HTTP 模式）" style="display:none;">
-              <button type="submit">添加 Server</button>
-            </form>
-            <div class="mcp-server-list" id="mcpServerList"><div class="workbench-empty">还没有配置 MCP Server。</div></div>
-            <pre class="mcp-output" id="mcpOutput">选择一个 MCP 工具可在此查看结果。</pre>
-          </section>
           <div class="files-preview" id="filesPreview" style="display:none;">
             <div class="files-preview-header">
               <span class="files-preview-name" id="filesPreviewName"></span>
@@ -303,6 +291,24 @@
           <button type="button" class="files-context-item" data-action="copy"><svg class="ui-icon" aria-hidden="true"><use href="#ui-copy"/></svg><span>复制</span></button>
           <button type="button" class="files-context-item" data-action="copy-path"><svg class="ui-icon" aria-hidden="true"><use href="#ui-link"/></svg><span>复制路径</span></button>
         </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-mcp">
+      <div class="settings-container mcp-settings-container">
+        <div class="settings-header"><h2>MCP Servers</h2></div>
+        <section class="mcp-panel" id="mcpPanel" aria-label="MCP Servers">
+          <form class="mcp-add-form" id="mcpAddForm">
+            <input id="mcpName" placeholder="Server 名称" required>
+            <select id="mcpTransport" aria-label="MCP 传输方式"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
+            <input id="mcpCommand" placeholder="命令，例如 npx">
+            <input id="mcpArgs" placeholder="参数，空格分隔">
+            <input id="mcpUrl" placeholder="HTTP URL（HTTP 模式）" style="display:none;">
+            <button type="submit">添加 Server</button>
+          </form>
+          <div class="mcp-server-list" id="mcpServerList"><div class="workbench-empty">还没有配置 MCP Server。</div></div>
+          <pre class="mcp-output" id="mcpOutput">选择一个 MCP 工具可在此查看结果。</pre>
+        </section>
       </div>
     </div>
 
