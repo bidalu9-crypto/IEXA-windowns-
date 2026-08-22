@@ -1936,7 +1936,8 @@ body {
 /* ===== Codex workbench tool timeline ===== */
 .chat-container { background: var(--bg-primary); }
 .chat-messages { padding-bottom: 24px; }
-.message { max-width: 900px; margin-left: auto; margin-right: auto; }
+.message { max-width: 900px; }
+.message.assistant { align-self: flex-start; width: min(100%, 900px); margin-left: 0; margin-right: auto; }
 .message.user { max-width: min(85%, 720px); margin-left: auto; margin-right: 0; }
 .message.user .message-content { border: 1px solid color-mix(in srgb, var(--border) 92%, transparent); border-radius: 18px; padding: 10px 14px; background: var(--bg-tertiary); }
 .message.assistant .message-content { padding: 8px 0; line-height: 1.62; }
