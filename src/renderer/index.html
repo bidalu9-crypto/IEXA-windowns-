@@ -319,6 +319,11 @@
           <h2>AI 模型</h2>
           <button class="btn-primary btn-sm" onclick="showProfileEditor()">+ 添加模型</button>
         </div>
+        <div class="setting-group vision-fallback-setting">
+          <label for="visionProfileSelect">视觉输入模型</label>
+          <select id="visionProfileSelect"><option value="">不使用视觉代理</option></select>
+          <span class="setting-hint">当前模型不支持图片时，IEXA 会将图片交给此模型识别，再把 OCR 与描述作为文本结果返回。</span>
+        </div>
         <div class="profile-list" id="profileList">
           <div class="profile-empty">尚未配置模型。点击"＋ 添加模型"开始。</div>
         </div>

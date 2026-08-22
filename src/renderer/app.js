@@ -2912,6 +2912,34 @@ if (fastModeBtn) fastModeBtn.addEventListener('click', () => toggleFastMode().ca
 initThinkingLevelControl();
 
 // ---- Profile List (settings) ----
+async function loadVisionProfileSetting() {
+  const select = document.getElementById('visionProfileSelect');
+  if (!select) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/vision-profile`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取视觉配置失败');
+    select.innerHTML = '<option value="">不使用视觉代理</option>' + (data.profiles || []).filter((profile) => profile.eligible).map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('');
+    select.value = data.visionProfileId || '';
+  } catch (error) { console.error('Failed to load vision profile:', error); }
+}
+
+async function saveVisionProfileSetting() {
+  const select = document.getElementById('visionProfileSelect');
+  if (!select) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/vision-profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visionProfileId: select.value }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '保存视觉配置失败');
+  } catch (error) { addError('保存视觉配置失败：' + (error.message || error)); }
+}
+
+async function loadSettings() {
+  await Promise.all([renderProfileList(), loadVisionProfileSetting()]);
+}
+
+document.getElementById('visionProfileSelect')?.addEventListener('change', saveVisionProfileSetting);
+
 async function renderProfileList() {
   const list = document.getElementById('profileList');
   const data = await fetchProfiles();
@@ -2946,6 +2974,7 @@ async function activateProfile(id) {
   });
   activeProfileId = id;
   renderProfileList();
+  loadVisionProfileSetting();
   refreshModelSelector();
 }
 
@@ -2953,6 +2982,7 @@ async function deleteProfile(id) {
   if (!confirm('确定删除这个模型配置？')) return;
   await fetch(`${API_BASE}/api/profiles/${id}`, { method: 'DELETE' });
   renderProfileList();
+  loadVisionProfileSetting();
   refreshModelSelector();
 }
 
@@ -3095,6 +3125,7 @@ async function saveProfile() {
 
   hideProfileEditor();
   renderProfileList();
+  loadVisionProfileSetting();
   refreshModelSelector();
 }
 

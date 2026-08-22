@@ -32,6 +32,7 @@ import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
+import { VisionFallback } from './vision/VisionFallback';
 
 const PORT = 19840;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -54,6 +55,7 @@ const MAX_DURABLE_TOOL_NOTES = 12;
 const gitService = new GitService();
 const terminalManager = new TerminalManager();
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
+const visionFallback = new VisionFallback();
 
 interface McpAgentBinding { name: string; serverId: string; toolName: string; description: string; }
 
@@ -231,6 +233,7 @@ interface AppSettings {
   /** Global thinking effort: off | low | medium | high (iOS-style). */
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   permissionMode?: PermissionMode;
+  visionProfileId?: string;
 }
 
 // ---- Settings I/O ----
@@ -257,10 +260,28 @@ function loadSettings(): AppSettings {
         activeProfileId: raw.activeProfileId || raw.profiles?.[0]?.id || '',
         thinkingLevel: normalizeThinkingLevel(raw.thinkingLevel),
         permissionMode: normalizePermissionMode(raw.permissionMode),
+        visionProfileId: typeof raw.visionProfileId === 'string' ? raw.visionProfileId : undefined,
       };
     }
   } catch { /* ignore */ }
   return { profiles: [], activeProfileId: '', thinkingLevel: 'medium', permissionMode: 'risk' };
+}
+
+function profileLikelySupportsVision(profile: ModelProfile | null | undefined): boolean {
+  if (!profile) return false;
+  const model = profile.model.toLowerCase();
+  return profile.provider === 'anthropic' || profile.provider === 'gemini' || /gpt-4o|gpt-4\.1|gpt-5|claude|gemini|vision|vl|llava|qwen2\.5-vl|qwen3-vl/.test(model);
+}
+
+function configuredVisionProfile(currentProfileId?: string): ModelProfile | null {
+  const settings = loadSettings();
+  const profile = settings.profiles.find((item) => item.id === settings.visionProfileId) || null;
+  return profile && profile.id !== currentProfileId && profileLikelySupportsVision(profile) && Boolean(profile.apiKey) ? profile : null;
+}
+
+function imageMimeType(filePath: string): string | null {
+  const ext = path.extname(filePath).toLowerCase();
+  return ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' } as Record<string, string>)[ext] || null;
 }
 
 function normalizePermissionMode(value: unknown): PermissionMode {
@@ -1334,6 +1355,28 @@ ${recentMemories}
           // Prior turns from disk → model remembers after reopen / process restart
           agent.seedHistoryFromChat(persistedMessages);
         }
+        const visionProfile = configuredVisionProfile(profile.id);
+        if (visionProfile && !profileLikelySupportsVision(profile)) {
+          agent.registerDynamicTool({
+            name: 'read_image',
+            description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns a factual description and OCR text for this text-only model.`,
+            parameters: {
+              path: { type: 'string', description: 'Absolute image path shown in the attachment note or workspace.' },
+              prompt: { type: 'string', description: 'Optional specific image question.' },
+            }, required: ['path'], propertyOrdering: ['path', 'prompt'],
+          }, async (args) => {
+            try {
+              const source = path.resolve(String(args.path || ''));
+              const allowedRoots = [WORKSPACE_DIR, getProjectRoot()].filter((value): value is string => Boolean(value)).map((value) => path.resolve(value));
+              if (!allowedRoots.some((root) => { const relative = path.relative(root, source); return !relative.startsWith('..') && !path.isAbsolute(relative); })) throw new Error('图片路径不在当前工作区或项目中。');
+              const mimeType = imageMimeType(source);
+              if (!mimeType || !fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error('未找到可识别的图片文件。');
+              if (fs.statSync(source).size > 10 * 1024 * 1024) throw new Error('图片超过 10 MB。');
+              const output = await visionFallback.describe({ ...visionProfile, type: visionProfile.provider as ProviderType, displayName: visionProfile.name }, fs.readFileSync(source), mimeType, String(args.prompt || ''));
+              return { output, success: true };
+            } catch (error) { return { output: `图片识别失败：${(error as Error).message}`, success: false }; }
+          });
+        }
         const mcpBindings = activeMcpAgentBindings();
         for (const binding of mcpBindings) {
           agent.registerDynamicTool({
@@ -1354,7 +1397,11 @@ ${recentMemories}
             }
           });
         }
-        const tools = [...makeAgentTools(true), ...mcpBindings.map((binding) => ({
+        const tools = [...makeAgentTools(true), ...(visionProfile && !profileLikelySupportsVision(profile) ? [{
+          name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
+          parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
+          required: ['path'], propertyOrdering: ['path', 'prompt'],
+        }] : []), ...mcpBindings.map((binding) => ({
           name: binding.name,
           description: `${binding.description}。arguments_json 必须是传给该 MCP 工具的 JSON 对象字符串。`,
           parameters: { arguments_json: { type: 'string' as const, description: 'JSON object arguments for this MCP tool.' } },
@@ -1416,7 +1463,13 @@ ${recentMemories}
             }
           } catch { /* ignore save errors */ }
 
-          agentAttachments.push({ name: safeName, mime, kind, data, text, savedPath });
+          // Text-only active models receive a stable local image path and can
+          // call read_image, which delegates pixels to the configured vision
+          // profile. Native vision models retain the direct image bytes.
+          const directImageData = kind === 'image' && !profileLikelySupportsVision(profile) && configuredVisionProfile(profile.id)
+            ? undefined
+            : data;
+          agentAttachments.push({ name: safeName, mime, kind, data: directImageData, text, savedPath });
           metaAttachments.push({ name: safeName, mime, kind, savedPath, previewUrl });
         }
 
@@ -1725,9 +1778,31 @@ ${recentMemories}
       const s = loadSettings();
       s.profiles = s.profiles.filter(p => p.id !== id);
       if (s.activeProfileId === id) s.activeProfileId = s.profiles[0]?.id || '';
+      if (s.visionProfileId === id) s.visionProfileId = undefined;
       saveSettings(s);
       jsonReply(res, 200, { ok: true });
       return;
+    }
+
+    if (url.pathname === '/api/vision-profile') {
+      if (req.method === 'GET') {
+        const settings = loadSettings();
+        jsonReply(res, 200, { visionProfileId: settings.visionProfileId || '', profiles: settings.profiles.map((profile) => ({ id: profile.id, name: profile.name, provider: profile.provider, model: profile.model, eligible: profileLikelySupportsVision(profile) })) });
+        return;
+      }
+      if (req.method === 'PUT') {
+        try {
+          const body = JSON.parse(await readBody(req) || '{}');
+          const id = String(body.visionProfileId || '');
+          const settings = loadSettings();
+          if (id && !settings.profiles.some((profile) => profile.id === id && profileLikelySupportsVision(profile))) throw new Error('请选择支持图片输入的视觉模型。');
+          settings.visionProfileId = id || undefined;
+          saveSettings(settings);
+          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+          jsonReply(res, 200, { ok: true, visionProfileId: settings.visionProfileId || '' });
+        } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
+        return;
+      }
     }
 
     // =====================================================================
