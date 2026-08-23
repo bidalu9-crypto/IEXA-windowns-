@@ -5,15 +5,23 @@ export function jsonReply(res: http.ServerResponse, code: number, body: unknown)
   res.end(JSON.stringify(body));
 }
 
-export function readBody(req: http.IncomingMessage): Promise<string> {
+export function readBody(req: http.IncomingMessage, maxLength = 10_000_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = '';
+    let bodyBytes = 0;
+    let settled = false;
     req.on('data', (chunk) => {
+      if (settled) return;
+      bodyBytes += Buffer.byteLength(chunk);
       body += chunk;
-      if (body.length > 10_000_000) reject(new Error('请求体过大。'));
+      if (bodyBytes > maxLength) {
+        settled = true;
+        reject(new Error(`请求体过大（上限 ${maxLength} 字节）。`));
+        req.destroy();
+      }
     });
-    req.on('end', () => resolve(body));
-    req.on('error', reject);
+    req.on('end', () => { if (!settled) { settled = true; resolve(body); } });
+    req.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
   });
 }
 

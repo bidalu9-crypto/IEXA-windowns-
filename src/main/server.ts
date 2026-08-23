@@ -35,6 +35,10 @@ import { McpManager } from './mcp/McpManager';
 import { VisionFallback } from './vision/VisionFallback';
 
 const PORT = 19840;
+const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
+const MAX_ATTACHMENTS = 8;
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_ATTACHMENT_TOTAL_BYTES = 32 * 1024 * 1024;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
 const WORKSPACE_DIR = process.env.IEXA_WORKSPACE || path.join(process.cwd(), 'workspace');
 const MEMORY_DIR = path.join(WORKSPACE_DIR, '.iexa-memory');
@@ -1298,7 +1302,10 @@ function createServer(): http.Server {
     // Chat API
     // =====================================================================
     if (url.pathname === '/api/chat' && req.method === 'POST') {
-      const body = await readBody(req);
+      // Attachments are base64 encoded in the JSON envelope, so chat needs a
+      // larger body budget than ordinary settings routes. Per-file and total
+      // decoded-byte limits below keep this bounded.
+      const body = await readBody(req, MAX_CHAT_BODY_BYTES);
       let requestSessionId = '';
       try {
         const parsed = JSON.parse(body);
@@ -1426,7 +1433,8 @@ ${recentMemories}
         }> = [];
         const metaAttachments: ChatAttachmentMeta[] = [];
 
-        for (const raw of rawAttachments.slice(0, 8)) {
+        let totalAttachmentBytes = 0;
+        for (const raw of rawAttachments.slice(0, MAX_ATTACHMENTS)) {
           const safeName = sanitizeFileName(raw.name || 'file');
           const kind = (raw.kind === 'image' || raw.kind === 'text' || raw.kind === 'file')
             ? raw.kind
@@ -1442,11 +1450,16 @@ ${recentMemories}
             const m = raw.dataUrl.match(/^data:([^;]+);base64,(.+)$/s);
             if (m) {
               data = Buffer.from(m[2], 'base64');
+              if (data.length > MAX_ATTACHMENT_BYTES) throw new Error(`附件超过 ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB：${safeName}`);
               if (kind === 'image' && raw.dataUrl.length < 200000) {
                 previewUrl = raw.dataUrl;
               }
             }
           }
+          const attachmentBytes = data?.length ?? (text == null ? 0 : Buffer.byteLength(text, 'utf8'));
+          if (attachmentBytes > MAX_ATTACHMENT_BYTES) throw new Error(`附件超过 ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB：${safeName}`);
+          totalAttachmentBytes += attachmentBytes;
+          if (totalAttachmentBytes > MAX_ATTACHMENT_TOTAL_BYTES) throw new Error(`附件总大小超过 ${MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)} MB`);
 
           // Persist to workspace so agent tools can open the path
           let savedPath: string | undefined;

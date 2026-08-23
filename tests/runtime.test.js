@@ -29,6 +29,7 @@ const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
+const { FileTools } = require('../dist/main/tools/ToolExecutors');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -266,6 +267,19 @@ test('tool definitions include structured array item schemas', async () => {
   assert.equal(todo.parameters.todos.items.type, 'object');
   assert.deepEqual(todo.parameters.todos.items.required, ['content', 'status']);
   assert.deepEqual(todo.parameters.todos.items.properties.status.enumValues, ['pending', 'in_progress', 'completed']);
+});
+
+test('FileTools reads large text files by page without requiring the full body result', async () => {
+  const root = await tempWorkspace();
+  const file = path.join(root, 'large.log');
+  await fs.writeFile(file, Array.from({ length: 20_000 }, (_, index) => `line-${index + 1}`).join('\n'), 'utf8');
+  const tools = new FileTools();
+  const page = await tools.readFile('large.log', root, { offset: 10_001, lines: 3, maxLength: 1000 });
+  assert.equal(page.success, true);
+  assert.match(page.output, /line-10001\nline-10002\nline-10003/);
+  assert.match(page.output, /Lines: 20000/);
+  const tail = await tools.readFile('large.log', root, { direction: 'tail', lines: 2, maxLength: 1000 });
+  assert.match(tail.output, /line-19999\nline-20000/);
 });
 
 test('AgentRuntime routes an AgentLoop tool call through ToolRuntime', async () => {

@@ -4,6 +4,8 @@
 // =============================================================================
 
 import { promises as fs } from 'fs';
+import { createReadStream } from 'fs';
+import * as readline from 'readline';
 import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
 import { ProcessManager } from './shell/ProcessManager';
@@ -103,6 +105,8 @@ export class ShellExecutor {
 // =============================================================================
 
 export class FileTools {
+  private static readonly DEFAULT_READ_CHARS = 15_000;
+  private static readonly MAX_READ_CHARS = 120_000;
   private resolvePath(filePath: string, workspaceDir: string): string {
     if (path.isAbsolute(filePath)) return filePath;
     return path.resolve(workspaceDir, filePath);
@@ -126,9 +130,13 @@ export class FileTools {
         return { output: `Error: not a file: ${filePath}`, success: false };
       }
 
-      // Check for binary
-      const buffer = await fs.readFile(resolvedPath);
-      const isBinary = buffer.slice(0, 512).some((byte) => byte === 0);
+      // Probe only the first 512 bytes. The content body is streamed below so
+      // a large source/log file does not need to fit in memory before paging.
+      const handle = await fs.open(resolvedPath, 'r');
+      const probe = Buffer.alloc(512);
+      let bytesRead = 0;
+      try { ({ bytesRead } = await handle.read(probe, 0, probe.length, 0)); } finally { await handle.close(); }
+      const isBinary = probe.subarray(0, bytesRead).some((byte) => byte === 0);
       if (isBinary) {
         const ext = path.extname(resolvedPath).toLowerCase();
         const imageMime: Record<string, string> = {
@@ -147,33 +155,55 @@ export class FileTools {
         };
       }
 
-      let content = buffer.toString('utf-8');
-      const totalLines = content.split('\n').length;
-
-      // Apply offset/lines
-      const allLines = content.split('\n');
-      const startLine = Math.max(0, (options.offset || 1) - 1);
-      let selectedLines: string[];
-
-      if (options.direction === 'tail') {
-        const lineCount = options.lines || 50;
-        selectedLines = allLines.slice(-lineCount);
-      } else {
-        const lineCount = options.lines || allLines.length - startLine;
-        selectedLines = allLines.slice(startLine, startLine + lineCount);
+      const maxLen = Math.min(
+        Math.max(1, Math.floor(Number(options.maxLength) || FileTools.DEFAULT_READ_CHARS)),
+        FileTools.MAX_READ_CHARS,
+      );
+      const startLine = Math.max(1, Math.floor(Number(options.offset) || 1));
+      const requestedLines = Math.max(1, Math.floor(Number(options.lines) || 0));
+      const tailMode = options.direction === 'tail';
+      const lineLimit = requestedLines || (tailMode ? 50 : Number.MAX_SAFE_INTEGER);
+      const selectedLines: string[] = [];
+      let selectedChars = 0;
+      let totalLines = 0;
+      let truncated = false;
+      const input = createReadStream(resolvedPath, { encoding: 'utf8' });
+      const lineReader = readline.createInterface({ input, crlfDelay: Infinity });
+      try {
+        for await (const line of lineReader) {
+          totalLines++;
+          if (tailMode) {
+            selectedLines.push(line);
+            if (selectedLines.length > lineLimit) selectedLines.shift();
+            continue;
+          }
+          if (totalLines < startLine || selectedLines.length >= lineLimit) continue;
+          const separatorChars = selectedLines.length > 0 ? 1 : 0;
+          const remaining = maxLen - selectedChars - separatorChars;
+          if (remaining <= 0) { truncated = true; continue; }
+          if (line.length > remaining) {
+            selectedLines.push(line.slice(0, remaining));
+            selectedChars = maxLen;
+            truncated = true;
+          } else {
+            selectedLines.push(line);
+            selectedChars += separatorChars + line.length;
+          }
+        }
+      } finally {
+        lineReader.close();
+        input.destroy();
       }
 
-      content = selectedLines.join('\n');
-
-      // Apply max length
-      const maxLen = options.maxLength || 15000;
-      const truncated = content.length > maxLen;
-      if (truncated) {
-        content = content.substring(0, maxLen);
+      let content = selectedLines.join('\n');
+      if (content.length > maxLen) {
+        content = content.slice(0, maxLen);
+        truncated = true;
       }
+      if (tailMode && selectedLines.length >= lineLimit && totalLines > lineLimit) truncated = true;
 
       const header = `File: ${filePath}\nSize: ${stat.size} bytes\nLines: ${totalLines}\nModified: ${stat.mtime.toISOString()}\n`;
-      const trailer = truncated ? `\n\n[Truncated at ${maxLen} chars]` : '';
+      const trailer = truncated ? `\n\n[Truncated/paged at ${maxLen} chars]` : '';
 
       return {
         output: header + '---\n' + content + trailer,

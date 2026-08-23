@@ -95,16 +95,43 @@ export class ProcessManager {
       };
     }
 
-    // Passing a command containing quotes as the final argument to cmd.exe
-    // makes Node escape those quotes on Windows. CMD then passes literal
-    // backslashes/quotes to child tools, breaking paths such as
-    // `dir "C:\\Program Files"` and PowerShell's `-Command "..."` form.
-    // Let Node invoke the complete command through ComSpec instead, so the
-    // command string reaches CMD with its original quote structure intact.
+    // PowerShell's nested `-Command "..."` quoting is fragile when it passes
+    // through Node's extra CMD shell layer. Detect only a top-level PowerShell
+    // invocation and pass its script as a dedicated argv item; ordinary CMD
+    // commands keep the existing shell behavior and quoting semantics.
+    const powershell = parsePowerShellCommand(command);
+    if (powershell) {
+      // Windows PowerShell can reject a restricted temp directory when Node
+      // assigns it as the process cwd. Start from the inherited cwd and move
+      // inside PowerShell instead; this preserves command semantics while
+      // avoiding the startup-time access check.
+      const escapedCwd = cwd.replace(/'/g, "''");
+      const scriptIndex = powershell.args.length - 1;
+      powershell.args[scriptIndex] = `Set-Location -LiteralPath '${escapedCwd}'; ${powershell.args[scriptIndex]}`;
+      return { child: spawn(powershell.executable, powershell.args, { env, windowsHide: true }) };
+    }
+
     return {
       child: spawn(command, { cwd, env, shell: process.env.ComSpec || 'cmd.exe', windowsHide: true }),
     };
   }
+}
+
+function parsePowerShellCommand(command: string): { executable: string; args: string[] } | null {
+  const match = /^\s*(powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+([\s\S]+)$/i.exec(command);
+  if (!match) return null;
+  const rest = match[2];
+  const commandMatch = /(?:^|\s)(-command|-c)\s+([\s\S]+)$/i.exec(rest);
+  if (!commandMatch) return null;
+  const prefix = rest.slice(0, commandMatch.index).trim();
+  const prefixArgs = prefix.match(/(?:"[^"]*"|'[^']*'|[^\s]+)/g)?.map((arg) => {
+    return arg.length >= 2 && ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'")))
+      ? arg.slice(1, -1)
+      : arg;
+  }) || [];
+  let script = commandMatch[2].trim();
+  if (script.length >= 2 && script.startsWith('"') && script.endsWith('"')) script = script.slice(1, -1);
+  return { executable: match[1], args: [...prefixArgs, '-Command', script] };
 }
 
 function normalizeCmdNewlines(command: string): string {

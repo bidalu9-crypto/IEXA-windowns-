@@ -776,6 +776,7 @@ function sendQuick(text) {
 
 const MAX_ATTACHMENTS = 8;
 const MAX_ATTACH_BYTES = 8 * 1024 * 1024; // 8MB per file
+const MAX_ATTACH_TOTAL_BYTES = 32 * 1024 * 1024; // decoded attachment total
 const TEXT_EXTS = new Set([
   'txt', 'md', 'json', 'js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'xml', 'csv',
   'log', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'sh', 'bat', 'ps1', 'sql',
@@ -850,6 +851,11 @@ async function addFiles(fileList) {
     }
     if (file.size > MAX_ATTACH_BYTES) {
       addError(`「${file.name}」超过 8MB，已跳过。`);
+      continue;
+    }
+    const pendingBytes = pendingAttachments.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+    if (pendingBytes + file.size > MAX_ATTACH_TOTAL_BYTES) {
+      addError(`附件总大小超过 32MB，「${file.name}」已跳过。`);
       continue;
     }
     try {
