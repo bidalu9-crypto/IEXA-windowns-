@@ -25,6 +25,28 @@ export function readBody(req: http.IncomingMessage, maxLength = 10_000_000): Pro
   });
 }
 
+export function readRawBody(req: http.IncomingMessage, maxLength = 8 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+    req.on('data', (chunk) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > maxLength) {
+        settled = true;
+        reject(new Error(`上传分块过大（上限 ${maxLength} 字节）。`));
+        req.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('end', () => { if (!settled) { settled = true; resolve(Buffer.concat(chunks)); } });
+    req.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
+  });
+}
+
 export function configureApiResponse(res: http.ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');

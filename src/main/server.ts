@@ -26,7 +26,7 @@ import { SessionManager } from './session/SessionManager';
 import { TraceStore } from './observability/TraceStore';
 import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd } from './observability/CostTracker';
-import { configureApiResponse, jsonReply, readBody } from './api/HttpServer';
+import { configureApiResponse, jsonReply, readBody, readRawBody } from './api/HttpServer';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
@@ -38,7 +38,9 @@ const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS = 8;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_ATTACHMENT_TOTAL_BYTES = 256 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
 const WORKSPACE_DIR = process.env.IEXA_WORKSPACE || path.join(process.cwd(), 'workspace');
 const MEMORY_DIR = path.join(WORKSPACE_DIR, '.iexa-memory');
@@ -391,6 +393,8 @@ interface IncomingAttachment {
   kind?: string;
   dataUrl?: string;
   text?: string;
+  savedPath?: string;
+  size?: number;
 }
 
 interface SessionModelBinding {
@@ -648,6 +652,7 @@ function permissionPayload(item: PendingPermission): Record<string, unknown> {
 /** Live turns only; cached idle agents remain reusable and are not considered running. */
 const runningSessionIds = new Set<string>();
 const artifactRegistry = new Map<string, { path: string; mimeType: string; size: number; created: number }>();
+const uploadRegistry = new Map<string, { sessionId: string; name: string; mime: string; kind: string; size: number; received: number; partPath: string; created: number }>();
 
 type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 interface SessionJob {
@@ -1299,6 +1304,77 @@ function createServer(): http.Server {
     }
 
     // =====================================================================
+    // Chunked attachment uploads
+    // =====================================================================
+    if (url.pathname === '/api/uploads/init' && req.method === 'POST') {
+      try {
+        const parsed = JSON.parse(await readBody(req, 1_000_000) || '{}');
+        const sessionId = String(parsed.sessionId || '').trim();
+        const name = sanitizeFileName(String(parsed.name || 'file'));
+        const mime = String(parsed.mime || 'application/octet-stream');
+        const kind = ['image', 'text', 'file'].includes(String(parsed.kind)) ? String(parsed.kind) : 'file';
+        const size = Number(parsed.size);
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId) || !Number.isSafeInteger(size) || size <= MAX_ATTACHMENT_BYTES || size > MAX_UPLOAD_BYTES) {
+          jsonReply(res, 400, { error: `分块上传文件大小需大于 8 MB 且不超过 ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB。` });
+          return;
+        }
+        const uploadId = `upl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        const uploadDir = path.join(WORKSPACE_DIR, 'uploads', sessionId, '.chunks');
+        fs.mkdirSync(uploadDir, { recursive: true });
+        const partPath = path.join(uploadDir, `${uploadId}.part`);
+        fs.writeFileSync(partPath, Buffer.alloc(0));
+        uploadRegistry.set(uploadId, { sessionId, name, mime, kind, size, received: 0, partPath, created: Date.now() });
+        jsonReply(res, 200, { uploadId, chunkBytes: MAX_UPLOAD_CHUNK_BYTES });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message || '上传初始化失败。' });
+      }
+      return;
+    }
+
+    if (url.pathname === '/api/uploads/chunk' && req.method === 'POST') {
+      try {
+        const uploadId = String(url.searchParams.get('uploadId') || '');
+        const upload = uploadRegistry.get(uploadId);
+        const offset = Number(url.searchParams.get('offset') || '0');
+        if (!upload || Date.now() - upload.created > 2 * 60 * 60 * 1000) throw new Error('上传已过期或不存在。');
+        if (!Number.isSafeInteger(offset) || offset !== upload.received) throw new Error(`分块偏移错误，期望 ${upload.received}。`);
+        // Leave a small transport margin; enforce the actual decoded chunk
+        // size after collection so chunked transfer framing never trips the
+        // body reader at the exact 4 MB boundary.
+        const chunk = await readRawBody(req, MAX_UPLOAD_CHUNK_BYTES + 64 * 1024);
+        if (chunk.length > MAX_UPLOAD_CHUNK_BYTES) throw new Error(`上传分块过大（上限 ${MAX_UPLOAD_CHUNK_BYTES} 字节）。`);
+        if (upload.received + chunk.length > upload.size) throw new Error('分块超出文件声明大小。');
+        fs.appendFileSync(upload.partPath, chunk);
+        upload.received += chunk.length;
+        jsonReply(res, 200, { received: upload.received, size: upload.size });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message || '上传分块失败。' });
+      }
+      return;
+    }
+
+    if (url.pathname === '/api/uploads/complete' && req.method === 'POST') {
+      try {
+        const parsed = JSON.parse(await readBody(req, 1_000_000) || '{}');
+        const uploadId = String(parsed.uploadId || '');
+        const upload = uploadRegistry.get(uploadId);
+        if (!upload) throw new Error('上传已过期或不存在。');
+        if (upload.received !== upload.size) throw new Error(`文件尚未上传完整（${upload.received}/${upload.size}）。`);
+        const stamp = Date.now().toString(36);
+        const destName = `${stamp}_${upload.name}`;
+        const destDir = path.join(WORKSPACE_DIR, 'uploads', upload.sessionId);
+        const dest = path.join(destDir, destName);
+        fs.renameSync(upload.partPath, dest);
+        uploadRegistry.delete(uploadId);
+        const savedPath = path.join('uploads', upload.sessionId, destName).replace(/\\/g, '/');
+        jsonReply(res, 200, { savedPath, name: upload.name, mime: upload.mime, kind: upload.kind, size: upload.size });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message || '上传完成失败。' });
+      }
+      return;
+    }
+
+    // =====================================================================
     // Chat API
     // =====================================================================
     if (url.pathname === '/api/chat' && req.method === 'POST') {
@@ -1445,8 +1521,23 @@ ${recentMemories}
           let data: Buffer | undefined;
           let text = raw.text;
           let previewUrl: string | undefined;
+          let savedPath: string | undefined = typeof raw.savedPath === 'string' ? raw.savedPath.replace(/\\/g, '/') : undefined;
+          let savedStat: fs.Stats | undefined;
 
-          if (raw.dataUrl && typeof raw.dataUrl === 'string') {
+          if (savedPath) {
+            const candidate = path.resolve(WORKSPACE_DIR, savedPath);
+            const uploadRoot = path.resolve(WORKSPACE_DIR, 'uploads', sessionId);
+            const relative = path.relative(uploadRoot, candidate);
+            if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(candidate)) throw new Error(`上传文件不存在：${safeName}`);
+            savedStat = fs.statSync(candidate);
+            if (!savedStat.isFile() || savedStat.size > MAX_UPLOAD_BYTES) throw new Error(`上传文件大小或类型无效：${safeName}`);
+            if (kind === 'image') {
+              previewUrl = `/api/attachments/${encodeURIComponent(sessionId)}/${encodeURIComponent(path.basename(candidate))}`;
+              if (savedStat.size <= 10 * 1024 * 1024) data = fs.readFileSync(candidate);
+            }
+          }
+
+          if (!savedPath && raw.dataUrl && typeof raw.dataUrl === 'string') {
             const m = raw.dataUrl.match(/^data:([^;]+);base64,(.+)$/s);
             if (m) {
               data = Buffer.from(m[2], 'base64');
@@ -1456,14 +1547,14 @@ ${recentMemories}
               }
             }
           }
-          const attachmentBytes = data?.length ?? (text == null ? 0 : Buffer.byteLength(text, 'utf8'));
-          if (attachmentBytes > MAX_ATTACHMENT_BYTES) throw new Error(`附件超过 ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB：${safeName}`);
+          const attachmentBytes = savedStat?.size ?? data?.length ?? (text == null ? 0 : Buffer.byteLength(text, 'utf8'));
+          const attachmentLimit = savedPath ? MAX_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES;
+          if (attachmentBytes > attachmentLimit) throw new Error(`附件超过 ${attachmentLimit / (1024 * 1024)} MB：${safeName}`);
           totalAttachmentBytes += attachmentBytes;
           if (totalAttachmentBytes > MAX_ATTACHMENT_TOTAL_BYTES) throw new Error(`附件总大小超过 ${MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)} MB`);
 
-          // Persist to workspace so agent tools can open the path
-          let savedPath: string | undefined;
-          try {
+          // Persist inline attachments to workspace so agent tools can open the path.
+          if (!savedPath) try {
             const stamp = Date.now().toString(36);
             const destName = `${stamp}_${safeName}`;
             const dest = path.join(attachDir, destName);
@@ -1484,7 +1575,7 @@ ${recentMemories}
           const directImageData = kind === 'image' && !profileLikelySupportsVision(profile) && configuredVisionProfile(profile.id)
             ? undefined
             : data;
-          agentAttachments.push({ name: safeName, mime, kind, data: directImageData, text, savedPath });
+          agentAttachments.push({ name: safeName, mime, kind, data: directImageData, text: savedPath && kind === 'text' ? undefined : text, savedPath });
           metaAttachments.push({ name: safeName, mime, kind, savedPath, previewUrl });
         }
 

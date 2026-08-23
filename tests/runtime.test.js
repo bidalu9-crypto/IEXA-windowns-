@@ -615,6 +615,26 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
     assert.deepEqual(conflicts.conflicts, []);
     const traces = await fetch(`http://127.0.0.1:${port}/api/traces`).then((response) => response.json());
     assert.match(traces.error, /sessionId required/);
+    const uploadSize = 8 * 1024 * 1024 + 123;
+    const initialized = await fetch(`http://127.0.0.1:${port}/api/uploads/init`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'upload_test', name: 'large.bin', mime: 'application/octet-stream', kind: 'file', size: uploadSize }),
+    }).then((response) => response.json());
+    assert.ok(initialized.uploadId);
+    const firstChunk = Buffer.alloc(4 * 1024 * 1024, 0x41);
+    const secondChunk = Buffer.alloc(4 * 1024 * 1024, 0x42);
+    const thirdChunk = Buffer.alloc(uploadSize - firstChunk.length - secondChunk.length, 0x43);
+    const first = await fetch(`http://127.0.0.1:${port}/api/uploads/chunk?uploadId=${encodeURIComponent(initialized.uploadId)}&offset=0`, { method: 'POST', body: firstChunk }).then((response) => response.json());
+    assert.equal(first.received, firstChunk.length);
+    const second = await fetch(`http://127.0.0.1:${port}/api/uploads/chunk?uploadId=${encodeURIComponent(initialized.uploadId)}&offset=${first.received}`, { method: 'POST', body: secondChunk }).then((response) => response.json());
+    assert.equal(second.received, firstChunk.length + secondChunk.length);
+    const third = await fetch(`http://127.0.0.1:${port}/api/uploads/chunk?uploadId=${encodeURIComponent(initialized.uploadId)}&offset=${second.received}`, { method: 'POST', body: thirdChunk }).then((response) => response.json());
+    assert.equal(third.received, uploadSize);
+    const completed = await fetch(`http://127.0.0.1:${port}/api/uploads/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uploadId: initialized.uploadId }) }).then((response) => response.json());
+    assert.match(completed.savedPath, /^uploads\/upload_test\//);
+    const uploaded = await fs.readFile(path.join(root, completed.savedPath));
+    assert.equal(uploaded.length, uploadSize);
+    assert.equal(uploaded[0], 0x41); assert.equal(uploaded[uploaded.length - 1], 0x43);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

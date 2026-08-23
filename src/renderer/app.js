@@ -776,7 +776,9 @@ function sendQuick(text) {
 
 const MAX_ATTACHMENTS = 8;
 const MAX_ATTACH_BYTES = 8 * 1024 * 1024; // 8MB per file
-const MAX_ATTACH_TOTAL_BYTES = 32 * 1024 * 1024; // decoded attachment total
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_ATTACH_TOTAL_BYTES = 256 * 1024 * 1024; // decoded attachment total
+const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 const TEXT_EXTS = new Set([
   'txt', 'md', 'json', 'js', 'ts', 'tsx', 'jsx', 'py', 'html', 'css', 'xml', 'csv',
   'log', 'yml', 'yaml', 'toml', 'ini', 'cfg', 'conf', 'sh', 'bat', 'ps1', 'sql',
@@ -849,8 +851,8 @@ async function addFiles(fileList) {
       addError(`最多添加 ${MAX_ATTACHMENTS} 个附件。`);
       break;
     }
-    if (file.size > MAX_ATTACH_BYTES) {
-      addError(`「${file.name}」超过 8MB，已跳过。`);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      addError(`「${file.name}」超过 100MB，已跳过。`);
       continue;
     }
     const pendingBytes = pendingAttachments.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
@@ -876,6 +878,21 @@ function readFileAsAttachment(file) {
     const isText = (file.type || '').startsWith('text/') ||
       file.type === 'application/json' ||
       TEXT_EXTS.has(ext);
+
+    // Large files are uploaded in chunks at send time. Keep only the browser
+    // File handle here instead of reading tens of MB into a data URL/string.
+    if (file.size > MAX_ATTACH_BYTES) {
+      resolve({
+        id: 'att_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        name: file.name,
+        mime: file.type || (isImage ? guessImageMime(ext) : isText ? 'text/plain' : 'application/octet-stream'),
+        size: file.size,
+        kind: isImage ? 'image' : isText ? 'text' : 'file',
+        file,
+        large: true,
+      });
+      return;
+    }
 
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('读取失败'));
@@ -1164,6 +1181,51 @@ async function sendMessage() {
 /**
  * Run one user→assistant chat turn (SSE). Shared by normal send + queue drain.
  */
+async function uploadLargeAttachment(attachment, sessionId) {
+  const file = attachment.file;
+  if (!file || file.size <= MAX_ATTACH_BYTES) return attachment;
+  const initResponse = await fetch(API_BASE + '/api/uploads/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, name: attachment.name, mime: attachment.mime, kind: attachment.kind, size: file.size }),
+  });
+  const init = await initResponse.json().catch(() => ({}));
+  if (!initResponse.ok || !init.uploadId) throw new Error(init.error || '大文件上传初始化失败。');
+  const chunkBytes = Number(init.chunkBytes) || UPLOAD_CHUNK_BYTES;
+  let offset = 0;
+  while (offset < file.size) {
+    const chunk = file.slice(offset, Math.min(file.size, offset + chunkBytes));
+    const response = await fetch(API_BASE + '/api/uploads/chunk?uploadId=' + encodeURIComponent(init.uploadId) + '&offset=' + offset, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: chunk,
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `大文件上传失败（${offset}/${file.size}）。`);
+    offset = Number(result.received);
+    if (!Number.isFinite(offset) || offset <= 0) throw new Error('服务器返回了无效的上传偏移。');
+    if (typeof statusText !== 'undefined' && statusText) statusText.textContent = `上传 ${attachment.name}：${Math.floor(offset / file.size * 100)}%`;
+  }
+  const completeResponse = await fetch(API_BASE + '/api/uploads/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uploadId: init.uploadId }),
+  });
+  const complete = await completeResponse.json().catch(() => ({}));
+  if (!completeResponse.ok || !complete.savedPath) throw new Error(complete.error || '大文件上传完成失败。');
+  return { name: attachment.name, mime: attachment.mime, kind: attachment.kind, size: attachment.size, savedPath: complete.savedPath, large: true };
+}
+
+async function prepareAttachmentsForChat(attachments, sessionId) {
+  const prepared = [];
+  for (const attachment of (attachments || [])) {
+    prepared.push(attachment.file && attachment.file.size > MAX_ATTACH_BYTES
+      ? await uploadLargeAttachment(attachment, sessionId)
+      : attachment);
+  }
+  return prepared;
+}
+
 async function runChatTurn(message, displayText, attachments, opts) {
   opts = opts || {};
   if (isProcessing) return;
@@ -1175,19 +1237,23 @@ async function runChatTurn(message, displayText, attachments, opts) {
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
   try {
+    const preparedAttachments = await prepareAttachmentsForChat(attachments, sessionId);
+    if (typeof statusText !== 'undefined' && statusText) statusText.textContent = '处理中...';
     const response = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: message || displayText,
         sessionId: sessionId,
-        attachments: (attachments || []).map(function (a) {
+        attachments: (preparedAttachments || []).map(function (a) {
           return {
             name: a.name,
             mime: a.mime,
             kind: a.kind,
             dataUrl: a.dataUrl || undefined,
             text: a.text || undefined,
+            savedPath: a.savedPath || undefined,
+            size: a.size || undefined,
           };
         }),
       }),
