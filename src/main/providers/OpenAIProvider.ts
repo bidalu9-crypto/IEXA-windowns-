@@ -573,6 +573,18 @@ export class OpenAIProvider {
     const model = (this.model || '').toLowerCase();
     const provider = (this.name || '').toLowerCase();
 
+    // DeepSeek-compatible gateways do not share one request contract. In
+    // particular, catalog-style ids such as `deepseek-ai/deepseek-v4-*` may
+    // reject the vendor-specific `enable_thinking` field even though the id
+    // contains "deepseek". Only send those fields for models with a known
+    // DeepSeek thinking contract; unknown variants remain standard chat.
+    const isKnownDeepSeekThinkingModel =
+      /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(model) ||
+      /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(model) ||
+      model.includes('deepseek-v4');
+    const isDeepSeekV4 = model.includes('deepseek-v4');
+    const isDeepSeekProvider = provider === 'deepseek';
+
     // Only attach effort params on models/providers that actually reason.
     // Avoid breaking plain GPT-4 / chat models that reject unknown fields.
     const isReasoningModel =
@@ -582,12 +594,13 @@ export class OpenAIProvider {
       model.includes('o4-mini') ||
       model.includes('reason') ||
       model.includes('thinking') ||
-      model.includes('r1') ||
+      (model.includes('r1') && !model.includes('deepseek')) ||
+      (model.includes('think') && !model.includes('deepseek')) ||
       model.includes('grok') ||
       model.includes('qwq') ||
-      model.includes('deepseek') ||
+      (model.includes('deepseek') && isKnownDeepSeekThinkingModel) ||
       provider === 'xai' ||
-      provider === 'deepseek';
+      (isDeepSeekProvider && isKnownDeepSeekThinkingModel);
 
     if (!isReasoningModel) return;
 
@@ -602,8 +615,28 @@ export class OpenAIProvider {
     };
     const budget = budgetMap[level] ?? 8192;
 
+    // DeepSeek V4 uses a root-level `thinking` switch plus a sibling
+    // `reasoning_effort`. Its OpenAI-compatible gateway rejects the Qwen-style
+    // `enable_thinking` field, so keep this branch ahead of the generic
+    // DeepSeek handling below.
+    if (isDeepSeekV4) {
+      if (level === 'off') {
+        body.thinking = { type: 'disabled' };
+      } else {
+        const effort = level === 'low' || level === 'medium' ? 'high' : 'max';
+        body.thinking = { type: 'enabled' };
+        body.reasoning_effort = effort;
+      }
+      return;
+    }
+
+    // DeepSeek pre-V4 models (chat/reasoner/R1) determine reasoning from the
+    // model itself. iOS leaves their request body unchanged and only parses
+    // `reasoning_content` from the response stream.
+    if (isKnownDeepSeekThinkingModel) return;
+
     if (level === 'off') {
-      if (model.includes('deepseek') || model.includes('r1') || model.includes('think') || provider === 'deepseek') {
+      if (isKnownDeepSeekThinkingModel || ((model.includes('r1') || model.includes('think')) && !model.includes('deepseek'))) {
         // DeepSeek-compatible Chat Completions gateways use this field. Do not
         // attach a positive reasoning_effort in the off state.
         body.enable_thinking = false;
@@ -618,7 +651,7 @@ export class OpenAIProvider {
     body.reasoning_effort = level === 'ultra' || level === 'max' ? 'max' : level; // low | medium | high | xhigh | max
 
     // DeepSeek-R1 style proxies
-    if (model.includes('deepseek') || model.includes('r1') || model.includes('think') || provider === 'deepseek') {
+    if (isKnownDeepSeekThinkingModel || ((model.includes('r1') || model.includes('think')) && !model.includes('deepseek'))) {
       body.enable_thinking = true;
       body.thinking_budget = budget;
     }

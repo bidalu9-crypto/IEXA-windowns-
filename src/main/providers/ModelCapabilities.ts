@@ -7,10 +7,14 @@ const ORDER: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max', 
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  const knownDeepSeekThinkingModel =
+    /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
+    /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(m) ||
+    m.includes('deepseek-v4');
   // iOS explicitly allows xAI/OpenRouter-compatible reasoning models even
   // when the model catalog does not annotate the id with "reasoning".
   if (p === 'xai' || /(^|-)grok(?:-|$)/.test(m)) return 'xhigh';
-  if (/deepseek|reasoner|deepseek-r1|qwq|qwen3-thinking|(^|-)o[1-9](?:-|$)|gpt-5|grok.*reason|claude-3-7|claude-4|thinking/.test(m) || p === 'deepseek') {
+  if (knownDeepSeekThinkingModel || /reasoner|qwq|qwen3-thinking|(^|-)o[1-9](?:-|$)|gpt-5|grok.*reason|claude-3-7|claude-4/.test(m) || (/thinking/.test(m) && !m.includes('deepseek')) || (p === 'deepseek' && knownDeepSeekThinkingModel)) {
     if (/claude-4|gpt-5-6|o1-pro|o3-pro/.test(m)) return 'max';
     if (/claude-3-7|gemini-2-5|deepseek/.test(m)) return 'high';
     return 'xhigh';
