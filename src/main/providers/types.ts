@@ -14,9 +14,23 @@ export interface AgentToolDefinition {
 }
 
 export interface AgentToolParam {
-  type: 'string' | 'integer' | 'boolean' | 'array';
+  type: 'string' | 'integer' | 'boolean' | 'array' | 'object';
   description: string;
   enumValues?: string[];
+  items?: AgentToolParam;
+  properties?: Record<string, AgentToolParam>;
+  required?: string[];
+}
+
+export function toolParamSchema(param: AgentToolParam): Record<string, unknown> {
+  return {
+    type: param.type,
+    description: param.description,
+    ...(param.enumValues ? { enum: param.enumValues } : {}),
+    ...(param.items ? { items: toolParamSchema(param.items) } : {}),
+    ...(param.properties ? { properties: Object.fromEntries(Object.entries(param.properties).map(([key, value]) => [key, toolParamSchema(value)])) } : {}),
+    ...(param.required ? { required: param.required } : {}),
+  };
 }
 
 export type AgentContentPart =
@@ -40,7 +54,7 @@ export type AgentStreamEvent =
   | { type: 'contentBlockStart'; block: { type: 'text' } | { type: 'toolUse'; id: string; name: string } }
   | { type: 'textDelta'; text: string }
   | { type: 'toolInputDelta'; name: string; accumulated: string; id?: string }
-  | { type: 'toolCallComplete'; id: string; name: string; args: Record<string, unknown> }
+  | { type: 'toolCallComplete'; id: string; name: string; args: Record<string, unknown>; parseError?: string }
   | { type: 'thinkingDelta'; text: string }
   | { type: 'reasoningContent'; content: string }
   | { type: 'usage'; usage: LLMUsage }

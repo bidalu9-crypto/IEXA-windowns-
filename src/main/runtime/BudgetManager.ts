@@ -4,7 +4,19 @@ export interface AgentBudgetState extends AgentBudget { startedAt: number; turns
 export class BudgetManager {
   private state: AgentBudgetState;
   private readonly limits: AgentBudget;
-  constructor(budget: Partial<AgentBudget> = {}) { this.limits = { maxTurns: budget.maxTurns ?? 200, maxToolCalls: budget.maxToolCalls ?? 300, maxRuntimeMs: budget.maxRuntimeMs ?? 60 * 60_000, maxInputTokens: budget.maxInputTokens ?? 1_000_000 }; this.state = this.createState(); }
+  constructor(budget: Partial<AgentBudget> = {}) {
+    // Long-running repository tasks routinely need hundreds of model/tool
+    // turns. Keep finite guardrails, but make the defaults large enough that
+    // normal project work is not cut off prematurely; callers can still pass
+    // tighter per-run budgets explicitly.
+    this.limits = {
+      maxTurns: budget.maxTurns ?? 2_000,
+      maxToolCalls: budget.maxToolCalls ?? 5_000,
+      maxRuntimeMs: budget.maxRuntimeMs ?? 24 * 60 * 60_000,
+      maxInputTokens: budget.maxInputTokens ?? 10_000_000,
+    };
+    this.state = this.createState();
+  }
   reset(): void { this.state = this.createState(); }
   beginTurn(): void { this.ensureRuntime(); if (++this.state.turns > this.state.maxTurns) throw new IexaError('BUDGET_TURNS', 'RUNTIME', '已达到本次任务的最大执行轮数。'); }
   recordTool(): void { this.ensureRuntime(); if (++this.state.toolCalls > this.state.maxToolCalls) throw new IexaError('BUDGET_TOOLS', 'RUNTIME', '已达到本次任务的最大工具调用数。'); }

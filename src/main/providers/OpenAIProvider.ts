@@ -4,7 +4,7 @@
 // Uses OpenAI Chat Completions API with SSE streaming + tool calls
 // =============================================================================
 
-import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig } from './types';
+import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readWithTimeout } from './stream-utils';
 
 export class OpenAIProvider {
@@ -107,12 +107,14 @@ export class OpenAIProvider {
     let inputTokens = 0;
     let outputTokens = 0;
     let startedText = false;
+    let reasoningContent = '';
+    let emittedReasoningContent = false;
     // Wait for the terminal [DONE]/stream close: usage may arrive after the
     // chunk that contains finish_reason.
     let pendingStopReason: AgentStopReason | null = null;
 
     // Track tool calls by index
-    const toolCalls: Map<number, { id: string; name: string; args: string; started: boolean }> = new Map();
+    const toolCalls: Map<number, { id: string; name: string; args: string; started: boolean; completed: boolean }> = new Map();
 
     try {
       while (true) {
@@ -128,6 +130,24 @@ export class OpenAIProvider {
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const data = trimmed.slice(6);
           if (data === '[DONE]') {
+            for (const [, entry] of toolCalls) {
+              if (!entry.id || !entry.name || entry.completed) continue;
+              entry.completed = true;
+              let args: Record<string, unknown> = {};
+              let parseError: string | undefined;
+              try {
+                const parsed = JSON.parse(entry.args || '{}');
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments must be a JSON object');
+                args = parsed as Record<string, unknown>;
+              } catch (error: unknown) {
+                parseError = (error as Error).message || 'invalid JSON';
+              }
+              yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
+            }
+            if (reasoningContent && !emittedReasoningContent) {
+              emittedReasoningContent = true;
+              yield { type: 'reasoningContent', content: reasoningContent };
+            }
             yield { type: 'done', stopReason: pendingStopReason || 'endTurn' };
             return;
           }
@@ -161,6 +181,7 @@ export class OpenAIProvider {
                     name: tc.function?.name || '',
                     args: '',
                     started: false,
+                    completed: false,
                   });
                 }
                 const entry = toolCalls.get(idx)!;
@@ -198,12 +219,42 @@ export class OpenAIProvider {
               }
             }
 
+            // Legacy Chat Completions gateways stream a single function call
+            // as `delta.function_call` instead of the newer tool_calls array.
+            // Normalize it into the same index-0 accumulator so old models
+            // still execute through the common AgentLoop path.
+            if (delta.function_call) {
+              const fc = delta.function_call;
+              if (!toolCalls.has(0)) {
+                toolCalls.set(0, {
+                  id: 'openai_function_' + Date.now(),
+                  name: fc.name || '',
+                  args: '',
+                  started: false,
+                  completed: false,
+                });
+              }
+              const entry = toolCalls.get(0)!;
+              if (fc.name) entry.name = fc.name;
+              if (!entry.started && entry.name) {
+                entry.started = true;
+                yield { type: 'contentBlockStart', block: { type: 'toolUse', id: entry.id, name: entry.name } };
+              }
+              if (fc.arguments) {
+                entry.args += fc.arguments;
+                if (entry.name) yield { type: 'toolInputDelta', name: entry.name, accumulated: entry.args, id: entry.id };
+              }
+            }
+
             // Reasoning / thinking deltas (OpenAI o-series, DeepSeek-R1, Grok, proxies)
             const reasoningText =
               (typeof delta.reasoning_content === 'string' && delta.reasoning_content) ||
               (typeof delta.reasoning === 'string' && delta.reasoning) ||
               (typeof delta.thinking === 'string' && delta.thinking) ||
               '';
+            if (typeof delta.reasoning_content === 'string') reasoningContent += delta.reasoning_content;
+            else if (typeof delta.reasoning === 'string') reasoningContent += delta.reasoning;
+            else if (typeof delta.thinking === 'string') reasoningContent += delta.thinking;
             // Some OpenAI-compatible gateways emit reasoning_content even when
             // their disable flag is ignored. "off" is a local hard boundary:
             // never forward that stream to the application/UI.
@@ -222,13 +273,21 @@ export class OpenAIProvider {
 
             // Handle finish
             if (choice.finish_reason) {
-              if (choice.finish_reason === 'tool_calls') {
+              if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') {
                 // Emit toolCallComplete for each completed tool call
                 for (const [, entry] of toolCalls) {
-                  if (entry.id && entry.name) {
+                  if (entry.id && entry.name && !entry.completed) {
+                    entry.completed = true;
                     let args: Record<string, unknown> = {};
-                    try { args = JSON.parse(entry.args); } catch { /* partial JSON */ }
-                    yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args };
+                    let parseError: string | undefined;
+                    try {
+                      const parsed = JSON.parse(entry.args || '{}');
+                      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments must be a JSON object');
+                      args = parsed as Record<string, unknown>;
+                    } catch (error: unknown) {
+                      parseError = (error as Error).message || 'invalid JSON';
+                    }
+                    yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
                   }
                 }
               }
@@ -237,7 +296,7 @@ export class OpenAIProvider {
               // OpenAI-compatible APIs send usage in the following empty-choice
               // SSE frame. It is handled above before this stream terminates.
               pendingStopReason = 'endTurn';
-              if (choice.finish_reason === 'tool_calls') pendingStopReason = 'toolUse';
+              if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') pendingStopReason = 'toolUse';
               else if (choice.finish_reason === 'length') pendingStopReason = 'maxTokens';
             }
           } catch (e) {
@@ -247,6 +306,24 @@ export class OpenAIProvider {
         }
       }
       // Gracefully handle providers that close the stream without [DONE].
+      for (const [, entry] of toolCalls) {
+        if (!entry.id || !entry.name || entry.completed) continue;
+        entry.completed = true;
+        let args: Record<string, unknown> = {};
+        let parseError: string | undefined;
+        try {
+          const parsed = JSON.parse(entry.args || '{}');
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments must be a JSON object');
+          args = parsed as Record<string, unknown>;
+        } catch (error: unknown) {
+          parseError = (error as Error).message || 'invalid JSON';
+        }
+        yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
+      }
+      if (reasoningContent && !emittedReasoningContent) {
+        emittedReasoningContent = true;
+        yield { type: 'reasoningContent', content: reasoningContent };
+      }
       if (pendingStopReason) yield { type: 'done', stopReason: pendingStopReason };
     } finally {
       reader.releaseLock();
@@ -320,9 +397,16 @@ export class OpenAIProvider {
       if (call.completed || !call.name) return;
       call.completed = true;
       let args: Record<string, unknown> = {};
-      try { args = JSON.parse(call.args || '{}'); } catch { /* keep partial stream survivable */ }
+      let parseError: string | undefined;
+      try {
+        const parsed = JSON.parse(call.args || '{}');
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments must be a JSON object');
+        args = parsed as Record<string, unknown>;
+      } catch (error: unknown) {
+        parseError = (error as Error).message || 'invalid JSON';
+      }
       // callId is the Responses protocol link; preserve it as the tool ID for replay.
-      yield { type: 'toolCallComplete', id: call.callId, name: call.name, args };
+      yield { type: 'toolCallComplete', id: call.callId, name: call.name, args, ...(parseError ? { parseError } : {}) };
     };
 
     try {
@@ -475,7 +559,7 @@ export class OpenAIProvider {
   private convertResponsesTools(tools: AgentToolDefinition[]): Record<string, unknown>[] {
     return tools.map((tool) => ({
       type: 'function', name: tool.name, description: tool.description,
-      parameters: { type: 'object', properties: Object.fromEntries(Object.entries(tool.parameters).map(([key, param]) => [key, { type: param.type, description: param.description, ...(param.enumValues ? { enum: param.enumValues } : {}) }])), required: tool.required },
+      parameters: { type: 'object', properties: Object.fromEntries(Object.entries(tool.parameters).map(([key, param]) => [key, toolParamSchema(param)])), required: tool.required },
     }));
   }
 
@@ -556,6 +640,14 @@ export class OpenAIProvider {
           role: 'assistant',
           content: contentParts.join('') || null,
         };
+
+        // Only DeepSeek/R1-style Chat Completions gateways require the opaque
+        // reasoning field to be echoed with a tool call. OpenAI's native
+        // Chat/Responses contracts reject unknown assistant fields, so do not
+        // replay it across unrelated model families.
+        if (msg.reasoningContent && /deepseek|(?:^|[-/])r1(?:[-/]|$)|reason(?:ing)?|thinking/.test(this.model.toLowerCase())) {
+          assistantMsg.reasoning_content = msg.reasoningContent;
+        }
 
         if (toolCalls.length > 0) {
           assistantMsg.tool_calls = toolCalls;
@@ -668,11 +760,7 @@ export class OpenAIProvider {
           properties: Object.fromEntries(
             Object.entries(tool.parameters).map(([key, param]) => [
               key,
-              {
-                type: param.type,
-                description: param.description,
-                ...(param.enumValues ? { enum: param.enumValues } : {}),
-              },
+              toolParamSchema(param),
             ])
           ),
           required: tool.required,

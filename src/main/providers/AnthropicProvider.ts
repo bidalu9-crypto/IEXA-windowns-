@@ -4,7 +4,7 @@
 // Uses Anthropic Messages API with SSE streaming
 // =============================================================================
 
-import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig } from './types';
+import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readWithTimeout } from './stream-utils';
 
 export class AnthropicProvider {
@@ -94,6 +94,8 @@ export class AnthropicProvider {
     let currentToolArgs = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let reasoningContent = '';
+    let emittedReasoningContent = false;
 
     try {
       while (true) {
@@ -151,7 +153,10 @@ export class AnthropicProvider {
                     id: currentToolId || undefined,
                   };
                 } else if (delta.type === 'thinking_delta' && this.thinkingLevel !== 'off') {
+                  reasoningContent += delta.thinking || '';
                   yield { type: 'thinkingDelta', text: delta.thinking };
+                } else if (delta.type === 'thinking_delta') {
+                  reasoningContent += delta.thinking || '';
                 }
                 break;
               }
@@ -160,12 +165,20 @@ export class AnthropicProvider {
                 // Finalize tool_use so AgentLoop can execute it (iOS toolCallComplete).
                 if (currentToolId && currentToolName) {
                   let args: Record<string, unknown> = {};
-                  try { args = currentToolArgs ? JSON.parse(currentToolArgs) : {}; } catch { /* partial */ }
+                  let parseError: string | undefined;
+                  try {
+                    const parsed = currentToolArgs ? JSON.parse(currentToolArgs) : {};
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('tool arguments must be a JSON object');
+                    args = parsed as Record<string, unknown>;
+                  } catch (error: unknown) {
+                    parseError = (error as Error).message || 'invalid JSON';
+                  }
                   yield {
                     type: 'toolCallComplete',
                     id: currentToolId,
                     name: currentToolName,
                     args,
+                    ...(parseError ? { parseError } : {}),
                   };
                 }
                 currentToolId = null;
@@ -189,6 +202,10 @@ export class AnthropicProvider {
                   type: 'usage',
                   usage: { inputTokens, outputTokens },
                 };
+                if (reasoningContent && !emittedReasoningContent) {
+                  emittedReasoningContent = true;
+                  yield { type: 'reasoningContent', content: reasoningContent };
+                }
                 yield { type: 'done', stopReason: agentStopReason };
                 return;
               }
@@ -271,11 +288,7 @@ export class AnthropicProvider {
         properties: Object.fromEntries(
           Object.entries(tool.parameters).map(([key, param]) => [
             key,
-            {
-              type: param.type,
-              description: param.description,
-              ...(param.enumValues ? { enum: param.enumValues } : {}),
-            },
+            toolParamSchema(param),
           ])
         ),
         required: tool.required,

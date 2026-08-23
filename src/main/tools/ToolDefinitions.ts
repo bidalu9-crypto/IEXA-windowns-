@@ -15,6 +15,15 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
         todos: {
           type: 'array',
           description: 'Complete checklist array. Each item must be { content: string, status: pending | in_progress | completed }. Send the full list on every update, not partial edits.',
+          items: {
+            type: 'object',
+            description: 'One task plan item.',
+            properties: {
+              content: { type: 'string', description: 'Concise task description.' },
+              status: { type: 'string', description: 'Task state.', enumValues: ['pending', 'in_progress', 'completed'] },
+            },
+            required: ['content', 'status'],
+          },
         },
       },
       required: ['todos'],

@@ -28,6 +28,7 @@ const { WebDAVConflictStore } = require('../dist/main/sync/WebDAVConflictStore')
 const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
+const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -67,6 +68,14 @@ test('BudgetManager enforces turn and tool limits', () => {
   budget.beginTurn(); budget.recordTool();
   assert.throws(() => budget.beginTurn(), /最大执行轮数/);
   assert.throws(() => budget.recordTool(), /最大工具调用数/);
+});
+
+test('BudgetManager defaults support long-running project tasks', () => {
+  const budget = new BudgetManager().snapshot();
+  assert.equal(budget.maxTurns, 2000);
+  assert.equal(budget.maxToolCalls, 5000);
+  assert.equal(budget.maxRuntimeMs, 24 * 60 * 60_000);
+  assert.equal(budget.maxInputTokens, 10_000_000);
 });
 
 test('LoopDetector stops repeated equivalent tool calls', () => {
@@ -249,6 +258,16 @@ test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');
 });
 
+test('tool definitions include structured array item schemas', async () => {
+  const root = await tempWorkspace();
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
+  runtime.registerDefaults();
+  const todo = runtime.definitions().find((tool) => tool.name === 'todo_write');
+  assert.equal(todo.parameters.todos.items.type, 'object');
+  assert.deepEqual(todo.parameters.todos.items.required, ['content', 'status']);
+  assert.deepEqual(todo.parameters.todos.items.properties.status.enumValues, ['pending', 'in_progress', 'completed']);
+});
+
 test('AgentRuntime routes an AgentLoop tool call through ToolRuntime', async () => {
   const root = await tempWorkspace();
   let calls = 0;
@@ -278,6 +297,68 @@ test('AgentRuntime routes an AgentLoop tool call through ToolRuntime', async () 
   assert.equal(runtime.getState().turn, 2);
   assert.equal(runtime.getObservability().metrics.runs_completed, 1);
   assert.equal(runtime.getObservability().metrics.tools_succeeded, 1);
+});
+
+test('AgentRuntime executes a complete tool call even when provider says endTurn', async () => {
+  const root = await tempWorkspace();
+  let calls = 0;
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage() {
+      if (calls++ === 0) {
+        yield { type: 'toolCallComplete', id: 'call_end_turn', name: 'file_write', args: { tool_title: 'write', path: 'end-turn.txt', content: 'executed' } };
+        yield { type: 'done', stopReason: 'endTurn' };
+      } else {
+        yield { type: 'textDelta', text: 'finished' };
+        yield { type: 'done', stopReason: 'endTurn' };
+      }
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'end_turn_tool', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({ message: 'execute', tools: runtime.toolDefinitions(), callbacks: {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {},
+  } });
+  assert.equal(await fs.readFile(path.join(root, 'end-turn.txt'), 'utf8'), 'executed');
+  assert.equal(calls, 2);
+});
+
+test('OpenAI provider reports malformed tool arguments and preserves reasoning content', async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    const frames = [
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'think ', tool_calls: [{ index: 0, id: 'call_bad', function: { name: 'file_write', arguments: '{"path":' } }] } }] })}`,
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'more' }, finish_reason: 'tool_calls' }] })}`,
+      'data: [DONE]',
+    ].join('\n\n') + '\n\n';
+    return new Response(frames, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  try {
+    const provider = new OpenAIProvider({ type: 'openai', name: 'openai', model: 'deepseek-r1', apiKey: 'test', thinkingLevel: 'medium' });
+    const events = [];
+    for await (const event of provider.streamMessage([{ role: 'user', parts: [{ type: 'text', text: 'run' }] }], '', [{ name: 'file_write', description: 'write', parameters: {}, required: [] }], 1000)) events.push(event);
+    const complete = events.find((event) => event.type === 'toolCallComplete');
+    assert.equal(complete.parseError !== undefined, true);
+    assert.deepEqual(complete.args, {});
+    assert.equal(events.filter((event) => event.type === 'reasoningContent').map((event) => event.content).join(''), 'think more');
+
+    const historyBody = requests[0];
+    const historyProvider = new OpenAIProvider({ type: 'openai', name: 'openai', model: 'deepseek-r1', apiKey: 'test', thinkingLevel: 'off' });
+    global.fetch = async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    for await (const _event of historyProvider.streamMessage([
+      { role: 'assistant', reasoningContent: 'think more', parts: [{ type: 'toolUse', id: 'call_1', name: 'file_write', input: {} }] },
+    ], '', [], 1000)) {}
+    const replay = requests[requests.length - 1].messages.find((message) => message.role === 'assistant');
+    assert.equal(replay.reasoning_content, 'think more');
+    void historyBody;
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('PermissionBroker supports pending approval and cancellation', async () => {

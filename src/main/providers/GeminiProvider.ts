@@ -4,7 +4,7 @@
 // Uses Google Gemini API with SSE streaming
 // =============================================================================
 
-import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig } from './types';
+import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readWithTimeout } from './stream-utils';
 
 export class GeminiProvider {
@@ -90,6 +90,7 @@ export class GeminiProvider {
     let currentToolArgs = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    const emittedFunctionCalls = new Set<string>();
 
     try {
       while (true) {
@@ -127,6 +128,13 @@ export class GeminiProvider {
                 } else if (part.functionCall) {
                   currentToolName = part.functionCall.name;
                   currentToolArgs = JSON.stringify(part.functionCall.args || {});
+                  const signature = `${currentToolName}:${currentToolArgs}`;
+                  // Some Gemini-compatible SSE relays repeat the complete
+                  // functionCall in multiple candidate chunks. Treat the
+                  // same name+arguments pair as one call, otherwise the tool
+                  // executes twice with different synthetic IDs.
+                  if (emittedFunctionCalls.has(signature)) continue;
+                  emittedFunctionCalls.add(signature);
                   const toolId = 'gemini_tool_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
                   // Live step first (iOS-style), then complete
                   yield {
@@ -227,11 +235,7 @@ export class GeminiProvider {
         properties: Object.fromEntries(
           Object.entries(tool.parameters).map(([key, param]) => [
             key,
-            {
-              type: param.type.toUpperCase(),
-              description: param.description,
-              ...(param.enumValues ? { enum: param.enumValues } : {}),
-            },
+            { ...toolParamSchema(param), type: param.type.toUpperCase() },
           ])
         ),
         required: tool.required,

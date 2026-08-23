@@ -21,7 +21,6 @@ import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from '
 import { ContextManager } from '../context/ContextManager';
 import { RetryManager } from '../runtime/RetryManager';
 
-const MAX_AGENT_TURNS = 200;
 /** Keep live tool evidence useful without letting build logs dominate context. */
 const MAX_TOOL_RESULT_CHARS = 2400;
 const TOOL_RESULT_COMPACT_AT = 1800;
@@ -348,7 +347,8 @@ export class AgentLoop {
     let contextOverflowRetryAttempt = 0;
     const retryDelays = [2000, 5000, 10000];
 
-    while (turnCount < MAX_AGENT_TURNS && !this.isAborted) {
+    const maxTurns = this.config.toolRuntime.getBudget().maxTurns;
+    while (turnCount < maxTurns && !this.isAborted) {
       turnCount++;
       try { this.config.toolRuntime.beginTurn(); callbacks.onTurnStart?.(turnCount); } catch (error: unknown) { callbacks.onError((error as Error).message); return; }
 
@@ -374,7 +374,8 @@ export class AgentLoop {
       try {
         // Stream from provider
         let assistantText = '';
-        const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
+        const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; parseError?: string }> = [];
+        let reasoningContent = '';
         let stopReason: AgentStopReason = 'endTurn';
         let usage: LLMUsage | undefined;
 
@@ -408,6 +409,10 @@ export class AgentLoop {
               callbacks.onThinkingDelta(event.text);
               break;
 
+            case 'reasoningContent':
+              reasoningContent += event.content;
+              break;
+
             case 'toolInputDelta':
               callbacks.onToolInputDelta(event.name, event.accumulated, event.id);
               break;
@@ -417,6 +422,7 @@ export class AgentLoop {
                 id: event.id,
                 name: event.name,
                 args: event.args,
+                parseError: event.parseError,
               });
               callbacks.onToolCallComplete(event.id, event.name, event.args);
               break;
@@ -454,11 +460,15 @@ export class AgentLoop {
         const assistantMsg: AgentMessage = {
           role: 'assistant',
           parts: assistantParts,
+          ...(reasoningContent ? { reasoningContent } : {}),
         };
         this.agentHistory.push(assistantMsg);
 
-        // If no tool calls, we're done
-        if (toolCalls.length === 0 || stopReason === 'endTurn') {
+        // A provider may report `stop`/`endTurn` even when it emitted a
+        // function call (notably Gemini and several OpenAI-compatible relays).
+        // The presence of a complete call is the authoritative execution
+        // signal; do not silently discard it based on stopReason.
+        if (toolCalls.length === 0) {
           callbacks.onDone(stopReason);
           return;
         }
@@ -481,7 +491,9 @@ export class AgentLoop {
           const batch = toolCalls.slice(toolIndex, batchEnd);
           const batchResults = await Promise.all(batch.map(async (tc) => {
             callbacks.onToolExecutionStart?.(tc.id, tc.name, tc.args);
-            const result = await this.executeTool(tc.id, tc.name, tc.args);
+            const result = tc.parseError
+              ? { output: `Tool arguments could not be parsed: ${tc.parseError}. The tool was not executed.`, success: false }
+              : await this.executeTool(tc.id, tc.name, tc.args);
             callbacks.onToolResult(tc.id, result);
             return { tc, result };
           }));
@@ -505,13 +517,8 @@ export class AgentLoop {
           parts: toolResults,
         });
 
-        // If stop reason is not toolUse, break
-        if (stopReason !== 'toolUse') {
-          callbacks.onDone(stopReason);
-          return;
-        }
-
-        // Otherwise continue loop for next model response
+        // Continue so the model can inspect tool results even when the
+        // provider used a non-standard stop reason alongside the call.
       } catch (error: unknown) {
         const err = error as Error;
         if (this.isAborted) {
@@ -548,8 +555,8 @@ export class AgentLoop {
     }
 
     // Max turns reached
-    if (turnCount >= MAX_AGENT_TURNS) {
-      callbacks.onError(`Reached maximum agent turns (${MAX_AGENT_TURNS}). The task may be too complex.`);
+    if (turnCount >= maxTurns) {
+      callbacks.onError(`Reached maximum agent turns (${maxTurns}). The task may be too complex.`);
     }
   }
 
