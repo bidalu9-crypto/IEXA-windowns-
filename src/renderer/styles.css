@@ -3304,10 +3304,25 @@ body {
 }
 
 .soul-personality-group textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
   min-height: 270px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  background: var(--bg-input);
+  font-size: 0.9rem;
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1.55;
+  outline: none;
+}
+
+.soul-personality-group textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
 .soul-footer-actions {
