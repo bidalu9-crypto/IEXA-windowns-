@@ -17,6 +17,7 @@ import {
 import { LLMProvider } from '../providers/ProviderFactory';
 import { ToolRuntime } from '../runtime/ToolRuntime';
 import { buildSystemPrompt } from './SystemPrompt';
+import { SoulFile } from './SoulStore';
 import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
 import { ContextManager } from '../context/ContextManager';
 import { RetryManager } from '../runtime/RetryManager';
@@ -79,6 +80,8 @@ export interface AgentLoopConfig {
   systemSkillFragment?: string | null;
   /** Absolute skills directory for authoring instructions. */
   skillsDir?: string | null;
+  /** Persistent SOUL.md identity/personality captured when the agent is built. */
+  soul?: SoulFile | null;
   /** API-reported context window (from /v1/models), overrides model-name guessing. */
   contextWindow?: number;
   /** Called when model file_reads a skill SKILL.md */
@@ -326,6 +329,7 @@ export class AgentLoop {
       skillFragment: this.config.skillFragment || null,
       systemSkillFragment: this.config.systemSkillFragment || null,
       skillsDir: this.config.skillsDir || null,
+      soul: this.config.soul || null,
     });
     const systemPrompt = this.sessionContext
       ? `${baseSystemPrompt}\n\n<durable-session-context>\n${this.sessionContext}\n</durable-session-context>`

@@ -30,6 +30,7 @@ const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
 const { FileTools } = require('../dist/main/tools/ToolExecutors');
+const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -600,6 +601,24 @@ test('ContextManager compacts pressure and supports overflow recovery', async ()
   assert.ok(recovered.length < history.length);
 });
 
+test('SOUL.md persists identity and injects a bounded personality section', async () => {
+  const root = await tempWorkspace();
+  const store = new SoulStore(root);
+  const initial = store.ensureExists();
+  assert.equal(initial.metadata.name, 'IEXA');
+  const saved = store.save({ metadata: { name: '小艾', style: '温暖、直接', lang: 'zh' }, body: '先理解用户的目标，再用清晰步骤完成工作。' });
+  assert.equal(saved.metadata.name, '小艾');
+  const disk = await fs.readFile(path.join(root, 'SOUL.md'), 'utf8');
+  assert.match(disk, /name: "小艾"/);
+  assert.deepEqual(parseSoulMarkdown(disk), saved);
+  assert.equal(soulTokenCount('hello world，你好'), 5);
+  assert.equal(checkSoulBodyLimit('a '.repeat(2001)).isOverLimit, true);
+  const prompt = buildSoulPromptSection(saved);
+  assert.match(prompt, /你是 小艾/);
+  assert.match(prompt, /assistant-personality/);
+  assert.match(prompt, /先理解用户的目标/);
+});
+
 test('HTTP route modules expose runtime and WebDAV conflict endpoints', async () => {
   const root = await tempWorkspace();
   process.env.IEXA_WORKSPACE = root;
@@ -611,6 +630,16 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
     assert.equal(mode.mode, 'risk');
     const updated = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'full' }) }).then((response) => response.json());
     assert.equal(updated.mode, 'full');
+    const initialSoul = await fetch(`http://127.0.0.1:${port}/api/soul`).then((response) => response.json());
+    assert.equal(initialSoul.metadata.name, 'IEXA');
+    const savedSoul = await fetch(`http://127.0.0.1:${port}/api/soul`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metadata: { name: 'Ze', style: 'direct', lang: 'en' }, body: 'Be concise.' }),
+    }).then((response) => response.json());
+    assert.equal(savedSoul.metadata.name, 'Ze');
+    assert.equal(savedSoul.body, 'Be concise.');
+    const restoredSoul = await fetch(`http://127.0.0.1:${port}/api/soul/restore`, { method: 'POST' }).then((response) => response.json());
+    assert.equal(restoredSoul.metadata.name, 'IEXA');
     const conflicts = await fetch(`http://127.0.0.1:${port}/api/webdav/conflicts`).then((response) => response.json());
     assert.deepEqual(conflicts.conflicts, []);
     const traces = await fetch(`http://127.0.0.1:${port}/api/traces`).then((response) => response.json());

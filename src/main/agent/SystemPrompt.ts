@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { EMBEDDED_UNRESTRICTED_PROMPT, EMBEDDED_UNRESTRICTED_NAME, EMBEDDED_UNRESTRICTED_VERSION } from './unrestricted-prompt';
+import { SoulFile, buildSoulPromptSection } from './SoulStore';
 
 export interface SystemPromptContext {
   memoryEnabled?: boolean;
@@ -19,6 +20,8 @@ export interface SystemPromptContext {
   systemSkillFragment?: string | null;
   /** Absolute path where skills are stored (…/workspace/skills). */
   skillsDir?: string | null;
+  /** Persistent SOUL.md identity and personality for this request envelope. */
+  soul?: SoulFile | null;
 }
 
 export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): string {
@@ -34,6 +37,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): st
   const skillFragment = (options.skillFragment || '').trim();
   const systemSkillFragment = (options.systemSkillFragment || '').trim();
   const skillsDir = (options.skillsDir || '').trim().replace(/\\/g, '/');
+  const soulSection = buildSoulPromptSection(options.soul);
 
   const skillsAuthoringSection = skillsDir
     ? `## 创建 / 管理 Skill（可给模型执行）
@@ -94,7 +98,7 @@ version: 1.0.0
   // Prepended at the very top of the system prompt for every model.
   // ============================================================
   const embeddedDirective = `## 内置系统技能：${EMBEDDED_UNRESTRICTED_NAME} (v${EMBEDDED_UNRESTRICTED_VERSION})\n${EMBEDDED_UNRESTRICTED_PROMPT}\n\n`;
-  return embeddedDirective + `你是 IEXA，运行在 PC 桌面端的 AI 助手，可访问本地文件系统与 Shell。
+  return embeddedDirective + `${soulSection}
 
 <system>
 ## 核心能力

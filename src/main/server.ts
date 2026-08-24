@@ -27,6 +27,7 @@ import { TraceStore } from './observability/TraceStore';
 import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd } from './observability/CostTracker';
 import { contextWindowForModel } from './agent/ContextCompactor';
+import { SoulStore, checkSoulBodyLimit, normalizeSoulMetadata } from './agent/SoulStore';
 import { configureApiResponse, jsonReply, readBody, readRawBody } from './api/HttpServer';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
@@ -63,6 +64,7 @@ const gitService = new GitService();
 const terminalManager = new TerminalManager();
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
 const visionFallback = new VisionFallback();
+const soulStore = new SoulStore(MEMORY_DIR);
 
 interface McpAgentBinding { name: string; serverId: string; toolName: string; description: string; }
 
@@ -85,6 +87,7 @@ fs.mkdirSync(MEMORY_DIR, { recursive: true });
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 fs.mkdirSync(SESSION_CONTEXT_DIR, { recursive: true });
 fs.mkdirSync(TRACES_DIR, { recursive: true });
+soulStore.ensureExists();
 
 // Skills (iOS-style progressive disclosure via SKILL.md)
 const skillStore = new SkillStore(WORKSPACE_DIR);
@@ -809,6 +812,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     skillFragment: skillStore.skillPromptFragment(),
     systemSkillFragment: skillStore.systemPromptFragment(),
     skillsDir,
+    soul: soulStore.load(),
     onSkillRead: (resolvedPath: string) => {
       const sid = skillStore.skillIdFromPath(resolvedPath);
       if (sid) skillStore.recordUse(sid);
@@ -1995,6 +1999,58 @@ ${recentMemories}
         }
         return;
       }
+    }
+
+    // =====================================================================
+    // SOUL.md — persistent assistant identity and personality
+    // =====================================================================
+    if (url.pathname === '/api/soul') {
+      if (req.method === 'GET') {
+        const soul = soulStore.ensureExists();
+        const limit = checkSoulBodyLimit(soul.body);
+        jsonReply(res, 200, {
+          metadata: soul.metadata,
+          body: soul.body,
+          tokenCount: limit.count,
+          tokenLimit: limit.limit,
+          path: soulStore.filePath,
+        });
+        return;
+      }
+      if (req.method === 'PUT' || req.method === 'POST') {
+        try {
+          const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+          const metadataInput = body.metadata && typeof body.metadata === 'object'
+            ? body.metadata as Record<string, unknown>
+            : body;
+          const current = soulStore.load();
+          const metadata = normalizeSoulMetadata({
+            name: typeof metadataInput.name === 'string' ? metadataInput.name : current.metadata.name,
+            style: typeof metadataInput.style === 'string' ? metadataInput.style : current.metadata.style,
+            lang: typeof metadataInput.lang === 'string' ? metadataInput.lang : current.metadata.lang,
+          });
+          const soul = soulStore.save({ metadata, body: typeof body.body === 'string' ? body.body : current.body });
+          const limit = checkSoulBodyLimit(soul.body);
+          // Cached agents retain their prompt envelope. Rebuild before the
+          // next turn so a saved identity takes effect globally at once.
+          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+          jsonReply(res, 200, { ok: true, metadata: soul.metadata, body: soul.body, tokenCount: limit.count, tokenLimit: limit.limit, path: soulStore.filePath });
+        } catch (error) {
+          jsonReply(res, 400, { error: (error as Error).message || '灵魂配置保存失败。' });
+        }
+        return;
+      }
+    }
+
+    if (url.pathname === '/api/soul/restore' && (req.method === 'POST' || req.method === 'PUT')) {
+      try {
+        const soul = soulStore.restoreDefault();
+        for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+        jsonReply(res, 200, { ok: true, metadata: soul.metadata, body: soul.body, tokenCount: 0, tokenLimit: checkSoulBodyLimit(soul.body).limit, path: soulStore.filePath });
+      } catch (error) {
+        jsonReply(res, 400, { error: (error as Error).message || '恢复默认灵魂失败。' });
+      }
+      return;
     }
 
     // =====================================================================

@@ -292,6 +292,9 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     if (view === 'skills') {
       loadSkillsList();
     }
+    if (view === 'soul') {
+      loadSoul();
+    }
     if (view === 'token-calculator') {
       loadTokenUsage();
     }
@@ -304,6 +307,179 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     syncJobsPolling();
   });
 });
+
+// =============================================================================
+// SOUL.md — persistent assistant identity and personality
+// =============================================================================
+
+const SOUL_TOKEN_LIMIT = 2000;
+let soulState = { metadata: { name: 'IEXA', style: '', lang: 'auto' }, body: '' };
+
+function soulName() {
+  return String(soulState?.metadata?.name || '').trim() || 'IEXA';
+}
+
+function estimateSoulTokens(text) {
+  let count = 0;
+  let inWord = false;
+  for (const char of String(text || '')) {
+    const code = char.codePointAt(0) || 0;
+    const cjk = (code >= 0x3400 && code <= 0x4DBF)
+      || (code >= 0x4E00 && code <= 0x9FFF)
+      || (code >= 0x20000 && code <= 0x323AF)
+      || (code >= 0x3040 && code <= 0x31FF)
+      || (code >= 0xAC00 && code <= 0xD7AF)
+      || (code >= 0x1100 && code <= 0x11FF)
+      || (code >= 0x3130 && code <= 0x318F)
+      || (code >= 0x3000 && code <= 0x303F)
+      || (code >= 0xFF00 && code <= 0xFFEF);
+    if (cjk) {
+      if (inWord) { count++; inWord = false; }
+      count++;
+    } else if (/\s/u.test(char)) {
+      if (inWord) { count++; inWord = false; }
+    } else {
+      inWord = true;
+    }
+  }
+  return count + (inWord ? 1 : 0);
+}
+
+function soulFormValue() {
+  return {
+    metadata: {
+      name: document.getElementById('soulName')?.value || 'IEXA',
+      style: document.getElementById('soulStyle')?.value || '',
+      lang: document.getElementById('soulLanguage')?.value || 'auto',
+    },
+    body: document.getElementById('soulBody')?.value || '',
+  };
+}
+
+function applySoulIdentity() {
+  const name = soulName();
+  const brand = document.getElementById('brandName');
+  if (brand) brand.textContent = name;
+  document.querySelectorAll('.message.assistant .message-label').forEach((label) => { label.textContent = name; });
+  const welcome = chatMessages?.querySelector('.welcome');
+  if (welcome) {
+    const title = welcome.querySelector('h2');
+    if (title) title.textContent = `欢迎使用 ${name}`;
+  }
+}
+
+function updateSoulPreview() {
+  const value = soulFormValue();
+  const name = String(value.metadata.name || '').trim() || 'IEXA';
+  const style = String(value.metadata.style || '').trim();
+  const nameEl = document.getElementById('soulPreviewName');
+  const styleEl = document.getElementById('soulPreviewStyle');
+  if (nameEl) nameEl.textContent = name;
+  if (styleEl) styleEl.textContent = style || '未设置风格';
+  const body = document.getElementById('soulBody');
+  const count = estimateSoulTokens(body?.value || '');
+  const countEl = document.getElementById('soulTokenCount');
+  const saveBtn = document.getElementById('soulSaveBtn');
+  if (countEl) {
+    countEl.textContent = `${count.toLocaleString()} / ${SOUL_TOKEN_LIMIT.toLocaleString()} tokens`;
+    countEl.classList.toggle('is-over-limit', count > SOUL_TOKEN_LIMIT);
+  }
+  if (saveBtn) saveBtn.disabled = count > SOUL_TOKEN_LIMIT;
+}
+
+function showSoulResult(message, isError = false) {
+  const result = document.getElementById('soulResult');
+  if (!result) return;
+  result.textContent = message;
+  result.classList.toggle('is-error', isError);
+  result.style.display = 'block';
+}
+
+function populateSoulForm(data) {
+  soulState = {
+    metadata: {
+      name: data?.metadata?.name || 'IEXA',
+      style: data?.metadata?.style || '',
+      lang: data?.metadata?.lang || 'auto',
+    },
+    body: data?.body || '',
+  };
+  const name = document.getElementById('soulName');
+  const style = document.getElementById('soulStyle');
+  const lang = document.getElementById('soulLanguage');
+  const body = document.getElementById('soulBody');
+  if (name) name.value = soulState.metadata.name;
+  if (style) style.value = soulState.metadata.style;
+  if (lang) {
+    const hasOption = [...lang.options].some((option) => option.value === soulState.metadata.lang);
+    lang.value = hasOption ? soulState.metadata.lang : 'auto';
+  }
+  if (body) body.value = soulState.body;
+  const path = document.getElementById('soulFilePath');
+  if (path) path.textContent = data?.path ? `SOUL.md · ${data.path}` : '';
+  updateSoulPreview();
+  applySoulIdentity();
+}
+
+async function loadSoul() {
+  try {
+    const response = await fetch(`${API_BASE}/api/soul`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '灵魂配置加载失败');
+    populateSoulForm(data);
+    const result = document.getElementById('soulResult');
+    if (result) result.style.display = 'none';
+  } catch (error) {
+    showSoulResult(error?.message || String(error), true);
+  }
+}
+
+async function saveSoul() {
+  const value = soulFormValue();
+  if (estimateSoulTokens(value.body) > SOUL_TOKEN_LIMIT) {
+    showSoulResult(`人格提示词超过 ${SOUL_TOKEN_LIMIT.toLocaleString()} tokens 上限。`, true);
+    return;
+  }
+  const button = document.getElementById('soulSaveBtn');
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${API_BASE}/api/soul`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(value),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '灵魂配置保存失败');
+    populateSoulForm(data);
+    showSoulResult('已保存。后续对话将使用新的身份和人格。');
+  } catch (error) {
+    showSoulResult(error?.message || String(error), true);
+  } finally {
+    updateSoulPreview();
+  }
+}
+
+async function restoreSoul() {
+  if (!window.confirm('恢复默认灵魂？当前身份和人格提示词将被替换。')) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/soul/restore`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '恢复默认灵魂失败');
+    populateSoulForm(data);
+    showSoulResult('已恢复默认灵魂。');
+  } catch (error) {
+    showSoulResult(error?.message || String(error), true);
+  }
+}
+
+function initSoulUI() {
+  ['soulName', 'soulStyle', 'soulLanguage', 'soulBody'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', updateSoulPreview);
+    document.getElementById(id)?.addEventListener('change', updateSoulPreview);
+  });
+  document.getElementById('soulSaveBtn')?.addEventListener('click', () => saveSoul());
+  document.getElementById('soulRestoreBtn')?.addEventListener('click', () => restoreSoul());
+}
 
 // =============================================================================
 // Session Management
@@ -630,7 +806,7 @@ function showWelcome() {
   chatMessages.innerHTML = `
     <div class="welcome">
       <div class="welcome-icon">${uiIcon('brain')}</div>
-      <h2>欢迎使用 IEXA-WIN</h2>
+      <h2>欢迎使用 ${escapeHtml(soulName())}</h2>
       <p>你的私密、设备端 AI 智能体，带真实 Shell 权限。</p>
       <div class="quick-actions">
         <button class="quick-btn" onclick="sendQuick('列出当前目录的文件')">${uiIcon('folder')}<span>列出文件</span></button>
@@ -2539,7 +2715,7 @@ function addMessage(role, content, attachments, opts) {
 
   const label = document.createElement('div');
   label.className = 'message-label';
-  label.textContent = role === 'user' ? '你' : 'IEXA';
+  label.textContent = role === 'user' ? '你' : soulName();
 
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
@@ -5375,8 +5551,10 @@ async function init() {
   initTerminalPanel();
   initMcpPanel();
   initSkillsUI();
+  initSoulUI();
   initJobsUI();
   loadTokenUsage();
+  await loadSoul();
   await loadSystemInfo();
   await refreshModelSelector();
   await loadSessionList();

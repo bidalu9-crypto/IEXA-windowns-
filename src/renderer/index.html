@@ -59,7 +59,7 @@
     <div class="sidebar-header">
       <div class="brand-row">
         <img class="brand-logo" src="icon.png" alt="IEXA-WIN Logo">
-        <h1>IEXA</h1>
+        <h1 id="brandName">IEXA</h1>
       </div>
       <span class="version" id="sysVersion">Windows</span>
     </div>
@@ -86,6 +86,7 @@
       <button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span>对话</span></button>
       <button class="nav-btn" data-view="appearance"><svg class="ui-icon" aria-hidden="true"><use href="#ui-palette"/></svg><span>外观</span></button>
       <button class="nav-btn" data-view="skills"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>技能</span></button>
+      <button class="nav-btn" data-view="soul"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg><span>灵魂</span></button>
       <button class="nav-btn nav-btn-token-usage" data-view="token-calculator">
         <svg class="nav-token-usage-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <rect x="4" y="12" width="3" height="7" rx="1" stroke="currentColor" stroke-width="1.8"/>
@@ -491,6 +492,56 @@ version: 1.0.0
             <button type="button" class="btn-primary" id="skillEditorSave">保存</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Token Calculator View -->
+    <!-- SOUL.md: persistent assistant identity and personality -->
+    <div class="view" id="view-soul">
+      <div class="settings-container soul-settings-container">
+        <div class="settings-header">
+          <div>
+            <h2>灵魂</h2>
+            <p class="sync-desc">为 IEXA 设定长期身份、语气与行事风格。保存后会立即用于后续所有对话。</p>
+          </div>
+          <button type="button" class="btn-primary btn-sm" id="soulSaveBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span>保存</span></button>
+        </div>
+        <section class="soul-preview" aria-label="灵魂身份预览">
+          <div class="soul-preview-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg></div>
+          <div>
+            <strong id="soulPreviewName">IEXA</strong>
+            <p id="soulPreviewStyle">未设置风格</p>
+          </div>
+        </section>
+        <div class="soul-grid">
+          <div class="setting-group">
+            <label for="soulName">名称</label>
+            <input type="text" id="soulName" maxlength="100" placeholder="例如：IEXA">
+          </div>
+          <div class="setting-group">
+            <label for="soulLanguage">语言偏好</label>
+            <select id="soulLanguage">
+              <option value="auto">自动（跟随用户）</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label for="soulStyle">风格</label>
+          <input type="text" id="soulStyle" maxlength="300" placeholder="例如：温暖、直接、有主见">
+          <span class="setting-hint">简短的语气提示，会贯穿每次回复。</span>
+        </div>
+        <div class="setting-group soul-personality-group">
+          <div class="soul-editor-heading"><label for="soulBody">人格提示词</label><span id="soulTokenCount" class="soul-token-count">0 / 2,000 tokens</span></div>
+          <textarea id="soulBody" rows="15" maxlength="24000" placeholder="描述你希望这个助手具备的人格、立场、沟通方式和工作习惯…"></textarea>
+          <span class="setting-hint">写入 <code>SOUL.md</code>。中文、日文、韩文按字符计数，其他文本按词计数；上限为 2,000 tokens。</span>
+        </div>
+        <div class="soul-footer-actions">
+          <button type="button" class="btn-secondary" id="soulRestoreBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>恢复默认</span></button>
+          <span id="soulFilePath" class="soul-file-path"></span>
+        </div>
+        <div class="sync-result" id="soulResult" style="display:none;" aria-live="polite"></div>
       </div>
     </div>
 

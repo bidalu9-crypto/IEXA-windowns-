@@ -3218,6 +3218,121 @@ body {
   display: inline-block;
 }
 
+/* SOUL.md persistent identity / personality editor */
+.soul-settings-container {
+  max-width: 880px;
+}
+
+.soul-settings-container .settings-header {
+  align-items: flex-start;
+}
+
+.soul-settings-container .settings-header h2 {
+  margin-bottom: 5px;
+}
+
+.soul-settings-container .sync-desc {
+  margin: 0;
+}
+
+.soul-preview {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent-light), var(--bg-secondary));
+}
+
+.soul-preview-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--bg-primary);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.soul-preview-icon .ui-icon {
+  width: 23px;
+  height: 23px;
+}
+
+.soul-preview strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.soul-preview p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.soul-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr);
+  gap: 14px;
+}
+
+.soul-editor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+
+.soul-editor-heading label {
+  margin-bottom: 0 !important;
+}
+
+.soul-token-count {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.soul-token-count.is-over-limit {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.soul-personality-group textarea {
+  min-height: 270px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.55;
+}
+
+.soul-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.soul-file-path {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+#soulResult.is-error {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+}
+
+@media (max-width: 640px) {
+  .soul-grid { grid-template-columns: 1fr; gap: 0; }
+}
+
 .thinking-level-chevron {
   width: 6px;
   height: 6px;
