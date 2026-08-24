@@ -175,6 +175,21 @@
                   <button type="button" class="thinking-level-option" data-level="ultra" role="option"><span class="thinking-level-option-title">Ultra</span><span class="thinking-level-option-desc">更强的深度推理模式</span></button>
                 </div>
               </div>
+              <div class="context-compaction-wrap" id="contextCompactionWrap">
+                <button type="button" class="context-compaction-btn" id="contextCompactionBtn" title="自动压缩档位" aria-haspopup="listbox" aria-expanded="false" data-limit="auto">
+                  <svg class="context-compaction-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2v-4Z" stroke="currentColor" stroke-width="1.7"/><path d="M8 3v3M16 3v3M8 18v3M16 18v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                  <span class="context-compaction-label" id="contextCompactionLabel">自动</span>
+                  <span class="thinking-level-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="context-compaction-menu" id="contextCompactionMenu" role="listbox" style="display:none;">
+                  <button type="button" class="context-compaction-option" data-limit="auto" role="option"><span class="thinking-level-option-title">自动</span><span class="thinking-level-option-desc">按模型上下文上限</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="128000" role="option"><span class="thinking-level-option-title">128K</span><span class="thinking-level-option-desc">约 12.8 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="256000" role="option"><span class="thinking-level-option-title">256K</span><span class="thinking-level-option-desc">约 25.6 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="384000" role="option"><span class="thinking-level-option-title">384K</span><span class="thinking-level-option-desc">约 38.4 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="768000" role="option"><span class="thinking-level-option-title">768K</span><span class="thinking-level-option-desc">约 76.8 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="1000000" role="option"><span class="thinking-level-option-title">1M</span><span class="thinking-level-option-desc">约 100 万 token</span></button>
+                </div>
+              </div>
               <div class="permission-mode-wrap" id="permissionModeWrap">
                 <button type="button" class="permission-mode-btn" id="permissionModeBtn" title="权限模式" aria-haspopup="menu" aria-expanded="false">
                   <svg class="permission-mode-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.8 12 2.1 2.1 4.4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>

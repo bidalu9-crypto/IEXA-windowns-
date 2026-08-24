@@ -1469,6 +1469,24 @@ function thinkingEffortLabelFor(level) {
   return THINKING_LEVELS[normalized]?.label || '标准';
 }
 
+function formatThinkingTokens(text) {
+  const chars = String(text || '').length;
+  if (!chars) return '0';
+  // Keep this consistent with the backend's ContextCompactor estimate.
+  const tokens = Math.max(1, Math.ceil(chars / 3.5));
+  return tokens.toLocaleString();
+}
+
+function updateThinkingTokenCount(thinkBlock, text) {
+  if (!thinkBlock) return;
+  const count = formatThinkingTokens(text);
+  const countEl = thinkBlock.querySelector('.thinking-token-count');
+  if (countEl) {
+    countEl.textContent = count;
+    countEl.title = `思考 token：${count}（按思考内容估算）`;
+  }
+}
+
 function finishThinkingBlock(thinkBlock) {
   if (!thinkBlock || thinkBlock.classList.contains('is-complete')) return;
   // Compatibility cleanup for blocks created before the simplified design.
@@ -1502,7 +1520,7 @@ function handleThinkingDelta(text) {
     thinkBlock.dataset.startedAt = String(Date.now());
     thinkBlock.dataset.reasoning = '';
     thinkBlock.dataset.thinkingLevel = level;
-    thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+    thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
     const host = currentAssistantMsg.querySelector('.tool-steps');
     const answer = ensureAnswerContentEl();
     if (host) host.before(thinkBlock);
@@ -1511,6 +1529,7 @@ function handleThinkingDelta(text) {
   }
   const total = (thinkBlock.dataset.reasoning || '') + String(text);
   thinkBlock.dataset.reasoning = total;
+  updateThinkingTokenCount(thinkBlock, total);
   const content = thinkBlock.querySelector('.thinking-content');
   if (content) content.textContent = total;
   scrollToBottom();
@@ -2771,6 +2790,10 @@ async function fetchProfiles() {
     try { localStorage.setItem('iexa-thinking-level', currentThinkingLevel); } catch (e) {}
     applyThinkingLevelUI(currentThinkingLevel);
   }
+  if (data.contextCompactionLimit !== undefined && data.contextCompactionLimit !== null) {
+    currentContextCompactionLimit = normalizeContextCompactionLimit(data.contextCompactionLimit);
+    applyContextCompactionUI(currentContextCompactionLimit);
+  }
   return data;
 }
 
@@ -3020,6 +3043,110 @@ initModelSelectorControl();
 const fastModeBtn = document.getElementById('fastModeBtn');
 if (fastModeBtn) fastModeBtn.addEventListener('click', () => toggleFastMode().catch((error) => addError(error?.message || String(error))));
 initThinkingLevelControl();
+
+// ---- Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M) ----
+let currentContextCompactionLimit = null;
+
+const CONTEXT_COMPACTION_OPTIONS = [
+  { limit: null, label: '自动', desc: '按模型上下文上限' },
+  { limit: 128000, label: '128K', desc: '约 12.8 万 token' },
+  { limit: 256000, label: '256K', desc: '约 25.6 万 token' },
+  { limit: 384000, label: '384K', desc: '约 38.4 万 token' },
+  { limit: 768000, label: '768K', desc: '约 76.8 万 token' },
+  { limit: 1000000, label: '1M', desc: '约 100 万 token' },
+];
+
+function normalizeContextCompactionLimit(value) {
+  if (value === undefined || value === null || value === '' || value === 'auto' || value === '0') return null;
+  const numeric = Number(value);
+  const option = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === numeric);
+  return option ? option.limit : null;
+}
+
+function formatContextCompactionLabel(limit) {
+  const option = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === normalizeContextCompactionLimit(limit));
+  return option ? option.label : '自动';
+}
+
+function applyContextCompactionUI(limit) {
+  currentContextCompactionLimit = normalizeContextCompactionLimit(limit);
+  const btn = document.getElementById('contextCompactionBtn');
+  const label = document.getElementById('contextCompactionLabel');
+  const title = currentContextCompactionLimit
+    ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${currentContextCompactionLimit.toLocaleString()} token）`
+    : '自动压缩档位：自动（按模型上下文上限）';
+  if (btn) {
+    btn.dataset.limit = currentContextCompactionLimit === null ? 'auto' : String(currentContextCompactionLimit);
+    btn.title = title;
+  }
+  if (label) label.textContent = formatContextCompactionLabel(currentContextCompactionLimit);
+  const menu = document.getElementById('contextCompactionMenu');
+  if (menu) {
+    menu.querySelectorAll('.context-compaction-option').forEach((el) => {
+      const optionLimit = el.dataset.limit === 'auto' ? null : Number(el.dataset.limit);
+      el.classList.toggle('is-active', optionLimit === currentContextCompactionLimit);
+    });
+  }
+}
+
+function setContextCompactionMenuOpen(open) {
+  const btn = document.getElementById('contextCompactionBtn');
+  const menu = document.getElementById('contextCompactionMenu');
+  if (btn) {
+    btn.classList.toggle('is-open', open);
+    btn.setAttribute('aria-expanded', String(open));
+  }
+  if (menu) menu.style.display = open ? 'block' : 'none';
+}
+
+async function setContextCompaction(limit) {
+  const next = normalizeContextCompactionLimit(limit);
+  currentContextCompactionLimit = next;
+  applyContextCompactionUI(next);
+  setContextCompactionMenuOpen(false);
+  try {
+    await fetch(API_BASE + '/api/context-compaction', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contextCompactionLimit: next }),
+    });
+  } catch (e) {
+    console.warn('save context compaction failed', e);
+  }
+}
+
+function initContextCompactionControl() {
+  const btn = document.getElementById('contextCompactionBtn');
+  const menu = document.getElementById('contextCompactionMenu');
+  const wrap = document.getElementById('contextCompactionWrap');
+  if (!btn || !menu || !wrap) return;
+
+  applyContextCompactionUI(currentContextCompactionLimit);
+
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const open = menu.style.display === 'none' || !menu.style.display;
+    setContextCompactionMenuOpen(open);
+  });
+
+  menu.querySelectorAll('.context-compaction-option').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setContextCompaction(el.dataset.limit);
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) setContextCompactionMenuOpen(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setContextCompactionMenuOpen(false);
+  });
+}
+
+initContextCompactionControl();
 
 // ---- Profile List (settings) ----
 async function loadVisionProfileSetting() {

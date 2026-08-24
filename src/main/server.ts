@@ -26,6 +26,7 @@ import { SessionManager } from './session/SessionManager';
 import { TraceStore } from './observability/TraceStore';
 import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd } from './observability/CostTracker';
+import { contextWindowForModel } from './agent/ContextCompactor';
 import { configureApiResponse, jsonReply, readBody, readRawBody } from './api/HttpServer';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
@@ -225,7 +226,10 @@ interface ModelProfile {
   apiKey: string;
   baseURL?: string;
   /** API-reported context window from /v1/models (if available). */
-  contextWindow?: number;  /** API-reported max output tokens. */
+  contextWindow?: number;
+  /** User-selected compaction ceiling; undefined means model automatic. */
+  contextCompactionLimit?: number;
+  /** API-reported max output tokens. */
   maxOutputTokens?: number;
   /** Endpoint contract: it accepts Codex Fast's service_tier: priority field. */
   fastModeSupported?: boolean;
@@ -238,6 +242,8 @@ interface AppSettings {
   activeProfileId: string;
   /** Global thinking effort: off | low | medium | high (iOS-style). */
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  /** User-selected context ceiling for automatic compaction. */
+  contextCompactionLimit?: number;
   permissionMode?: PermissionMode;
   visionProfileId?: string;
 }
@@ -265,6 +271,7 @@ function loadSettings(): AppSettings {
         profiles: raw.profiles || [],
         activeProfileId: raw.activeProfileId || raw.profiles?.[0]?.id || '',
         thinkingLevel: normalizeThinkingLevel(raw.thinkingLevel),
+        contextCompactionLimit: normalizeContextCompactionLimit(raw.contextCompactionLimit),
         permissionMode: normalizePermissionMode(raw.permissionMode),
         visionProfileId: typeof raw.visionProfileId === 'string' ? raw.visionProfileId : undefined,
       };
@@ -290,6 +297,37 @@ function configuredVisionProfile(currentProfileId?: string): ModelProfile | null
 function imageMimeType(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
   return ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' } as Record<string, string>)[ext] || null;
+}
+
+const CONTEXT_COMPACTION_LIMITS = [128_000, 256_000, 384_000, 768_000, 1_000_000] as const;
+
+type ContextCompactionLimit = typeof CONTEXT_COMPACTION_LIMITS[number];
+
+function normalizeContextCompactionLimit(value: unknown): ContextCompactionLimit | undefined {
+  if (value === undefined || value === null || value === '' || value === 'auto') return undefined;
+  const numeric = Number(value);
+  return CONTEXT_COMPACTION_LIMITS.includes(numeric as ContextCompactionLimit)
+    ? numeric as ContextCompactionLimit
+    : undefined;
+}
+
+function effectiveContextWindow(profile: ModelProfile, limit: unknown): number {
+  const modelWindow = profile.contextWindow || contextWindowForModel(profile.model, profile.provider);
+  const selectedLimit = normalizeContextCompactionLimit(limit);
+  return selectedLimit ? Math.min(modelWindow, selectedLimit) : modelWindow;
+}
+
+function getContextCompactionLimit(): ContextCompactionLimit | undefined {
+  return normalizeContextCompactionLimit(loadSettings().contextCompactionLimit);
+}
+
+function saveContextCompactionLimit(value: unknown): ContextCompactionLimit | undefined {
+  const limit = normalizeContextCompactionLimit(value);
+  const s = loadSettings();
+  s.contextCompactionLimit = limit;
+  saveSettings(s);
+  for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+  return limit;
 }
 
 function normalizePermissionMode(value: unknown): PermissionMode {
@@ -325,7 +363,7 @@ function modelBindingForProfile(profile: ModelProfile): SessionModelBinding {
     profileId: profile.id,
     provider: profile.provider,
     model: profile.model,
-    contextWindow: profile.contextWindow,
+    contextWindow: effectiveContextWindow(profile, profile.contextCompactionLimit ?? loadSettings().contextCompactionLimit),
     maxOutputTokens: profile.maxOutputTokens,
   };
 }
@@ -784,7 +822,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
         console.log('[Skills] reloaded after agent write:', resolvedPath);
       }
     },
-    contextWindow: profile.contextWindow,
+    contextWindow: effectiveContextWindow(profile, profile.contextCompactionLimit ?? getContextCompactionLimit()),
     permissionResolver: (request: PermissionRequest) => permissionBroker.request(request),
     permissionMode: getPermissionMode(),
   };
@@ -1816,6 +1854,7 @@ ${recentMemories}
           profiles: masked,
           activeProfileId: s.activeProfileId,
           thinkingLevel: normalizeThinkingLevel(s.thinkingLevel),
+          contextCompactionLimit: normalizeContextCompactionLimit(s.contextCompactionLimit) ?? null,
         });
         return;
       }
@@ -1930,6 +1969,27 @@ ${recentMemories}
           // Rebuild agents so next turn picks up new reasoning effort
           for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
           jsonReply(res, 200, { ok: true, thinkingLevel: level });
+        } catch {
+          jsonReply(res, 400, { error: '无效的 JSON' });
+        }
+        return;
+      }
+    }
+
+    // =====================================================================
+    // Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M)
+    // =====================================================================
+    if (url.pathname === '/api/context-compaction') {
+      if (req.method === 'GET') {
+        jsonReply(res, 200, { contextCompactionLimit: getContextCompactionLimit() ?? null });
+        return;
+      }
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const body = await readBody(req);
+        try {
+          const parsed = JSON.parse(body);
+          const limit = saveContextCompactionLimit(parsed.contextCompactionLimit ?? parsed.limit);
+          jsonReply(res, 200, { ok: true, contextCompactionLimit: limit ?? null });
         } catch {
           jsonReply(res, 400, { error: '无效的 JSON' });
         }

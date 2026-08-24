@@ -3202,6 +3202,22 @@ body {
   letter-spacing: 0.01em;
 }
 
+.thinking-token-count {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 2px 5px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.thinking-token-count.is-visible {
+  display: inline-block;
+}
+
 .thinking-level-chevron {
   width: 6px;
   height: 6px;
@@ -3275,6 +3291,100 @@ body {
 }
 
 .thinking-level-option.is-active .thinking-level-option-desc {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+}
+
+/* Codex-style permission control stays in the active chat composer. */
+/* ===== Context compaction ceiling (iOS-style capsule + menu) ===== */
+.context-compaction-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 50;
+}
+
+.context-compaction-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.context-compaction-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.context-compaction-btn.is-open {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.context-compaction-btn.is-open .thinking-level-chevron {
+  transform: rotate(225deg);
+  margin-top: 0;
+}
+
+.context-compaction-icon {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.context-compaction-label {
+  font-variant-numeric: tabular-nums;
+}
+
+.context-compaction-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  z-index: 60;
+  display: none;
+}
+
+.context-compaction-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.context-compaction-option:hover {
+  background: var(--accent-light);
+}
+
+.context-compaction-option.is-active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.context-compaction-option.is-active .thinking-level-option-desc {
   color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
 }
 
