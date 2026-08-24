@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { promises as fs } from 'fs';
+import * as fsSync from 'fs';
 import * as iconv from 'iconv-lite';
 import * as os from 'os';
 import * as path from 'path';
@@ -59,10 +60,19 @@ export class ProcessManager {
   }
 
   private async launch(command: string, cwd: string): Promise<ProcessLaunch> {
-    const env = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
+    if (!fsSync.existsSync(cwd) || !fsSync.statSync(cwd).isDirectory()) {
+      throw new Error(`Command working directory does not exist: ${cwd}`);
+    }
+    const env: NodeJS.ProcessEnv = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
     if (process.platform !== 'win32') {
       return { child: spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true }) };
     }
+    // Electron sometimes inherits a stale/rewritten ComSpec value (or a PATH
+    // that cannot resolve it). Resolving the executable ourselves prevents all
+    // shell commands from failing with `spawn ...cmd.exe ENOENT` in that case.
+    const cmdExecutable = resolveWindowsCmdExecutable();
+    env.ComSpec = cmdExecutable;
+    env.COMSPEC = cmdExecutable;
 
     // cmd.exe executes only the first physical line supplied through /c.  Use a
     // short-lived batch file for true multi-line input so command blocks,
@@ -86,7 +96,7 @@ export class ProcessManager {
         // quotes literally and tries to execute a command whose name includes
         // quote characters.  CMD's /c accepts a batch-file path directly and
         // preserves the batch file's final errorlevel.
-        child: spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/c', scriptPath], {
+        child: spawn(cmdExecutable, ['/d', '/c', scriptPath], {
           cwd,
           env,
           windowsHide: true,
@@ -112,9 +122,25 @@ export class ProcessManager {
     }
 
     return {
-      child: spawn(command, { cwd, env, shell: process.env.ComSpec || 'cmd.exe', windowsHide: true }),
+      child: spawn(command, { cwd, env, shell: cmdExecutable, windowsHide: true }),
     };
   }
+}
+
+/** Locate a real cmd.exe instead of trusting a possibly stale ComSpec value. */
+function resolveWindowsCmdExecutable(): string {
+  const candidates = [
+    process.env.ComSpec,
+    process.env.COMSPEC,
+    process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'cmd.exe') : undefined,
+    process.env.WINDIR ? path.join(process.env.WINDIR, 'System32', 'cmd.exe') : undefined,
+    'C:\\Windows\\System32\\cmd.exe',
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+  const executable = candidates.find((candidate) => fsSync.existsSync(candidate));
+  if (!executable) {
+    throw new Error(`Windows command processor not found. Checked: ${candidates.join(', ')}`);
+  }
+  return executable;
 }
 
 function parsePowerShellCommand(command: string): { executable: string; args: string[] } | null {

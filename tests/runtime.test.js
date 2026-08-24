@@ -116,6 +116,27 @@ test('ProcessManager preserves quoted Windows CMD and PowerShell commands', { sk
   assert.match(powershell.output, /powershell-quoted-ok/);
 });
 
+test('ProcessManager recovers from a stale ComSpec path', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const previousComSpec = process.env.ComSpec;
+  const previousCOMSPEC = process.env.COMSPEC;
+  process.env.ComSpec = 'C:\\missing-iexa\\cmd.exe';
+  process.env.COMSPEC = 'C:\\missing-iexa\\cmd.exe';
+  try {
+    const result = await new ProcessManager().run(
+      'echo cmd-fallback-ok',
+      root,
+      new AbortController().signal,
+      { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 },
+    );
+    assert.equal(result.success, true, result.output);
+    assert.match(result.output, /cmd-fallback-ok/);
+  } finally {
+    if (previousComSpec === undefined) delete process.env.ComSpec; else process.env.ComSpec = previousComSpec;
+    if (previousCOMSPEC === undefined) delete process.env.COMSPEC; else process.env.COMSPEC = previousCOMSPEC;
+  }
+});
+
 test('ProcessManager executes every line of a Windows CMD command', { skip: process.platform !== 'win32' }, async () => {
   const root = await tempWorkspace();
   const policy = { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 };
