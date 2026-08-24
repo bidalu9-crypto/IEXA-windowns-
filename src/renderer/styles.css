@@ -3252,6 +3252,41 @@ body {
   margin: 0;
 }
 
+.soul-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.soul-save-status {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity .16s ease, transform .16s ease, color .16s ease;
+}
+
+.soul-save-status:not(:empty) {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.soul-save-status.is-saving { color: var(--text-secondary); }
+.soul-save-status.is-success { color: var(--success); }
+.soul-save-status.is-error { color: var(--error); }
+
+#soulSaveBtn.is-saving { cursor: wait; opacity: .82; }
+#soulSaveBtn.is-saved { background: var(--success); }
+#soulSaveBtn.is-error { background: var(--error); }
+
+#soulSaveBtn.is-saving .ui-icon {
+  animation: ui-icon-spin .75s linear infinite;
+}
+
 .soul-preview {
   display: flex;
   align-items: center;

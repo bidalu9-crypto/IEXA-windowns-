@@ -504,7 +504,10 @@ version: 1.0.0
             <h2>灵魂</h2>
             <p class="sync-desc">为 IEXA 设定长期身份、语气与行事风格。保存后会立即用于后续所有对话。</p>
           </div>
-          <button type="button" class="btn-primary btn-sm" id="soulSaveBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span>保存</span></button>
+          <div class="soul-header-actions">
+            <span class="soul-save-status" id="soulSaveStatus" role="status" aria-live="polite"></span>
+            <button type="button" class="btn-primary btn-sm" id="soulSaveBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span class="soul-save-button-label">保存</span></button>
+          </div>
         </div>
         <section class="soul-preview" aria-label="灵魂身份预览">
           <div class="soul-preview-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg></div>

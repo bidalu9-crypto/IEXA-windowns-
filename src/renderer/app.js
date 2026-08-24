@@ -314,6 +314,7 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
 
 const SOUL_TOKEN_LIMIT = 2000;
 let soulState = { metadata: { name: 'IEXA', style: '', lang: 'auto' }, body: '' };
+let soulSaveFeedbackTimer = null;
 
 function soulName() {
   return String(soulState?.metadata?.name || '').trim() || 'IEXA';
@@ -404,6 +405,32 @@ function showSoulResult(message, isError = false) {
   result.style.display = 'block';
 }
 
+/** Immediate, visible save feedback beside the toolbar action. The detailed
+ * message remains in the page footer as a secondary status record. */
+function setSoulSaveFeedback(message = '', state = '') {
+  const status = document.getElementById('soulSaveStatus');
+  const button = document.getElementById('soulSaveBtn');
+  const label = button?.querySelector('.soul-save-button-label');
+  if (soulSaveFeedbackTimer) {
+    clearTimeout(soulSaveFeedbackTimer);
+    soulSaveFeedbackTimer = null;
+  }
+  if (status) {
+    status.textContent = message;
+    status.className = `soul-save-status${state ? ` is-${state}` : ''}`;
+  }
+  if (button) {
+    button.classList.toggle('is-saving', state === 'saving');
+    button.classList.toggle('is-saved', state === 'success');
+    button.classList.toggle('is-error', state === 'error');
+    button.setAttribute('aria-busy', String(state === 'saving'));
+  }
+  if (label) label.textContent = state === 'saving' ? '保存中…' : state === 'success' ? '已保存' : state === 'error' ? '保存失败' : '保存';
+  if (state === 'success' || state === 'error') {
+    soulSaveFeedbackTimer = setTimeout(() => setSoulSaveFeedback(), 2600);
+  }
+}
+
 function populateSoulForm(data) {
   soulState = {
     metadata: {
@@ -447,11 +474,13 @@ async function loadSoul() {
 async function saveSoul() {
   const value = soulFormValue();
   if (estimateSoulTokens(value.body) > SOUL_TOKEN_LIMIT) {
+    setSoulSaveFeedback('内容超出上限', 'error');
     showSoulResult(`人格提示词超过 ${SOUL_TOKEN_LIMIT.toLocaleString()} tokens 上限。`, true);
     return;
   }
   const button = document.getElementById('soulSaveBtn');
   if (button) button.disabled = true;
+  setSoulSaveFeedback('正在写入 SOUL.md', 'saving');
   try {
     const response = await fetch(`${API_BASE}/api/soul`, {
       method: 'PUT',
@@ -461,8 +490,10 @@ async function saveSoul() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '灵魂配置保存失败');
     populateSoulForm(data);
+    setSoulSaveFeedback('已保存', 'success');
     showSoulResult('已保存。后续对话将使用新的身份和人格。');
   } catch (error) {
+    setSoulSaveFeedback('保存失败', 'error');
     showSoulResult(error?.message || String(error), true);
   } finally {
     updateSoulPreview();
