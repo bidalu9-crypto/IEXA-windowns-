@@ -387,6 +387,15 @@ function updateSoulPreview() {
   if (saveBtn) saveBtn.disabled = count > SOUL_TOKEN_LIMIT;
 }
 
+/** Keep the personality editor compact for short prompts and grow it naturally
+ * as the user adds new lines. The containing Soul page supplies the scroll. */
+function autoResizeSoulBody() {
+  const body = document.getElementById('soulBody');
+  if (!body) return;
+  body.style.height = 'auto';
+  body.style.height = `${Math.max(220, body.scrollHeight)}px`;
+}
+
 function showSoulResult(message, isError = false) {
   const result = document.getElementById('soulResult');
   if (!result) return;
@@ -418,6 +427,7 @@ function populateSoulForm(data) {
   const path = document.getElementById('soulFilePath');
   if (path) path.textContent = data?.path ? `SOUL.md · ${data.path}` : '';
   updateSoulPreview();
+  autoResizeSoulBody();
   applySoulIdentity();
 }
 
@@ -474,7 +484,10 @@ async function restoreSoul() {
 
 function initSoulUI() {
   ['soulName', 'soulStyle', 'soulLanguage', 'soulBody'].forEach((id) => {
-    document.getElementById(id)?.addEventListener('input', updateSoulPreview);
+    document.getElementById(id)?.addEventListener('input', () => {
+      if (id === 'soulBody') autoResizeSoulBody();
+      updateSoulPreview();
+    });
     document.getElementById(id)?.addEventListener('change', updateSoulPreview);
   });
   document.getElementById('soulSaveBtn')?.addEventListener('click', () => saveSoul());

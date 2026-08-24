@@ -3223,6 +3223,23 @@ body {
   max-width: 880px;
 }
 
+/* The Soul editor can become longer than a desktop viewport. Keep scrolling
+   within the page rather than clipping the Restore/save controls below it. */
+#view-soul {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-items: flex-start;
+}
+
+#view-soul > .soul-settings-container {
+  width: min(100%, 880px);
+  max-width: none;
+  min-height: min-content;
+  margin: 40px auto 72px;
+  flex: 0 0 auto;
+}
+
 .soul-settings-container .settings-header {
   align-items: flex-start;
 }
@@ -3307,13 +3324,14 @@ body {
   box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 270px;
+  min-height: 220px;
   padding: 13px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   background: var(--bg-input);
   font-size: 0.9rem;
+  overflow-y: hidden;
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1.55;
@@ -3346,6 +3364,7 @@ body {
 
 @media (max-width: 640px) {
   .soul-grid { grid-template-columns: 1fr; gap: 0; }
+  #view-soul > .soul-settings-container { width: 100%; margin-top: 24px; margin-bottom: 48px; }
 }
 
 .thinking-level-chevron {
