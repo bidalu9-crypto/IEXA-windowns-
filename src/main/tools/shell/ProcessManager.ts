@@ -80,10 +80,21 @@ export class ProcessManager {
     if (/\r|\n/.test(command)) {
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-cmd-'));
       const scriptPath = path.join(tempDir, 'command.cmd');
+      const pythonSource = extractMultilinePythonInlineSource(command);
       try {
+        let batchCommand = normalizeCmdNewlines(command);
+        if (pythonSource) {
+          const pythonScriptPath = path.join(tempDir, 'inline-python.py');
+          // A Python -c body with physical newlines cannot survive CMD parsing:
+          // after the first line CMD treats the remaining Python statements as
+          // commands. Materialize only that body as a short-lived script while
+          // leaving an optional CMD prefix/suffix (for example `chcp &&`) intact.
+          await fs.writeFile(pythonScriptPath, pythonSource.source, 'utf8');
+          batchCommand = `${pythonSource.prefix}${pythonSource.executable} "${pythonScriptPath}"${pythonSource.suffix}`;
+        }
         // No UTF-8 BOM: CMD treats it as part of the first token.  The command
         // prefix supplied by ShellExecutor switches to UTF-8 before user input.
-        await fs.writeFile(scriptPath, `@echo off\r\n${normalizeCmdNewlines(command)}\r\n`, 'utf8');
+        await fs.writeFile(scriptPath, `@echo off\r\n${batchCommand}\r\n`, 'utf8');
       } catch (error) {
         await fs.rm(tempDir, { recursive: true, force: true });
         throw error;
@@ -162,6 +173,29 @@ function parsePowerShellCommand(command: string): { executable: string; args: st
 
 function normalizeCmdNewlines(command: string): string {
   return command.replace(/\r\n|\r|\n/g, '\r\n');
+}
+
+interface MultilinePythonInlineSource {
+  prefix: string;
+  executable: string;
+  source: string;
+  suffix: string;
+}
+
+/**
+ * Extract `python -c "...multiline source..."` from a CMD command. The
+ * optional prefix preserves wrappers such as `chcp 65001 >nul &&`; arguments
+ * after the source remain attached to the generated script invocation.
+ */
+function extractMultilinePythonInlineSource(command: string): MultilinePythonInlineSource | null {
+  const match = /^([\s\S]*?\b)((?:python(?:\d(?:\.\d+)?)?|py)(?:\.exe)?)\s+(?:-c|\/c)\s+(["'])([\s\S]*)\3([\s\S]*)$/i.exec(command);
+  if (!match || !/[\r\n]/.test(match[4])) return null;
+  return {
+    prefix: match[1],
+    executable: match[2],
+    source: match[4].replace(/^\r?\n/, ''),
+    suffix: match[5],
+  };
 }
 
 function decodeOutput(value: Buffer): string {

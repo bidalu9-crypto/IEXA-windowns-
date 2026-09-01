@@ -29,7 +29,7 @@ const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
-const { FileTools } = require('../dist/main/tools/ToolExecutors');
+const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors');
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
@@ -176,6 +176,19 @@ test('ProcessManager preserves a multi-line CMD script exit code', { skip: proce
   assert.equal(result.success, false);
   assert.equal(result.exitCode, 23);
   assert.match(result.output, /before-exit/);
+});
+
+test('ShellExecutor runs a multi-line Python -c body through CMD', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const result = await new ShellExecutor(root).execute(
+    'python -c "\nfrom pathlib import Path\nPath(\'inline-python.txt\').write_text(\'created\', encoding=\'utf-8\')\nprint(\'inline-python-ok\')\n"',
+    10,
+    new AbortController().signal,
+  );
+
+  assert.equal(result.success, true, result.output);
+  assert.match(result.output, /inline-python-ok/);
+  assert.equal(await fs.readFile(path.join(root, 'inline-python.txt'), 'utf8'), 'created');
 });
 
 test('GitService returns structured changes, diffs, and staged state', async () => {
