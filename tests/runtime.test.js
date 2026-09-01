@@ -80,6 +80,16 @@ test('BudgetManager defaults support long-running project tasks', () => {
   assert.equal(budget.maxInputTokens, 10_000_000);
 });
 
+test('BudgetManager only enforces cumulative input limit when explicitly configured', () => {
+  const defaults = new BudgetManager();
+  defaults.recordInputTokens(10_000_001);
+  assert.equal(defaults.snapshot().inputTokens, 10_000_001);
+
+  const limited = new BudgetManager({ maxInputTokens: 100 });
+  limited.recordInputTokens(60);
+  assert.throws(() => limited.recordInputTokens(41), /上下文预算/);
+});
+
 test('LoopDetector stops repeated equivalent tool calls', () => {
   const detector = new LoopDetector(2, 8);
   detector.record('file_read', { path: 'a.txt' }); detector.record('file_read', { path: 'a.txt' });

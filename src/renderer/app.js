@@ -3921,6 +3921,10 @@ let terminalSessions = [];
 let activeTerminalId = '';
 let terminalLastSeq = 0;
 let terminalPollTimer = null;
+let gitLoadInFlight = false;
+let gitLoadEpoch = 0;
+let gitStatusSignature = '';
+let gitReloadRequested = false;
 
 function formatFileSize(n) {
   if (n < 1024) return n + ' B';
@@ -3931,6 +3935,7 @@ function formatFileSize(n) {
 function switchWorkbenchView(view) {
   if (!['files', 'git', 'search', 'terminal'].includes(view)) return;
   workbenchView = view;
+  if (view !== 'git') gitReloadRequested = false;
   const filesList = document.getElementById('filesList');
   const filesPreview = document.getElementById('filesPreview');
   const gitPanel = document.getElementById('gitPanel');
@@ -3952,6 +3957,7 @@ function switchWorkbenchView(view) {
 function renderGitStatus(data) {
   const panel = document.getElementById('gitPanel');
   if (!panel) return;
+  const commitDraft = panel.querySelector('#gitCommitMessage')?.value || '';
   if (!projectRoot) {
     panel.innerHTML = '<div class="workbench-empty">打开项目后可查看 Git 更改。</div>';
     return;
@@ -3980,7 +3986,7 @@ function renderGitStatus(data) {
     return `<div class="git-file" data-path="${escapeHtml(file.path)}" data-staged="${staged && !working ? '1' : '0'}">
       <span class="git-file-status${staged ? ' is-staged' : ''}">${escapeHtml(label)}</span>
       <span class="git-file-path" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span>
-      ${action}
+      <span class="git-file-actions">${action}</span>
     </div>`;
   }).join('') : '<div class="workbench-empty">工作区干净，没有待提交的更改。</div>';
   const branchOptions = branches.map((branch) => `<option value="${escapeHtml(branch.name)}"${branch.current ? ' selected' : ''}>${escapeHtml(branch.name)}</option>`).join('');
@@ -4035,14 +4041,27 @@ function renderGitStatus(data) {
       runGitOperation(operation, {});
     });
   });
+  const commitInput = panel.querySelector('#gitCommitMessage');
+  if (commitInput && commitDraft) commitInput.value = commitDraft;
 }
 
-async function loadGitWorkbench() {
+function gitStatusSignatureOf(data) {
+  const files = (data.files || []).map((file) => `${file.path}\0${file.index}\0${file.workTree}`).join('\1');
+  const commits = (data.commits || []).map((commit) => `${commit.hash}\0${commit.subject}`).join('\1');
+  return [data.repository ? '1' : '0', data.branch || '', data.ahead ?? '', data.behind ?? '', files, commits].join('\2');
+}
+
+async function loadGitWorkbench(force = false) {
   if (workbenchView !== 'git') return;
   const panel = document.getElementById('gitPanel');
   if (!panel) return;
   if (!projectRoot) { renderGitStatus({}); return; }
-  panel.innerHTML = '<div class="workbench-empty">正在读取 Git 状态…</div>';
+  if (gitLoadInFlight) {
+    if (force) gitReloadRequested = true;
+    return;
+  }
+  gitLoadInFlight = true;
+  const epoch = ++gitLoadEpoch;
   try {
     const response = await fetch(`${API_BASE}/api/git/status`);
     const data = await response.json();
@@ -4057,9 +4076,21 @@ async function loadGitWorkbench() {
       if (branchesResponse.ok) data.branches = branchesData.branches || [];
       if (logResponse.ok) data.commits = logData.entries || [];
     }
+    if (epoch !== gitLoadEpoch || workbenchView !== 'git') return;
+    const signature = gitStatusSignatureOf(data);
+    // Do not rebuild the panel when polling sees the same repository state.
+    // This keeps an open diff and an in-progress commit message intact.
+    if (!force && signature === gitStatusSignature) return;
+    gitStatusSignature = signature;
     renderGitStatus(data);
   } catch (error) {
-    panel.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+    if (epoch === gitLoadEpoch) panel.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
+  } finally {
+    gitLoadInFlight = false;
+    if (gitReloadRequested) {
+      gitReloadRequested = false;
+      loadGitWorkbench(true);
+    }
   }
 }
 
@@ -4073,7 +4104,7 @@ async function runGitOperation(operation, body) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Git 操作失败');
-    await loadGitWorkbench();
+    await loadGitWorkbench(true);
   } catch (error) {
     addError('Git 操作失败：' + (error.message || error));
   }
@@ -4088,7 +4119,7 @@ async function runGitMutation(action, target) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Git 操作失败');
-    renderGitStatus(data);
+    await loadGitWorkbench(true);
   } catch (error) {
     addError('Git 操作失败：' + (error.message || error));
   }
@@ -4581,6 +4612,8 @@ async function openProjectPath(rootPath) {
     projectRoot = data.root || null;
     projectName = data.name || null;
     projectRecent = data.recent || [];
+    gitStatusSignature = '';
+    gitLoadEpoch++;
     filesCurrentPath = '.';
     filesLastSig = '';
     closeFilePreview();
@@ -4615,6 +4648,8 @@ async function closeProject() {
   projectName = null;
   filesCurrentPath = '.';
   filesLastSig = '';
+  gitStatusSignature = '';
+  gitLoadEpoch++;
   switchWorkbenchView('files');
   await loadProjectState();
 }

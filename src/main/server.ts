@@ -151,7 +151,7 @@ function setProjectRoot(root: string | null): {
     projectState.root = null;
     saveProjectState(projectState);
     // Drop agents so next turn picks up new cwd + system prompt
-    for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+    invalidateAllAgentsForNextTurn();
     return { ok: true, project: projectInfo() };
   }
   const abs = path.resolve(root);
@@ -161,7 +161,7 @@ function setProjectRoot(root: string | null): {
   projectState.root = abs;
   projectState.recent = [abs, ...projectState.recent.filter((p) => p !== abs)].slice(0, 12);
   saveProjectState(projectState);
-  for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+  invalidateAllAgentsForNextTurn();
   return { ok: true, project: projectInfo() };
 }
 
@@ -315,9 +315,18 @@ function normalizeContextCompactionLimit(value: unknown): ContextCompactionLimit
 }
 
 function effectiveContextWindow(profile: ModelProfile, limit: unknown): number {
-  const modelWindow = profile.contextWindow || contextWindowForModel(profile.model, profile.provider);
+  const reportedWindow = Number(profile.contextWindow);
+  const hasReportedWindow = Number.isFinite(reportedWindow) && reportedWindow > 0;
+  const modelWindow = hasReportedWindow
+    ? Math.floor(reportedWindow)
+    : contextWindowForModel(profile.model, profile.provider);
   const selectedLimit = normalizeContextCompactionLimit(limit);
-  return selectedLimit ? Math.min(modelWindow, selectedLimit) : modelWindow;
+  // A custom/OpenAI-compatible endpoint often omits context_window from
+  // /v1/models. In that case `modelWindow` is only a conservative guess, so
+  // the user-selected compaction tier must override it. A provider-reported
+  // window remains a hard ceiling to avoid sending a request it cannot accept.
+  if (selectedLimit) return hasReportedWindow ? Math.min(modelWindow, selectedLimit) : selectedLimit;
+  return modelWindow;
 }
 
 function getContextCompactionLimit(): ContextCompactionLimit | undefined {
@@ -329,7 +338,7 @@ function saveContextCompactionLimit(value: unknown): ContextCompactionLimit | un
   const s = loadSettings();
   s.contextCompactionLimit = limit;
   saveSettings(s);
-  for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+  invalidateAllAgentsForNextTurn();
   return limit;
 }
 
@@ -692,6 +701,11 @@ function permissionPayload(item: PendingPermission): Record<string, unknown> {
 }
 /** Live turns only; cached idle agents remain reusable and are not considered running. */
 const runningSessionIds = new Set<string>();
+/**
+ * Settings alter the next request envelope. Never abort an active stream just
+ * to refresh that envelope; discard its cached runtime after it completes.
+ */
+const pendingAgentInvalidation = new Set<string>();
 const artifactRegistry = new Map<string, { path: string; mimeType: string; size: number; created: number }>();
 const uploadRegistry = new Map<string, { sessionId: string; name: string; mime: string; kind: string; size: number; received: number; partPath: string; created: number }>();
 
@@ -836,12 +850,30 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
 }
 
 function cancelSessionAgent(sessionId: string, dispose = true): void {
+  pendingAgentInvalidation.delete(sessionId);
   const agent = agentCache.get(sessionId);
   if (agent) {
     agent.cancel();
     if (dispose) agentCache.delete(sessionId);
   }
   permissionBroker.cancelSession(sessionId);
+}
+
+function invalidateAgentForNextTurn(sessionId: string): void {
+  if (runningSessionIds.has(sessionId)) {
+    pendingAgentInvalidation.add(sessionId);
+    return;
+  }
+  agentCache.delete(sessionId);
+}
+
+function invalidateAllAgentsForNextTurn(): void {
+  for (const sessionId of agentCache.keys()) invalidateAgentForNextTurn(sessionId);
+}
+
+function finishPendingAgentInvalidation(sessionId: string): void {
+  if (!pendingAgentInvalidation.delete(sessionId)) return;
+  agentCache.delete(sessionId);
 }
 
 function clearPermissionSubscription(sessionId: string): void {
@@ -1749,6 +1781,7 @@ ${recentMemories}
           onError: (e) => {
             clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
+            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) sendSSE(res, 'job', job);
             sendSSE(res, 'error', { message: e });
@@ -1758,6 +1791,7 @@ ${recentMemories}
           onDone: (sr) => {
             clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
+            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) sendSSE(res, 'job', job);
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
@@ -1770,6 +1804,7 @@ ${recentMemories}
           onCancelled: () => {
             clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
+            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) sendSSE(res, 'job', job);
             cancelLiveJobs(sessionId);
@@ -1911,7 +1946,7 @@ ${recentMemories}
           if (s.profiles.find(p => p.id === activeProfileId)) {
             s.activeProfileId = activeProfileId;
             saveSettings(s);
-            for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+            invalidateAllAgentsForNextTurn();
             jsonReply(res, 200, { ok: true });
           } else {
             jsonReply(res, 404, { error: '配置未找到' });
@@ -1947,7 +1982,7 @@ ${recentMemories}
           if (id && !settings.profiles.some((profile) => profile.id === id)) throw new Error('请选择已配置的模型。');
           settings.visionProfileId = id || undefined;
           saveSettings(settings);
-          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+          invalidateAllAgentsForNextTurn();
           jsonReply(res, 200, { ok: true, visionProfileId: settings.visionProfileId || '' });
         } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
         return;
@@ -1971,7 +2006,7 @@ ${recentMemories}
           s.thinkingLevel = level;
           saveSettings(s);
           // Rebuild agents so next turn picks up new reasoning effort
-          for (const id of [...agentCache.keys()]) cancelSessionAgent(id);
+          invalidateAllAgentsForNextTurn();
           jsonReply(res, 200, { ok: true, thinkingLevel: level });
         } catch {
           jsonReply(res, 400, { error: '无效的 JSON' });
@@ -2033,7 +2068,7 @@ ${recentMemories}
           const limit = checkSoulBodyLimit(soul.body);
           // Cached agents retain their prompt envelope. Rebuild before the
           // next turn so a saved identity takes effect globally at once.
-          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+          invalidateAllAgentsForNextTurn();
           jsonReply(res, 200, { ok: true, metadata: soul.metadata, body: soul.body, tokenCount: limit.count, tokenLimit: limit.limit, path: soulStore.filePath });
         } catch (error) {
           jsonReply(res, 400, { error: (error as Error).message || '灵魂配置保存失败。' });
@@ -2045,7 +2080,7 @@ ${recentMemories}
     if (url.pathname === '/api/soul/restore' && (req.method === 'POST' || req.method === 'PUT')) {
       try {
         const soul = soulStore.restoreDefault();
-        for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+        invalidateAllAgentsForNextTurn();
         jsonReply(res, 200, { ok: true, metadata: soul.metadata, body: soul.body, tokenCount: 0, tokenLimit: checkSoulBodyLimit(soul.body).limit, path: soulStore.filePath });
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message || '恢复默认灵魂失败。' });
@@ -2153,7 +2188,7 @@ ${recentMemories}
           content,
           source === 'file' || source === 'url' || source === 'session' ? source : 'paste',
         );
-        for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+        invalidateAllAgentsForNextTurn();
         jsonReply(res, 200, { skill });
       } catch (err) {
         jsonReply(res, 400, { error: (err as Error).message || '导入失败' });
@@ -2197,7 +2232,7 @@ ${recentMemories}
           }
           // Rebuild agents so updated system-level skill content is used on the
           // next request instead of remaining captured in an old prompt.
-          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+        invalidateAllAgentsForNextTurn();
           const updated = skillStore.get(id);
           jsonReply(res, 200, { skill: updated });
         } catch (err) {
@@ -2209,7 +2244,7 @@ ${recentMemories}
       if (req.method === 'DELETE') {
         const ok = skillStore.delete(id);
         if (ok) {
-          for (const sessionId of [...agentCache.keys()]) cancelSessionAgent(sessionId);
+          invalidateAllAgentsForNextTurn();
         }
         jsonReply(res, ok ? 200 : 404, ok ? { ok: true } : { error: '未找到' });
         return;

@@ -5,6 +5,7 @@ electron/
 build/
 workspace/
 attachments/
+.iexa-artifacts/
 
 # Build output
 *.exe

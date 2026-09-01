@@ -914,10 +914,16 @@ body {
   text-align: left;
 }
 
+@media (max-width: 360px) {
+  .git-file { grid-template-columns: 22px minmax(0, 1fr); }
+  .git-file-actions { grid-column: 2; justify-content: flex-start; }
+}
+
 .git-file:hover { background: var(--accent-light); }
 .git-file-status { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .74rem; color: var(--warning); }
 .git-file-status.is-staged { color: var(--success); }
 .git-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: .76rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+.git-file-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
 .git-file-action { padding: 3px 6px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-secondary); background: var(--bg-primary); font-size: .67rem; cursor: pointer; }
 .git-file-action:hover { color: var(--accent); border-color: var(--accent); }
 
