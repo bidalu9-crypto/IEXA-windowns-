@@ -32,6 +32,8 @@
   --accent: #60a5fa;
   --accent-hover: #3b82f6;
   --accent-light: rgba(96, 165, 250, 0.16);
+  --thinking-sheen: rgba(255, 255, 255, 0.92);
+  --thinking-sheen-soft: rgba(255, 255, 255, 0.18);
 }
 
 [data-theme="dark"] {
@@ -59,6 +61,8 @@
   --accent: #7dd3fc;
   --accent-hover: #bae6fd;
   --accent-light: rgba(125, 211, 252, 0.18);
+  --thinking-sheen: rgba(0, 0, 0, 0.9);
+  --thinking-sheen-soft: rgba(0, 0, 0, 0.2);
 }
 
 /* Accent presets (override --accent*) */
@@ -1362,32 +1366,135 @@ body {
 /* Visible immediately while the provider is waiting for its first event. */
 .waiting-indicator {
   position: relative;
-  display: block;
-  max-width: 100%;
-  margin: 5px 0 9px;
-  padding: 0 2px;
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  max-width: min(100%, 320px);
+  min-height: 44px;
+  margin: 7px 0 8px;
+  padding: 4px 11px 4px 5px;
   overflow: hidden;
-  border: 0;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 10%, transparent), 0 8px 22px color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-primary);
-  font-size: .84rem;
-  line-height: 1.35;
+  font-size: .78rem;
+  line-height: 1.1;
   letter-spacing: 0;
+}
+
+.waiting-indicator__orb {
+  position: relative;
+  display: block;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 42%, transparent);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 27% 22%, rgba(255,255,255,.98) 0 2px, rgba(255,255,255,.36) 3px, transparent 8px),
+    radial-gradient(circle at 70% 76%, color-mix(in srgb, var(--accent) 78%, transparent) 0 8%, transparent 58%),
+    radial-gradient(circle at 40% 41%, color-mix(in srgb, var(--accent) 38%, var(--bg-tertiary) 62%), var(--bg-primary));
+  box-shadow: inset -5px -6px 10px color-mix(in srgb, var(--text-primary) 30%, transparent), inset 3px 3px 7px color-mix(in srgb, var(--text-primary) 38%, transparent), 0 0 0 1px color-mix(in srgb, var(--text-primary) 24%, transparent), 0 2px 10px color-mix(in srgb, var(--accent) 25%, transparent);
+  will-change: box-shadow;
+}
+
+.waiting-indicator__orb::before {
+  content: '';
+  position: absolute;
+  inset: -38% -75%;
+  z-index: 2;
+  background: linear-gradient(108deg, transparent 40%, var(--thinking-sheen-soft) 46%, var(--thinking-sheen) 50%, var(--thinking-sheen-soft) 54%, transparent 60%);
+  transform: translateX(-110%) rotate(-16deg);
+  filter: blur(.25px);
+  animation: iexa-thinking-orb-sweep 1.7s linear infinite;
+}
+
+.waiting-indicator__orb-glow,
+.waiting-indicator__orb-sheen {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.waiting-indicator__orb-glow {
+  inset: 8% 12% 49% 5%;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 48%, transparent);
+  filter: blur(2px);
+  opacity: .62;
+  transform: rotate(-18deg);
+}
+
+.waiting-indicator__orb-sheen {
+  left: -22%;
+  z-index: 3;
+  top: 46%;
+  width: 144%;
+  height: 19%;
+  border-radius: 50%;
+  background: linear-gradient(90deg, transparent, var(--thinking-sheen) 45%, var(--thinking-sheen) 55%, transparent);
+  filter: blur(1px);
+  opacity: 1;
+  transform: rotate(-13deg);
+  animation: iexa-thinking-orb-pulse 1.5s ease-in-out infinite;
+}
+
+.waiting-indicator__orb::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 4;
+  border: 1px solid rgba(255,255,255,.32);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .waiting-indicator__label {
   position: relative;
   display: inline-block;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-secondary);
   font-weight: 560;
   white-space: nowrap;
-  background: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--accent-hover) 46%, var(--text-primary) 50%, var(--accent-hover) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);
-  background-size: 320% 100%;
-  background-position: 160% 0;
+  background: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--thinking-sheen) 46%, var(--text-primary) 50%, var(--thinking-sheen) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);
+  background-size: 220% 100%;
+  background-position: 120% 0;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: iexa-waiting-text-sweep 2.8s linear infinite;
+  animation: iexa-waiting-text-sweep 1.65s linear infinite;
+}
+
+@keyframes iexa-thinking-orb-sweep {
+  35% { opacity: 1; }
+  72%, 100% { transform: translateX(110%) rotate(-16deg); opacity: .1; }
+}
+
+@keyframes iexa-thinking-orb-pulse {
+  0%, 100% { opacity: .48; transform: translateX(-2%) rotate(-11deg) scaleX(.86); }
+  50% { opacity: .95; transform: translateX(3%) rotate(-11deg) scaleX(1); }
+}
+
+/* The live thinking indicator intentionally remains animated so its active state
+   is visible even when the host app enables reduced-motion globally. */
+
+/* Keep the live state visually separate from token usage metadata. */
+.message.assistant .waiting-indicator {
+  float: none;
+  clear: both;
+}
+.message.assistant .waiting-indicator ~ .message-usage {
+  display: flex;
+  width: 100%;
+  clear: both;
+  margin-top: 2px;
 }
 
 /* Permission requests pause only the current tool and remain actionable. */
@@ -2632,6 +2739,35 @@ body {
   padding: 0 24px;
 }
 
+/* Configuration pages can grow as model profiles are added. Keep the view
+   itself scrollable so cards below the fold remain reachable. */
+#view-settings {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border-strong) 76%, transparent) transparent;
+}
+
+#view-settings::-webkit-scrollbar { width: 9px; }
+#view-settings::-webkit-scrollbar-track { background: transparent; }
+#view-settings::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 74%, transparent);
+  background-clip: padding-box;
+}
+#view-settings::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 66%, var(--border-strong));
+  background-clip: padding-box;
+}
+
+#view-settings > .settings-container {
+  min-height: max-content;
+  padding-bottom: 40px;
+}
+
 .settings-container h2, .about-container h2 {
   margin-bottom: 24px;
   font-size: 1.4rem;
@@ -2950,7 +3086,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: .84rem;
+  font-size: .92rem;
   font-weight: 600;
   line-height: 1.2;
 }
@@ -3651,6 +3787,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-bottom: 8px;
 }
 
 .profile-empty {
@@ -4669,6 +4806,191 @@ body.is-resizing * {
   height: 19px;
   flex: 0 0 19px;
   color: var(--accent);
+}
+
+/* ===== macOS-inspired material layer =====
+   Keep the existing semantic palette, then add translucent surfaces, thin
+   highlights and restrained depth so each pane reads as a native macOS panel. */
+:root,
+[data-theme="light"] {
+  --mac-window: #f5f5f7;
+  --mac-surface: rgba(255, 255, 255, .72);
+  --mac-surface-solid: #ffffff;
+  --mac-surface-muted: rgba(242, 242, 247, .82);
+  --mac-hairline: rgba(60, 60, 67, .18);
+  --mac-highlight: rgba(255, 255, 255, .86);
+  --mac-shadow-sm: 0 1px 2px rgba(0, 0, 0, .06), 0 5px 14px rgba(0, 0, 0, .07);
+  --mac-shadow-md: 0 10px 28px rgba(0, 0, 0, .10), 0 2px 5px rgba(0, 0, 0, .06);
+}
+
+[data-theme="dark"] {
+  --mac-window: #1c1c1e;
+  --mac-surface: rgba(44, 44, 46, .78);
+  --mac-surface-solid: #2c2c2e;
+  --mac-surface-muted: rgba(58, 58, 60, .86);
+  --mac-hairline: rgba(255, 255, 255, .16);
+  --mac-highlight: rgba(255, 255, 255, .10);
+  --mac-shadow-sm: 0 1px 2px rgba(0, 0, 0, .28), 0 5px 14px rgba(0, 0, 0, .24);
+  --mac-shadow-md: 0 12px 30px rgba(0, 0, 0, .38), 0 2px 6px rgba(0, 0, 0, .26);
+}
+
+body {
+  background: var(--mac-window);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--mac-window) 88%, var(--accent) 12%), var(--mac-window) 62%);
+}
+
+.sidebar,
+.files-panel {
+  background: var(--mac-surface);
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight);
+  -webkit-backdrop-filter: saturate(125%) blur(18px);
+  backdrop-filter: saturate(125%) blur(18px);
+}
+
+.sidebar {
+  padding: 18px 16px;
+}
+
+.sidebar-header h1 { letter-spacing: -.025em; }
+
+.nav-btn,
+.session-item {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.nav-btn:hover,
+.session-item:hover {
+  background: color-mix(in srgb, var(--mac-surface-solid) 48%, var(--accent-light));
+  border-color: var(--mac-hairline);
+  box-shadow: var(--mac-shadow-sm);
+}
+
+.nav-btn.active {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 92%, white 8%), var(--accent));
+  border-color: color-mix(in srgb, var(--accent) 72%, black 12%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.34), 0 3px 9px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.session-item.active {
+  background: color-mix(in srgb, var(--accent-light) 84%, var(--mac-surface-solid));
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--mac-hairline));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.48), var(--mac-shadow-sm);
+}
+
+.search-input,
+.files-icon-btn,
+.model-selector,
+.thinking-level-btn,
+.context-compaction-btn,
+.permission-mode-btn {
+  background: color-mix(in srgb, var(--mac-surface-solid) 72%, transparent);
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-sm);
+}
+
+.search-input:focus,
+.model-selector:focus-visible,
+.thinking-level-btn:focus-visible,
+.context-compaction-btn:focus-visible,
+.permission-mode-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-light), inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-sm);
+}
+
+.main,
+.chat-container {
+  background: color-mix(in srgb, var(--mac-window) 78%, transparent);
+}
+
+.chat-container { border-color: var(--mac-hairline); }
+
+.chat-messages {
+  padding-top: 24px;
+  padding-left: 28px;
+  padding-right: 28px;
+  gap: 16px;
+}
+
+.message.user .message-content {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mac-surface-solid) 82%, transparent), color-mix(in srgb, var(--bg-tertiary) 86%, transparent));
+  border: 1px solid var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-sm);
+}
+
+.message.assistant .message-content {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.thinking-block,
+.tool-block,
+.task-summary,
+.markdown-table-wrap {
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-sm);
+}
+
+.thinking-block,
+.tool-block,
+.task-summary {
+  background: color-mix(in srgb, var(--mac-surface-solid) 66%, transparent);
+}
+
+.chat-input-area {
+  padding: 12px 24px 16px;
+  background: color-mix(in srgb, var(--mac-surface) 88%, transparent);
+  border-color: var(--mac-hairline);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, .045), inset 0 1px 0 var(--mac-highlight);
+  -webkit-backdrop-filter: saturate(125%) blur(18px);
+  backdrop-filter: saturate(125%) blur(18px);
+}
+
+.chat-input-wrapper {
+  background: color-mix(in srgb, var(--mac-surface-solid) 86%, transparent);
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), 0 8px 24px rgba(0, 0, 0, .10), 0 1px 3px rgba(0, 0, 0, .06);
+}
+
+.chat-input-wrapper:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--mac-hairline));
+  box-shadow: 0 0 0 3px var(--accent-light), inset 0 1px 0 var(--mac-highlight), 0 10px 26px rgba(0, 0, 0, .12);
+}
+
+.model-bar { padding-bottom: 8px; }
+
+.files-panel-header,
+.files-tabs {
+  background: color-mix(in srgb, var(--mac-surface) 86%, transparent);
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight);
+}
+
+.files-context-menu,
+.text-context-menu,
+.model-selector-menu,
+.thinking-level-menu,
+.context-compaction-menu,
+.permission-mode-menu {
+  background: color-mix(in srgb, var(--mac-surface-solid) 88%, transparent);
+  border-color: var(--mac-hairline);
+  box-shadow: var(--mac-shadow-md), inset 0 1px 0 var(--mac-highlight);
+  -webkit-backdrop-filter: saturate(140%) blur(22px);
+  backdrop-filter: saturate(140%) blur(22px);
+}
+
+.files-icon-btn:hover,
+.model-selector:hover,
+.thinking-level-btn:hover,
+.context-compaction-btn:hover,
+.permission-mode-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-md);
 }
 
 .tool-header .tool-icon {

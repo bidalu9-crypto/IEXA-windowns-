@@ -327,6 +327,49 @@ test('FileTools reads large text files by page without requiring the full body r
   assert.match(tail.output, /line-19999\nline-20000/);
 });
 
+test('FileTools defaults to reading the full head page and preserves tail max_length', async () => {
+  const root = await tempWorkspace();
+  await fs.writeFile(path.join(root, 'notes.txt'), 'first\nsecond\nthird\nfourth\n', 'utf8');
+  const tools = new FileTools();
+  const head = await tools.readFile('notes.txt', root);
+  assert.match(head.output, /first\nsecond\nthird\nfourth/);
+  const tail = await tools.readFile('notes.txt', root, { direction: 'tail', lines: 4, maxLength: 8 });
+  assert.match(tail.output, /fourth/);
+  assert.doesNotMatch(tail.output, /first/);
+});
+
+test('FileTools rejects empty edit anchors', async () => {
+  const root = await tempWorkspace();
+  await fs.writeFile(path.join(root, 'edit.txt'), 'content', 'utf8');
+  const tools = new FileTools();
+  const result = await tools.editFile('edit.txt', '', 'x', root);
+  assert.equal(result.success, false);
+  assert.match(result.output, /old_string must not be empty/);
+  assert.equal(await fs.readFile(path.join(root, 'edit.txt'), 'utf8'), 'content');
+});
+
+test('FileTools reads UTF-16LE text files created by Windows tools', async () => {
+  const root = await tempWorkspace();
+  const body = Buffer.from('\uFEFF第一行\r\n第二行\r\n', 'utf16le');
+  await fs.writeFile(path.join(root, 'powershell.txt'), body);
+  const tools = new FileTools();
+  const result = await tools.readFile('powershell.txt', root);
+  assert.equal(result.success, true);
+  assert.match(result.output, /第一行\n第二行/);
+});
+
+test('FileTools serializes concurrent writes to the same path', async () => {
+  const root = await tempWorkspace();
+  const tools = new FileTools();
+  await tools.writeFile('queue.txt', 'base', root);
+  await Promise.all([
+    tools.writeFile('queue.txt', 'one', root),
+    tools.writeFile('queue.txt', 'two', root),
+  ]);
+  const final = await fs.readFile(path.join(root, 'queue.txt'), 'utf8');
+  assert.equal(final, 'two');
+});
+
 test('AgentRuntime routes an AgentLoop tool call through ToolRuntime', async () => {
   const root = await tempWorkspace();
   let calls = 0;

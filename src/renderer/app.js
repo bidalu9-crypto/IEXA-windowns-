@@ -1952,7 +1952,7 @@ function showWaitingIndicator() {
   indicator.className = 'waiting-indicator';
   indicator.setAttribute('role', 'status');
   indicator.setAttribute('aria-live', 'polite');
-  indicator.innerHTML = '<span class="waiting-indicator__label" data-text="IEXA正在思考...">IEXA正在思考...</span>';
+  indicator.innerHTML = '<span class="waiting-indicator__orb" aria-hidden="true"><span class="waiting-indicator__orb-glow"></span><span class="waiting-indicator__orb-sheen"></span></span><span class="waiting-indicator__label" data-text="IEXA正在思考...">IEXA正在思考...</span>';
   const usage = msg.querySelector('.message-usage');
   if (usage) msg.insertBefore(indicator, usage);
   else msg.appendChild(indicator);
@@ -3921,6 +3921,9 @@ let terminalSessions = [];
 let activeTerminalId = '';
 let terminalLastSeq = 0;
 let terminalPollTimer = null;
+let terminalPollErrorShownFor = '';
+let terminalPollBlockedFor = '';
+let terminalPollInFlightFor = '';
 let gitLoadInFlight = false;
 let gitLoadEpoch = 0;
 let gitStatusSignature = '';
@@ -4164,16 +4167,37 @@ function selectTerminalSession(id) {
   if (!terminalSessions.some((session) => session.id === id)) return;
   activeTerminalId = id;
   terminalLastSeq = 0;
+  terminalPollErrorShownFor = '';
+  terminalPollBlockedFor = '';
+  terminalPollInFlightFor = '';
   const output = document.getElementById('terminalOutput');
   if (output) output.textContent = '';
   renderTerminalTabs();
   pollTerminalOutput();
 }
 
+// node-pty returns the shell's full terminal stream, including ANSI cursor,
+// clear-line and title sequences. The workbench uses a plain <pre> instead of
+// a terminal emulator, so strip those control sequences before displaying the
+// stream and keep only readable text.
+function cleanTerminalOutput(value) {
+  return String(value || '')
+    // OSC title/notification sequences (BEL or ST terminated)
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    // CSI cursor movement, colors, erase and mode toggles
+    .replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '')
+    // Remaining two-byte escape sequences
+    .replace(/\x1b[()][0-2A-Z]/g, '')
+    .replace(/\x1b./g, '')
+    // PTY carriage returns/backspaces are editing controls, not content.
+    .replace(/\r/g, '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, (ch) => ch === '\t' ? '\t' : '');
+}
+
 function appendTerminalOutput(text) {
   const output = document.getElementById('terminalOutput');
   if (!output || !text) return;
-  const next = output.textContent + text;
+  const next = cleanTerminalOutput(output.textContent + text);
   output.textContent = next.length > 1_000_000 ? `…（早期终端输出已截断）\n${next.slice(-1_000_000)}` : next;
   output.scrollTop = output.scrollHeight;
 }
@@ -4198,8 +4222,11 @@ async function loadTerminalSessions() {
     if (!activeTerminalId || !terminalSessions.some((session) => session.id === activeTerminalId)) {
       activeTerminalId = terminalSessions.find((session) => session.running)?.id || terminalSessions[0]?.id || '';
       terminalLastSeq = 0;
+      terminalPollErrorShownFor = '';
+      terminalPollBlockedFor = '';
+      terminalPollInFlightFor = '';
       const output = document.getElementById('terminalOutput');
-      if (output) output.textContent = activeTerminalId ? '' : '打开项目后可新建终端。';
+      if (output) output.textContent = activeTerminalId ? '' : '点击“新建”启动终端。';
     }
     renderTerminalTabs();
     if (activeTerminalId) { resizeActiveTerminal(); pollTerminalOutput(); }
@@ -4219,6 +4246,9 @@ async function createTerminalSession() {
     if (!response.ok) throw new Error(data.error || '创建终端失败');
     activeTerminalId = data.session.id;
     terminalLastSeq = 0;
+    terminalPollErrorShownFor = '';
+    terminalPollBlockedFor = '';
+    terminalPollInFlightFor = '';
     const output = document.getElementById('terminalOutput');
     if (output) output.textContent = `[${data.session.shell} · ${data.session.cwd}]\n`;
     await loadTerminalSessions();
@@ -4230,17 +4260,40 @@ async function createTerminalSession() {
 async function pollTerminalOutput() {
   if (workbenchView !== 'terminal' || !activeTerminalId) return;
   const id = activeTerminalId;
+  if (terminalPollBlockedFor === id) return;
+  // The interval can fire again while fetch is still pending. Reusing the
+  // same `after` cursor in concurrent requests duplicates prompt/output chunks.
+  if (terminalPollInFlightFor === id) return;
+  terminalPollInFlightFor = id;
   try {
     const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(id)}?after=${terminalLastSeq}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '读取终端输出失败');
     if (id !== activeTerminalId) return;
+    terminalPollErrorShownFor = '';
+    terminalPollBlockedFor = '';
     (data.chunks || []).forEach((chunk) => appendTerminalOutput(chunk.text));
     terminalLastSeq = Math.max(terminalLastSeq, Number(data.lastSeq) || 0);
     const known = terminalSessions.find((session) => session.id === id);
     if (known && known.running !== data.running) loadTerminalSessions();
   } catch (error) {
-    appendTerminalOutput(`\n[终端连接错误：${error.message || error}]\n`);
+    // Do not append the same polling failure every 350ms. Show it once and
+    // let the next session-list refresh recover if the backend becomes ready.
+    if (terminalPollErrorShownFor !== id) {
+      terminalPollErrorShownFor = id;
+      appendTerminalOutput(`\n[终端连接错误：${error.message || error}]\n`);
+    }
+    terminalPollBlockedFor = id;
+    // Give the backend a moment to recover, then refresh the session list and
+    // resume polling without appending another duplicate error line.
+    setTimeout(() => {
+      if (workbenchView === 'terminal' && activeTerminalId === id) {
+        terminalPollBlockedFor = '';
+        loadTerminalSessions();
+      }
+    }, 2000);
+  } finally {
+    if (terminalPollInFlightFor === id) terminalPollInFlightFor = '';
   }
 }
 

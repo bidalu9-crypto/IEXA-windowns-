@@ -134,7 +134,11 @@ export class TerminalManager {
 
   private commandFor(shell: TerminalShell): { file: string; args: string[] } {
     if (shell === 'cmd') return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/q'] };
-    if (shell === 'powershell') return { file: process.env.SystemRoot ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe` : 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit', '-Command', '-'] };
+    // ConPTY already provides an interactive stdin. Passing `-Command -`
+    // makes Windows PowerShell expect redirected standard input and print its
+    // usage text instead of opening a usable prompt. Start it interactively;
+    // subsequent commands are written through IPty.write().
+    if (shell === 'powershell') return { file: process.env.SystemRoot ? `${process.env.SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe` : 'powershell.exe', args: ['-NoLogo', '-NoProfile', '-NoExit'] };
     if (shell === 'wsl') return process.platform === 'win32'
       ? { file: 'wsl.exe', args: ['--shell-type', 'login'] }
       : { file: 'bash', args: ['--noprofile', '--norc', '-i'] };

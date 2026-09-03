@@ -4,9 +4,10 @@
 // =============================================================================
 
 import { promises as fs } from 'fs';
-import { createReadStream } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
 import * as readline from 'readline';
 import * as path from 'path';
+import { Readable } from 'stream';
 import { ToolExecutionResult } from '../providers/types';
 import { ProcessManager } from './shell/ProcessManager';
 import { CommandPolicy } from './shell/CommandPolicy';
@@ -21,6 +22,14 @@ const MEDIA_MIME: Record<string, string> = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
   '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
 };
+
+function decodeUtf16Be(buffer: Buffer): string {
+  const body = buffer.subarray(2);
+  for (let i = 0; i + 1 < body.length; i += 2) {
+    const a = body[i]; body[i] = body[i + 1]; body[i + 1] = a;
+  }
+  return body.toString('utf16le');
+}
 
 /** Build a ToolExecutionResult that surfaces a local media file to the UI. */
 export async function buildMediaDisplayResult(filePath: string, workspaceDir: string): Promise<ToolExecutionResult> {
@@ -107,6 +116,43 @@ export class ShellExecutor {
 export class FileTools {
   private static readonly DEFAULT_READ_CHARS = 15_000;
   private static readonly MAX_READ_CHARS = 120_000;
+  private static readonly MAX_READ_LINES = 100_000;
+  private readonly writeLocks = new Map<string, Promise<void>>();
+
+  private async withWriteLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.writeLocks.get(filePath) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.writeLocks.set(filePath, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.writeLocks.get(filePath) === current) this.writeLocks.delete(filePath);
+    }
+  }
+
+  private async atomicWriteText(filePath: string, content: string): Promise<void> {
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      let mode: number | undefined;
+      try { mode = (await fs.stat(filePath)).mode; } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      handle = await fs.open(tempPath, 'w');
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      if (mode !== undefined) await fs.chmod(tempPath, mode);
+      await fs.rename(tempPath, filePath);
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+      await fs.unlink(tempPath).catch(() => {});
+    }
+  }
   private resolvePath(filePath: string, workspaceDir: string): string {
     if (path.isAbsolute(filePath)) return filePath;
     return path.resolve(workspaceDir, filePath);
@@ -136,7 +182,10 @@ export class FileTools {
       const probe = Buffer.alloc(512);
       let bytesRead = 0;
       try { ({ bytesRead } = await handle.read(probe, 0, probe.length, 0)); } finally { await handle.close(); }
-      const isBinary = probe.subarray(0, bytesRead).some((byte) => byte === 0);
+      const probeBytes = probe.subarray(0, bytesRead);
+      const utf16le = probeBytes.length >= 2 && probeBytes[0] === 0xff && probeBytes[1] === 0xfe;
+      const utf16be = probeBytes.length >= 2 && probeBytes[0] === 0xfe && probeBytes[1] === 0xff;
+      const isBinary = !utf16le && !utf16be && probeBytes.some((byte) => byte === 0);
       if (isBinary) {
         const ext = path.extname(resolvedPath).toLowerCase();
         const imageMime: Record<string, string> = {
@@ -160,14 +209,23 @@ export class FileTools {
         FileTools.MAX_READ_CHARS,
       );
       const startLine = Math.max(1, Math.floor(Number(options.offset) || 1));
-      const requestedLines = Math.max(1, Math.floor(Number(options.lines) || 0));
+      // `lines` is optional. Treat an omitted/zero value as "no explicit line
+      // limit" instead of coercing it to one line.
+      const requestedLines = Number.isFinite(Number(options.lines)) && Number(options.lines) > 0
+        ? Math.min(FileTools.MAX_READ_LINES, Math.floor(Number(options.lines)))
+        : 0;
       const tailMode = options.direction === 'tail';
       const lineLimit = requestedLines || (tailMode ? 50 : Number.MAX_SAFE_INTEGER);
       const selectedLines: string[] = [];
       let selectedChars = 0;
       let totalLines = 0;
       let truncated = false;
-      const input = createReadStream(resolvedPath, { encoding: 'utf8' });
+      // readline can stream UTF-8 directly. UTF-16 files are uncommon but
+      // frequent on Windows when created by PowerShell, so decode those with
+      // a bounded read and strip the BOM before paging.
+      const input = utf16le || utf16be
+        ? Readable.from([(utf16le ? readFileSync(resolvedPath).toString('utf16le') : decodeUtf16Be(readFileSync(resolvedPath))).replace(/^\uFEFF/, '')])
+        : createReadStream(resolvedPath, { encoding: 'utf8' });
       const lineReader = readline.createInterface({ input, crlfDelay: Infinity });
       try {
         for await (const line of lineReader) {
@@ -197,7 +255,9 @@ export class FileTools {
 
       let content = selectedLines.join('\n');
       if (content.length > maxLen) {
-        content = content.slice(0, maxLen);
+        // Tail reads must preserve the newest bytes when a character cap is
+        // also supplied; slicing from the front would return the wrong part.
+        content = tailMode ? content.slice(-maxLen) : content.slice(0, maxLen);
         truncated = true;
       }
       if (tailMode && selectedLines.length >= lineLimit && totalLines > lineLimit) truncated = true;
@@ -227,24 +287,31 @@ export class FileTools {
     const resolvedPath = this.resolvePath(filePath, workspaceDir);
 
     try {
-      if (options.createDirs) {
-        await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-      }
+      return await this.withWriteLock(resolvedPath, async () => {
+        if (options.createDirs) {
+          await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+        }
 
-      let before = '';
-      try { before = await fs.readFile(resolvedPath, 'utf-8'); } catch { /* new file */ }
-      if (options.append) {
-        await fs.appendFile(resolvedPath, content, 'utf-8');
-      } else {
-        await fs.writeFile(resolvedPath, content, 'utf-8');
-      }
-
-      const stat = await fs.stat(resolvedPath);
-      return {
-        output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
-        success: true,
-        fileChange: changeSummary(filePath, before, await fs.readFile(resolvedPath, 'utf-8'), resolvedPath),
-      };
+        let before = '';
+        let exists = true;
+        try {
+          before = await fs.readFile(resolvedPath, 'utf-8');
+        } catch (readError: unknown) {
+          const code = (readError as NodeJS.ErrnoException).code;
+          // Only a genuinely missing file is a new-file write. Permission,
+          // directory, and transient I/O failures must not be swallowed.
+          if (code !== 'ENOENT') throw readError;
+          exists = false;
+        }
+        const nextContent = options.append && exists ? before + content : content;
+        await this.atomicWriteText(resolvedPath, nextContent);
+        const stat = await fs.stat(resolvedPath);
+        return {
+          output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
+          success: true,
+          fileChange: changeSummary(filePath, before, nextContent, resolvedPath),
+        };
+      });
     } catch (err: unknown) {
       const error = err as NodeJS.ErrnoException;
       if (error.code === 'ENOENT') {
@@ -267,7 +334,11 @@ export class FileTools {
     const resolvedPath = this.resolvePath(filePath, workspaceDir);
 
     try {
-      const content = await fs.readFile(resolvedPath, 'utf-8');
+      if (!oldString) {
+        return { output: `Error: old_string must not be empty: ${filePath}`, success: false };
+      }
+      return await this.withWriteLock(resolvedPath, async () => {
+        const content = await fs.readFile(resolvedPath, 'utf-8');
 
       if (replaceAll) {
         if (!content.includes(oldString)) {
@@ -277,7 +348,7 @@ export class FileTools {
           };
         }
         const newContent = content.split(oldString).join(newString);
-        await fs.writeFile(resolvedPath, newContent, 'utf-8');
+        await this.atomicWriteText(resolvedPath, newContent);
         const count = content.split(oldString).length - 1;
         return {
           output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
@@ -300,13 +371,14 @@ export class FileTools {
           };
         }
         const newContent = content.substring(0, firstIndex) + newString + content.substring(firstIndex + oldString.length);
-        await fs.writeFile(resolvedPath, newContent, 'utf-8');
+        await this.atomicWriteText(resolvedPath, newContent);
         return {
           output: `File edited: ${filePath}\n1 occurrence replaced`,
           success: true,
           fileChange: changeSummary(filePath, content, newContent, resolvedPath),
         };
       }
+      });
     } catch (err: unknown) {
       const error = err as NodeJS.ErrnoException;
       if (error.code === 'ENOENT') {
