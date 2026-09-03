@@ -57,11 +57,14 @@ export class ToolRuntime {
     } catch (error: unknown) {
       return { output: (error as Error).message || 'Tool execution failed.', success: false };
     }
+    // The agent loop compacts its own model-facing copy. Keep the execution
+    // result intact for the live UI, session history, scrolling and copying.
+    // A downloadable artifact remains useful for external editors, but it no
+    // longer replaces most of the visible result with an 8,000-char preview.
     if (result.output.length > 24_000) {
       const artifact = await this.artifacts.put(result.output);
       return {
         ...result,
-        output: `${result.output.slice(0, 8_000)}\n\n[Large tool result stored as artifact: ${artifact.id}]`,
         artifacts: [...(result.artifacts || []), { kind: 'file', path: artifact.path, mimeType: 'text/plain', size: artifact.size }],
       };
     }

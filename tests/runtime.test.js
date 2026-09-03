@@ -126,6 +126,22 @@ test('ProcessManager preserves quoted Windows CMD and PowerShell commands', { sk
   assert.match(powershell.output, /powershell-quoted-ok/);
 });
 
+test('ShellExecutor reads UTF-8 PowerShell source without corrupting Chinese text', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const sourcePath = path.join(root, 'utf8-no-bom.py');
+  const expected = "print('你好，世界')\n# 中文注释";
+  await fs.writeFile(sourcePath, expected, 'utf8');
+
+  const result = await new ShellExecutor(root).execute(
+    `powershell -NoProfile -Command "$c = Get-Content -Raw -LiteralPath '${sourcePath.replace(/'/g, "''")}'; $c"`,
+    10,
+    new AbortController().signal,
+  );
+
+  assert.equal(result.success, true, result.output);
+  assert.equal(result.output.replace(/\r\n/g, '\n'), expected);
+});
+
 test('ProcessManager recovers from a stale ComSpec path', { skip: process.platform !== 'win32' }, async () => {
   const root = await tempWorkspace();
   const previousComSpec = process.env.ComSpec;
@@ -302,6 +318,39 @@ test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   assert.equal(shell.success, true); assert.match(shell.output, /runtime-ok/i);
   const artifact = await new ArtifactStore(path.join(root, 'artifacts')).put('result');
   assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');
+});
+
+test('ToolRuntime preserves complete large output for UI and session history', async () => {
+  const root = await tempWorkspace();
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
+  runtime.registerDefaults(); await runtime.initialize();
+  const content = `START-${'完整内容'.repeat(9_000)}-END`;
+  await fs.writeFile(path.join(root, 'large-result.txt'), content, 'utf8');
+
+  const result = await runtime.execute(
+    'file_read',
+    { tool_title: 'read complete output', path: 'large-result.txt', max_length: 120_000 },
+    { signal: new AbortController().signal, sessionId: 'large_output_session', toolCallId: 'large_output_call', workspaceDir: root },
+  );
+
+  assert.equal(result.success, true, result.output);
+  assert.match(result.output, /START-/);
+  assert.match(result.output, /-END/);
+  assert.doesNotMatch(result.output, /Large tool result stored as artifact/);
+  assert.ok(result.output.length > 24_000);
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(await fs.readFile(result.artifacts[0].path, 'utf8'), result.output);
+});
+
+test('renderer keeps complete tool input and output inside scrollable detail panes', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+
+  assert.match(renderer, /info\.argsText = typeof args === 'string' \? args : JSON\.stringify\(args \|\| \{\}, null, 2\)/);
+  assert.match(renderer, /resultPre\.textContent = output \|\| ''/);
+  assert.doesNotMatch(renderer, /output\.substring\(0, 5000\)/);
+  assert.match(styles, /\.tool-args, \.tool-body pre\.tool-args \{[^}]*overflow: auto/s);
+  assert.match(styles, /\.tool-body \.tool-result \{[^}]*max-height: 340px/s);
 });
 
 test('tool definitions include structured array item schemas', async () => {

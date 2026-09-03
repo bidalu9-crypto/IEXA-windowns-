@@ -101,7 +101,11 @@ export class ShellExecutor {
   async execute(command: string, timeoutSec: number = 900, signal: AbortSignal = new AbortController().signal): Promise<ToolExecutionResult> {
     this.policy.assertAllowed(command);
     const effectiveTimeout = Math.min(Math.max(1, timeoutSec), 3600) * 1000;
-    const finalCommand = process.platform === 'win32' ? `chcp 65001 >nul && ${command}` : command;
+    // A top-level PowerShell command is launched directly by ProcessManager,
+    // where its stream and Get-Content encodings are configured explicitly.
+    // Prefixing it with chcp would hide it behind cmd.exe and bypass that path.
+    const isPowerShell = /^\s*(?:powershell|pwsh)(?:\.exe)?\s/i.test(command);
+    const finalCommand = process.platform === 'win32' && !isPowerShell ? `chcp 65001 >nul && ${command}` : command;
     return this.processes.run(finalCommand, this.workspaceDir, signal, { timeoutMs: effectiveTimeout, maxOutputBytes: 10 * 1024 * 1024, killGracePeriodMs: 3000 });
   }
 

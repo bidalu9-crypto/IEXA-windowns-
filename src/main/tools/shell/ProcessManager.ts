@@ -9,6 +9,17 @@ import { IexaError } from '../../errors/IexaError';
 
 export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; killGracePeriodMs: number; }
 
+const POWERSHELL_UTF8_PREAMBLE = [
+  "$utf8 = [System.Text.UTF8Encoding]::new($false)",
+  '[Console]::InputEncoding = $utf8',
+  '[Console]::OutputEncoding = $utf8',
+  '$OutputEncoding = $utf8',
+  // Windows PowerShell 5.1 treats UTF-8 files without a BOM as ANSI unless
+  // the encoding is supplied. Source files created by modern editors are
+  // normally UTF-8 without a BOM, so make that the default for Get-Content.
+  "$PSDefaultParameterValues['Get-Content:Encoding'] = 'utf8'",
+].join('; ');
+
 interface ProcessLaunch {
   child: ChildProcess;
   cleanup?: () => Promise<void>;
@@ -128,7 +139,7 @@ export class ProcessManager {
       // avoiding the startup-time access check.
       const escapedCwd = cwd.replace(/'/g, "''");
       const scriptIndex = powershell.args.length - 1;
-      powershell.args[scriptIndex] = `Set-Location -LiteralPath '${escapedCwd}'; ${powershell.args[scriptIndex]}`;
+      powershell.args[scriptIndex] = `${POWERSHELL_UTF8_PREAMBLE}; Set-Location -LiteralPath '${escapedCwd}'; ${powershell.args[scriptIndex]}`;
       return { child: spawn(powershell.executable, powershell.args, { env, windowsHide: true }) };
     }
 
@@ -199,8 +210,32 @@ function extractMultilinePythonInlineSource(command: string): MultilinePythonInl
 }
 
 function decodeOutput(value: Buffer): string {
+  if (value.length >= 2 && value[0] === 0xff && value[1] === 0xfe) {
+    return value.subarray(2).toString('utf16le');
+  }
+  if (value.length >= 2 && value[0] === 0xfe && value[1] === 0xff) {
+    return iconv.decode(value.subarray(2), 'utf16-be');
+  }
+  if (looksLikeUtf16(value)) {
+    return iconv.decode(value, value[0] === 0 ? 'utf16-be' : 'utf16le');
+  }
   const utf8 = value.toString('utf8');
   // cmd.exe follows the active Windows console code page (commonly CP936 on
   // Chinese systems); UTF-8 subprocesses remain untouched when valid.
   return process.platform === 'win32' && utf8.includes('\uFFFD') ? iconv.decode(value, 'cp936') : utf8;
+}
+
+/** Detect BOM-less UTF-16 by the NUL-byte distribution in its first bytes. */
+function looksLikeUtf16(value: Buffer): boolean {
+  const sampleLength = Math.min(value.length - (value.length % 2), 512);
+  if (sampleLength < 4) return false;
+  let evenNulls = 0;
+  let oddNulls = 0;
+  for (let i = 0; i < sampleLength; i += 2) {
+    if (value[i] === 0) evenNulls++;
+    if (value[i + 1] === 0) oddNulls++;
+  }
+  const pairs = sampleLength / 2;
+  return (evenNulls / pairs > 0.3 && oddNulls / pairs < 0.05)
+    || (oddNulls / pairs > 0.3 && evenNulls / pairs < 0.05);
 }

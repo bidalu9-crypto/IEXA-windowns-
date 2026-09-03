@@ -2211,10 +2211,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       bodyEl.appendChild(outputLabel);
       bodyEl.appendChild(resultPre);
     }
-    const truncated = (output || '').length > 5000
-      ? output.substring(0, 5000) + '\n\n...（已截断）'
-      : (output || '');
-    resultPre.textContent = truncated;
+    resultPre.textContent = output || '';
     const startedAt = Number(info.block.dataset.startedAt || 0);
     const duration = startedAt ? ((Date.now() - startedAt) / 1000).toFixed(Date.now() - startedAt > 10_000 ? 1 : 2) + 's' : '';
     const status = info.block.querySelector('.tool-status');
