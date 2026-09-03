@@ -1728,6 +1728,26 @@ function finishActiveThinkingBlock() {
   finishThinkingBlock(currentAssistantMsg.querySelector('.thinking-block'));
 }
 
+function initializeThinkingAutoScroll(content) {
+  if (!content || content.dataset.autoScrollBound === 'true') return;
+  content.dataset.autoScrollBound = 'true';
+  content.dataset.followLatest = 'true';
+  content.addEventListener('scroll', () => {
+    const distance = content.scrollHeight - content.scrollTop - content.clientHeight;
+    content.dataset.followLatest = distance <= 24 ? 'true' : 'false';
+  }, { passive: true });
+}
+
+function scrollThinkingToLatest(content) {
+  if (!content || content.dataset.followLatest === 'false') return;
+  content.scrollTop = content.scrollHeight;
+  // Text layout can finish after the current event. Repeat once on the next
+  // frame so wrapped reasoning lines also remain pinned to the latest line.
+  requestAnimationFrame(() => {
+    if (content.dataset.followLatest !== 'false') content.scrollTop = content.scrollHeight;
+  });
+}
+
 function handleThinkingDelta(text) {
   hideWaitingIndicator();
   if (!currentAssistantMsg || !text) return;
@@ -1751,7 +1771,11 @@ function handleThinkingDelta(text) {
   thinkBlock.dataset.reasoning = total;
   updateThinkingTokenCount(thinkBlock, total);
   const content = thinkBlock.querySelector('.thinking-content');
-  if (content) content.textContent = total;
+  if (content) {
+    initializeThinkingAutoScroll(content);
+    content.textContent = total;
+    scrollThinkingToLatest(content);
+  }
   scrollToBottom();
 }
 

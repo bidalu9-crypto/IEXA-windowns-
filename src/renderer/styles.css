@@ -2102,7 +2102,8 @@ body {
 .tool-heading { gap: 1px; }
 .tool-header .tool-name { font-weight: 580; }
 .tool-section-label { display: none; }
-.tool-body pre.tool-args { display: none; }
+/* Keep streamed tool arguments visible while a call is being assembled. */
+.tool-body pre.tool-args { display: block; }
 .tool-body .tool-result { margin: 0; padding: 12px; border: 0; border-radius: 5px; background: var(--code-bg); font-size: .76rem; }
 .tool-copy-output { float: right; margin-top: 6px; }
 .file-change-card { margin-top: 12px; border-radius: 9px; border-color: var(--border-strong); background: var(--bg-secondary); }
@@ -2175,6 +2176,7 @@ body {
   font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-anchor: none;
 }
 .thinking-block.is-complete { background: var(--bg-secondary); opacity: .94; }
 
