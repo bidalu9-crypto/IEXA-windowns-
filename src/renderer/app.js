@@ -668,7 +668,7 @@ async function switchSession(id, updateList = true) {
         if (msg.role === 'user') {
           addMessage('user', msg.content, msg.attachments || [], { messageIndex, timestamp: msg.timestamp });
         } else {
-          const el = addMessage('assistant', msg.content, undefined, { timestamp: msg.timestamp });
+          const el = addMessage('assistant', msg.content, undefined, { timestamp: msg.timestamp, messageIndex });
           // Render tool calls if present
           if (msg.toolCalls && msg.toolCalls.length > 0) {
             const steps = document.createElement('div');
@@ -709,7 +709,8 @@ async function switchSession(id, updateList = true) {
               }
               steps.appendChild(block);
             }
-            el.appendChild(steps);
+            const footer = assistantFooterAnchor(el);
+            if (footer) el.insertBefore(steps, footer); else el.appendChild(steps);
           }
           const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
           if (todoPlan) renderTodoPlan(el, todoPlan);
@@ -719,7 +720,9 @@ async function switchSession(id, updateList = true) {
             const usageEl = document.createElement('div');
             usageEl.className = 'message-usage';
             renderMessageUsage(usageEl, msg.usage.inputTokens || 0, msg.usage.outputTokens || 0);
-            el.appendChild(usageEl);
+            const footer = el.querySelector('.assistant-message-footer');
+            const actions = el.querySelector('.assistant-message-actions');
+            if (footer && actions) footer.insertBefore(usageEl, actions); else el.appendChild(usageEl);
           }
         }
       }
@@ -1273,6 +1276,10 @@ function markQueuedMessagesActive(ids) {
   chatMessages.querySelectorAll('.message.user.is-queued').forEach((el) => {
     const qid = el.dataset.queueId;
     if (qid && set.has(qid)) {
+      if (!el.dataset.messageIndex) {
+        el.dataset.messageIndex = String(chatMessages.querySelectorAll('.message:not(.is-queued)').length);
+        el.dataset.timestamp = String(Date.now());
+      }
       el.classList.remove('is-queued');
       const badge = el.querySelector('.queued-badge');
       if (badge) badge.remove();
@@ -1491,7 +1498,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     // Create this response placeholder in its owning session, never whichever
     // conversation happens to be visible at that instant.
     withSessionRuntime(sessionId, () => {
-      currentAssistantMsg = addMessage('assistant', '');
+      currentAssistantMsg = addMessage('assistant', '', undefined, { streaming: true });
       currentAssistantMsg.dataset.liveSessionId = sessionId;
       currentAssistantMsg.dataset.thinkingLevel = turnThinkingLevel;
       showWaitingIndicator();
@@ -1528,6 +1535,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
       if (turnToken === activeChatTurnToken && isProcessing) {
         hideWaitingIndicator();
         finishTaskSummary();
+        finalizeAssistantMessage(currentAssistantMsg);
         setProcessing(false);
         scheduleQueueDrain();
       }
@@ -1539,6 +1547,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
       addError(err.message || String(err));
       hideWaitingIndicator();
       finishTaskSummary();
+      finalizeAssistantMessage(currentAssistantMsg);
       setProcessing(false);
       scheduleQueueDrain();
       snapshotActiveSessionRuntime();
@@ -1650,8 +1659,8 @@ function ensureAnswerContentEl() {
     if (!el) {
       el = document.createElement('div');
       el.className = 'message-content message-answer';
-      const usage = msg.querySelector('.message-usage');
-      if (usage) msg.insertBefore(el, usage);
+      const footer = assistantFooterAnchor(msg);
+      if (footer) msg.insertBefore(el, footer);
       else host.after(el);
     } else {
       el.classList.add('message-answer');
@@ -1671,6 +1680,7 @@ function handleTextDelta(fullText) {
   hideWaitingIndicator();
   finishActiveThinkingBlock();
   if (!currentAssistantMsg) return;
+  currentAssistantMsg._assistantText = String(fullText || '');
   const contentEl = ensureAnswerContentEl();
   contentEl.innerHTML = marked.parse(fullText || '');
   normalizeRenderedAssets(contentEl);
@@ -1967,7 +1977,7 @@ function toolLiveTitle(name, argsOrJson) {
 
 function ensureAssistantMessage() {
   if (!currentAssistantMsg) {
-    currentAssistantMsg = addMessage('assistant', '');
+    currentAssistantMsg = addMessage('assistant', '', undefined, { streaming: true });
   }
   return currentAssistantMsg;
 }
@@ -1980,8 +1990,8 @@ function showWaitingIndicator() {
   indicator.setAttribute('role', 'status');
   indicator.setAttribute('aria-live', 'polite');
   indicator.innerHTML = '<span class="waiting-indicator__orb" aria-hidden="true"><span class="waiting-indicator__orb-glow"></span><span class="waiting-indicator__orb-sheen"></span></span><span class="waiting-indicator__label" data-text="IEXA正在思考...">IEXA正在思考...</span>';
-  const usage = msg.querySelector('.message-usage');
-  if (usage) msg.insertBefore(indicator, usage);
+  const footer = assistantFooterAnchor(msg);
+  if (footer) msg.insertBefore(indicator, footer);
   else msg.appendChild(indicator);
   scrollToBottom();
 }
@@ -2001,7 +2011,7 @@ function ensureToolStepsHost() {
     // Place tools after any preamble text; final answer will go under tools
     const contents = msg.querySelectorAll('.message-content:not(.message-answer)');
     const lastPre = contents.length ? contents[contents.length - 1] : null;
-    const usage = msg.querySelector('.message-usage');
+    const usage = assistantFooterAnchor(msg);
     if (lastPre && (lastPre.textContent || '').trim()) {
       lastPre.after(host);
     } else if (lastPre) {
@@ -2401,8 +2411,8 @@ function renderDeliverables(messageEl, files) {
   if (!panel) {
     panel = document.createElement('section');
     panel.className = 'turn-deliverables';
-    const usage = messageEl.querySelector('.message-usage');
-    if (usage) messageEl.insertBefore(panel, usage); else messageEl.appendChild(panel);
+    const footer = assistantFooterAnchor(messageEl);
+    if (footer) messageEl.insertBefore(panel, footer); else messageEl.appendChild(panel);
   }
   panel.innerHTML = '';
   const heading = document.createElement('div');
@@ -2523,7 +2533,9 @@ function handleUsage(usage) {
     if (!usageEl) {
       usageEl = document.createElement('div');
       usageEl.className = 'message-usage';
-      currentAssistantMsg.appendChild(usageEl);
+      const footer = currentAssistantMsg.querySelector('.assistant-message-footer');
+      const actions = currentAssistantMsg.querySelector('.assistant-message-actions');
+      if (footer && actions) footer.insertBefore(usageEl, actions); else currentAssistantMsg.appendChild(usageEl);
     }
     renderMessageUsage(usageEl, usage.inputTokens || 0, usage.outputTokens || 0);
   }
@@ -2614,7 +2626,9 @@ function handleUsage(usage) {
     if (!usageEl) {
       usageEl = document.createElement('div');
       usageEl.className = 'message-usage';
-      currentAssistantMsg.appendChild(usageEl);
+      const footer = currentAssistantMsg.querySelector('.assistant-message-footer');
+      const actions = currentAssistantMsg.querySelector('.assistant-message-actions');
+      if (footer && actions) footer.insertBefore(usageEl, actions); else currentAssistantMsg.appendChild(usageEl);
     }
     renderMessageUsage(usageEl, usage.inputTokens || 0, usage.outputTokens || 0);
   }
@@ -2626,6 +2640,7 @@ function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   finishActiveThinkingBlock();
   hideWaitingIndicator();
+  finalizeAssistantMessage(currentAssistantMsg);
   addError(message);
   clearContextBusy();
   setProcessing(false);
@@ -2659,7 +2674,10 @@ function handleDone(stopReason, turnToken) {
   hideWaitingIndicator();
   finishActiveThinkingBlock();
 
-  if (currentAssistantMsg) renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
+  if (currentAssistantMsg) {
+    renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
+    finalizeAssistantMessage(currentAssistantMsg);
+  }
   currentAssistantMsg = null;
   currentToolBlocks = {};
 
@@ -2677,6 +2695,7 @@ function handleCancelled(turnToken) {
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finishTaskSummary();
+  finalizeAssistantMessage(currentAssistantMsg);
   clearContextBusy();
   setProcessing(false);
   currentAssistantMsg = null;
@@ -2773,6 +2792,11 @@ function addMessage(role, content, attachments, opts) {
   msg.className = 'message ' + role + (queued ? ' is-queued' : '');
   if (queueId) msg.dataset.queueId = queueId;
   if (!queued && (role === 'user' || role === 'assistant')) msg.dataset.timestamp = String(timestamp);
+  if (role === 'assistant') {
+    msg._assistantText = String(content || '');
+    if (opts && Number.isInteger(opts.messageIndex)) msg.dataset.messageIndex = String(opts.messageIndex);
+    if (opts && opts.streaming) msg.classList.add('is-streaming');
+  }
   if (role === 'user' && !queued) {
     // Index in the persisted session timeline, used by “重置到此处”.
     const messageIndex = opts && Number.isInteger(opts.messageIndex)
@@ -2874,9 +2898,157 @@ function addMessage(role, content, attachments, opts) {
     msg.appendChild(actions);
   }
 
+  if (role === 'assistant') appendAssistantMessageActions(msg);
+
   chatMessages.appendChild(msg);
   scrollToBottom();
   return msg;
+}
+
+function assistantFooterAnchor(messageEl) {
+  if (!messageEl) return null;
+  return messageEl.querySelector('.assistant-message-footer');
+}
+
+function appendAssistantMessageActions(messageEl) {
+  if (!messageEl || messageEl.querySelector('.assistant-message-actions')) return;
+  const footer = document.createElement('div');
+  footer.className = 'assistant-message-footer';
+  const actions = document.createElement('div');
+  actions.className = 'assistant-message-actions';
+  actions.setAttribute('role', 'group');
+  actions.setAttribute('aria-label', '回复操作');
+  actions.innerHTML = `
+    <button type="button" class="assistant-message-action" data-action="copy" title="复制回复" aria-label="复制回复">${uiIcon('copy')}</button>
+    <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>`;
+  actions.querySelector('[data-action="copy"]').addEventListener('click', function () {
+    copyAssistantMessage(messageEl, this);
+  });
+  actions.querySelector('[data-action="retry"]').addEventListener('click', function () {
+    retryAssistantMessage(messageEl, this);
+  });
+  footer.appendChild(actions);
+  messageEl.appendChild(footer);
+}
+
+function finalizeAssistantMessage(messageEl) {
+  if (!messageEl) return;
+  messageEl.classList.remove('is-streaming');
+  messageEl.querySelectorAll('.assistant-message-action').forEach((button) => { button.disabled = false; });
+}
+
+function assistantMessageText(messageEl) {
+  if (!messageEl) return '';
+  if (typeof messageEl._assistantText === 'string') return messageEl._assistantText;
+  return Array.from(messageEl.querySelectorAll('.message-content'))
+    .filter((node) => node.style.display !== 'none')
+    .map((node) => node.innerText || node.textContent || '')
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand('copy');
+  area.remove();
+}
+
+async function copyAssistantMessage(messageEl, button) {
+  const text = assistantMessageText(messageEl);
+  if (!text) return;
+  try {
+    await writeClipboardText(text);
+    button.classList.add('is-copied');
+    button.innerHTML = uiIcon('check');
+    button.title = '已复制';
+    button.setAttribute('aria-label', '已复制');
+    setTimeout(() => {
+      if (!button.isConnected) return;
+      button.classList.remove('is-copied');
+      button.innerHTML = uiIcon('copy');
+      button.title = '复制回复';
+      button.setAttribute('aria-label', '复制回复');
+    }, 1300);
+  } catch (err) {
+    console.error('Failed to copy assistant message:', err);
+    addError('复制回复失败，请重试。');
+  }
+}
+
+function precedingUserMessage(messageEl) {
+  let node = messageEl && messageEl.previousElementSibling;
+  while (node) {
+    if (node.classList.contains('message') && node.classList.contains('user') && !node.classList.contains('is-queued')) return node;
+    node = node.previousElementSibling;
+  }
+  return null;
+}
+
+async function reloadSessionView(sessionId) {
+  if (!sessionId) return;
+  const runtime = sessionRuntimes.get(sessionId);
+  if (runtime?.currentTaskTimer) window.clearInterval(runtime.currentTaskTimer);
+  sessionRuntimes.delete(sessionId);
+  currentSessionId = '';
+  await switchSession(sessionId, false);
+}
+
+async function retryAssistantMessage(messageEl, button) {
+  if (!messageEl || !button || isProcessing || !currentSessionId) return;
+  const userEl = precedingUserMessage(messageEl);
+  const messageIndex = Number(userEl && userEl.dataset.messageIndex);
+  if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+    addError('没有找到这条回复对应的提问。');
+    return;
+  }
+
+  const sessionId = currentSessionId;
+  button.disabled = true;
+  button.classList.add('is-retrying');
+  button.title = '正在重新生成';
+  button.setAttribute('aria-label', '正在重新生成');
+  try {
+    const sessionResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
+    const sessionData = await sessionResponse.json().catch(() => ({}));
+    if (!sessionResponse.ok) throw new Error(sessionData.error || '读取会话失败');
+    const source = Array.isArray(sessionData.messages) ? sessionData.messages[messageIndex] : null;
+    if (!source || source.role !== 'user') throw new Error('没有找到这条回复对应的提问');
+
+    const prompt = String(source.content || '');
+    const attachments = cloneAttachments(source.attachments || []);
+    const displayText = prompt || (attachments.length ? `（附件：${attachments.map((item) => item.name).join('、')}）` : '');
+    const resetResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIndex, retainSelected: false }),
+    });
+    const resetData = await resetResponse.json().catch(() => ({}));
+    if (!resetResponse.ok) throw new Error(resetData.error || '重试前重置会话失败');
+
+    await reloadSessionView(sessionId);
+    chatMessages.querySelector('.welcome')?.remove();
+    addMessage('user', displayText, attachments, { timestamp: Date.now() });
+    suppressQueueDrain = false;
+    await runChatTurn(prompt || displayText, displayText, attachments, { fromRetry: true });
+  } catch (err) {
+    if (currentSessionId === sessionId) addError(err.message || '重新生成失败');
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.classList.remove('is-retrying');
+      button.title = '重新生成';
+      button.setAttribute('aria-label', '重新生成');
+    }
+  }
 }
 
 async function copyUserMessage(content, button) {
@@ -2921,7 +3093,7 @@ async function resetConversationToMessage(messageEl) {
       body: JSON.stringify({ messageIndex }),
     });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '重置失败');
-    await switchSession(currentSessionId);
+    await reloadSessionView(currentSessionId);
     scrollToBottom(true);
   } catch (err) {
     addError(err.message || '重置对话失败');
@@ -2972,6 +3144,9 @@ function setProcessing(processing) {
   isProcessing = !!processing;
   const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
   if (runtime) runtime.isProcessing = isProcessing;
+  chatMessages.querySelectorAll('.assistant-message-action[data-action="retry"]').forEach((button) => {
+    button.disabled = isProcessing;
+  });
   // A background task may finish while another conversation is visible. Keep
   // its state, but leave the selected composer's controls untouched.
   if (currentSessionId !== visibleSessionId) return;

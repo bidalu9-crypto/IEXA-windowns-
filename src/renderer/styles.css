@@ -1736,6 +1736,112 @@ body {
   user-select: none;
 }
 
+/* Compact macOS-style response controls sit directly after usage metadata. */
+.assistant-message-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-top: 5px;
+}
+
+.message.assistant.is-streaming .assistant-message-footer:not(:has(.message-usage)) {
+  display: none;
+}
+
+.assistant-message-footer .message-usage {
+  margin-top: 0;
+}
+
+.assistant-message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 25px;
+  margin: 0;
+}
+
+.message.assistant.is-streaming .assistant-message-actions {
+  display: none;
+}
+
+.assistant-message-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color .14s ease, background .14s ease, border-color .14s ease, box-shadow .14s ease, transform .1s ease;
+}
+
+.assistant-message-action:hover,
+.assistant-message-action:focus-visible {
+  color: var(--text-primary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mac-surface-solid) 92%, transparent), var(--bg-tertiary));
+  border-color: var(--mac-hairline);
+  box-shadow: inset 0 1px 0 var(--mac-highlight), var(--mac-shadow-sm);
+  outline: none;
+}
+
+.assistant-message-action:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+.assistant-message-action:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.assistant-message-action .ui-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.assistant-message-action.is-copied {
+  color: var(--success);
+}
+
+.assistant-message-action.is-retrying .ui-icon {
+  animation: assistant-retry-spin .75s linear infinite;
+}
+
+.assistant-message-action::after {
+  content: attr(title);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  z-index: 20;
+  padding: 5px 7px;
+  border-radius: 5px;
+  color: var(--bg-secondary);
+  background: var(--text-primary);
+  font-size: .7rem;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 2px);
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+.assistant-message-action:hover::after,
+.assistant-message-action:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@keyframes assistant-retry-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* OpenCode-style actions under user bubbles: hidden until the bubble is hovered/focused. */
 .user-message-actions {
   position: absolute;

@@ -429,6 +429,22 @@ test('renderer keeps the sidebar function rail independently scrollable', async 
   assert.match(renderer, /navigation\.scrollTop \+= event\.deltaY/);
 });
 
+test('assistant replies expose copy and non-duplicating retry controls', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+  const server = await fs.readFile(path.join(__dirname, '..', 'src', 'main', 'server.ts'), 'utf8');
+
+  assert.match(renderer, /className = 'assistant-message-actions'/);
+  assert.match(renderer, /data-action="copy"/);
+  assert.match(renderer, /data-action="retry"/);
+  assert.match(renderer, /copyAssistantMessage\(messageEl, this\)/);
+  assert.match(renderer, /retryAssistantMessage\(messageEl, this\)/);
+  assert.match(renderer, /retainSelected: false/);
+  assert.match(styles, /\.assistant-message-action\.is-retrying \.ui-icon/);
+  assert.match(server, /body\.retainSelected !== false/);
+  assert.match(server, /messageIndex \+ \(retainSelected \? 1 : 0\)/);
+});
+
 test('plugin iframe bridge uses a dedicated MessageChannel', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   const example = await fs.readFile(path.join(__dirname, '..', 'examples', 'plugins', 'hello-dashboard', 'ui', 'index.html'), 'utf8');
@@ -884,6 +900,21 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
     assert.equal(savedSoul.body, 'Be concise.');
     const restoredSoul = await fetch(`http://127.0.0.1:${port}/api/soul/restore`, { method: 'POST' }).then((response) => response.json());
     assert.equal(restoredSoul.metadata.name, 'IEXA');
+    const retrySession = await fetch(`http://127.0.0.1:${port}/api/sessions`, { method: 'POST' }).then((response) => response.json());
+    const retryMessages = [
+      { role: 'user', content: 'first prompt', timestamp: 1 },
+      { role: 'assistant', content: 'first answer', timestamp: 2 },
+      { role: 'user', content: 'retry this prompt', timestamp: 3 },
+      { role: 'assistant', content: 'replace this answer', timestamp: 4 },
+    ];
+    await fs.writeFile(path.join(root, '.iexa-sessions', `${retrySession.session.id}.json`), JSON.stringify(retryMessages), 'utf8');
+    const retryReset = await fetch(`http://127.0.0.1:${port}/api/sessions/${retrySession.session.id}/reset`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIndex: 2, retainSelected: false }),
+    }).then((response) => response.json());
+    assert.equal(retryReset.messages, 2);
+    const retryHistory = await fetch(`http://127.0.0.1:${port}/api/sessions/${retrySession.session.id}`).then((response) => response.json());
+    assert.deepEqual(retryHistory.messages.map((message) => message.content), ['first prompt', 'first answer']);
     const conflicts = await fetch(`http://127.0.0.1:${port}/api/webdav/conflicts`).then((response) => response.json());
     assert.deepEqual(conflicts.conflicts, []);
     const traces = await fetch(`http://127.0.0.1:${port}/api/traces`).then((response) => response.json());

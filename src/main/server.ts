@@ -1341,7 +1341,8 @@ function createServer(): http.Server {
       }
 
       // Revert a conversation branch to a selected user message (OpenCode-style).
-      // The selected message remains; everything after it is discarded.
+      // Normal resets retain the selected prompt. A response retry drops it so
+      // /api/chat can persist that prompt exactly once when regenerating.
       if (req.method === 'POST' && url.pathname.endsWith('/reset')) {
         const sessionId = url.pathname.split('/').slice(-2, -1)[0] || '';
         try {
@@ -1356,7 +1357,8 @@ function createServer(): http.Server {
             jsonReply(res, 400, { error: '只能重置到用户消息' });
             return;
           }
-          const retained = messages.slice(0, messageIndex + 1);
+          const retainSelected = body.retainSelected !== false;
+          const retained = messages.slice(0, messageIndex + (retainSelected ? 1 : 0));
           cancelSessionAgent(sessionId);
           saveMessages(sessionId, retained);
           saveSessionContext(sessionId, retained);
