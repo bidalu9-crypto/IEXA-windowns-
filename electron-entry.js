@@ -3,7 +3,7 @@
 // Native desktop window using the local agent server
 // =============================================================================
 
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -26,6 +26,46 @@ let mainWindow = null;
 let server = null;
 let tray = null;
 let isQuitting = false;
+let windowStateSaveTimer = null;
+
+function workspaceFile(name) {
+  return path.join(process.env.IEXA_WORKSPACE || path.join(__dirname, 'workspace'), name);
+}
+
+function readJsonFile(filePath, fallback = {}) {
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return fallback; }
+}
+
+function writeJsonAtomic(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2), 'utf8');
+  fs.renameSync(temporary, filePath);
+}
+
+function loadWindowState() {
+  const raw = readJsonFile(workspaceFile('.iexa-window-state.json'));
+  const width = Math.round(Math.min(3840, Math.max(800, Number(raw.width) || 1200)));
+  const height = Math.round(Math.min(2160, Math.max(600, Number(raw.height) || 800)));
+  const x = Number.isFinite(Number(raw.x)) ? Math.round(Number(raw.x)) : undefined;
+  const y = Number.isFinite(Number(raw.y)) ? Math.round(Number(raw.y)) : undefined;
+  if (x === undefined || y === undefined) return { width, height, maximized: raw.maximized === true };
+  const visible = screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return x < area.x + area.width - 80 && x + width > area.x + 80 && y < area.y + area.height - 40 && y + height > area.y + 40;
+  });
+  return visible ? { x, y, width, height, maximized: raw.maximized === true } : { width, height, maximized: raw.maximized === true };
+}
+
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const bounds = mainWindow.getNormalBounds();
+  writeJsonAtomic(workspaceFile('.iexa-window-state.json'), { ...bounds, maximized: mainWindow.isMaximized() });
+}
+
+ipcMain.on('iexa:get-initial-appearance', (event) => {
+  event.returnValue = readJsonFile(workspaceFile('.iexa-appearance.json'), null);
+});
 
 // ---- Per-instance workspace ----
 // Each window is its own agent instance. Give it a unique workspace so
@@ -137,6 +177,17 @@ ipcMain.handle('iexa:reveal-path', async (_evt, targetPath) => {
   }
 });
 
+ipcMain.handle('iexa:pick-plugin-folder', async () => {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const result = await dialog.showOpenDialog(win || undefined, {
+    title: '选择 IEXA 插件文件夹',
+    buttonLabel: '安装插件',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || !result.filePaths || !result.filePaths[0]) return null;
+  return result.filePaths[0];
+});
+
 // ---- Error Dialog Helper ----
 function showError(title, message) {
   console.error(`[IEXA] ${title}: ${message}`);
@@ -176,9 +227,13 @@ function startBackendServer() {
 function createWindow() {
   console.log('[IEXA] Creating window...');
 
+  const savedWindow = loadWindowState();
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: savedWindow.width,
+    height: savedWindow.height,
+    ...(savedWindow.x !== undefined ? { x: savedWindow.x } : {}),
+    ...(savedWindow.y !== undefined ? { y: savedWindow.y } : {}),
     minWidth: 800,
     minHeight: 600,
     title: 'IEXA-WIN',
@@ -197,16 +252,28 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
 
   mainWindow.once('ready-to-show', () => {
+    if (savedWindow.maximized) mainWindow.maximize();
     console.log('[IEXA] Window ready, showing...');
     mainWindow.show();
     // Open DevTools in development
     // mainWindow.webContents.openDevTools();
   });
 
+  const scheduleWindowStateSave = () => {
+    if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+    windowStateSaveTimer = setTimeout(() => { windowStateSaveTimer = null; saveWindowState(); }, 250);
+  };
+  mainWindow.on('resize', scheduleWindowStateSave);
+  mainWindow.on('move', scheduleWindowStateSave);
+  mainWindow.on('maximize', scheduleWindowStateSave);
+  mainWindow.on('unmaximize', scheduleWindowStateSave);
+
   // Closing the desktop window is an actual application shutdown. The
   // backend is owned by this Electron process, so hiding here would leave
   // the server running after the user believed the app was closed.
   mainWindow.on('close', (event) => {
+    if (windowStateSaveTimer) { clearTimeout(windowStateSaveTimer); windowStateSaveTimer = null; }
+    saveWindowState();
     if (!isQuitting) {
       isQuitting = true;
       console.log('[IEXA] Window closed, shutting down backend');

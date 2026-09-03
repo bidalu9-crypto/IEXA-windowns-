@@ -1,69 +1,84 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
+chcp 65001 >nul
 title IEXA - Build Installer
 
-set "ROOT=%~dp0"
-set "ROOT=%ROOT:~0,-1%"
-set "NODE_EXE=C:\Program Files\nodejs\node.exe"
-if not exist "%NODE_EXE%" set "NODE_EXE=node"
+for %%I in ("%~dp0.") do set "ROOT=%%~fI"
 
 echo ========================================
 echo   IEXA-WIN - Build EXE Installer
 echo ========================================
 echo.
 
-:: ---- Step 1: Compile TypeScript ----
-echo [1/4] Compiling TypeScript...
 cd /d "%ROOT%"
-"%NODE_EXE%" node_modules\typescript\bin\tsc
+if errorlevel 1 goto failed
+
+echo [1/5] Checking Node.js and dependencies...
+call "%ROOT%\scripts\ensure-node-deps.bat" "%ROOT%"
+if errorlevel 1 goto failed
+
+echo [2/5] Checking Electron runtime...
+call "%ROOT%\scripts\ensure-electron-runtime.bat" "%ROOT%"
+if errorlevel 1 goto failed
+
+echo [3/5] Compiling TypeScript...
+call npm.cmd run build
 if errorlevel 1 (
-    echo ERROR: TypeScript compilation failed!
-    pause
-    exit /b 1
+    echo [ERROR] TypeScript compilation failed.
+    goto failed
 )
 echo       OK.
 
-:: ---- Step 2: Build distribution folder ----
-echo [2/4] Building distribution folder...
-"%NODE_EXE%" build-dist.js
+echo [4/5] Building distribution folder...
+node build-dist.js
 if errorlevel 1 (
-    echo ERROR: Distribution build failed!
-    pause
-    exit /b 1
+    echo [ERROR] Distribution build failed.
+    goto failed
 )
 echo       OK.
 
-:: ---- Step 3: Create installer EXE ----
-echo [3/4] Creating setup EXE...
-powershell -ExecutionPolicy Bypass -File "%ROOT%\create-installer.ps1"
-echo       Done.
+where powershell.exe >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Windows PowerShell was not found.
+    goto failed
+)
 
-:: ---- Step 4: Check result ----
+echo [5/5] Creating setup EXE...
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\create-installer.ps1"
+if errorlevel 1 (
+    echo [ERROR] Installer creation failed.
+    goto failed
+)
+echo       OK.
+
 echo.
-echo [4/4] Checking result...
-if exist "%ROOT%\release\IEXA-Setup.exe" (
-    for %%A in ("%ROOT%\release\IEXA-Setup.exe") do (
-        set "sz=%%~zA"
-        set /a "mb=!sz! / 1048576"
-    )
-    echo.
-    echo ========================================
-    echo   BUILD SUCCESSFUL
-    echo ========================================
-    echo.
-    echo   Installer: release\IEXA-Setup.exe
-    echo   Size: !mb! MB
-    echo.
-    echo   Run this EXE on any Windows machine
-    echo   to install IEXA with a desktop
-    echo   shortcut.
-    echo.
-) else (
-    echo.
-    echo WARNING: IExpress may not have succeeded.
-    echo You can also run: start-electron.bat
-    echo Or use the files in: release\IEXA\
-    echo.
+if not exist "%ROOT%\release\IEXA-Setup.exe" (
+    echo [ERROR] Installer command completed, but release\IEXA-Setup.exe is missing.
+    goto failed
 )
+
+for %%A in ("%ROOT%\release\IEXA-Setup.exe") do set "INSTALLER_SIZE=%%~zA"
+for /f "usebackq delims=" %%M in (`powershell.exe -NoLogo -NoProfile -Command "[math]::Round(%INSTALLER_SIZE% / 1MB, 1)"`) do set "INSTALLER_MB=%%M"
+echo.
+echo ========================================
+echo   BUILD SUCCESSFUL
+echo ========================================
+echo.
+echo   Installer: release\IEXA-Setup.exe
+echo   Size: %INSTALLER_MB% MB
+echo.
+echo   Run this EXE on any Windows machine
+echo   to install IEXA with a desktop
+echo   shortcut.
+echo.
 
 pause
+exit /b 0
+
+:failed
+set "EXIT_CODE=%ERRORLEVEL%"
+if "%EXIT_CODE%"=="0" set "EXIT_CODE=1"
+echo.
+echo [FAILED] Installer build stopped. Review the error above.
+pause
+exit /b %EXIT_CODE%

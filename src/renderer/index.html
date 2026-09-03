@@ -11,8 +11,9 @@
   // Apply saved theme before paint to avoid flash
   (function () {
     try {
-      var t = localStorage.getItem('iexa-theme') || 'light';
-      var a = localStorage.getItem('iexa-accent') || 'violet';
+      var saved = window.iexaDesktop && window.iexaDesktop.initialAppearance;
+      var t = saved && saved.theme || localStorage.getItem('iexa-theme') || 'light';
+      var a = saved && saved.accent || localStorage.getItem('iexa-accent') || 'violet';
       if (a === 'opencode') a = 'amber';
       document.documentElement.setAttribute('data-theme', t);
       document.documentElement.setAttribute('data-accent', a);
@@ -97,6 +98,7 @@
       </button>
       <button class="nav-btn nav-btn-jobs" data-view="jobs"><svg class="ui-icon" aria-hidden="true"><use href="#ui-terminal"/></svg><span>任务中心</span><b class="nav-job-badge" id="navJobBadge" hidden>0</b></button>
       <button class="nav-btn" data-view="mcp"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>MCP</span></button>
+      <button class="nav-btn" data-view="plugins"><svg class="ui-icon" aria-hidden="true"><use href="#ui-box"/></svg><span>拓展</span></button>
       <button class="nav-btn" data-view="settings"><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span>配置</span></button>
       <button class="nav-btn" data-view="sync">
         <svg class="nav-device-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -325,6 +327,23 @@
           <div class="mcp-server-list" id="mcpServerList"><div class="workbench-empty">还没有配置 MCP Server。</div></div>
           <pre class="mcp-output" id="mcpOutput">选择一个 MCP 工具可在此查看结果。</pre>
         </section>
+      </div>
+    </div>
+
+    <div class="view" id="view-plugins">
+      <div class="settings-container plugin-settings-container">
+        <div class="settings-header plugin-page-header">
+          <div><h2>拓展插件</h2><p class="sync-desc">管理本地插件、AI 工具与插件界面。</p></div>
+          <div class="plugin-header-actions">
+            <button type="button" class="btn-secondary btn-sm plugin-icon-action" id="pluginOpenDirBtn" title="打开插件目录" aria-label="打开插件目录"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+            <button type="button" class="btn-primary btn-sm" id="pluginInstallBtn"><svg class="ui-icon"><use href="#ui-upload"/></svg><span>添加插件</span></button>
+          </div>
+        </div>
+        <div class="plugin-summary" id="pluginSummary">
+          <span><b id="pluginCount">0</b> 个插件</span><span><b id="pluginEnabledCount">0</b> 个启用</span><span><b id="pluginToolCount">0</b> 个工具</span>
+        </div>
+        <div class="plugin-list" id="pluginList"><div class="profile-empty">正在读取插件…</div></div>
+        <pre class="plugin-output" id="pluginOutput" aria-live="polite">选择插件工具可在此调试执行。</pre>
       </div>
     </div>
 

@@ -61,6 +61,8 @@ cd IEXA-windowns-
 npm install
 ```
 
+直接双击下方任一 Windows 批处理入口时，脚本也会自动检查 Node.js、npm 和依赖完整性；缺少 `node_modules` 时会优先执行 `npm ci`，失败后自动回退到 `npm install`。
+
 ### 三、编译 TypeScript
 
 ```bash
@@ -94,15 +96,7 @@ node dist/main/server.js
 
 #### 方式 3：Electron 桌面模式（可选）
 
-需先下载 Electron 二进制到本地缓存：
-
-```powershell
-.\download_electron.ps1
-```
-
-然后双击 `start-electron.bat`。
-
-> 如果脚本路径与实际不符，可直接从 [Electron 官方下载页](https://www.electronjs.org/zh/next/download) 下载对应版本放置到 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\`。
+双击 `start-electron.bat`。首次运行会自动安装 Node 依赖，并在 Electron 运行时缺失时下载及解压 Electron 28；安装或编译失败时窗口会保留并显示具体错误。
 
 ---
 
@@ -169,7 +163,7 @@ IEXA-windowns-/
 
 ## 📦 打包发布
 
-编译完成后使用自定义打包脚本生成可分发的 Electron 应用目录：
+双击 `build-installer.bat` 可自动检查依赖和 Electron 运行时、编译项目并生成安装程序。也可以手动运行自定义打包脚本，仅生成可分发的 Electron 应用目录：
 
 ```bash
 node build-dist.js
@@ -177,7 +171,7 @@ node build-dist.js
 
 输出到 `release/IEXA/` 目录。
 
-> 打包脚本会自动从 Electron 本地缓存复制运行时，请确保已通过 `download_electron.js` 或手动下载好 Electron 28 到 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\`。
+> `build-installer.bat` 会自动准备 Electron 28；直接运行 `build-dist.js` 时仍需确保 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\` 已存在。
 
 ---
 

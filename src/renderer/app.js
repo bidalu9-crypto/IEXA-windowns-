@@ -304,6 +304,9 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     if (view === 'mcp') {
       loadMcpServers();
     }
+    if (view === 'plugins') {
+      loadPlugins();
+    }
     syncJobsPolling();
   });
 });
@@ -3855,6 +3858,46 @@ const ACCENT_PRESETS = [
   { id: 'rose', label: '玫红', color: '#e11d48' },
   { id: 'mono', label: '灰色', color: '#4b4646' },
 ];
+let appearanceSaveTimer = null;
+
+function currentAppearance() {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    theme: getThemeMode(),
+    accent: getAccent(),
+    sidebarWidth: Number.parseInt(style.getPropertyValue('--sidebar-width'), 10) || 240,
+    filesPanelWidth: Number.parseInt(style.getPropertyValue('--files-panel-width'), 10) || 300,
+  };
+}
+
+function scheduleAppearanceSave() {
+  if (appearanceSaveTimer) window.clearTimeout(appearanceSaveTimer);
+  appearanceSaveTimer = window.setTimeout(async () => {
+    appearanceSaveTimer = null;
+    try {
+      await fetch(`${API_BASE}/api/appearance`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentAppearance()),
+      });
+    } catch { /* localStorage remains the browser fallback */ }
+  }, 180);
+}
+
+async function loadAppearanceSettings() {
+  try {
+    const response = await fetch(`${API_BASE}/api/appearance`, { cache: 'no-store' });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || '读取外观设置失败');
+    const mode = value.theme === 'dark' ? 'dark' : 'light';
+    const accent = ACCENT_PRESETS.some((item) => item.id === value.accent) ? value.accent : 'violet';
+    document.documentElement.setAttribute('data-theme', mode);
+    document.documentElement.setAttribute('data-accent', accent);
+    document.documentElement.style.setProperty('--sidebar-width', `${value.sidebarWidth || 240}px`);
+    document.documentElement.style.setProperty('--files-panel-width', `${value.filesPanelWidth || 300}px`);
+    try { localStorage.setItem('iexa-theme', mode); localStorage.setItem('iexa-accent', accent); } catch { /* */ }
+    applyHighlightTheme(mode);
+    syncThemeUI();
+  } catch { /* keep preload/localStorage appearance */ }
+}
 
 function getThemeMode() {
   return document.documentElement.getAttribute('data-theme') || 'light';
@@ -3872,6 +3915,7 @@ function setThemeMode(mode) {
   try { localStorage.setItem('iexa-theme', m); } catch { /* */ }
   applyHighlightTheme(m);
   syncThemeUI();
+  scheduleAppearanceSave();
 }
 
 function applyHighlightTheme(mode) {
@@ -3887,6 +3931,7 @@ function setAccent(id) {
   document.documentElement.setAttribute('data-accent', accent);
   try { localStorage.setItem('iexa-accent', accent); } catch { /* */ }
   syncThemeUI();
+  scheduleAppearanceSave();
 }
 
 function renderAccentDots() {
@@ -4504,6 +4549,166 @@ function initMcpPanel() {
       form.reset(); syncTransport(); setMcpOutput(`已添加 ${data.server.name}。`); await loadMcpServers();
     } catch (error) { setMcpOutput('添加 MCP Server 失败：' + (error.message || error)); }
   });
+}
+
+let pluginState = { plugins: [], pluginsDir: '' };
+
+function setPluginOutput(value) {
+  const output = document.getElementById('pluginOutput');
+  if (output) output.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function pluginToolEditor(plugin, tool) {
+  const sample = Object.fromEntries(Object.entries(tool.parameters || {}).map(([key, schema]) => {
+    if (schema.type === 'boolean') return [key, false];
+    if (schema.type === 'integer') return [key, 0];
+    if (schema.type === 'array') return [key, []];
+    if (schema.type === 'object') return [key, {}];
+    return [key, ''];
+  }));
+  return `<details class="plugin-tool" data-plugin-tool="${escapeHtml(tool.name)}">
+    <summary><span><b>${escapeHtml(tool.name)}</b><small>${escapeHtml(tool.description || '')}</small></span><code>${escapeHtml(tool.agentName)}</code></summary>
+    <div class="plugin-tool-body"><textarea aria-label="${escapeHtml(tool.name)} JSON 参数" spellcheck="false">${escapeHtml(JSON.stringify(sample, null, 2))}</textarea><button type="button" class="btn-secondary btn-sm" data-plugin-run="${escapeHtml(tool.name)}"><svg class="ui-icon"><use href="#ui-bolt"/></svg><span>运行测试</span></button></div>
+  </details>`;
+}
+
+function renderPlugins(plugins) {
+  const list = document.getElementById('pluginList');
+  if (!list) return;
+  document.getElementById('pluginCount').textContent = String(plugins.length);
+  document.getElementById('pluginEnabledCount').textContent = String(plugins.filter((plugin) => plugin.enabled).length);
+  document.getElementById('pluginToolCount').textContent = String(plugins.reduce((sum, plugin) => sum + (plugin.tools || []).length, 0));
+  if (!plugins.length) {
+    list.innerHTML = `<div class="plugin-empty"><span class="plugin-empty-icon">${uiIcon('box')}</span><strong>还没有安装拓展</strong><span>添加包含 iexa-plugin.json 的本地插件文件夹。</span></div>`;
+    return;
+  }
+  list.innerHTML = plugins.map((plugin) => `<article class="plugin-card ${plugin.enabled ? 'is-enabled' : ''}" data-plugin-id="${escapeHtml(plugin.id)}">
+    <div class="plugin-card-head">
+      <span class="plugin-badge">${uiIcon('box')}</span>
+      <span class="plugin-identity"><strong>${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.id)} · v${escapeHtml(plugin.version)}</small></span>
+      <label class="plugin-toggle" title="${plugin.enabled ? '停用插件' : '启用插件'}"><input type="checkbox" data-plugin-enable ${plugin.enabled ? 'checked' : ''} ${plugin.error ? 'disabled' : ''}><span></span></label>
+    </div>
+    <p class="plugin-description">${escapeHtml(plugin.description || '没有插件描述。')}</p>
+    <div class="plugin-card-meta"><span>${escapeHtml(plugin.author || '未知作者')}</span><span>${(plugin.tools || []).length} 个工具</span><span>${plugin.hasUI ? '包含界面' : '无界面'}</span></div>
+    ${plugin.error ? `<div class="plugin-error">${uiIcon('alert')}<span>${escapeHtml(plugin.error)}</span></div>` : ''}
+    ${(plugin.tools || []).length ? `<div class="plugin-tools">${plugin.tools.map((tool) => pluginToolEditor(plugin, tool)).join('')}</div>` : ''}
+    ${plugin.hasUI ? `<div class="plugin-ui-shell"><div class="plugin-ui-toolbar"><span>插件界面</span><button type="button" class="plugin-icon-action" data-plugin-ui-refresh title="刷新插件界面" aria-label="刷新插件界面">${uiIcon('refresh')}</button></div><iframe sandbox="allow-scripts" loading="lazy" title="${escapeHtml(plugin.name)} 插件界面" data-plugin-ui-src="${escapeHtml(plugin.uiURL || '')}"></iframe></div>` : ''}
+    <div class="plugin-card-actions"><button type="button" class="btn-secondary btn-sm" data-plugin-action="reload">${uiIcon('refresh')}<span>重载</span></button><button type="button" class="btn-secondary btn-sm plugin-remove" data-plugin-action="remove">${uiIcon('trash')}<span>卸载</span></button></div>
+  </article>`).join('');
+
+  list.querySelectorAll('.plugin-card').forEach((card) => {
+    const id = card.dataset.pluginId;
+    card.querySelector('[data-plugin-enable]')?.addEventListener('change', (event) => setPluginEnabled(id, event.currentTarget.checked));
+    card.querySelectorAll('[data-plugin-action]').forEach((button) => button.addEventListener('click', () => runPluginAction(id, button.dataset.pluginAction)));
+    card.querySelectorAll('[data-plugin-run]').forEach((button) => button.addEventListener('click', () => {
+      const details = button.closest('.plugin-tool');
+      invokePluginTool(id, button.dataset.pluginRun, details?.querySelector('textarea')?.value || '{}');
+    }));
+    const iframe = card.querySelector('iframe[data-plugin-ui-src]');
+    const loadUi = () => { if (iframe?.dataset.pluginUiSrc) iframe.src = `${iframe.dataset.pluginUiSrc}?v=${Date.now()}`; };
+    if (iframe) {
+      iframe.addEventListener('load', () => connectPluginFrame(iframe, id));
+      loadUi();
+    }
+    card.querySelector('[data-plugin-ui-refresh]')?.addEventListener('click', loadUi);
+  });
+}
+
+async function loadPlugins() {
+  const list = document.getElementById('pluginList');
+  if (list) list.innerHTML = '<div class="plugin-empty"><span class="plugin-loading"></span><strong>正在读取拓展</strong></div>';
+  try {
+    const response = await fetch(`${API_BASE}/api/plugins`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取插件失败');
+    pluginState = { plugins: data.plugins || [], pluginsDir: data.pluginsDir || '' };
+    renderPlugins(pluginState.plugins);
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="plugin-empty plugin-error-text">${escapeHtml(error.message || String(error))}</div>`;
+  }
+}
+
+async function installPlugin() {
+  try {
+    let source = null;
+    if (window.iexaDesktop?.pickPluginFolder) source = await window.iexaDesktop.pickPluginFolder();
+    else source = window.prompt('输入包含 iexa-plugin.json 的插件文件夹绝对路径：', '');
+    if (!source) return;
+    setPluginOutput('正在校验并安装插件…');
+    const response = await fetch(`${API_BASE}/api/plugins/install`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: source }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '插件安装失败');
+    setPluginOutput(`已安装 ${data.plugin.name} v${data.plugin.version}，${data.plugin.tools.length} 个工具已对后续 AI 会话生效。`);
+    await loadPlugins();
+  } catch (error) { setPluginOutput('插件安装失败：' + (error.message || error)); }
+}
+
+async function setPluginEnabled(id, enabled) {
+  try {
+    const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '插件状态更新失败');
+    setPluginOutput(`${data.plugin.name} 已${enabled ? '启用' : '停用'}。${enabled ? '插件工具将在后续 AI 请求中可用。' : ''}`);
+    await loadPlugins();
+  } catch (error) { setPluginOutput('插件状态更新失败：' + (error.message || error)); await loadPlugins(); }
+}
+
+async function runPluginAction(id, action) {
+  if (action === 'remove' && !confirm('确定卸载这个插件吗？插件数据目录将保留。')) return;
+  try {
+    const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}${action === 'remove' ? '' : `/${action}`}`, { method: action === 'remove' ? 'DELETE' : 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '插件操作失败');
+    setPluginOutput(action === 'remove' ? '插件已卸载。' : `${data.plugin.name} 已重新读取清单与代码。`);
+    await loadPlugins();
+  } catch (error) { setPluginOutput('插件操作失败：' + (error.message || error)); }
+}
+
+async function invokePluginTool(id, tool, json) {
+  let args;
+  try { args = json.trim() ? JSON.parse(json) : {}; if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error(); }
+  catch { setPluginOutput('工具参数必须是 JSON 对象。'); return; }
+  try {
+    setPluginOutput(`正在运行 ${tool}…`);
+    const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}/invoke`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, arguments: args }) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '插件工具执行失败');
+    setPluginOutput(data.result);
+  } catch (error) { setPluginOutput('插件工具执行失败：' + (error.message || error)); }
+}
+
+function initPluginPanel() {
+  document.getElementById('pluginInstallBtn')?.addEventListener('click', installPlugin);
+  document.getElementById('pluginOpenDirBtn')?.addEventListener('click', async () => {
+    if (!pluginState.pluginsDir) await loadPlugins();
+    if (pluginState.pluginsDir && window.iexaDesktop?.openPath) await window.iexaDesktop.openPath(pluginState.pluginsDir);
+    else setPluginOutput(pluginState.pluginsDir || '插件目录尚未就绪。');
+  });
+}
+
+function connectPluginFrame(frame, pluginId) {
+  if (!frame?.contentWindow || typeof MessageChannel === 'undefined') return;
+  if (frame._iexaPluginPort) frame._iexaPluginPort.close();
+  const channel = new MessageChannel();
+  frame._iexaPluginPort = channel.port1;
+  channel.port1.onmessage = async (event) => {
+    const message = event.data;
+    if (!message || message.type !== 'iexa-plugin-call') return;
+    const requestId = String(message.requestId || '');
+    try {
+      const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(pluginId)}/invoke`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool: message.tool, arguments: message.arguments || {} }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '插件调用失败');
+      channel.port1.postMessage({ type: 'iexa-plugin-result', requestId, result: data.result });
+    } catch (error) {
+      channel.port1.postMessage({ type: 'iexa-plugin-result', requestId, error: error.message || String(error) });
+    }
+  };
+  channel.port1.start();
+  frame.contentWindow.postMessage({ type: 'iexa-plugin-init', pluginId }, '*', [channel.port2]);
 }
 
 async function searchWorkspaceText(query) {
@@ -5626,6 +5831,9 @@ function initPanelResizers() {
 
   const defaults = { sidebar: 240, files: 300 };
   const readWidth = (key) => {
+    const cssName = key === 'sidebar' ? '--sidebar-width' : '--files-panel-width';
+    const persisted = Number.parseInt(getComputedStyle(root).getPropertyValue(cssName), 10);
+    if (Number.isFinite(persisted)) return persisted;
     const value = Number.parseInt(localStorage.getItem(`iexa-${key}-width`) || '', 10);
     return Number.isFinite(value) ? value : defaults[key];
   };
@@ -5644,7 +5852,10 @@ function initPanelResizers() {
     const next = clamp(value, key);
     if (key === 'sidebar') sidebarWidth = next; else filesWidth = next;
     root.style.setProperty(key === 'sidebar' ? '--sidebar-width' : '--files-panel-width', `${next}px`);
-    if (persist) localStorage.setItem(`iexa-${key}-width`, String(next));
+    if (persist) {
+      localStorage.setItem(`iexa-${key}-width`, String(next));
+      scheduleAppearanceSave();
+    }
   };
   const normalize = () => {
     apply('sidebar', sidebarWidth);
@@ -5693,16 +5904,40 @@ function initPanelResizers() {
   bind(filesResizer, 'files');
 }
 
+function initSidebarNavigationScroll() {
+  const sidebar = document.getElementById('sidebar');
+  const navigation = sidebar?.querySelector('.sidebar-nav');
+  if (!sidebar || !navigation) return;
+
+  // When the pointer is over non-scrollable sidebar chrome, route the wheel
+  // to the function rail. The conversation list and the rail keep their own
+  // native scrolling when the pointer is directly over either one.
+  sidebar.addEventListener('wheel', (event) => {
+    if (navigation.scrollHeight <= navigation.clientHeight || navigation.contains(event.target)) return;
+    const sessions = event.target.closest?.('.sessions-list, .search-results');
+    if (sessions && sessions.scrollHeight > sessions.clientHeight) return;
+    navigation.scrollTop += event.deltaY;
+    event.preventDefault();
+  }, { passive: false });
+
+  navigation.querySelectorAll('.nav-btn').forEach((button) => {
+    button.addEventListener('click', () => button.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  });
+}
+
 // Start
 async function init() {
   initTheme();
+  await loadAppearanceSettings();
   initPermissionModeUI();
   await loadPermissionMode();
   initPanelResizers();
+  initSidebarNavigationScroll();
   initTextContextMenu();
   initFilesPanel();
   initTerminalPanel();
   initMcpPanel();
+  initPluginPanel();
   initSkillsUI();
   initSoulUI();
   initJobsUI();

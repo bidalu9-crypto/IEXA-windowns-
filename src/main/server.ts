@@ -35,6 +35,7 @@ import { GitService } from './git/GitService';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { VisionFallback } from './vision/VisionFallback';
+import { PluginManager } from './plugins/PluginManager';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -54,6 +55,7 @@ const WEBDAV_CONFIG_FILE = path.join(WORKSPACE_DIR, '.iexa-webdav.json');
 const PROJECT_FILE = path.join(WORKSPACE_DIR, '.iexa-project.json');
 const TOKEN_USAGE_FILE = path.join(WORKSPACE_DIR, '.iexa-token-usage.json');
 const JOBS_FILE = path.join(WORKSPACE_DIR, '.iexa-jobs.json');
+const APPEARANCE_FILE = path.join(WORKSPACE_DIR, '.iexa-appearance.json');
 const TRACES_DIR = path.join(WORKSPACE_DIR, '.iexa-traces');
 const RENDERER_DIR = path.resolve(__dirname, '..', '..', 'src', 'renderer');
 const MAX_AUTO_MEMORY_CHARS = 6000;
@@ -63,8 +65,41 @@ const MAX_DURABLE_TOOL_NOTES = 12;
 const gitService = new GitService();
 const terminalManager = new TerminalManager();
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
+const pluginManager = new PluginManager(WORKSPACE_DIR);
 const visionFallback = new VisionFallback();
 const soulStore = new SoulStore(MEMORY_DIR);
+
+interface AppearanceSettings {
+  theme: 'light' | 'dark';
+  accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
+  sidebarWidth: number;
+  filesPanelWidth: number;
+}
+
+function normalizeAppearance(value: unknown): AppearanceSettings {
+  const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const accents = ['amber', 'violet', 'blue', 'green', 'rose', 'mono'];
+  const width = (raw: unknown, fallback: number, min: number, max: number) => {
+    const number = Number(raw);
+    return Number.isFinite(number) ? Math.round(Math.min(max, Math.max(min, number))) : fallback;
+  };
+  return {
+    theme: source.theme === 'dark' ? 'dark' : 'light',
+    accent: accents.includes(String(source.accent)) ? String(source.accent) as AppearanceSettings['accent'] : 'violet',
+    sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
+    filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
+  };
+}
+
+function loadAppearance(): AppearanceSettings {
+  return normalizeAppearance(new JsonStore<unknown>(APPEARANCE_FILE, () => ({})).loadSync());
+}
+
+function saveAppearance(value: unknown): AppearanceSettings {
+  const appearance = normalizeAppearance(value);
+  new JsonStore<AppearanceSettings>(APPEARANCE_FILE, () => appearance).saveSync(appearance);
+  return appearance;
+}
 
 interface McpAgentBinding { name: string; serverId: string; toolName: string; description: string; }
 
@@ -1158,6 +1193,15 @@ function createServer(): http.Server {
       return;
     }
 
+    if (url.pathname === '/api/appearance') {
+      if (req.method === 'GET') { jsonReply(res, 200, loadAppearance()); return; }
+      if (req.method === 'PUT') {
+        try { jsonReply(res, 200, saveAppearance(JSON.parse(await readBody(req) || '{}'))); }
+        catch (error) { jsonReply(res, 400, { error: (error as Error).message || '外观设置保存失败。' }); }
+        return;
+      }
+    }
+
     // =====================================================================
     // Search API — fuzzy search across session titles + messages
     // =====================================================================
@@ -1556,6 +1600,10 @@ ${recentMemories}
             }
           });
         }
+        const pluginBindings = pluginManager.bindings();
+        for (const binding of pluginBindings) {
+          agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
+        }
         const tools = [...makeAgentTools(true), ...(visionProfile && !profileLikelySupportsVision(profile) ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
@@ -1565,7 +1613,7 @@ ${recentMemories}
           description: `${binding.description}。arguments_json 必须是传给该 MCP 工具的 JSON 对象字符串。`,
           parameters: { arguments_json: { type: 'string' as const, description: 'JSON object arguments for this MCP tool.' } },
           required: ['arguments_json'], propertyOrdering: ['arguments_json'],
-        }))];
+        })), ...pluginBindings.map((binding) => binding.definition)];
 
         // Process attachments: save to workspace, prepare for agent
         const attachDir = path.join(WORKSPACE_DIR, 'uploads', sessionId);
@@ -2376,6 +2424,63 @@ ${recentMemories}
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });
       }
+      return;
+    }
+
+    // =====================================================================
+    // Local extension plugins: install, lifecycle, tools and sandboxed UI
+    // =====================================================================
+    if (url.pathname === '/api/plugins' && req.method === 'GET') {
+      jsonReply(res, 200, { plugins: pluginManager.list(), pluginsDir: pluginManager.pluginsDir });
+      return;
+    }
+
+    if (url.pathname === '/api/plugins/install' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req) || '{}') as { path?: string };
+        const plugin = pluginManager.install(String(body.path || ''));
+        invalidateAllAgentsForNextTurn();
+        jsonReply(res, 201, { plugin });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/plugins/')) {
+      const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      const id = parts[2] || '';
+      const action = parts[3] || '';
+      try {
+        if (!id) throw new Error('插件 ID 无效。');
+        if (action === 'ui' && req.method === 'GET') {
+          const relative = parts.slice(4).join('/');
+          const asset = pluginManager.resolveUiAsset(id, relative);
+          const ext = path.extname(asset.path).toLowerCase();
+          const headers: Record<string, string> = {
+            'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy': "default-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-ancestors 'self'",
+          };
+          res.writeHead(200, headers); fs.createReadStream(asset.path).pipe(res); return;
+        }
+        if (action === 'enable' && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}') as { enabled?: boolean };
+          const plugin = pluginManager.setEnabled(id, body.enabled === true);
+          invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { plugin }); return;
+        }
+        if (action === 'reload' && req.method === 'POST') {
+          const plugin = pluginManager.reload(id);
+          invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { plugin }); return;
+        }
+        if (action === 'invoke' && req.method === 'POST') {
+          const body = JSON.parse(await readBody(req, 2 * 1024 * 1024) || '{}') as { tool?: string; arguments?: unknown };
+          const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? body.arguments as Record<string, unknown> : {};
+          jsonReply(res, 200, { result: await pluginManager.invoke(id, String(body.tool || ''), args) }); return;
+        }
+        if (!action && req.method === 'DELETE') {
+          pluginManager.remove(id); invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { ok: true }); return;
+        }
+        jsonReply(res, 404, { error: '插件接口不存在。' });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
       return;
     }
 

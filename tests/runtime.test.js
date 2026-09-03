@@ -31,6 +31,7 @@ const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
 const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors');
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
+const { PluginManager } = require('../dist/main/plugins/PluginManager');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -43,6 +44,38 @@ async function waitFor(check, timeoutMs = 3000) {
   }
   throw new Error('Timed out waiting for expected terminal output');
 }
+
+test('Windows launchers bootstrap dependencies and keep actionable failures visible', async () => {
+  const [serverBat, electronBat, installerBat, dependencyHelper, electronHelper] = await Promise.all([
+    fs.readFile(path.join(__dirname, '..', 'start.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'start-electron.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'build-installer.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-node-deps.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-electron-runtime.bat'), 'utf8'),
+  ]);
+
+  for (const launcher of [serverBat, electronBat, installerBat]) {
+    assert.match(launcher, /ensure-node-deps\.bat/i);
+    assert.match(launcher, /if errorlevel 1 goto failed/i);
+    assert.match(launcher, /\bpause\b/i);
+  }
+  assert.match(dependencyHelper, /where node\.exe/i);
+  assert.match(dependencyHelper, /where npm\.cmd/i);
+  assert.match(dependencyHelper, /NODE_MAJOR% LSS 20/i);
+  assert.match(dependencyHelper, /npm\.cmd ci/i);
+  assert.match(dependencyHelper, /npm\.cmd install/i);
+  assert.match(dependencyHelper, /node_modules\\typescript\\bin\\tsc/i);
+  assert.match(electronBat, /ensure-electron-runtime\.bat/i);
+  assert.match(installerBat, /ensure-electron-runtime\.bat/i);
+  assert.match(electronHelper, /Expand-Archive/i);
+  assert.match(electronHelper, /resources\\default_app\.asar/i);
+  assert.doesNotMatch(electronBat, /extract_electron\.js/i);
+});
+
+test('distribution builder includes the Electron preload bridge', async () => {
+  const builder = await fs.readFile(path.join(__dirname, '..', 'build-dist.js'), 'utf8');
+  assert.match(builder, /fs\.copyFileSync\(path\.join\(ROOT, 'preload\.js'\), path\.join\(APP, 'preload\.js'\)\)/);
+});
 
 test('PathSandbox resolves workspace and explicitly addressed local paths', async () => {
   const root = await tempWorkspace();
@@ -296,6 +329,37 @@ process.stdin.on('data', (chunk) => { buffer += chunk; let index; while ((index 
   manager.remove(added.id);
 });
 
+test('PluginManager installs, visualizes, invokes, disables, and removes a real plugin', async () => {
+  const root = await tempWorkspace();
+  const source = path.join(root, 'source-plugin');
+  await fs.mkdir(path.join(source, 'ui'), { recursive: true });
+  await fs.writeFile(path.join(source, 'iexa-plugin.json'), JSON.stringify({
+    id: 'fixture-plugin', name: 'Fixture Plugin', version: '1.0.0', description: 'Runtime fixture',
+    main: 'index.cjs', ui: 'ui/index.html',
+    tools: [{ name: 'echo', description: 'Echo input', parameters: { value: { type: 'string', description: 'Value' } }, required: ['value'] }],
+  }), 'utf8');
+  await fs.writeFile(path.join(source, 'index.cjs'), "module.exports.tools={echo:async(args,ctx)=>({output:`${args.value}|${require('path').basename(ctx.dataDir)}`,success:true})};", 'utf8');
+  await fs.writeFile(path.join(source, 'ui', 'index.html'), '<!doctype html><title>Fixture UI</title>', 'utf8');
+
+  const manager = new PluginManager(path.join(root, 'workspace'));
+  const installed = manager.install(source);
+  assert.equal(installed.enabled, true);
+  assert.equal(installed.hasUI, true);
+  assert.equal(manager.list().length, 1);
+  assert.match(manager.bindings()[0].definition.name, /^plugin_fixture_plugin_[a-f0-9]{6}_echo$/);
+  const result = await manager.invoke('fixture-plugin', 'echo', { value: '真实调用' });
+  assert.equal(result.success, true, result.output);
+  assert.equal(result.output, '真实调用|fixture-plugin');
+  assert.equal(manager.resolveUiAsset('fixture-plugin').html, true);
+  assert.match(await fs.readFile(manager.resolveUiAsset('fixture-plugin').path, 'utf8'), /Fixture UI/);
+
+  manager.setEnabled('fixture-plugin', false);
+  assert.equal(manager.bindings().length, 0);
+  assert.equal((await manager.invoke('fixture-plugin', 'echo', { value: 'blocked' })).success, false);
+  manager.remove('fixture-plugin');
+  assert.equal(manager.list().length, 0);
+});
+
 test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   const root = await tempWorkspace();
   const externalRoot = await tempWorkspace();
@@ -351,6 +415,42 @@ test('renderer keeps complete tool input and output inside scrollable detail pan
   assert.doesNotMatch(renderer, /output\.substring\(0, 5000\)/);
   assert.match(styles, /\.tool-args, \.tool-body pre\.tool-args \{[^}]*overflow: auto/s);
   assert.match(styles, /\.tool-body \.tool-result \{[^}]*max-height: 340px/s);
+});
+
+test('renderer keeps the sidebar function rail independently scrollable', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+
+  assert.match(styles, /\.sidebar \{[^}]*min-height: 0;[^}]*overflow: hidden;/s);
+  assert.match(styles, /\.sidebar-nav \{[^}]*overflow-y: auto;[^}]*scrollbar-gutter: stable;/s);
+  assert.match(styles, /\.nav-btn \{[^}]*flex: 0 0 auto;/s);
+  assert.match(styles, /\.sidebar-footer \{[^}]*flex: 0 0 auto;/s);
+  assert.match(renderer, /function initSidebarNavigationScroll\(\)/);
+  assert.match(renderer, /navigation\.scrollTop \+= event\.deltaY/);
+});
+
+test('plugin iframe bridge uses a dedicated MessageChannel', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const example = await fs.readFile(path.join(__dirname, '..', 'examples', 'plugins', 'hello-dashboard', 'ui', 'index.html'), 'utf8');
+
+  assert.match(renderer, /function connectPluginFrame\(frame, pluginId\)/);
+  assert.match(renderer, /const channel = new MessageChannel\(\)/);
+  assert.match(renderer, /\[channel\.port2\]/);
+  assert.match(example, /event\.data\?\.type !== 'iexa-plugin-init'/);
+  assert.match(example, /bridge\.postMessage\(message\)/);
+});
+
+test('desktop source persists native window state and boot appearance', async () => {
+  const electronEntry = await fs.readFile(path.join(__dirname, '..', 'electron-entry.js'), 'utf8');
+  const preload = await fs.readFile(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+
+  assert.match(electronEntry, /mainWindow\.getNormalBounds\(\)/);
+  assert.match(electronEntry, /\.iexa-window-state\.json/);
+  assert.match(electronEntry, /savedWindow\.maximized/);
+  assert.match(preload, /initialAppearance: ipcRenderer\.sendSync/);
+  assert.match(renderer, /fetch\(`\$\{API_BASE\}\/api\/appearance`/);
+  assert.match(renderer, /scheduleAppearanceSave\(\)/);
 });
 
 test('tool definitions include structured array item schemas', async () => {
@@ -766,6 +866,14 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
     assert.equal(mode.mode, 'risk');
     const updated = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'full' }) }).then((response) => response.json());
     assert.equal(updated.mode, 'full');
+    const appearance = await fetch(`http://127.0.0.1:${port}/api/appearance`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme: 'dark', accent: 'green', sidebarWidth: 318, filesPanelWidth: 412 }),
+    }).then((response) => response.json());
+    assert.deepEqual(appearance, { theme: 'dark', accent: 'green', sidebarWidth: 318, filesPanelWidth: 412 });
+    const persistedAppearance = await fetch(`http://127.0.0.1:${port}/api/appearance`).then((response) => response.json());
+    assert.deepEqual(persistedAppearance, appearance);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, '.iexa-appearance.json'), 'utf8')), appearance);
     const initialSoul = await fetch(`http://127.0.0.1:${port}/api/soul`).then((response) => response.json());
     assert.equal(initialSoul.metadata.name, 'IEXA');
     const savedSoul = await fetch(`http://127.0.0.1:${port}/api/soul`, {

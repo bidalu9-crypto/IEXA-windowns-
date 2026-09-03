@@ -6,31 +6,41 @@ const version = '28.0.0';
 const cacheDir = path.join(process.env.LOCALAPPDATA || '', 'electron', 'Cache');
 const zipName = `electron-v${version}-win32-x64.zip`;
 const destPath = path.join(cacheDir, zipName);
+const tempPath = `${destPath}.download`;
+const url = new URL(`https://cdn.npmmirror.com/binaries/electron/${version}/${zipName}`);
 
 // Ensure cache dir exists
 fs.mkdirSync(cacheDir, { recursive: true });
 
 console.log('Cache dir:', cacheDir);
 console.log('Downloading:', zipName);
-console.log('From: https://cdn.npmmirror.com/binaries/electron/' + version + '/' + zipName);
+console.log('From:', url.href);
 
-const url = `https://cdn.npmmirror.com/binaries/electron/${version}/${zipName}`;
+download(url, 0);
 
-https.get(url, (res) => {
-  if (res.statusCode === 302 || res.statusCode === 301) {
-    console.log('Following redirect to:', res.headers.location);
-    https.get(res.headers.location, (res2) => downloadFile(res2));
-    return;
-  }
-  downloadFile(res);
-}).on('error', (e) => {
-  console.error('Download error:', e.message);
-  process.exit(1);
-});
+function download(currentUrl, redirectCount) {
+  if (redirectCount > 5) return fail(new Error('Too many redirects'));
+  const request = https.get(currentUrl, (res) => {
+    if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+      const nextUrl = new URL(res.headers.location, currentUrl);
+      console.log('Following redirect to:', nextUrl.href);
+      res.resume();
+      download(nextUrl, redirectCount + 1);
+      return;
+    }
+    if (res.statusCode !== 200) {
+      res.resume();
+      return fail(new Error(`HTTP ${res.statusCode || 'unknown'} while downloading Electron`));
+    }
+    downloadFile(res);
+  });
+  request.setTimeout(30_000, () => request.destroy(new Error('Download timed out')));
+  request.on('error', fail);
+}
 
 function downloadFile(res) {
   const total = parseInt(res.headers['content-length'] || '0');
-  const file = fs.createWriteStream(destPath);
+  const file = fs.createWriteStream(tempPath);
   let downloaded = 0;
   let lastLog = 0;
 
@@ -46,13 +56,31 @@ function downloadFile(res) {
   res.pipe(file);
 
   file.on('finish', () => {
-    file.close();
-    console.log('Download complete! Size:', (downloaded/1024/1024).toFixed(1), 'MB');
-    console.log('Saved to:', destPath);
+    file.close((error) => {
+      if (error) return fail(error);
+      if (total > 0 && downloaded !== total) {
+        return fail(new Error(`Incomplete download: expected ${total} bytes, received ${downloaded}`));
+      }
+      if (downloaded < 10 * 1024 * 1024) {
+        return fail(new Error(`Downloaded file is unexpectedly small: ${downloaded} bytes`));
+      }
+      try {
+        fs.rmSync(destPath, { force: true });
+        fs.renameSync(tempPath, destPath);
+      } catch (renameError) {
+        return fail(renameError);
+      }
+      console.log('Download complete! Size:', (downloaded/1024/1024).toFixed(1), 'MB');
+      console.log('Saved to:', destPath);
+    });
   });
 
-  file.on('error', (e) => {
-    console.error('File error:', e.message);
-    process.exit(1);
-  });
+  file.on('error', fail);
+  res.on('error', fail);
+}
+
+function fail(error) {
+  try { fs.rmSync(tempPath, { force: true }); } catch {}
+  console.error('Electron setup error:', error.message);
+  process.exit(1);
 }

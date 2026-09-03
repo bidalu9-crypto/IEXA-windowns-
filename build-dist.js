@@ -73,6 +73,9 @@ fs.writeFileSync(path.join(APP, 'package.json'), JSON.stringify(appPkg, null, 2)
 // electron-entry.js
 fs.copyFileSync(path.join(ROOT, 'electron-entry.js'), path.join(APP, 'electron-entry.js'));
 
+// preload.js exposes the constrained renderer bridge used by the desktop app.
+fs.copyFileSync(path.join(ROOT, 'preload.js'), path.join(APP, 'preload.js'));
+
 // dist (compiled TypeScript)
 copyDir(path.join(ROOT, 'dist'), path.join(APP, 'dist'));
 

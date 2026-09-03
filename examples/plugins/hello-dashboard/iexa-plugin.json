@@ -1,0 +1,29 @@
+{
+  "id": "hello-dashboard",
+  "name": "Hello Dashboard",
+  "version": "1.0.0",
+  "description": "可视化问候面板，并向 AI 提供生成问候语和保存便签的工具。",
+  "author": "IEXA",
+  "main": "index.cjs",
+  "ui": "ui/index.html",
+  "tools": [
+    {
+      "name": "greet",
+      "description": "根据姓名生成一条问候语。",
+      "parameters": {
+        "name": { "type": "string", "description": "需要问候的姓名。" },
+        "formal": { "type": "boolean", "description": "是否使用正式语气。" }
+      },
+      "required": ["name"],
+      "propertyOrdering": ["name", "formal"]
+    },
+    {
+      "name": "save_note",
+      "description": "将一条便签保存到插件独立数据目录。",
+      "parameters": {
+        "content": { "type": "string", "description": "便签正文。" }
+      },
+      "required": ["content"]
+    }
+  ]
+}
