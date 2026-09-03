@@ -476,6 +476,13 @@ test('desktop and mobile conversations use the shared real-time session event st
   assert.match(server, /saveMessages\(sessionId, trimmedProvisionalMessages\)/);
 });
 
+test('turn completion preserves an existing scrolled-up chat position', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  assert.match(renderer, /const preserveScrollTop = visibleChatMessages\.scrollTop/);
+  assert.match(renderer, /const preserveScroll = !isChatNearBottom\(\)/);
+  assert.match(renderer, /visibleChatMessages\.scrollTop = preserveScrollTop/);
+});
+
 test('chat focus capsule hides side panels and persists its state', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
   const app = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');

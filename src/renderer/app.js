@@ -581,7 +581,7 @@ async function loadSessionList() {
   }
 }
 
-async function syncConversationMetadata(forceCurrentRefresh = false, forceSessionId = '') {
+async function syncConversationMetadata(forceCurrentRefresh = false, forceSessionId = '', changeReason = '') {
   if (sessionSyncInFlight) {
     queuedSessionSync = true;
     if (forceCurrentRefresh || forceSessionId) queuedSessionSyncSessionId = forceSessionId || currentSessionId;
@@ -634,7 +634,9 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     );
     if (shouldRefreshCurrent) {
       const runtime = sessionRuntimes.get(currentSessionId);
-      if (!runtime?.isProcessing && !isProcessing) await refreshCurrentSessionHistory(currentSessionId);
+      if (changeReason === 'turn_finished' && runtime?.remoteTurnCompleted) {
+        runtime.remoteTurnCompleted = false;
+      } else if (!runtime?.isProcessing && !isProcessing) await refreshCurrentSessionHistory(currentSessionId);
       else pendingCurrentSessionSync = true;
     }
   } catch (err) {
@@ -688,7 +690,10 @@ function applyMirroredStreamEvent(payload) {
     if (!sessionRuntimes.get(sessionId)?.isMirroredTurn) return;
   }
   handleSSEEvent(`event: ${event}\ndata: ${JSON.stringify(payload.data ?? {})}`, activeChatTurnToken);
-  if (event === 'done' || event === 'error' || event === 'cancelled') runtime.isMirroredTurn = false;
+  if (event === 'done' || event === 'error' || event === 'cancelled') {
+    runtime.isMirroredTurn = false;
+    runtime.remoteTurnCompleted = true;
+  }
   snapshotActiveSessionRuntime();
 }
 
@@ -701,7 +706,7 @@ function startConversationSync() {
     queueConversationEvent(async () => {
       // The prompt is already on disk when this event arrives. Load it before
       // applying turn_started so the mirrored assistant placeholder follows it.
-      await syncConversationMetadata(payload.sessionId === currentSessionId, payload.sessionId || '');
+      await syncConversationMetadata(payload.sessionId === currentSessionId, payload.sessionId || '', payload.reason || '');
     });
   });
   conversationEventSource.addEventListener('session_stream', (event) => {
@@ -2836,6 +2841,8 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  const preserveScrollTop = visibleChatMessages.scrollTop;
+  const preserveScroll = !isChatNearBottom();
   finishTaskSummary();
   clearContextBusy();
   setProcessing(false);
@@ -2855,6 +2862,11 @@ function handleDone(stopReason, turnToken) {
   loadSessionList().catch(() => {});
   // Refresh project files so tool writes are visible
   if (typeof refreshFilesPanelSoft === 'function') refreshFilesPanelSoft();
+  if (preserveScroll) requestAnimationFrame(() => {
+    visibleChatMessages.scrollTop = preserveScrollTop;
+    isNearChatBottom = isChatNearBottom();
+    updateScrollToBottomButton();
+  });
 
   // iOS drainQueuedPrompts: auto-run messages inserted during the previous turn
   scheduleQueueDrain();
@@ -2862,6 +2874,8 @@ function handleDone(stopReason, turnToken) {
 
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  const preserveScrollTop = visibleChatMessages.scrollTop;
+  const preserveScroll = !isChatNearBottom();
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finishTaskSummary();
@@ -2875,6 +2889,11 @@ function handleCancelled(turnToken) {
   cancelNote.className = 'error-message';
   cancelNote.innerHTML = uiIcon('info') + '<span>任务已取消。</span>';
   chatMessages.appendChild(cancelNote);
+  if (preserveScroll) requestAnimationFrame(() => {
+    visibleChatMessages.scrollTop = preserveScrollTop;
+    isNearChatBottom = isChatNearBottom();
+    updateScrollToBottomButton();
+  });
 
   // iOS resumeQueueAfterCancel: stop current turn, then continue queued inserts
   if (!suppressQueueDrain) scheduleQueueDrain();
