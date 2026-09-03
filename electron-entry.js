@@ -9,6 +9,11 @@ const http = require('http');
 const fs = require('fs');
 const net = require('net');
 
+// The backend listens on IPv4 0.0.0.0 for the optional phone bridge. Keep
+// Electron's own control path on an explicit IPv4 loopback address because
+// some Windows installations resolve `localhost` to ::1 first.
+const LOOPBACK_HOST = '127.0.0.1';
+
 /** Find a random free port on 127.0.0.1 */
 function findFreePort() {
   return new Promise((resolve, reject) => {
@@ -207,7 +212,7 @@ function startBackendServer() {
       console.log('[IEXA] Loading server from:', serverPath);
 
       const { startServer } = require(serverPath);
-      startServer(PORT, false).then((srv) => {
+      startServer(PORT, false, '0.0.0.0').then((srv) => {
         server = srv;
         console.log('[IEXA] Backend server ready on port', PORT);
         resolve();
@@ -287,7 +292,7 @@ function createWindow() {
 
   // Open external links in system browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://localhost:' + PORT) || url.startsWith('file://')) {
+    if (url.startsWith(`http://${LOOPBACK_HOST}:` + PORT) || url.startsWith('http://localhost:' + PORT) || url.startsWith('file://')) {
       return { action: 'allow' };
     }
     shell.openExternal(url);
@@ -299,7 +304,7 @@ function createWindow() {
     console.error('[IEXA] Page load failed:', errorDescription);
   });
 
-  const url = `http://localhost:${PORT}`;
+  const url = `http://${LOOPBACK_HOST}:${PORT}`;
   console.log('[IEXA] Loading URL:', url);
   mainWindow.loadURL(url);
 }
@@ -308,7 +313,7 @@ function createWindow() {
 function waitForServer(retries = 20) {
   return new Promise((resolve, reject) => {
     function check(remaining) {
-      http.get(`http://localhost:${PORT}/`, (res) => {
+      http.get(`http://${LOOPBACK_HOST}:${PORT}/`, (res) => {
         if (res.statusCode === 200) {
           resolve();
         } else {

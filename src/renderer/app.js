@@ -142,6 +142,17 @@ let currentSessionId = '';
 // temporarily load another runtime, but must never replace this DOM surface.
 let visibleSessionId = '';
 let sessionsCache = [];
+const conversationClientId = sessionStorage.getItem('iexa-conversation-client-id') ||
+  (globalThis.crypto?.randomUUID?.() || `client_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+sessionStorage.setItem('iexa-conversation-client-id', conversationClientId);
+const sessionSyncSnapshot = new Map();
+let conversationEventSource = null;
+let conversationEventQueue = Promise.resolve();
+let sessionSyncTimer = null;
+let sessionSyncInFlight = false;
+let queuedSessionSync = false;
+let queuedSessionSyncSessionId = '';
+let pendingCurrentSessionSync = false;
 // Ignore late /api/sessions/:id responses after the user has selected another
 // chat. Without this fence a slower earlier switch can repaint the new surface.
 let sessionViewEpoch = 0;
@@ -307,6 +318,10 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     if (view === 'plugins') {
       loadPlugins();
     }
+    if (view === 'sync') {
+      loadMobileBridge();
+    }
+    closeMobileDrawers();
     syncJobsPolling();
   });
 });
@@ -538,11 +553,21 @@ const searchInput = document.getElementById('searchInput');
 const searchClear = document.getElementById('searchClear');
 const searchResults = document.getElementById('searchResults');
 
+function sessionVersion(session) {
+  return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}`;
+}
+
+function rememberSessionVersions(sessions) {
+  sessionSyncSnapshot.clear();
+  for (const session of sessions) sessionSyncSnapshot.set(session.id, sessionVersion(session));
+}
+
 async function loadSessionList() {
   try {
     const resp = await fetch(`${API_BASE}/api/sessions`);
     const data = await resp.json();
     sessionsCache = data.sessions || [];
+    rememberSessionVersions(sessionsCache);
     // If no active session, pick first or create one
     if (!currentSessionId && sessionsCache.length > 0) {
       const activeId = data.activeSessionId || sessionsCache[0].id;
@@ -554,6 +579,151 @@ async function loadSessionList() {
   } catch (err) {
     console.error('Failed to load sessions:', err);
   }
+}
+
+async function syncConversationMetadata(forceCurrentRefresh = false, forceSessionId = '') {
+  if (sessionSyncInFlight) {
+    queuedSessionSync = true;
+    if (forceCurrentRefresh || forceSessionId) queuedSessionSyncSessionId = forceSessionId || currentSessionId;
+    return;
+  }
+  sessionSyncInFlight = true;
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions`, { cache: 'no-store' });
+    if (!response.ok) return;
+    const data = await response.json();
+    const nextSessions = Array.isArray(data.sessions) ? data.sessions : [];
+    const changed = new Set();
+    const nextIds = new Set(nextSessions.map((session) => session.id));
+
+    for (const session of nextSessions) {
+      if (sessionSyncSnapshot.has(session.id) && sessionSyncSnapshot.get(session.id) !== sessionVersion(session)) {
+        changed.add(session.id);
+      }
+    }
+    for (const session of sessionsCache) {
+      if (!nextIds.has(session.id)) changed.add(session.id);
+    }
+
+    const oldListVersion = sessionsCache.map((session) => `${session.id}:${sessionVersion(session)}`).join('|');
+    const newListVersion = nextSessions.map((session) => `${session.id}:${sessionVersion(session)}`).join('|');
+    sessionsCache = nextSessions;
+    rememberSessionVersions(nextSessions);
+
+    // A paired device may delete the conversation currently open on this
+    // window. Move to the newest remaining conversation instead of leaving a
+    // composer attached to an id that no longer exists on disk.
+    if (currentSessionId && !nextIds.has(currentSessionId)) {
+      const replacement = nextSessions[0]?.id || '';
+      currentSessionId = '';
+      visibleSessionId = '';
+      if (replacement) await switchSession(replacement, false);
+      else await createSession();
+      return;
+    }
+
+    for (const sessionId of changed) {
+      if (sessionId !== currentSessionId && !sessionRuntimes.get(sessionId)?.isProcessing) sessionRuntimes.delete(sessionId);
+    }
+    if (oldListVersion !== newListVersion) renderSessionList();
+
+    const shouldRefreshCurrent = currentSessionId && (
+      forceCurrentRefresh ||
+      changed.has(currentSessionId) ||
+      (forceSessionId && forceSessionId === currentSessionId)
+    );
+    if (shouldRefreshCurrent) {
+      const runtime = sessionRuntimes.get(currentSessionId);
+      if (!runtime?.isProcessing && !isProcessing) await refreshCurrentSessionHistory(currentSessionId);
+      else pendingCurrentSessionSync = true;
+    }
+  } catch (err) {
+    console.debug('Conversation sync deferred:', err);
+  } finally {
+    sessionSyncInFlight = false;
+    if (queuedSessionSync) {
+      const queuedForceSessionId = queuedSessionSyncSessionId;
+      queuedSessionSync = false;
+      queuedSessionSyncSessionId = '';
+      window.setTimeout(() => syncConversationMetadata(true, queuedForceSessionId), 0);
+    }
+  }
+}
+
+function queueConversationEvent(work) {
+  conversationEventQueue = conversationEventQueue.then(work, work);
+}
+
+function beginMirroredTurn(sessionId) {
+  if (!sessionId || sessionId !== currentSessionId || isProcessing) return;
+  const runtime = runtimeForSession(sessionId);
+  runtime.isMirroredTurn = true;
+  currentAssistantMsg = addMessage('assistant', '', undefined, { streaming: true });
+  currentAssistantMsg.dataset.liveSessionId = sessionId;
+  currentAssistantMsg.dataset.thinkingLevel = currentThinkingLevel;
+  showWaitingIndicator();
+  currentToolBlocks = {};
+  currentTaskToolCount = 0;
+  currentTaskStartedAt = 0;
+  currentTaskSummary = null;
+  if (currentTaskTimer) window.clearInterval(currentTaskTimer);
+  currentTaskTimer = null;
+  setProcessing(true);
+  snapshotActiveSessionRuntime();
+}
+
+function applyMirroredStreamEvent(payload) {
+  const sessionId = String(payload?.sessionId || '');
+  const event = String(payload?.event || '');
+  if (!sessionId || sessionId !== currentSessionId) return;
+  if (event === 'turn_started') {
+    beginMirroredTurn(sessionId);
+    return;
+  }
+  const runtime = sessionRuntimes.get(sessionId);
+  // If the initial turn_started frame was missed during an SSE reconnect,
+  // recover the mirrored surface from the first subsequent stream frame.
+  if (!runtime?.isMirroredTurn) {
+    beginMirroredTurn(sessionId);
+    if (!sessionRuntimes.get(sessionId)?.isMirroredTurn) return;
+  }
+  handleSSEEvent(`event: ${event}\ndata: ${JSON.stringify(payload.data ?? {})}`, activeChatTurnToken);
+  if (event === 'done' || event === 'error' || event === 'cancelled') runtime.isMirroredTurn = false;
+  snapshotActiveSessionRuntime();
+}
+
+function startConversationSync() {
+  if (conversationEventSource) return;
+  conversationEventSource = new EventSource(`${API_BASE}/api/session-events?clientId=${encodeURIComponent(conversationClientId)}`);
+  conversationEventSource.addEventListener('session_changed', (event) => {
+    let payload;
+    try { payload = JSON.parse(event.data || '{}'); } catch { return; }
+    queueConversationEvent(async () => {
+      // The prompt is already on disk when this event arrives. Load it before
+      // applying turn_started so the mirrored assistant placeholder follows it.
+      await syncConversationMetadata(payload.sessionId === currentSessionId, payload.sessionId || '');
+    });
+  });
+  conversationEventSource.addEventListener('session_stream', (event) => {
+    let payload;
+    try { payload = JSON.parse(event.data || '{}'); } catch { return; }
+    queueConversationEvent(() => applyMirroredStreamEvent(payload));
+  });
+  conversationEventSource.onerror = () => {
+    // EventSource reconnects by itself. Refresh metadata immediately so a
+    // mobile browser that briefly loses Wi-Fi still catches the desktop turn.
+    syncConversationMetadata(true);
+  };
+
+  // SSE reconnects automatically. This low-frequency check covers a laptop
+  // waking after events were emitted while its network connection was down.
+  sessionSyncTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') syncConversationMetadata();
+  }, 1500);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncConversationMetadata();
+  });
+  window.addEventListener('focus', () => syncConversationMetadata());
 }
 
 function renderSessionList() {
@@ -1471,7 +1641,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     if (typeof statusText !== 'undefined' && statusText) statusText.textContent = '处理中...';
     const response = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId },
       body: JSON.stringify({
         message: message || displayText,
         sessionId: sessionId,
@@ -3002,6 +3172,22 @@ async function reloadSessionView(sessionId) {
   await switchSession(sessionId, false);
 }
 
+async function refreshCurrentSessionHistory(sessionId) {
+  if (!sessionId || sessionId !== currentSessionId) return;
+  const runtime = sessionRuntimes.get(sessionId);
+  if (runtime?.isProcessing || isProcessing) return;
+  const keepAtBottom = isChatNearBottom();
+  const savedScrollTop = visibleChatMessages.scrollTop;
+  await reloadSessionView(sessionId);
+  if (sessionId !== currentSessionId) return;
+  if (keepAtBottom) scrollToBottom(true);
+  else {
+    visibleChatMessages.scrollTop = savedScrollTop;
+    isNearChatBottom = isChatNearBottom();
+    updateScrollToBottomButton();
+  }
+}
+
 async function retryAssistantMessage(messageEl, button) {
   if (!messageEl || !button || isProcessing || !currentSessionId) return;
   const userEl = precedingUserMessage(messageEl);
@@ -3169,6 +3355,10 @@ function setProcessing(processing) {
   updateComposerForQueue();
   if (currentSessionId) {
     renderSessionList();
+  }
+  if (!processing && pendingCurrentSessionSync && currentSessionId === visibleSessionId) {
+    pendingCurrentSessionSync = false;
+    window.setTimeout(() => syncConversationMetadata(true, currentSessionId), 0);
   }
 }
 
@@ -3804,6 +3994,193 @@ const syncNav = document.querySelector('[data-view="sync"]');
 if (syncNav) {
   syncNav.addEventListener('click', () => {
     loadWebDAVConfig();
+  });
+}
+
+// =============================================================================
+// Authenticated same-Wi-Fi mobile bridge
+// =============================================================================
+
+let mobileBridgeState = null;
+let mobileBridgeExpiryTimer = null;
+
+function mobileDeviceName() {
+  const ua = navigator.userAgent || '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android 手机';
+  return '移动浏览器';
+}
+
+async function verifyMobileAccess() {
+  const gate = document.getElementById('mobilePairGate');
+  const message = document.getElementById('mobilePairMessage');
+  const retry = document.getElementById('mobilePairRetry');
+  if (!gate || !message || !retry) return true;
+  try {
+    const status = await fetch(`${API_BASE}/api/mobile-bridge/client-status`, { cache: 'no-store' }).then((response) => response.json());
+    if (status.authenticated) {
+      document.body.dataset.mobileClient = status.local ? 'desktop' : 'paired';
+      document.body.dataset.mobileCapability = status.capability || 'full';
+      gate.hidden = true;
+      return true;
+    }
+    gate.hidden = false;
+    document.body.classList.add('is-pairing');
+    const token = new URLSearchParams(location.search).get('pair') || '';
+    if (!token) {
+      message.textContent = status.bridgeEnabled ? '请在电脑端“设备与桥接”页面重新扫描配对二维码。' : '电脑端的手机桥接当前已关闭。';
+      retry.hidden = true;
+      return false;
+    }
+    message.textContent = '正在建立安全连接…';
+    const response = await fetch(`${API_BASE}/api/mobile-bridge/pair`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, name: mobileDeviceName() }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '配对失败。');
+    history.replaceState({}, '', `${location.pathname}${location.hash || ''}`);
+    document.body.dataset.mobileClient = 'paired';
+    document.body.dataset.mobileCapability = data.device?.capability || 'chat';
+    document.body.classList.remove('is-pairing');
+    gate.hidden = true;
+    return true;
+  } catch (error) {
+    gate.hidden = false;
+    message.textContent = error.message || String(error);
+    retry.hidden = false;
+    retry.onclick = () => location.reload();
+    return false;
+  }
+}
+
+function formatMobileTime(value) {
+  if (!value) return '从未连接';
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+}
+
+function capabilityLabel(value) {
+  return value === 'full' ? '完整控制' : value === 'files' ? '聊天与文件' : '仅聊天';
+}
+
+function showMobileBridgeResult(message, error = false) {
+  const result = document.getElementById('mobileBridgeResult');
+  if (!result) return;
+  result.hidden = !message;
+  result.className = `sync-result ${error ? 'sync-error' : 'sync-info'}`;
+  result.textContent = message || '';
+}
+
+function renderMobileBridge(state) {
+  mobileBridgeState = state;
+  const enabled = document.getElementById('mobileBridgeEnabled');
+  const live = document.getElementById('mobileBridgeLive');
+  const offline = document.getElementById('mobileBridgeOffline');
+  const address = document.getElementById('mobileBridgeAddress');
+  const capability = document.getElementById('mobileBridgeCapability');
+  const devices = document.getElementById('mobileBridgeDevices');
+  if (!enabled || !live || !offline || !address || !capability || !devices) return;
+  enabled.checked = !!state.enabled;
+  live.hidden = !state.enabled;
+  offline.hidden = !!state.enabled;
+  capability.value = state.defaultCapability || 'chat';
+  const selected = address.value;
+  address.innerHTML = (state.addresses || []).map((ip) => `<option value="${escapeHtml(ip)}">${escapeHtml(ip)}:${Number(state.port) || ''}</option>`).join('');
+  if (selected && (state.addresses || []).includes(selected)) address.value = selected;
+  if (!(state.addresses || []).length) address.innerHTML = '<option value="">未检测到局域网</option>';
+  const list = state.devices || [];
+  devices.innerHTML = list.length ? list.map((device) => `<div class="mobile-device-row" data-mobile-device="${escapeHtml(device.id)}">
+    <span class="mobile-device-kind">${uiIcon('smartphone')}</span>
+    <span class="mobile-device-info"><strong>${escapeHtml(device.name)}</strong><small>最近连接 ${formatMobileTime(device.lastActiveAt)}</small></span>
+    <select class="mobile-device-capability" title="设备权限" aria-label="设备权限"><option value="chat" ${device.capability === 'chat' ? 'selected' : ''}>仅聊天</option><option value="files" ${device.capability === 'files' ? 'selected' : ''}>聊天与文件</option><option value="full" ${device.capability === 'full' ? 'selected' : ''}>完整控制</option></select>
+    <button type="button" class="plugin-icon-action mobile-device-revoke" title="移除此设备" aria-label="移除此设备">${uiIcon('trash')}</button>
+  </div>`).join('') : '<div class="mobile-device-empty">还没有已配对设备</div>';
+  devices.querySelectorAll('[data-mobile-device]').forEach((row) => row.querySelector('button')?.addEventListener('click', () => revokeMobileDevice(row.dataset.mobileDevice)));
+  devices.querySelectorAll('[data-mobile-device]').forEach((row) => row.querySelector('select')?.addEventListener('change', (event) => updateMobileDeviceCapability(row.dataset.mobileDevice, event.currentTarget.value)));
+}
+
+async function loadMobileBridge() {
+  try {
+    const response = await fetch(`${API_BASE}/api/mobile-bridge/status`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '读取桥接状态失败。');
+    renderMobileBridge(data);
+  } catch (error) { showMobileBridgeResult(error.message || String(error), true); }
+}
+
+async function configureMobileBridge(changes) {
+  const response = await fetch(`${API_BASE}/api/mobile-bridge/config`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || '桥接配置保存失败。');
+  renderMobileBridge(data);
+  return data;
+}
+
+async function createMobilePairCode() {
+  const button = document.getElementById('mobileBridgePairBtn');
+  try {
+    button.disabled = true;
+    const address = document.getElementById('mobileBridgeAddress').value;
+    const response = await fetch(`${API_BASE}/api/mobile-bridge/pair-token`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ address }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '二维码生成失败。');
+    const image = document.getElementById('mobileBridgeQr');
+    image.src = data.qrDataUrl;
+    image.hidden = false;
+    document.getElementById('mobileBridgeQrPlaceholder').hidden = true;
+    document.getElementById('mobileBridgeUrl').textContent = data.url;
+    if (mobileBridgeExpiryTimer) clearInterval(mobileBridgeExpiryTimer);
+    const expiry = document.getElementById('mobileBridgeExpiry');
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((data.expiresAt - Date.now()) / 1000));
+      expiry.textContent = seconds ? `二维码一次有效，${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} 后失效。` : '二维码已失效，请重新生成。';
+      if (!seconds) clearInterval(mobileBridgeExpiryTimer);
+    };
+    update();
+    mobileBridgeExpiryTimer = setInterval(update, 1000);
+    showMobileBridgeResult('二维码已生成。手机与电脑连接同一个 Wi-Fi 后直接扫码。');
+  } catch (error) { showMobileBridgeResult(error.message || String(error), true); }
+  finally { button.disabled = false; }
+}
+
+async function revokeMobileDevice(id) {
+  const response = await fetch(`${API_BASE}/api/mobile-bridge/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const data = await response.json();
+  if (!response.ok) { showMobileBridgeResult(data.error || '移除失败。', true); return; }
+  await loadMobileBridge();
+}
+
+async function updateMobileDeviceCapability(id, capability) {
+  const response = await fetch(`${API_BASE}/api/mobile-bridge/devices/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capability }),
+  });
+  const data = await response.json();
+  if (!response.ok) { showMobileBridgeResult(data.error || '权限保存失败。', true); await loadMobileBridge(); return; }
+  showMobileBridgeResult(`${data.device.name} 已设为“${capabilityLabel(data.device.capability)}”。`);
+  await loadMobileBridge();
+}
+
+function initMobileBridge() {
+  document.getElementById('mobileBridgeEnabled')?.addEventListener('change', async (event) => {
+    try {
+      await configureMobileBridge({ enabled: event.currentTarget.checked });
+      showMobileBridgeResult(event.currentTarget.checked ? '手机桥接已开启。现在可以生成二维码。' : '手机桥接已关闭，所有手机连接已被阻止。');
+    } catch (error) { event.currentTarget.checked = !event.currentTarget.checked; showMobileBridgeResult(error.message || String(error), true); }
+  });
+  document.getElementById('mobileBridgeCapability')?.addEventListener('change', async (event) => {
+    try { await configureMobileBridge({ defaultCapability: event.currentTarget.value }); }
+    catch (error) { showMobileBridgeResult(error.message || String(error), true); }
+  });
+  document.getElementById('mobileBridgePairBtn')?.addEventListener('click', createMobilePairCode);
+  document.getElementById('mobileBridgeRevokeAll')?.addEventListener('click', async () => {
+    if (!confirm('移除全部已配对设备？这些手机需要重新扫码才能连接。')) return;
+    await fetch(`${API_BASE}/api/mobile-bridge/devices`, { method: 'DELETE' });
+    await loadMobileBridge();
   });
 }
 
@@ -6100,14 +6477,57 @@ function initSidebarNavigationScroll() {
   });
 }
 
+function closeMobileDrawers() {
+  document.body.classList.remove('mobile-sidebar-open', 'mobile-files-open');
+  const backdrop = document.getElementById('mobileDrawerBackdrop');
+  if (backdrop) backdrop.hidden = true;
+}
+
+function initMobileDrawers() {
+  const backdrop = document.getElementById('mobileDrawerBackdrop');
+  const open = (kind) => {
+    closeMobileDrawers();
+    document.body.classList.add(kind === 'files' ? 'mobile-files-open' : 'mobile-sidebar-open');
+    if (backdrop) backdrop.hidden = false;
+  };
+  document.getElementById('mobileMenuBtn')?.addEventListener('click', () => open('sidebar'));
+  document.getElementById('mobileFilesBtn')?.addEventListener('click', () => open('files'));
+  backdrop?.addEventListener('click', closeMobileDrawers);
+  window.addEventListener('resize', () => { if (innerWidth > 760) closeMobileDrawers(); });
+}
+
+function initChatFocusMode() {
+  const button = document.getElementById('chatFocusToggle');
+  if (!button) return;
+  const root = document.body;
+  const saved = localStorage.getItem('iexa-chat-focus-mode') === '1';
+  const update = (focused) => {
+    root.classList.toggle('chat-focus-mode', focused);
+    button.setAttribute('aria-pressed', focused ? 'true' : 'false');
+    button.title = focused ? '恢复左右面板' : '隐藏左右面板，展开聊天区';
+    const label = button.querySelector('.chat-focus-toggle-label');
+    if (label) label.textContent = focused ? '恢复面板' : '展开聊天';
+  };
+  update(saved);
+  button.addEventListener('click', () => {
+    const focused = !root.classList.contains('chat-focus-mode');
+    update(focused);
+    localStorage.setItem('iexa-chat-focus-mode', focused ? '1' : '0');
+  });
+}
+
 // Start
 async function init() {
+  if (!await verifyMobileAccess()) return;
   initTheme();
   await loadAppearanceSettings();
   initPermissionModeUI();
   await loadPermissionMode();
   initPanelResizers();
   initSidebarNavigationScroll();
+  initMobileDrawers();
+  initChatFocusMode();
+  initMobileBridge();
   initTextContextMenu();
   initFilesPanel();
   initTerminalPanel();
@@ -6121,6 +6541,7 @@ async function init() {
   await loadSystemInfo();
   await refreshModelSelector();
   await loadSessionList();
+  startConversationSync();
   loadJobs();
 }
 

@@ -32,6 +32,7 @@ const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
 const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors');
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
 const { PluginManager } = require('../dist/main/plugins/PluginManager');
+const { MobileBridgeManager } = require('../dist/main/mobile/MobileBridgeManager');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -44,6 +45,32 @@ async function waitFor(check, timeoutMs = 3000) {
   }
   throw new Error('Timed out waiting for expected terminal output');
 }
+
+test('MobileBridgeManager pairs once, authenticates, changes capability, and revokes sessions', async () => {
+  const root = await tempWorkspace();
+  const manager = new MobileBridgeManager(root);
+  manager.setPort(19840);
+  assert.equal(manager.status().enabled, false);
+  assert.throws(() => manager.createPairToken('192.168.1.10'), /开启手机桥接/);
+
+  manager.configure({ enabled: true, defaultCapability: 'chat' });
+  const pair = manager.createPairToken('192.168.1.10');
+  assert.match(pair.url, /^http:\/\/192\.168\.1\.10:19840\/\?pair=/);
+  const connected = manager.pair(pair.token, 'Test Phone');
+  assert.ok(connected);
+  assert.equal(connected.device.capability, 'chat');
+  assert.equal(manager.pair(pair.token, 'Replay Phone'), null);
+  assert.equal(manager.authenticate(connected.sessionToken)?.name, 'Test Phone');
+  assert.equal(manager.setCapability(connected.device.id, 'files')?.capability, 'files');
+  assert.equal(manager.authenticate(connected.sessionToken)?.capability, 'files');
+  assert.equal(manager.revoke(connected.device.id), true);
+  assert.equal(manager.authenticate(connected.sessionToken), null);
+
+  const persisted = JSON.parse(await fs.readFile(path.join(root, '.iexa-mobile-bridge.json'), 'utf8'));
+  assert.equal(persisted.enabled, true);
+  assert.equal(typeof persisted.secret, 'string');
+  assert.equal(persisted.devices.length, 0);
+});
 
 test('Windows launchers bootstrap dependencies and keep actionable failures visible', async () => {
   const [serverBat, electronBat, installerBat, dependencyHelper, electronHelper] = await Promise.all([
@@ -70,6 +97,13 @@ test('Windows launchers bootstrap dependencies and keep actionable failures visi
   assert.match(electronHelper, /Expand-Archive/i);
   assert.match(electronHelper, /resources\\default_app\.asar/i);
   assert.doesNotMatch(electronBat, /extract_electron\.js/i);
+});
+
+test('Electron uses IPv4 loopback for its local health check and window URL', async () => {
+  const electronEntry = await fs.readFile(path.join(__dirname, '..', 'electron-entry.js'), 'utf8');
+  assert.match(electronEntry, /const LOOPBACK_HOST = '127\.0\.0\.1'/);
+  assert.match(electronEntry, /http:\/\/\$\{LOOPBACK_HOST\}:\$\{PORT\}\//);
+  assert.match(electronEntry, /mainWindow\.loadURL\(url\)/);
 });
 
 test('distribution builder includes the Electron preload bridge', async () => {
@@ -384,6 +418,17 @@ test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');
 });
 
+test('ToolRuntime enforces the per-run mobile tool allowlist', async () => {
+  const root = await tempWorkspace();
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
+  runtime.registerDefaults(); await runtime.initialize();
+  runtime.beginRun(['file_read']);
+  const signal = new AbortController().signal;
+  const blocked = await runtime.execute('shell_execute', { tool_title: 'blocked command', command: 'echo should-not-run' }, { signal, sessionId: 'mobile_chat', toolCallId: 'blocked_call', workspaceDir: root });
+  assert.equal(blocked.success, false);
+  assert.match(blocked.output, /not available for this client permission level/);
+});
+
 test('ToolRuntime preserves complete large output for UI and session history', async () => {
   const root = await tempWorkspace();
   const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory') });
@@ -415,6 +460,38 @@ test('renderer keeps complete tool input and output inside scrollable detail pan
   assert.doesNotMatch(renderer, /output\.substring\(0, 5000\)/);
   assert.match(styles, /\.tool-args, \.tool-body pre\.tool-args \{[^}]*overflow: auto/s);
   assert.match(styles, /\.tool-body \.tool-result \{[^}]*max-height: 340px/s);
+});
+
+test('desktop and mobile conversations use the shared real-time session event stream', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const server = await fs.readFile(path.join(__dirname, '..', 'src', 'main', 'server.ts'), 'utf8');
+
+  assert.match(renderer, /new EventSource\(`\$\{API_BASE\}\/api\/session-events\?clientId=/);
+  assert.match(renderer, /conversationEventSource\.addEventListener\('session_changed'/);
+  assert.match(renderer, /conversationEventSource\.addEventListener\('session_stream'/);
+  assert.match(renderer, /function applyMirroredStreamEvent\(payload\)/);
+  assert.match(renderer, /'X-IEXA-Client-Id': conversationClientId/);
+  assert.match(server, /function broadcastSessionEvent\(event: string, data: unknown, excludedClientId = ''\)/);
+  assert.match(server, /event: 'turn_started'/);
+  assert.match(server, /saveMessages\(sessionId, trimmedProvisionalMessages\)/);
+});
+
+test('chat focus capsule hides side panels and persists its state', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
+  const app = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+
+  assert.match(renderer, /id="chatFocusToggle"/);
+  assert.match(renderer, /<div class="chat-container">\s*<div class="chat-focus-reveal"/);
+  assert.match(app, /function initChatFocusMode\(\)/);
+  assert.match(app, /localStorage\.getItem\('iexa-chat-focus-mode'\)/);
+  assert.match(app, /localStorage\.setItem\('iexa-chat-focus-mode'/);
+  assert.match(styles, /\.chat-focus-reveal/);
+  assert.match(styles, /body\.chat-focus-mode \.sidebar/);
+  assert.match(styles, /body\.chat-focus-mode \.files-panel/);
+  assert.match(styles, /body\.chat-focus-mode \.chat-messages \{\s*padding-left: 24px;\s*padding-right: 24px;/);
+  assert.match(styles, /body\.chat-focus-mode \.message\.assistant/);
+  assert.match(styles, /body\.chat-focus-mode \.message\.user/);
 });
 
 test('renderer keeps the sidebar function rail independently scrollable', async () => {
@@ -878,6 +955,29 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
   const server = await startServer(0, false);
   const port = server.address().port;
   try {
+    const eventAbort = new AbortController();
+    const eventResponse = await fetch(`http://127.0.0.1:${port}/api/session-events?clientId=sync-test`, { signal: eventAbort.signal });
+    assert.equal(eventResponse.status, 200);
+    const eventReader = eventResponse.body.getReader();
+    let eventBuffer = '';
+    const eventPromise = (async () => {
+      while (true) {
+        const chunk = await eventReader.read();
+        if (chunk.done) return null;
+        eventBuffer += new TextDecoder().decode(chunk.value);
+        const match = eventBuffer.match(/event: session_changed\ndata: ([^\n]+)/);
+        if (match) return JSON.parse(match[1]);
+      }
+    })();
+    const eventSession = await fetch(`http://127.0.0.1:${port}/api/sessions`, { method: 'POST' }).then((response) => response.json());
+    const event = await Promise.race([
+      eventPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('session event timeout')), 1500)),
+    ]);
+    assert.equal(event.sessionId, eventSession.session.id);
+    assert.equal(event.reason, 'created');
+    eventAbort.abort();
+
     const mode = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`).then((response) => response.json());
     assert.equal(mode.mode, 'risk');
     const updated = await fetch(`http://127.0.0.1:${port}/api/permissions/mode`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'full' }) }).then((response) => response.json());

@@ -29,6 +29,7 @@ export class ToolRuntime {
   private readonly loopDetector = new LoopDetector();
   private readonly commandPolicy = new CommandPolicy();
   private readonly artifacts: ArtifactStore;
+  private allowedTools: Set<string> | null = null;
 
   constructor(private readonly config: ToolRuntimeConfig) {
     this.permissions = new PermissionManager(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), config.permissionResolver, config.permissionMode || 'risk');
@@ -43,6 +44,9 @@ export class ToolRuntime {
   isParallelSafe(name: string): boolean { return this.registry.get(name)?.parallelSafe === true; }
   definitions(): AgentToolDefinition[] { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
   async execute(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    if (this.allowedTools && !this.allowedTools.has(name)) {
+      return { output: `Tool ${name} is not available for this client permission level.`, success: false };
+    }
     this.registry.validate(name, args); this.loopDetector.record(name, args); const tool = this.registry.get(name)!;
     // Ordinary workspace commands (pwd, git status, tests, file listing, ...)
     // remain usable without a modal approval. System-level commands retain the
@@ -71,7 +75,10 @@ export class ToolRuntime {
     return result;
   }
   getBudget(): ReturnType<BudgetManager['snapshot']> { return this.budget.snapshot(); }
-  beginRun(): void { this.budget.reset(); this.loopDetector.reset(); }
+  beginRun(allowedTools?: Iterable<string>): void {
+    this.allowedTools = allowedTools ? new Set(allowedTools) : null;
+    this.budget.reset(); this.loopDetector.reset();
+  }
   beginTurn(): void { this.budget.beginTurn(); }
   recordInputTokens(tokens: number): void { this.budget.recordInputTokens(tokens); }
   registerDynamicTool(definition: AgentToolDefinition, execute: ToolDefinition['execute']): void {

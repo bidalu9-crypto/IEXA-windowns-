@@ -36,6 +36,8 @@ import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { VisionFallback } from './vision/VisionFallback';
 import { PluginManager } from './plugins/PluginManager';
+import { MobileBridgeDevice, MobileBridgeManager } from './mobile/MobileBridgeManager';
+import * as QRCode from 'qrcode';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -66,8 +68,10 @@ const gitService = new GitService();
 const terminalManager = new TerminalManager();
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
 const pluginManager = new PluginManager(WORKSPACE_DIR);
+const mobileBridge = new MobileBridgeManager(WORKSPACE_DIR);
 const visionFallback = new VisionFallback();
 const soulStore = new SoulStore(MEMORY_DIR);
+const sessionEventClients = new Map<http.ServerResponse, string>();
 
 interface AppearanceSettings {
   theme: 'light' | 'dark';
@@ -997,8 +1001,12 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
-  let fp = req.url === '/' ? '/index.html' : req.url || '/index.html';
-  fp = path.join(RENDERER_DIR, fp);
+  const pathname = new URL(req.url || '/', 'http://localhost').pathname;
+  const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^[/\\]+/, '');
+  const fp = path.resolve(RENDERER_DIR, relative);
+  if (fp !== RENDERER_DIR && !fp.startsWith(`${RENDERER_DIR}${path.sep}`)) {
+    res.writeHead(403); res.end('禁止访问'); return;
+  }
   const ext = path.extname(fp);
   try {
     const content = fs.readFileSync(fp);
@@ -1010,12 +1018,84 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
   } catch { res.writeHead(404); res.end('未找到'); }
 }
 
+function isLoopbackRequest(req: http.IncomingMessage): boolean {
+  const address = String(req.socket.remoteAddress || '').toLowerCase();
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+function cookieValue(req: http.IncomingMessage, name: string): string {
+  for (const part of String(req.headers.cookie || '').split(';')) {
+    const index = part.indexOf('=');
+    if (index < 0 || part.slice(0, index).trim() !== name) continue;
+    try { return decodeURIComponent(part.slice(index + 1).trim()); } catch { return ''; }
+  }
+  return '';
+}
+
+function sameOriginMutation(req: http.IncomingMessage): boolean {
+  if (req.method === 'GET' || req.method === 'HEAD') return true;
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try { return new URL(origin).host === String(req.headers.host || ''); } catch { return false; }
+}
+
+function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: string): boolean {
+  if (device.capability === 'full') return true;
+  const pathname = url.pathname;
+  const readOnly = method === 'GET' || method === 'HEAD';
+  const chatRoutes = pathname === '/api/chat'
+    || pathname === '/api/session-events'
+    || pathname === '/api/cancel'
+    || pathname === '/api/sessions'
+    || pathname.startsWith('/api/sessions/')
+    || pathname === '/api/token-usage'
+    || pathname === '/api/search'
+    || pathname === '/api/system'
+    || pathname === '/api/profiles'
+    || pathname === '/api/appearance'
+    || pathname === '/api/soul'
+    || pathname === '/api/jobs'
+    || pathname.startsWith('/api/attachments/')
+    || pathname.startsWith('/api/artifacts/')
+    || pathname === '/api/uploads/init'
+    || pathname === '/api/uploads/chunk'
+    || pathname === '/api/uploads/complete';
+  if (chatRoutes) {
+    if ((pathname === '/api/profiles' || pathname === '/api/appearance' || pathname === '/api/soul') && !readOnly) return false;
+    return true;
+  }
+  if (device.capability !== 'files') return false;
+  return pathname === '/api/project'
+    || pathname.startsWith('/api/fs/')
+    || pathname === '/api/skills'
+    || (pathname.startsWith('/api/skills/') && readOnly);
+}
+
+function toolsAllowedForDevice(tools: ReturnType<typeof makeAgentTools>, device: MobileBridgeDevice | null): ReturnType<typeof makeAgentTools> {
+  if (!device || device.capability === 'full') return tools;
+  if (device.capability === 'chat') return [];
+  const fileTools = new Set(['todo_write', 'file_read', 'file_write', 'file_edit', 'display_file', 'read_image']);
+  return tools.filter((tool) => fileTools.has(tool.name));
+}
+
 function sendSSE(res: http.ServerResponse, event: string, data: unknown): void {
   // Write + flush so tool steps appear live in the UI (not only after the turn ends).
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   const anyRes = res as http.ServerResponse & { flush?: () => void };
   if (typeof anyRes.flush === 'function') {
     try { anyRes.flush(); } catch { /* ignore */ }
+  }
+}
+
+function broadcastSessionEvent(event: string, data: unknown, excludedClientId = ''): void {
+  for (const [client, clientId] of sessionEventClients) {
+    if (excludedClientId && clientId === excludedClientId) continue;
+    if (client.writableEnded || client.destroyed) {
+      sessionEventClients.delete(client);
+      continue;
+    }
+    try { sendSSE(client, event, data); }
+    catch { sessionEventClients.delete(client); }
   }
 }
 
@@ -1171,6 +1251,102 @@ function createServer(): http.Server {
 
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+    // Pairing is the only API reachable from an untrusted LAN client. Static
+    // assets remain public so the browser can render the pairing screen.
+    if (url.pathname === '/api/mobile-bridge/client-status' && req.method === 'GET') {
+      if (isLoopbackRequest(req)) { jsonReply(res, 200, { local: true, authenticated: true, capability: 'full' }); return; }
+      const device = mobileBridge.authenticate(cookieValue(req, 'iexa_mobile_session'));
+      jsonReply(res, 200, device
+        ? { local: false, authenticated: true, capability: device.capability, device }
+        : { local: false, authenticated: false, bridgeEnabled: mobileBridge.isEnabled() });
+      return;
+    }
+
+    if (url.pathname === '/api/mobile-bridge/pair' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+        const paired = mobileBridge.pair(String(body.token || ''), String(body.name || req.headers['user-agent'] || '移动设备'));
+        if (!paired) { jsonReply(res, 401, { error: '配对码无效、已使用或已过期。' }); return; }
+        res.setHeader('Set-Cookie', `iexa_mobile_session=${encodeURIComponent(paired.sessionToken)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`);
+        jsonReply(res, 200, { ok: true, device: paired.device });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message || '配对失败。' }); }
+      return;
+    }
+
+    let mobileDevice: MobileBridgeDevice | null = null;
+    if (!isLoopbackRequest(req) && url.pathname.startsWith('/api/')) {
+      if (!mobileBridge.isEnabled()) { jsonReply(res, 403, { error: 'IEXA 手机桥接未开启。', code: 'BRIDGE_DISABLED' }); return; }
+      mobileDevice = mobileBridge.authenticate(cookieValue(req, 'iexa_mobile_session'));
+      if (!mobileDevice) { jsonReply(res, 401, { error: '此设备尚未与 IEXA 配对。', code: 'PAIR_REQUIRED' }); return; }
+      if (!sameOriginMutation(req)) { jsonReply(res, 403, { error: '请求来源校验失败。', code: 'ORIGIN_REJECTED' }); return; }
+      if (url.pathname.startsWith('/api/') && !routeAllowedForDevice(mobileDevice, url, req.method || 'GET')) {
+        jsonReply(res, 403, { error: '当前移动设备权限不足。', code: 'CAPABILITY_DENIED' }); return;
+      }
+    }
+
+    if (!isLoopbackRequest(req) && (url.pathname === '/api/mobile-bridge/status'
+      || url.pathname === '/api/mobile-bridge/config'
+      || url.pathname === '/api/mobile-bridge/pair-token'
+      || url.pathname.startsWith('/api/mobile-bridge/devices'))) {
+      jsonReply(res, 403, { error: '桥接管理只能在 IEXA 电脑端操作。', code: 'DESKTOP_REQUIRED' }); return;
+    }
+
+    if (url.pathname === '/api/session-events' && req.method === 'GET') {
+      const clientId = String(url.searchParams.get('clientId') || '');
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      sessionEventClients.set(res, clientId);
+      sendSSE(res, 'connected', { now: Date.now() });
+      const keepAlive = setInterval(() => {
+        if (!res.writableEnded) res.write(': keep-alive\n\n');
+      }, 15000);
+      req.on('close', () => {
+        clearInterval(keepAlive);
+        sessionEventClients.delete(res);
+      });
+      return;
+    }
+
+    if (url.pathname === '/api/mobile-bridge/status' && req.method === 'GET') {
+      jsonReply(res, 200, mobileBridge.status()); return;
+    }
+    if (url.pathname === '/api/mobile-bridge/config' && req.method === 'PUT') {
+      try { jsonReply(res, 200, mobileBridge.configure(JSON.parse(await readBody(req) || '{}'))); }
+      catch (error) { jsonReply(res, 400, { error: (error as Error).message || '桥接配置保存失败。' }); }
+      return;
+    }
+    if (url.pathname === '/api/mobile-bridge/pair-token' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+        const pair = mobileBridge.createPairToken(typeof body.address === 'string' ? body.address : undefined);
+        const qrDataUrl = await QRCode.toDataURL(pair.url, { width: 280, margin: 1, errorCorrectionLevel: 'M' });
+        jsonReply(res, 200, { ...pair, qrDataUrl });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message || '配对码生成失败。' }); }
+      return;
+    }
+    if (url.pathname === '/api/mobile-bridge/devices' && req.method === 'DELETE') {
+      mobileBridge.revokeAll(); jsonReply(res, 200, { ok: true }); return;
+    }
+    if (url.pathname.startsWith('/api/mobile-bridge/devices/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(url.pathname.slice('/api/mobile-bridge/devices/'.length));
+      if (!mobileBridge.revoke(id)) { jsonReply(res, 404, { error: '设备不存在。' }); return; }
+      jsonReply(res, 200, { ok: true }); return;
+    }
+    if (url.pathname.startsWith('/api/mobile-bridge/devices/') && req.method === 'PUT') {
+      const id = decodeURIComponent(url.pathname.slice('/api/mobile-bridge/devices/'.length));
+      try {
+        const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
+        const device = mobileBridge.setCapability(id, body.capability);
+        if (!device) { jsonReply(res, 404, { error: '设备不存在。' }); return; }
+        jsonReply(res, 200, { device });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message || '设备权限保存失败。' }); }
+      return;
+    }
+
     if (await handleWebDAVRoute(req, res, url, {
       workspaceDir: WORKSPACE_DIR, sessionsDir: SESSIONS_DIR, settingsFile: SETTINGS_FILE, sessionsStoreFile: SESSIONS_FILE,
       maskPassword: maskKey, loadConfig, saveConfig, testConnection, syncAll,
@@ -1275,6 +1451,7 @@ function createServer(): http.Server {
         store.activeSessionId = session.id;
         saveSessionStore(store);
         saveMessages(session.id, []);
+        broadcastSessionEvent('session_changed', { sessionId: session.id, reason: 'created', session });
         jsonReply(res, 200, { session });
         return;
       }
@@ -1369,6 +1546,7 @@ function createServer(): http.Server {
             session.updated = Date.now();
             saveSessionStore(store);
           }
+          broadcastSessionEvent('session_changed', { sessionId, reason: 'reset', session });
           jsonReply(res, 200, { ok: true, messages: retained.length });
         } catch {
           jsonReply(res, 400, { error: '无效的重置请求' });
@@ -1387,6 +1565,7 @@ function createServer(): http.Server {
             s.titleSource = 'manual';
             s.updated = Date.now();
             saveSessionStore(store);
+            broadcastSessionEvent('session_changed', { sessionId: sid, reason: 'renamed', session: s });
             jsonReply(res, 200, { ok: true });
           } else {
             jsonReply(res, 404, { error: '会话未找到' });
@@ -1403,6 +1582,7 @@ function createServer(): http.Server {
           store.activeSessionId = store.sessions[0]?.id || '';
         }
         saveSessionStore(store);
+        broadcastSessionEvent('session_changed', { sessionId: sid, reason: 'deleted' });
         // Delete message file
         const fp = path.join(SESSIONS_DIR, sid + '.json');
         try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch { /* ignore */ }
@@ -1507,6 +1687,7 @@ function createServer(): http.Server {
         const parsed = JSON.parse(body);
         const message: string = parsed.message || '';
         const sessionId: string = parsed.sessionId || '';
+        const sourceClientId = String(req.headers['x-iexa-client-id'] || parsed.clientId || '');
         requestSessionId = sessionId;
         const rawAttachments: IncomingAttachment[] = Array.isArray(parsed.attachments) ? parsed.attachments : [];
         if (!message && rawAttachments.length === 0) throw new Error('message required');
@@ -1606,7 +1787,7 @@ ${recentMemories}
         for (const binding of pluginBindings) {
           agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
         }
-        const tools = [...makeAgentTools(true), ...(visionProfile && !profileLikelySupportsVision(profile) ? [{
+        const availableTools = [...makeAgentTools(true), ...(visionProfile && !profileLikelySupportsVision(profile) ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
           required: ['path'], propertyOrdering: ['path', 'prompt'],
@@ -1616,6 +1797,7 @@ ${recentMemories}
           parameters: { arguments_json: { type: 'string' as const, description: 'JSON object arguments for this MCP tool.' } },
           required: ['arguments_json'], propertyOrdering: ['arguments_json'],
         })), ...pluginBindings.map((binding) => binding.definition)];
+        const tools = toolsAllowedForDevice(availableTools, mobileDevice);
 
         // Process attachments: save to workspace, prepare for agent
         const attachDir = path.join(WORKSPACE_DIR, 'uploads', sessionId);
@@ -1723,10 +1905,26 @@ ${recentMemories}
           if (fb) {
             sess.title = fb;
             sess.titleSource = 'message';
-            sess.updated = Date.now();
-            saveSessionStore(store);
           }
         }
+
+        // Commit the prompt before inference begins so every paired client can
+        // render the new user message while the assistant is still streaming.
+        const provisionalMessages = [...existingMessages, userMsg];
+        const trimmedProvisionalMessages = provisionalMessages.length > 200
+          ? provisionalMessages.slice(provisionalMessages.length - 200)
+          : provisionalMessages;
+        saveMessages(sessionId, trimmedProvisionalMessages);
+        if (sess) {
+          sess.messageCount = trimmedProvisionalMessages.length;
+          sess.updated = Date.now();
+          saveSessionStore(store);
+        }
+        broadcastSessionEvent('session_changed', {
+          sessionId,
+          reason: 'user_message',
+          session: sess,
+        }, sourceClientId);
 
         // A chat turn is a real background task even when no tool is used.
         // This makes the task center useful for ordinary model-only replies too.
@@ -1758,6 +1956,15 @@ ${recentMemories}
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
         let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
         let titleJob: Promise<void> | null = null;
+        const emitTurnEvent = (event: string, data: unknown) => {
+          sendSSE(res, event, data);
+          broadcastSessionEvent('session_stream', { sessionId, event, data }, sourceClientId);
+        };
+        broadcastSessionEvent('session_stream', {
+          sessionId,
+          event: 'turn_started',
+          data: { timestamp: userMsg.timestamp },
+        }, sourceClientId);
 
         // iOS: generateSessionTitleIfNeeded after each LLM stream completes
         const maybeAiTitle = async () => {
@@ -1768,8 +1975,14 @@ ${recentMemories}
             toolEntries: assistantToolCalls.map((tc) => ({ name: tc.name, args: tc.args })),
             sendTitle: (title, category) => {
               if (!res.writableEnded) {
-                sendSSE(res, 'session_title', { sessionId, title, category });
+                emitTurnEvent('session_title', { sessionId, title, category });
               }
+              const titledSession = loadSessionStore().sessions.find((item) => item.id === sessionId);
+              broadcastSessionEvent('session_changed', {
+                sessionId,
+                reason: 'title_updated',
+                session: titledSession,
+              }, sourceClientId);
             },
           });
         };
@@ -1777,25 +1990,25 @@ ${recentMemories}
         const cb: AgentLoopCallbacks = {
           onTextDelta: (_t, ft) => {
             assistantFullText = ft;
-            sendSSE(res, 'text', { content: ft });
+            emitTurnEvent('text', { content: ft });
           },
           // Enforce the user's setting at the final transport boundary too.
           // This covers compatible gateways that emit reasoning despite an
           // enable_thinking: false request.
           onThinkingDelta: t => {
-            if (getThinkingLevel() !== 'off') sendSSE(res, 'thinking', { content: t });
+            if (getThinkingLevel() !== 'off') emitTurnEvent('thinking', { content: t });
           },
-          onToolCallStart: (id, name) => sendSSE(res, 'tool_start', { id, name }),
-          onToolInputDelta: (name, acc, id) => sendSSE(res, 'tool_input', { id, name, args: acc }),
+          onToolCallStart: (id, name) => emitTurnEvent('tool_start', { id, name }),
+          onToolInputDelta: (name, acc, id) => emitTurnEvent('tool_input', { id, name, args: acc }),
           onToolCallComplete: (id, name, args) => {
             assistantToolCalls.push({ id, name, args });
             const job = createToolJob(sessionId, id, name, args);
-            sendSSE(res, 'tool_complete', { id, name, args });
-            sendSSE(res, 'job', job);
+            emitTurnEvent('tool_complete', { id, name, args });
+            emitTurnEvent('job', job);
           },
           onToolExecutionStart: (id) => {
             const job = updateJob(sessionId, id, (item) => { item.status = 'running'; item.startedAt = Date.now(); });
-            if (job) sendSSE(res, 'job', job);
+            if (job) emitTurnEvent('job', job);
           },
           onToolResult: (id, r) => {
             const entry = assistantToolCalls.find((tc) => tc.id === id);
@@ -1810,8 +2023,8 @@ ${recentMemories}
               item.status = r.success ? 'completed' : 'failed'; item.success = r.success; item.finishedAt = Date.now();
               item.outputPreview = String(r.output || '').replace(/\s+/g, ' ').slice(0, 320);
             });
-            if (job) sendSSE(res, 'job', job);
-            sendSSE(res, 'tool_result', {
+            if (job) emitTurnEvent('job', job);
+            emitTurnEvent('tool_result', {
               id, output: r.output, success: r.success,
               todos: r.todos,
               fileChange: r.fileChange,
@@ -1820,22 +2033,23 @@ ${recentMemories}
               imageMimeType: r.imageMimeType,
             });
           },
-          onRetry: (attempt, delayMs, error) => sendSSE(res, 'retry', { attempt, delayMs, error }),
+          onRetry: (attempt, delayMs, error) => emitTurnEvent('retry', { attempt, delayMs, error }),
           onUsage: (u: LLMUsage) => {
             lastUsage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens };
             // Persist each provider usage receipt immediately; a turn can contain multiple model calls.
             recordTokenUsage(profile, u);
-            sendSSE(res, 'usage', u);
+            emitTurnEvent('usage', u);
           },
-          onContext: (context) => sendSSE(res, 'context', context),
+          onContext: (context) => emitTurnEvent('context', context),
           onError: (e) => {
             clearPermissionSubscription(sessionId);
             runningSessionIds.delete(sessionId);
             finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
-            if (job) sendSSE(res, 'job', job);
-            sendSSE(res, 'error', { message: e });
+            if (job) emitTurnEvent('job', job);
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
+            emitTurnEvent('error', { message: e });
+            broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
           },
           onDone: (sr) => {
@@ -1843,10 +2057,11 @@ ${recentMemories}
             runningSessionIds.delete(sessionId);
             finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
-            if (job) sendSSE(res, 'job', job);
+            if (job) emitTurnEvent('job', job);
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
             // Unlock UI first (iOS generates title async in background Task)
-            sendSSE(res, 'done', { stopReason: sr });
+            emitTurnEvent('done', { stopReason: sr });
+            broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => {
               try { res.end(); } catch { /* */ }
             });
@@ -1856,11 +2071,12 @@ ${recentMemories}
             runningSessionIds.delete(sessionId);
             finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
-            if (job) sendSSE(res, 'job', job);
+            if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            sendSSE(res, 'cancelled', {});
-            res.end();
             saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
+            emitTurnEvent('cancelled', {});
+            broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
+            res.end();
           },
         };
         await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments });
@@ -2825,12 +3041,14 @@ ${recentMemories}
 }
 
 // ---- Export ----
-export function startServer(port: number = PORT, autoOpen: boolean = true): Promise<http.Server> {
+export function startServer(port: number = PORT, autoOpen: boolean = true, host: string = process.env.IEXA_BIND_HOST || '0.0.0.0'): Promise<http.Server> {
   return new Promise((resolve) => {
     backfillSessionContexts();
     const srv = createServer();
-    srv.listen(port, () => {
-      console.log(`[IEXA] Server running at http://localhost:${port}`);
+    srv.listen(port, host, () => {
+      const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
+      mobileBridge.setPort(actualPort);
+      console.log(`[IEXA] Server running at http://${host}:${actualPort}`);
       if (autoOpen) {
         const { exec } = require('child_process');
         const cmd = process.platform === 'win32'

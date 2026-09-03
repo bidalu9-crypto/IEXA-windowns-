@@ -54,13 +54,18 @@
     <symbol id="ui-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.5V16M12 7.5h.01"/></symbol>
     <symbol id="ui-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/></symbol>
     <symbol id="ui-bolt" viewBox="0 0 24 24"><path d="m13.1 2.8-8 10.1h6.2l-.6 8.3 8.2-10.5h-6.2l.4-8.1Z"/></symbol>
+    <symbol id="ui-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="ui-smartphone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.2"/><path d="M10 5h4M11 18.5h2"/></symbol>
   </defs>
 </svg>
 <div class="app">
+  <button type="button" class="mobile-toolbar-button mobile-menu-button" id="mobileMenuBtn" title="打开导航" aria-label="打开导航"><svg class="ui-icon"><use href="#ui-menu"/></svg></button>
+  <button type="button" class="mobile-toolbar-button mobile-files-button" id="mobileFilesBtn" title="打开项目工具" aria-label="打开项目工具"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+  <div class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" hidden></div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="brand-row">
-        <img class="brand-logo" src="icon.png" alt="IEXA-WIN Logo">
+        <img class="brand-logo" src="mobile-pair-logo.png" width="20" height="20" alt="IEXA-WIN Logo">
         <h1 id="brandName">IEXA</h1>
       </div>
       <span class="version" id="sysVersion">Windows</span>
@@ -106,7 +111,7 @@
           <rect x="3.5" y="4" width="17" height="12" rx="1.8" stroke="currentColor" stroke-width="1.7"/>
           <path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         </svg>
-        <span>设备</span>
+        <span>设备与桥接</span>
       </button>
       <button class="nav-btn" data-view="about">
         <svg class="nav-about-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -129,6 +134,13 @@
     <div class="view active" id="view-chat">
       <div class="chat-layout">
         <div class="chat-container">
+          <div class="chat-focus-reveal" aria-hidden="false">
+            <button type="button" class="chat-focus-toggle" id="chatFocusToggle" aria-pressed="false" title="隐藏左右面板，展开聊天区">
+              <svg class="chat-focus-toggle-icon chat-focus-icon-expand" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg class="chat-focus-toggle-icon chat-focus-icon-collapse" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 3-6 6m0-6v6h6M15 21l6-6m0 6v-6h-6M3 15l6 6m-6 0h6v-6M21 9l-6-6m6 0h-6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="chat-focus-toggle-label">展开聊天</span>
+            </button>
+          </div>
           <div class="chat-messages-area">
             <div class="chat-messages" id="chatMessages">
               <div class="welcome">
@@ -426,7 +438,47 @@
 
     <!-- Sync / WebDAV View -->
     <div class="view" id="view-sync">
-      <div class="settings-container">
+      <div class="settings-container device-settings-container">
+        <section class="mobile-bridge-panel">
+          <div class="mobile-bridge-heading">
+            <div class="mobile-bridge-icon"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></div>
+            <div><h2>手机桥接</h2><p class="sync-desc">同一 Wi-Fi 下扫码，在手机浏览器使用 IEXA。</p></div>
+            <label class="plugin-toggle mobile-bridge-toggle" title="开启手机桥接"><input type="checkbox" id="mobileBridgeEnabled"><span></span></label>
+          </div>
+          <div class="mobile-bridge-content" id="mobileBridgeContent">
+            <div class="mobile-bridge-offline" id="mobileBridgeOffline">桥接当前已关闭。开启后，只有扫码配对的设备可以访问。</div>
+            <div class="mobile-bridge-live" id="mobileBridgeLive" hidden>
+              <div class="mobile-bridge-grid">
+                <div class="mobile-bridge-qr-shell">
+                  <img id="mobileBridgeQr" alt="手机桥接二维码">
+                  <div class="mobile-bridge-qr-placeholder" id="mobileBridgeQrPlaceholder">点击生成二维码</div>
+                </div>
+                <div class="mobile-bridge-actions">
+                  <div class="setting-group">
+                    <label for="mobileBridgeAddress">局域网地址</label>
+                    <select id="mobileBridgeAddress"></select>
+                  </div>
+                  <div class="setting-group">
+                    <label for="mobileBridgeCapability">新设备默认权限</label>
+                    <select id="mobileBridgeCapability">
+                      <option value="chat">仅聊天</option>
+                      <option value="files">聊天与文件</option>
+                      <option value="full">完整控制</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn-primary" id="mobileBridgePairBtn"><svg class="ui-icon"><use href="#ui-refresh"/></svg><span>生成配对二维码</span></button>
+                  <code class="mobile-bridge-url" id="mobileBridgeUrl"></code>
+                  <span class="setting-hint" id="mobileBridgeExpiry">二维码一次有效，5 分钟后自动失效。</span>
+                </div>
+              </div>
+              <div class="mobile-device-heading"><strong>已配对设备</strong><button type="button" class="plugin-icon-action mobile-device-revoke-all" id="mobileBridgeRevokeAll" title="移除全部设备" aria-label="移除全部设备"><svg class="ui-icon"><use href="#ui-trash"/></svg></button></div>
+              <div class="mobile-device-list" id="mobileBridgeDevices"></div>
+            </div>
+          </div>
+          <div class="sync-result" id="mobileBridgeResult" hidden aria-live="polite"></div>
+        </section>
+
+        <div class="device-section-divider"></div>
         <h2 class="ui-heading"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>WebDAV 同步</span></h2>
         <p class="sync-desc">通过 WebDAV（NextCloud、ownCloud、NAS 等）在多个设备间同步设置与会话。</p>
 
@@ -640,6 +692,15 @@ version: 1.0.0
       </div>
     </div>
   </main>
+</div>
+
+<div class="mobile-pair-gate" id="mobilePairGate" hidden>
+  <div class="mobile-pair-dialog">
+    <img class="mobile-pair-logo" src="mobile-pair-logo.png" width="52" height="52" alt="IEXA">
+    <h1>连接 IEXA</h1>
+    <p id="mobilePairMessage">正在验证此设备…</p>
+    <button type="button" class="btn-primary" id="mobilePairRetry" hidden>重新配对</button>
+  </div>
 </div>
 
 <!-- 图片附件预览：点击用户消息中的缩略图后显示 -->
