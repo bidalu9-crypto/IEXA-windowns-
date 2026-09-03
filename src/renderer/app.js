@@ -179,6 +179,7 @@ let isNearChatBottom = true;
 // AgentLoop per sessionId; this cache gives each SSE stream its own DOM, tool
 // steps, thinking panel and processing state instead of cancelling on switch.
 const sessionRuntimes = new Map();
+const LIVE_TURN_DOM_OWNERSHIP_MS = 5000;
 
 function runtimeForSession(sessionId) {
   let runtime = sessionRuntimes.get(sessionId);
@@ -187,6 +188,11 @@ function runtimeForSession(sessionId) {
     sessionRuntimes.set(sessionId, runtime);
   }
   return runtime;
+}
+
+function protectLiveTurnDom(sessionId = currentSessionId) {
+  if (!sessionId) return;
+  runtimeForSession(sessionId).liveTurnDomOwnedUntil = Date.now() + LIVE_TURN_DOM_OWNERSHIP_MS;
 }
 
 function applySessionRuntime(sessionId) {
@@ -634,8 +640,10 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     );
     if (shouldRefreshCurrent) {
       const runtime = sessionRuntimes.get(currentSessionId);
-      if (changeReason === 'turn_finished' && runtime?.remoteTurnCompleted) {
-        runtime.remoteTurnCompleted = false;
+      const liveDomOwned = Boolean(runtime?.liveTurnDomOwnedUntil && runtime.liveTurnDomOwnedUntil > Date.now());
+      if (liveDomOwned) {
+        // The streamed DOM already contains the server's completed turn. Keep
+        // it mounted while consuming the new session metadata version.
       } else if (!runtime?.isProcessing && !isProcessing) await refreshCurrentSessionHistory(currentSessionId);
       else pendingCurrentSessionSync = true;
     }
@@ -692,7 +700,7 @@ function applyMirroredStreamEvent(payload) {
   handleSSEEvent(`event: ${event}\ndata: ${JSON.stringify(payload.data ?? {})}`, activeChatTurnToken);
   if (event === 'done' || event === 'error' || event === 'cancelled') {
     runtime.isMirroredTurn = false;
-    runtime.remoteTurnCompleted = true;
+    protectLiveTurnDom(sessionId);
   }
   snapshotActiveSessionRuntime();
 }
@@ -844,6 +852,17 @@ async function switchSession(id, updateList = true) {
           addMessage('user', msg.content, msg.attachments || [], { messageIndex, timestamp: msg.timestamp });
         } else {
           const el = addMessage('assistant', msg.content, undefined, { timestamp: msg.timestamp, messageIndex });
+          if (msg.thinking) {
+            const thinkBlock = document.createElement('details');
+            thinkBlock.className = 'thinking-block is-complete';
+            thinkBlock.open = false;
+            thinkBlock.dataset.reasoning = String(msg.thinking);
+            thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort"></span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+            const content = thinkBlock.querySelector('.thinking-content');
+            if (content) content.textContent = String(msg.thinking);
+            const answer = el.querySelector('.message-content');
+            if (answer) answer.before(thinkBlock); else el.appendChild(thinkBlock);
+          }
           // Render tool calls if present
           if (msg.toolCalls && msg.toolCalls.length > 0) {
             const steps = document.createElement('div');
@@ -884,8 +903,14 @@ async function switchSession(id, updateList = true) {
               }
               steps.appendChild(block);
             }
+            // Match the live turn layout: thinking, task/tools, then answer.
+            // Appending before the footer put the task duration below the
+            // completed answer whenever history was restored.
+            const answer = el.querySelector('.message-content');
             const footer = assistantFooterAnchor(el);
-            if (footer) el.insertBefore(steps, footer); else el.appendChild(steps);
+            if (answer) el.insertBefore(steps, answer);
+            else if (footer) el.insertBefore(steps, footer);
+            else el.appendChild(steps);
           }
           const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
           if (todoPlan) renderTodoPlan(el, todoPlan);
@@ -1708,6 +1733,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     // Stream closed without done/error/cancelled
     withSessionRuntime(sessionId, () => {
       if (turnToken === activeChatTurnToken && isProcessing) {
+        protectLiveTurnDom(sessionId);
         hideWaitingIndicator();
         finishTaskSummary();
         finalizeAssistantMessage(currentAssistantMsg);
@@ -1719,6 +1745,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
   } catch (err) {
     withSessionRuntime(sessionId, () => {
       if (turnToken !== activeChatTurnToken) return;
+      protectLiveTurnDom(sessionId);
       addError(err.message || String(err));
       hideWaitingIndicator();
       finishTaskSummary();
@@ -2813,6 +2840,7 @@ function handleUsage(usage) {
 
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  protectLiveTurnDom();
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finalizeAssistantMessage(currentAssistantMsg);
@@ -2843,6 +2871,9 @@ function handleDone(stopReason, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   const preserveScrollTop = visibleChatMessages.scrollTop;
   const preserveScroll = !isChatNearBottom();
+  // setProcessing(false) can immediately drain a pending metadata sync. Mark
+  // this completed stream as authoritative before that sync gets scheduled.
+  protectLiveTurnDom();
   finishTaskSummary();
   clearContextBusy();
   setProcessing(false);
@@ -2858,8 +2889,9 @@ function handleDone(stopReason, turnToken) {
   currentAssistantMsg = null;
   currentToolBlocks = {};
 
-  // Refresh session list (AI title may have landed)
-  loadSessionList().catch(() => {});
+  // Update metadata without rebuilding the current chat surface. A second
+  // full session load here used to cause a visible double flash at completion.
+  syncConversationMetadata().catch(() => {});
   // Refresh project files so tool writes are visible
   if (typeof refreshFilesPanelSoft === 'function') refreshFilesPanelSoft();
   if (preserveScroll) requestAnimationFrame(() => {
@@ -2876,6 +2908,7 @@ function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   const preserveScrollTop = visibleChatMessages.scrollTop;
   const preserveScroll = !isChatNearBottom();
+  protectLiveTurnDom();
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finishTaskSummary();

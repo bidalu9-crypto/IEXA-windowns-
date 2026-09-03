@@ -483,6 +483,20 @@ test('turn completion preserves an existing scrolled-up chat position', async ()
   assert.match(renderer, /visibleChatMessages\.scrollTop = preserveScrollTop/);
 });
 
+test('turn completion marks streamed DOM authoritative before metadata sync can reload history', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  assert.match(renderer, /runtimeForSession\(sessionId\)\.liveTurnDomOwnedUntil = Date\.now\(\) \+ LIVE_TURN_DOM_OWNERSHIP_MS/);
+  assert.match(renderer, /const liveDomOwned = Boolean\(runtime\?\.liveTurnDomOwnedUntil/);
+  const doneBody = renderer.slice(renderer.indexOf('function handleDone('), renderer.indexOf('function handleCancelled('));
+  assert.ok(doneBody.indexOf('protectLiveTurnDom();') < doneBody.indexOf('setProcessing(false);'));
+  assert.doesNotMatch(renderer, /remoteTurnCompleted/);
+});
+
+test('restored task summary stays above the completed assistant answer', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  assert.match(renderer, /const answer = el\.querySelector\('\.message-content'\);[\s\S]*?if \(answer\) el\.insertBefore\(steps, answer\);/);
+});
+
 test('chat focus capsule hides side panels and persists its state', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8');
   const app = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');

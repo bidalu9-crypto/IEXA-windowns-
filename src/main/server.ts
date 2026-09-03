@@ -468,6 +468,7 @@ interface ChatAttachmentMeta {
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
   /** Files changed successfully in this assistant turn, independent of final prose. */
   deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
@@ -931,6 +932,7 @@ function saveSessionMessages(
   assistantText: string,
   toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
   usage: { inputTokens: number; outputTokens: number } | undefined,
+  thinking = '',
 ): void {
   const deliverables = toolCalls
     .filter((call) => call.result?.success && call.result.fileChange?.path)
@@ -944,6 +946,7 @@ function saveSessionMessages(
   const assistantMsg: ChatMessage = {
     role: 'assistant',
     content: assistantText,
+    thinking: thinking || undefined,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
     usage: usage,
@@ -1953,6 +1956,7 @@ ${recentMemories}
 
         // Accumulate assistant response for saving
         let assistantFullText = '';
+        let assistantThinkingText = '';
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
         let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
         let titleJob: Promise<void> | null = null;
@@ -1996,6 +2000,7 @@ ${recentMemories}
           // This covers compatible gateways that emit reasoning despite an
           // enable_thinking: false request.
           onThinkingDelta: t => {
+            assistantThinkingText += String(t || '');
             if (getThinkingLevel() !== 'off') emitTurnEvent('thinking', { content: t });
           },
           onToolCallStart: (id, name) => emitTurnEvent('tool_start', { id, name }),
@@ -2047,7 +2052,7 @@ ${recentMemories}
             finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
+            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
@@ -2058,7 +2063,7 @@ ${recentMemories}
             finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
+            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -2073,7 +2078,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage);
+            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();
