@@ -1455,6 +1455,35 @@ function enqueuePrompt() {
     statusText.textContent = qn > 0 ? ('处理中…（已插入 ' + qn + ' 条）') : '处理中...';
   }
   console.log('[Queue] enqueued', id, 'size=', promptQueue.length);
+  requestImmediateQueueHandoff(currentSessionId);
+}
+
+/**
+ * Codex-style steer: an inserted prompt takes over the active turn instead
+ * of waiting for every remaining model/tool step to finish. The cancellation
+ * event is the handoff barrier; drainQueuedPrompts starts the new prompt only
+ * after the server confirms the previous stream has stopped.
+ */
+function requestImmediateQueueHandoff(sessionId = currentSessionId) {
+  if (!sessionId) return;
+  const runtime = runtimeForSession(sessionId);
+  if (runtime.queueHandoffPending) return;
+  runtime.queueHandoffPending = true;
+  runtime.turnStopPending = true;
+  runtime.suppressQueueDrain = false;
+  snapshotActiveSessionRuntime();
+  statusText.textContent = '正在接入插入的对话…';
+  fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
+    .then((response) => {
+      if (!response.ok) throw new Error('当前任务未能中断');
+    })
+    .catch((error) => {
+      runtime.queueHandoffPending = false;
+      console.warn('[Queue] immediate handoff failed', error);
+      // Keep the prompt queued; a normal completion can still drain it.
+      if (sessionId === currentSessionId) statusText.textContent = '插入的对话将在当前任务结束后执行';
+      snapshotActiveSessionRuntime();
+    });
 }
 
 /** Withdraw a queued bubble before it is drained. */
@@ -1499,11 +1528,11 @@ function updateComposerForQueue() {
     sendBtn.disabled = false;
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
     sendBtn.title = qn > 0
-      ? ('插入对话（已排队 ' + qn + ' 条）')
-      : '插入对话（当前任务结束后自动执行）';
+      ? ('插入对话（正在接入 ' + qn + ' 条）')
+      : '插入对话（立即接入当前任务）';
     sendBtn.setAttribute('aria-label', '插入对话');
     sendBtn.classList.add('is-queue-mode');
-    chatInput.placeholder = '任务进行中，可继续输入，结束后自动执行…';
+    chatInput.placeholder = '任务进行中，可插入对话，立即接入…';
     if (attachBtn) attachBtn.disabled = false;
     chatInput.disabled = false;
   } else {
@@ -1526,10 +1555,14 @@ async function drainQueuedPrompts(sessionId = currentSessionId) {
     console.log('[Queue] already draining');
     return;
   }
+  // Wait for the old SSE stream's terminal frame. Starting a new /api/chat
+  // request as soon as /api/cancel responds races the same server-side Agent.
+  if (runtime.turnStopPending) return;
   if (runtime.isProcessing) return;
   if (!(runtime.promptQueue || []).some((p) => p.sessionId === sessionId)) return;
 
   runtime.isDrainingQueue = true;
+  runtime.queueHandoffPending = false;
   try {
     while (!runtime.suppressQueueDrain && !runtime.isProcessing) {
       const queue = runtime.promptQueue || [];
@@ -1732,8 +1765,13 @@ async function runChatTurn(message, displayText, attachments, opts) {
 
     // Stream closed without done/error/cancelled
     withSessionRuntime(sessionId, () => {
-      if (turnToken === activeChatTurnToken && isProcessing) {
+      const runtime = runtimeForSession(sessionId);
+      // A manual stop sets isProcessing=false before the reader observes the
+      // closed stream. Treat that close as the terminal event as well, or the
+      // stop gate would remain set forever and queued prompts would stall.
+      if (turnToken === activeChatTurnToken && (isProcessing || runtime.turnStopPending)) {
         protectLiveTurnDom(sessionId);
+        runtime.turnStopPending = false;
         hideWaitingIndicator();
         finishTaskSummary();
         finalizeAssistantMessage(currentAssistantMsg);
@@ -1746,6 +1784,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     withSessionRuntime(sessionId, () => {
       if (turnToken !== activeChatTurnToken) return;
       protectLiveTurnDom(sessionId);
+      runtimeForSession(sessionId).turnStopPending = false;
       addError(err.message || String(err));
       hideWaitingIndicator();
       finishTaskSummary();
@@ -2185,6 +2224,10 @@ function ensureAssistantMessage() {
 }
 
 function showWaitingIndicator() {
+  // A cancel request can race with late tool/stream events. Once stopping has
+  // started, the old turn must never recreate the "IEXA正在思考..." surface.
+  const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
+  if (runtime?.turnStopPending) return;
   const msg = ensureAssistantMessage();
   if (msg.querySelector('.waiting-indicator')) return;
   const indicator = document.createElement('div');
@@ -2841,6 +2884,7 @@ function handleUsage(usage) {
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   protectLiveTurnDom();
+  runtimeForSession(currentSessionId).turnStopPending = false;
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finalizeAssistantMessage(currentAssistantMsg);
@@ -2874,6 +2918,7 @@ function handleDone(stopReason, turnToken) {
   // setProcessing(false) can immediately drain a pending metadata sync. Mark
   // this completed stream as authoritative before that sync gets scheduled.
   protectLiveTurnDom();
+  runtimeForSession(currentSessionId).turnStopPending = false;
   finishTaskSummary();
   clearContextBusy();
   setProcessing(false);
@@ -2909,6 +2954,7 @@ function handleCancelled(turnToken) {
   const preserveScrollTop = visibleChatMessages.scrollTop;
   const preserveScroll = !isChatNearBottom();
   protectLiveTurnDom();
+  runtimeForSession(currentSessionId).turnStopPending = false;
   finishActiveThinkingBlock();
   hideWaitingIndicator();
   finishTaskSummary();
@@ -2948,14 +2994,25 @@ async function stopProcessing() {
   // Mirror iOS cancel(): stop current agent turn, but KEEP promptQueue and
   // resume draining remaining inserted messages after cleanup.
   // (Session switch/create sets suppressQueueDrain=true before calling this.)
+  // The cancel HTTP response can arrive before the server's onCancelled
+  // callback persists the partial assistant reply. Claim the live DOM before
+  // changing isProcessing so metadata sync cannot reload an incomplete history
+  // snapshot and wipe the streamed content from the screen.
+  protectLiveTurnDom();
+  const runtime = runtimeForSession(currentSessionId);
+  runtime.turnStopPending = true;
+  // Remove the indicator synchronously; the cancellation SSE event may arrive
+  // later, and late tool results are blocked from adding it back above.
+  hideWaitingIndicator();
   try {
     const sid = currentSessionId || '';
     await fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sid));
   } catch (e) { /* ignore */ }
+  hideWaitingIndicator();
   finishTaskSummary();
   setProcessing(false);
-  // SSE may also emit cancelled; schedule as fallback if stream already dead
-  if (!suppressQueueDrain) scheduleQueueDrain();
+  // The SSE terminal event clears turnStopPending and drains the queue. Do not
+  // start another request merely because the cancel HTTP call returned.
 }
 
 // =============================================================================

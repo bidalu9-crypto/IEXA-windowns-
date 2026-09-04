@@ -494,6 +494,42 @@ test('turn completion preserves an existing scrolled-up chat position', async ()
   assert.match(renderer, /visibleChatMessages\.scrollTop = preserveScrollTop/);
 });
 
+test('inserted prompts immediately request a turn handoff instead of waiting for natural completion', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const enqueueBody = renderer.slice(renderer.indexOf('function enqueuePrompt('), renderer.indexOf('/** Withdraw a queued bubble'));
+  assert.match(enqueueBody, /requestImmediateQueueHandoff\(currentSessionId\)/);
+  const handoffBody = renderer.slice(renderer.indexOf('function requestImmediateQueueHandoff('), renderer.indexOf('/\*\* Withdraw a queued bubble'));
+  assert.match(handoffBody, /\/api\/cancel\?sessionId=/);
+  assert.match(renderer, /插入对话（立即接入当前任务）/);
+  assert.match(renderer, /任务进行中，可插入对话，立即接入/);
+});
+
+test('manual stop protects the partial streamed assistant DOM until cancellation is persisted', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const stopBody = renderer.slice(renderer.indexOf('async function stopProcessing('), renderer.indexOf('// =============================================================================\n// Image attachment preview'));
+  assert.ok(stopBody.indexOf('protectLiveTurnDom();') < stopBody.indexOf('setProcessing(false);'));
+  assert.match(stopBody, /cancel\?sessionId=/);
+  assert.match(stopBody, /turnStopPending = true/);
+  assert.match(stopBody, /hideWaitingIndicator\(\);/);
+  assert.doesNotMatch(stopBody, /scheduleQueueDrain\(\)/);
+});
+
+test('waiting indicator cannot reappear while a turn is being stopped', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const showBody = renderer.slice(renderer.indexOf('function showWaitingIndicator('), renderer.indexOf('function hideWaitingIndicator('));
+  assert.match(showBody, /runtimeForSession\(currentSessionId\)/);
+  assert.match(showBody, /turnStopPending/);
+  assert.match(showBody, /if \(runtime\?\.turnStopPending\) return/);
+});
+
+test('queued handoff waits for the SSE terminal event before starting the next turn', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const drainBody = renderer.slice(renderer.indexOf('async function drainQueuedPrompts('), renderer.indexOf('function scheduleQueueDrain('));
+  assert.match(drainBody, /if \(runtime\.turnStopPending\) return/);
+  const cancelledBody = renderer.slice(renderer.indexOf('function handleCancelled('), renderer.indexOf('function clearContextBusy('));
+  assert.match(cancelledBody, /turnStopPending = false/);
+});
+
 test('turn completion marks streamed DOM authoritative before metadata sync can reload history', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   assert.match(renderer, /runtimeForSession\(sessionId\)\.liveTurnDomOwnedUntil = Date\.now\(\) \+ LIVE_TURN_DOM_OWNERSHIP_MS/);
