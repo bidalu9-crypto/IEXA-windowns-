@@ -21,6 +21,7 @@ import { SoulFile } from './SoulStore';
 import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
 import { ContextManager } from '../context/ContextManager';
 import { RetryManager } from '../runtime/RetryManager';
+import { ProviderError } from '../providers/ProviderError';
 
 /** Keep live tool evidence useful without letting build logs dominate context. */
 const MAX_TOOL_RESULT_CHARS = 2400;
@@ -370,7 +371,7 @@ export class AgentLoop {
           if (this.isAborted) { callbacks.onCancelled(); return; }
           continue;
         }
-        callbacks.onError(err.message || 'Context compaction failed');
+        callbacks.onError(ProviderError.from(err).userMessage || 'Context compaction failed');
         return;
       }
       const messages = [...this.agentHistory];
@@ -553,7 +554,7 @@ export class AgentLoop {
           if (this.isAborted) { callbacks.onCancelled(); return; }
           continue;
         }
-        callbacks.onError(err.message || 'Unknown error in agent loop');
+        callbacks.onError(ProviderError.from(err).userMessage || 'Unknown error in agent loop');
         return;
       }
     }
@@ -567,13 +568,6 @@ export class AgentLoop {
   private isContextWindowExceededError(error: Error): boolean {
     const message = String(error?.message || error || '').toLowerCase();
     return /context.{0,48}(length|window|limit|exceed)|maximum.{0,48}context|too many tokens|prompt is too long/.test(message);
-  }
-
-  private isRetryableStreamError(error: Error): boolean {
-    const message = String(error?.message || error || '').toLowerCase();
-    if (this.isContextWindowExceededError(error) || /\b(401|403|404|400|422)\b/.test(message)) return false;
-    return /\b(408|425|429|500|502|503|504|529)\b/.test(message) ||
-      /timeout|timed out|network|fetch failed|socket|econn|reset|aborted|stream idle|no response body|premature|overload|temporar|quota_exceeded/.test(message);
   }
 
   private async executeTool(

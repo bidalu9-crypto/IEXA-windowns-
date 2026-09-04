@@ -29,6 +29,7 @@ const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
+const { ProviderError } = require('../dist/main/providers/ProviderError');
 const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors');
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
 const { PluginManager } = require('../dist/main/plugins/PluginManager');
@@ -73,12 +74,13 @@ test('MobileBridgeManager pairs once, authenticates, changes capability, and rev
 });
 
 test('Windows launchers bootstrap dependencies and keep actionable failures visible', async () => {
-  const [serverBat, electronBat, installerBat, dependencyHelper, electronHelper] = await Promise.all([
+  const [serverBat, electronBat, installerBat, dependencyHelper, electronHelper, nodeBootstrap] = await Promise.all([
     fs.readFile(path.join(__dirname, '..', 'start.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'start-electron.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'build-installer.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-node-deps.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-electron-runtime.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'scripts', 'install-portable-node.ps1'), 'utf8'),
   ]);
 
   for (const launcher of [serverBat, electronBat, installerBat]) {
@@ -89,6 +91,10 @@ test('Windows launchers bootstrap dependencies and keep actionable failures visi
   assert.match(dependencyHelper, /where node\.exe/i);
   assert.match(dependencyHelper, /where npm\.cmd/i);
   assert.match(dependencyHelper, /NODE_MAJOR% LSS 20/i);
+  assert.match(dependencyHelper, /install-portable-node\.ps1/i);
+  assert.match(dependencyHelper, /LOCALAPPDATA%\\IEXA\\runtime/i);
+  assert.match(dependencyHelper, /IEXA_NODE_HOME/i);
+  assert.match(dependencyHelper, /endlocal.*set "PATH=/is);
   assert.match(dependencyHelper, /npm\.cmd ci/i);
   assert.match(dependencyHelper, /npm\.cmd install/i);
   assert.match(dependencyHelper, /node_modules\\typescript\\bin\\tsc/i);
@@ -97,6 +103,11 @@ test('Windows launchers bootstrap dependencies and keep actionable failures visi
   assert.match(electronHelper, /Expand-Archive/i);
   assert.match(electronHelper, /resources\\default_app\.asar/i);
   assert.doesNotMatch(electronBat, /extract_electron\.js/i);
+  assert.match(nodeBootstrap, /latest-v22\.x/i);
+  assert.match(nodeBootstrap, /SHASUMS256\.txt/i);
+  assert.match(nodeBootstrap, /Get-FileHash/i);
+  assert.match(nodeBootstrap, /Remove-Item -LiteralPath \$archivePath/i);
+  assert.match(nodeBootstrap, /npmmirror\.com/i);
 });
 
 test('Electron uses IPv4 loopback for its local health check and window URL', async () => {
@@ -923,6 +934,34 @@ test('AgentRuntime retries a provider 429 and then completes', async () => {
   const runtime = new AgentRuntime({ sessionId: 'retry_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
   await runtime.initialize();
   await runtime.run({ message: 'retry', tools: runtime.toolDefinitions(), callbacks: {
+    onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onRetry() { retries++; }, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {},
+  } });
+  assert.equal(attempts, 2);
+  assert.equal(retries, 1);
+  assert.equal(runtime.getState().status, 'completed');
+});
+
+test('AgentRuntime retries an Undici terminated stream and exposes an actionable final message', async () => {
+  const normalized = ProviderError.from(new TypeError('terminated'));
+  assert.equal(normalized.retryable, true);
+  assert.equal(normalized.code, 'STREAM_TERMINATED');
+  assert.match(normalized.userMessage, /流式连接.*中途断开/);
+  assert.equal(ProviderError.from(new SyntaxError('Unterminated string in JSON')).retryable, false);
+
+  const root = await tempWorkspace();
+  let attempts = 0;
+  let retries = 0;
+  const provider = {
+    name: 'test', model: 'test-model', defaultMaxTokens: 1024,
+    async *streamMessage() {
+      if (attempts++ === 0) throw new TypeError('terminated');
+      yield { type: 'textDelta', text: 'recovered' };
+      yield { type: 'done', stopReason: 'endTurn' };
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'terminated_retry_test', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({ message: 'retry interrupted stream', tools: runtime.toolDefinitions(), callbacks: {
     onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onRetry() { retries++; }, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {},
   } });
   assert.equal(attempts, 2);
