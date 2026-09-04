@@ -40,11 +40,14 @@ export class ProcessManager {
 
     return new Promise((resolve) => {
       const { child } = launch;
-      const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = []; let outputBytes = 0; let settled = false; let timedOut = false;
+      const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = [];
+      let outputBytes = 0; let settled = false; let timedOut = false;
+      let timeoutFinishTimer: ReturnType<typeof setTimeout> | undefined;
       const finish = (result: ToolExecutionResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (timeoutFinishTimer) clearTimeout(timeoutFinishTimer);
         signal.removeEventListener('abort', abort);
         void (launch.cleanup?.() ?? Promise.resolve()).finally(() => resolve(result));
       };
@@ -57,9 +60,31 @@ export class ProcessManager {
         }
         if (outputBytes >= policy.maxOutputBytes) kill();
       };
-      const kill = () => { if (child.pid && process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }); else child.kill('SIGTERM'); };
+      const kill = () => {
+        if (child.pid && process.platform === 'win32') {
+          // taskkill is asynchronous and a child can keep the shell open even
+          // after the kill request succeeds. Also ask Node to terminate the
+          // direct process; the forced settle timer below prevents a stuck
+          // close event from blocking the agent forever.
+          try { child.kill(); } catch { /* process may already have exited */ }
+          try { spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }); } catch { /* best effort */ }
+        } else {
+          try { child.kill('SIGTERM'); } catch { /* process may already have exited */ }
+        }
+      };
       const abort = () => { kill(); finish({ output: 'Command cancelled.', success: false, exitCode: -1, timedOut: false }); };
-      const timer = setTimeout(() => { timedOut = true; kill(); }, policy.timeoutMs);
+      const timer = setTimeout(() => {
+        timedOut = true;
+        kill();
+        // Do not wait indefinitely for a misbehaving shell/GUI child to emit
+        // `close`. Preserve any output received so far and report a normal
+        // timeout result after the configured grace period.
+        timeoutFinishTimer = setTimeout(() => {
+          const output = [decodeOutput(Buffer.concat(stdoutChunks)), decodeOutput(Buffer.concat(stderrChunks))]
+            .filter(Boolean).join('\n').trim() || '(no output)';
+          finish({ output, success: false, exitCode: -1, timedOut: true });
+        }, Math.max(0, policy.killGracePeriodMs));
+      }, policy.timeoutMs);
       child.stdout?.on('data', (chunk) => append(chunk, 'stdout')); child.stderr?.on('data', (chunk) => append(chunk, 'stderr'));
       child.on('error', (error) => finish({ output: `Command execution error: ${error.message}`, success: false, exitCode: -1 }));
       child.on('close', (code) => {

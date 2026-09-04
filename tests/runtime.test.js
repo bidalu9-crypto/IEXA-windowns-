@@ -184,6 +184,21 @@ test('ProcessManager cancellation settles a running shell process', async () => 
   assert.match(result.output, /cancelled/i);
 });
 
+test('ProcessManager hard-settles a child when timeout kill does not emit close', async () => {
+  const root = await tempWorkspace();
+  const command = `"${process.execPath}" -e "setTimeout(() => {}, 60000)"`;
+  const startedAt = Date.now();
+  const result = await new ProcessManager().run(
+    command,
+    root,
+    new AbortController().signal,
+    { timeoutMs: 100, maxOutputBytes: 1024, killGracePeriodMs: 50 },
+  );
+  assert.equal(result.success, false);
+  assert.equal(result.timedOut, true);
+  assert.ok(Date.now() - startedAt < 5000, `timeout took too long: ${Date.now() - startedAt}ms`);
+});
+
 test('ProcessManager preserves quoted Windows CMD and PowerShell commands', { skip: process.platform !== 'win32' }, async () => {
   const root = await tempWorkspace();
   const policy = { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 50 };
