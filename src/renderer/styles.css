@@ -2041,7 +2041,9 @@ body.chat-focus-mode .message.user {
 .task-summary {
   display: flex;
   align-items: center;
-  width: 100%;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: min(100%, 680px);
   min-height: 36px;
   gap: 8px;
   padding: 8px 12px;
@@ -2056,7 +2058,7 @@ body.chat-focus-mode .message.user {
 }
 
 .task-summary:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-.task-summary-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+.task-summary-label { flex: 0 1 auto; min-width: 0; max-width: min(62vw, 560px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
 .task-summary-time { flex-shrink: 0; color: var(--text-muted); font-size: 0.76rem; }
 .task-summary-chevron {
   box-sizing: border-box;
@@ -2078,6 +2080,9 @@ body.chat-focus-mode .message.user {
 .tool-steps.is-collapsed > .tool-block { display: none; }
 
 .tool-block {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: min(100%, 820px);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2335,7 +2340,9 @@ body.chat-focus-mode .message.user {
 /* Harness-style streamed reasoning: compact by default after completion,
    expandable without discarding the provider's actual reasoning deltas. */
 .thinking-block {
-  width: 100%;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: min(100%, 820px);
   margin: 7px 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2343,6 +2350,10 @@ body.chat-focus-mode .message.user {
   background: color-mix(in srgb, var(--accent-light) 55%, var(--bg-secondary));
   color: var(--text-secondary);
 }
+
+/* Keep a collapsed reasoning capsule compact; the open transcript gets the
+   available width so wrapped reasoning remains readable. */
+.thinking-block[open] { width: min(100%, 820px); }
 
 .thinking-block > summary {
   display: flex;
@@ -2360,8 +2371,9 @@ body.chat-focus-mode .message.user {
 .thinking-block > summary::-webkit-details-marker { display: none; }
 .thinking-block > summary:hover { background: color-mix(in srgb, var(--accent-light) 58%, transparent); }
 .thinking-block .ui-icon { width: 15px; height: 15px; flex: 0 0 15px; color: var(--accent); }
-.thinking-title { min-width: 0; flex: 1; }
+.thinking-title { min-width: 0; flex: 0 1 auto; max-width: min(48vw, 420px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thinking-effort { color: var(--text-muted); font-size: .72rem; font-weight: 500; white-space: nowrap; }
+.thinking-token-count { flex: 0 0 auto; }
 .thinking-spinner {
   width: 12px;
   height: 12px;
@@ -5608,6 +5620,7 @@ body {
 .text-pager { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .text-pager button { color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
 .message:not(.is-streaming) { content-visibility: auto; contain-intrinsic-size: auto 180px; }
+.chat-messages.is-positioning-history .message { content-visibility: visible; }
 .desktop-live-panel { position: fixed; right: 20px; bottom: 90px; z-index: 1500; width: min(480px, 90vw); padding: 12px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 30px #0005; }
 .desktop-live-panel[hidden] { display: none; }
 .desktop-live-panel header { display: flex; align-items: center; gap: 8px; }

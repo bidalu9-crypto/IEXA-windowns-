@@ -678,6 +678,42 @@ test('renderer keeps the sidebar function rail independently scrollable', async 
   assert.match(renderer, /navigation\.scrollTop \+= event\.deltaY/);
 });
 
+test('thinking and task summary capsules size to their label instead of stretching', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+  assert.match(renderer, /msg\.thinkingLevel \|\| currentThinkingLevel/);
+  assert.match(renderer, /thinkingEffortLabelFor\(level\)/);
+  assert.match(renderer, /updateThinkingTokenCount\(thinkBlock, String\(msg\.thinking\)\)/);
+  assert.match(styles, /\.task-summary \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 680px\);/s);
+  assert.match(styles, /\.task-summary-label \{[^}]*flex: 0 1 auto;/s);
+  assert.match(styles, /\.thinking-block \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 820px\);/s);
+  assert.match(styles, /\.thinking-block\[open\] \{ width: min\(100%, 820px\); \}/);
+  assert.match(styles, /\.tool-block \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 820px\);/s);
+  assert.match(styles, /\.thinking-title \{[^}]*flex: 0 1 auto;/s);
+});
+
+test('history restores thinking metadata and opens conversations at the latest message', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const server = await fs.readFile(path.join(__dirname, '..', 'src', 'main', 'server.ts'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+  assert.match(renderer, /msg\.thinkingLevel \|\| currentThinkingLevel/);
+  assert.match(renderer, /updateThinkingTokenCount\(thinkBlock, String\(msg\.thinking\)\)/);
+  assert.match(renderer, /function scrollHistoryToLatest\(sessionId = currentSessionId\)/);
+  assert.match(renderer, /classList\.add\('is-positioning-history'\)/);
+  assert.match(renderer, /scrollHeight - visibleChatMessages\.clientHeight/);
+  assert.match(renderer, /new ResizeObserver/);
+  assert.match(renderer, /\[0, 50, 150, 300, 600, 1000, 1500, 2500, 4000\]/);
+  assert.match(renderer, /mountSessionRuntime\(id\);\s*scrollHistoryToLatest\(id\);/);
+  assert.match(renderer, /snapshotActiveSessionRuntime\(\);\s*scrollHistoryToLatest\(id\);/);
+  assert.match(server, /thinkingLevel\?: 'off' \| 'low' \| 'medium' \| 'high'/);
+  assert.match(server, /thinkingLevel: thinking \? normalizeThinkingLevel\(thinkingLevel\)/);
+  assert.match(server, /const turnThinkingLevel = getThinkingLevel\(\)/);
+  assert.match(styles, /\.chat-messages\.is-positioning-history \.message \{ content-visibility: visible; \}/);
+  const refreshBody = renderer.slice(renderer.indexOf('async function refreshCurrentSessionHistory('), renderer.indexOf('async function retryAssistantMessage('));
+  assert.match(refreshBody, /positioningHistory = visibleChatMessages\.classList\.contains\('is-positioning-history'\)/);
+  assert.match(refreshBody, /if \(positioningHistory \|\| keepAtBottom\) scrollHistoryToLatest\(sessionId\)/);
+});
+
 test('assistant replies expose copy and non-duplicating retry controls', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');

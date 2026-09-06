@@ -192,3 +192,45 @@ test('chat follow survives layout growth, pauses on upward wheel, and resumes at
   chatListeners.scroll();
   assert.equal(vm.runInContext('isNearChatBottom', context), true);
 });
+
+test('history startup keeps pinning until lazy message layout reaches its real height', async () => {
+  const source = await fs.readFile(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const start = source.indexOf('let historyScrollGeneration =');
+  const end = source.indexOf('function restoreVisibleSessionRuntime(', start);
+  const frames = [];
+  const classes = new Set();
+  const heights = [900, 1400, 2100, 2600, 2600, 2600, 2600, 2600, 2600];
+  let heightIndex = 0;
+  let now = 0;
+  let scrollIntoViewCalls = 0;
+  const visibleChatMessages = {
+    scrollTop: 0,
+    clientHeight: 100,
+    get scrollHeight() { return heights[Math.min(heightIndex++, heights.length - 1)]; },
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+    },
+    lastElementChild: { scrollIntoView: () => { scrollIntoViewCalls += 1; } },
+  };
+  const context = {
+    visibleChatMessages,
+    currentSessionId: 'startup-session',
+    visibleSessionId: 'startup-session',
+    isNearChatBottom: false,
+    updateScrollToBottomButton() {},
+    performance: { now: () => { now += 40; return now; } },
+    ResizeObserver: class { observe() {} disconnect() {} },
+    window: { setTimeout: () => 1, clearTimeout() {} },
+    requestAnimationFrame: (callback) => { frames.push(callback); return frames.length; },
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+  context.scrollHistoryToLatest('startup-session');
+  while (frames.length) frames.shift()();
+
+  assert.equal(visibleChatMessages.scrollTop, 2500);
+  assert.equal(context.isNearChatBottom, true);
+  assert.ok(scrollIntoViewCalls >= 0);
+  assert.equal(classes.has('is-positioning-history'), false);
+});

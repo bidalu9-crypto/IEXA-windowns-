@@ -250,6 +250,73 @@ function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
   }
 }
 
+// History is rendered with lazy layout (content-visibility, Markdown tables,
+// paged tool output). A single rAF can target the estimated height, then the
+// browser lays out older content and leaves the viewport above the real end.
+// Re-pin for a few frames until scrollHeight stops changing.
+let historyScrollGeneration = 0;
+function scrollHistoryToLatest(sessionId = currentSessionId) {
+  if (!sessionId || sessionId !== currentSessionId || sessionId !== visibleSessionId) return;
+  const generation = ++historyScrollGeneration;
+  let frame = 0;
+  let previousHeight = -1;
+  let lastHeightChangeAt = performance.now();
+  const startedAt = performance.now();
+  let resizeObserver = null;
+  const timers = [];
+  visibleChatMessages.classList.add('is-positioning-history');
+  const pin = () => {
+    if (generation !== historyScrollGeneration || sessionId !== currentSessionId || sessionId !== visibleSessionId) return false;
+    visibleChatMessages.scrollTop = Math.max(0, visibleChatMessages.scrollHeight - visibleChatMessages.clientHeight);
+    return true;
+  };
+  const finish = () => {
+    if (generation !== historyScrollGeneration) return;
+    resizeObserver?.disconnect();
+    timers.splice(0).forEach((timer) => window.clearTimeout(timer));
+    visibleChatMessages.classList.remove('is-positioning-history');
+    pin();
+    isNearChatBottom = true;
+    updateScrollToBottomButton();
+  };
+  const settle = () => {
+    if (generation !== historyScrollGeneration) return;
+    if (sessionId !== currentSessionId || sessionId !== visibleSessionId) {
+      visibleChatMessages.classList.remove('is-positioning-history');
+      return;
+    }
+    pin();
+    const height = visibleChatMessages.scrollHeight;
+    frame += 1;
+    if (height !== previousHeight) {
+      previousHeight = height;
+      lastHeightChangeAt = performance.now();
+    }
+    const now = performance.now();
+    if (frame < 8 || (now - lastHeightChangeAt < 220 && now - startedAt < 4200)) {
+      requestAnimationFrame(settle);
+      return;
+    }
+    finish();
+  };
+  if (typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => {
+      if (generation !== historyScrollGeneration) return;
+      lastHeightChangeAt = performance.now();
+      pin();
+    });
+    resizeObserver.observe(visibleChatMessages.lastElementChild || visibleChatMessages);
+  }
+  [0, 50, 150, 300, 600, 1000, 1500, 2500, 4000].forEach((delay) => {
+    timers.push(window.setTimeout(() => {
+      if (generation !== historyScrollGeneration) return;
+      pin();
+      if (delay >= 4000) finish();
+    }, delay));
+  });
+  requestAnimationFrame(settle);
+}
+
 function restoreVisibleSessionRuntime(sessionId) {
   currentSessionId = sessionId;
   chatMessages = visibleChatMessages;
@@ -826,6 +893,7 @@ async function switchSession(id, updateList = true) {
   visibleSessionId = id;
   if (sessionRuntimes.has(id)) {
     mountSessionRuntime(id);
+    scrollHistoryToLatest(id);
     syncActiveSessionUI();
     refreshModelSelector().catch(() => {});
   } else {
@@ -864,8 +932,11 @@ async function switchSession(id, updateList = true) {
             thinkBlock.className = 'thinking-block is-complete';
             thinkBlock.open = false;
             thinkBlock._reasoning = String(msg.thinking);
-            thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort"></span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+            const level = normalizeThinkingLevel(msg.thinkingLevel || currentThinkingLevel);
+            thinkBlock.dataset.thinkingLevel = level;
+            thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
             const content = thinkBlock.querySelector('.thinking-content');
+            updateThinkingTokenCount(thinkBlock, String(msg.thinking));
             if (content) setPagedText(content, String(msg.thinking));
             const answer = el.querySelector('.message-content');
             if (answer) answer.before(thinkBlock); else el.appendChild(thinkBlock);
@@ -940,6 +1011,7 @@ async function switchSession(id, updateList = true) {
     showWelcome();
   }
   snapshotActiveSessionRuntime();
+  scrollHistoryToLatest(id);
   }
 
   // The composer always describes the selected conversation's pinned route.
@@ -3487,11 +3559,16 @@ async function refreshCurrentSessionHistory(sessionId) {
   if (!sessionId || sessionId !== currentSessionId) return;
   const runtime = sessionRuntimes.get(sessionId);
   if (runtime?.isProcessing || isProcessing) return;
+  // During a cold start the first history layout is still being positioned.
+  // A metadata refresh can race that work, observe scrollTop=0, and restore
+  // the top of the transcript after reload. Keep the startup latest-position
+  // operation authoritative instead of preserving that transient value.
+  const positioningHistory = visibleChatMessages.classList.contains('is-positioning-history');
   const keepAtBottom = isChatNearBottom();
   const savedScrollTop = visibleChatMessages.scrollTop;
   await reloadSessionView(sessionId);
   if (sessionId !== currentSessionId) return;
-  if (keepAtBottom) scrollToBottom(true);
+  if (positioningHistory || keepAtBottom) scrollHistoryToLatest(sessionId);
   else {
     visibleChatMessages.scrollTop = savedScrollTop;
     isNearChatBottom = isChatNearBottom();

@@ -470,6 +470,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   thinking?: string;
+  thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
   /** Files changed successfully in this assistant turn, independent of final prose. */
   deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
@@ -943,6 +944,7 @@ async function saveSessionMessages(
   toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
   usage: { inputTokens: number; outputTokens: number } | undefined,
   thinking = '',
+  thinkingLevel = getThinkingLevel(),
 ): Promise<void> {
   const deliverables = toolCalls
     .filter((call) => call.result?.success && call.result.fileChange?.path)
@@ -957,6 +959,7 @@ async function saveSessionMessages(
     role: 'assistant',
     content: assistantText,
     thinking: thinking || undefined,
+    thinkingLevel: thinking ? normalizeThinkingLevel(thinkingLevel) : undefined,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
     usage: usage,
@@ -1763,6 +1766,7 @@ function createServer(): http.Server {
         if (!sessionId) throw new Error('sessionId required');
 
         const profile = profileForSession(sessionId);
+        const turnThinkingLevel = getThinkingLevel();
         if (!profile || !profile.apiKey) {
           jsonReply(res, 400, { error: '请先在设置中配置至少一个 AI 模型。' });
           return;
@@ -2118,7 +2122,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
@@ -2127,7 +2131,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -2140,7 +2144,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();
