@@ -105,3 +105,90 @@ test('text pager bounds mounted text while preserving navigation and full copy',
   assert.equal(element.textContent.length, 8000);
   assert.equal(element._pager.next.disabled, true);
 });
+
+test('streaming markdown renders each changed batch once and finalizes without reparsing', async () => {
+  const source = await fs.readFile(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const start = source.indexOf('function renderMarkdownContent(');
+  const end = source.indexOf('function handleTextDelta(', start);
+  let parses = 0;
+  let normalized = 0;
+  let codeEnhancements = 0;
+  let tableEnhancements = 0;
+  const content = { querySelectorAll: () => [], innerHTML: '' };
+  const context = {
+    marked: { parse: (markdown) => { parses += 1; return `<p>${markdown}</p>`; } },
+    normalizeRenderedAssets: () => { normalized += 1; },
+    enhanceCodeBlocks: () => { codeEnhancements += 1; },
+    enhanceTables: () => { tableEnhancements += 1; },
+    scrollToBottom() {},
+    isNearChatBottom: true,
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+
+  context.renderMarkdownContent(content, '**live**');
+  assert.equal(content.innerHTML, '<p>**live**</p>');
+  assert.equal(content._markdownSource, '**live**');
+  assert.equal(parses, 1);
+  assert.equal(normalized, 1);
+  context.renderMarkdownContent(content, '**live**', true);
+  assert.equal(parses, 1);
+  assert.equal(codeEnhancements, 1);
+  assert.equal(tableEnhancements, 1);
+});
+
+test('chat follow survives layout growth, pauses on upward wheel, and resumes at bottom', async () => {
+  const source = await fs.readFile(path.join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const start = source.indexOf('function isChatNearBottom(');
+  const end = source.indexOf('function setProcessing(', start);
+  const chatListeners = {};
+  const documentListeners = {};
+  const frames = [];
+  const visibleChatMessages = {
+    scrollHeight: 1000,
+    scrollTop: 900,
+    clientHeight: 100,
+    addEventListener: (name, listener) => { chatListeners[name] = listener; },
+  };
+  const context = {
+    visibleChatMessages,
+    currentSessionId: 'session',
+    visibleSessionId: 'session',
+    isNearChatBottom: true,
+    scrollToBottomBtn: null,
+    requestAnimationFrame: (callback) => { frames.push(callback); return frames.length; },
+    document: { addEventListener: (name, listener) => { documentListeners[name] = listener; } },
+    window: { setTimeout: () => 1, clearTimeout() {} },
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end), context);
+
+  visibleChatMessages.scrollHeight = 1200;
+  chatListeners.scroll();
+  assert.equal(vm.runInContext('isNearChatBottom', context), true);
+  context.scrollToBottom(false, true);
+  frames.shift()();
+  assert.equal(visibleChatMessages.scrollTop, 1200);
+  frames.shift()();
+
+  chatListeners.wheel({ deltaY: -120 });
+  visibleChatMessages.scrollTop = 700;
+  chatListeners.scroll();
+  assert.equal(vm.runInContext('isNearChatBottom', context), false);
+  context.scrollToBottom();
+  frames.shift()();
+  assert.equal(visibleChatMessages.scrollTop, 700);
+
+  // A manual scrollbar drag between scheduling and the next frame cancels the
+  // pending follow request as well, so the stale frame cannot pull the user down.
+  visibleChatMessages.scrollTop = 650;
+  chatListeners.pointerdown();
+  context.scrollToBottom(false, true);
+  chatListeners.scroll();
+  frames.shift()();
+  assert.equal(visibleChatMessages.scrollTop, 650);
+
+  visibleChatMessages.scrollTop = 1100;
+  chatListeners.scroll();
+  assert.equal(vm.runInContext('isNearChatBottom', context), true);
+});

@@ -5604,7 +5604,7 @@ body {
   body[data-mobile-client="paired"] .nav-btn[data-view="sync"] { display: none; }
   body[data-mobile-capability="chat"] .nav-btn[data-view="jobs"] { display: none; }
 }
-.streaming-plain-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.streaming-markdown { overflow-wrap: anywhere; }
 .text-pager { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .text-pager button { color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
 .message:not(.is-streaming) { content-visibility: auto; contain-intrinsic-size: auto 180px; }

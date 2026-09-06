@@ -1970,14 +1970,43 @@ function ensureAnswerContentEl() {
   return contentEl;
 }
 
+function renderMarkdownContent(contentEl, markdown, finalRender = false) {
+  if (!contentEl) return;
+  const source = String(markdown || '');
+  contentEl._markdownSource = source;
+
+  // SSE events are already batched. Only rebuild when the source changed so
+  // terminal events can enhance the existing DOM without a visible reflow.
+  if (contentEl._renderedMarkdownSource !== source) {
+    contentEl.innerHTML = marked.parse(source);
+    contentEl._renderedMarkdownSource = source;
+    normalizeRenderedAssets(contentEl);
+  }
+
+  if (finalRender) {
+    enhanceCodeBlocks(contentEl);
+    enhanceTables(contentEl);
+    return;
+  }
+
+  // Images can increase the rendered height after the current SSE frame.
+  // Keep following only when the user has not deliberately scrolled away.
+  contentEl.querySelectorAll('img').forEach((img) => {
+    if (img.complete || img._iexaFollowBound) return;
+    img._iexaFollowBound = true;
+    img.addEventListener('load', () => scrollToBottom(false, isNearChatBottom), { once: true });
+  });
+}
+
 function handleTextDelta(fullText) {
+  const followLatest = shouldFollowLatestMessage();
   hideWaitingIndicator();
   finishActiveThinkingBlock();
   if (!currentAssistantMsg) return;
   currentAssistantMsg._assistantText = String(fullText || '');
   const contentEl = ensureAnswerContentEl();
-  contentEl.classList.add('streaming-plain-text');
-  contentEl.textContent = fullText || '';
+  contentEl.classList.add('streaming-markdown');
+  renderMarkdownContent(contentEl, fullText);
   // Hide empty preamble bubbles
   currentAssistantMsg.querySelectorAll('.message-content').forEach((node) => {
     if (node === contentEl) {
@@ -1986,7 +2015,7 @@ function handleTextDelta(fullText) {
     }
     if (!(node.textContent || '').trim()) node.style.display = 'none';
   });
-  scrollToBottom();
+  scrollToBottom(false, followLatest);
 }
 
 function thinkingEffortLabelFor(level) {
@@ -3367,15 +3396,18 @@ function appendAssistantMessageActions(messageEl) {
 function finalizeAssistantMessage(messageEl) {
   if (!messageEl) return;
   flushStreamUpdates(currentSessionId);
-  messageEl.querySelectorAll('.streaming-plain-text').forEach((contentEl) => {
+  const followLatest = shouldFollowLatestMessage();
+  messageEl.querySelectorAll('.streaming-markdown, .streaming-plain-text').forEach((contentEl) => {
+    const source = typeof contentEl._markdownSource === 'string'
+      ? contentEl._markdownSource
+      : (typeof messageEl._assistantText === 'string' ? messageEl._assistantText : contentEl.textContent || '');
+    contentEl.classList.remove('streaming-markdown');
     contentEl.classList.remove('streaming-plain-text');
-    contentEl.innerHTML = marked.parse(contentEl.textContent || '');
-    normalizeRenderedAssets(contentEl);
-    enhanceCodeBlocks(contentEl);
-    enhanceTables(contentEl);
+    renderMarkdownContent(contentEl, source, true);
   });
   messageEl.classList.remove('is-streaming');
   messageEl.querySelectorAll('.assistant-message-action').forEach((button) => { button.disabled = false; });
+  scrollToBottom(false, followLatest);
 }
 
 function assistantMessageText(messageEl) {
@@ -3569,6 +3601,11 @@ function isChatNearBottom() {
   return visibleChatMessages.scrollHeight - visibleChatMessages.scrollTop - visibleChatMessages.clientHeight < 72;
 }
 
+function shouldFollowLatestMessage() {
+  if (currentSessionId !== visibleSessionId) return false;
+  return isNearChatBottom || (!isChatUserScrollActive() && isChatNearBottom());
+}
+
 function updateScrollToBottomButton() {
   if (!scrollToBottomBtn) return;
   if (currentSessionId !== visibleSessionId) return;
@@ -3578,21 +3615,80 @@ function updateScrollToBottomButton() {
 
 /** Keep streaming content visible only while the user is already reading the latest messages. */
 let chatScrollFrame = null;
-function scrollToBottom(force) {
+let chatBottomFollowRequested = false;
+let chatProgrammaticScroll = false;
+let chatPointerScrollActive = false;
+let chatTouchScrollActive = false;
+let chatWheelScrollActive = false;
+let chatWheelScrollTimer = null;
+
+function beginChatWheelScroll() {
+  chatWheelScrollActive = true;
+  if (chatWheelScrollTimer) window.clearTimeout(chatWheelScrollTimer);
+  chatWheelScrollTimer = window.setTimeout(() => {
+    chatWheelScrollActive = false;
+    chatWheelScrollTimer = null;
+  }, 180);
+}
+
+function isChatUserScrollActive() {
+  return chatPointerScrollActive || chatTouchScrollActive || chatWheelScrollActive;
+}
+
+function stopFollowingLatestMessage() {
+  isNearChatBottom = false;
+  chatBottomFollowRequested = false;
+  updateScrollToBottomButton();
+}
+
+function scrollToBottom(force, followLatest) {
   if (currentSessionId !== visibleSessionId) return;
+  const shouldFollow = force || followLatest === true || (followLatest === undefined && isNearChatBottom);
   if (force) isNearChatBottom = true;
+  if (shouldFollow) chatBottomFollowRequested = true;
   if (chatScrollFrame !== null) return;
   chatScrollFrame = requestAnimationFrame(() => {
     chatScrollFrame = null;
-    if (isNearChatBottom) visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
+    const followThisFrame = chatBottomFollowRequested;
+    chatBottomFollowRequested = false;
+    if (followThisFrame) {
+      chatProgrammaticScroll = true;
+      visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
+      isNearChatBottom = true;
+      requestAnimationFrame(() => {
+        chatProgrammaticScroll = false;
+        if (isChatNearBottom()) isNearChatBottom = true;
+        updateScrollToBottomButton();
+      });
+    }
     updateScrollToBottomButton();
   });
 }
 
 visibleChatMessages.addEventListener('scroll', function () {
-  isNearChatBottom = isChatNearBottom();
+  const nearBottom = isChatNearBottom();
+  if (isChatUserScrollActive() && !chatProgrammaticScroll) {
+    isNearChatBottom = nearBottom;
+    if (!nearBottom) chatBottomFollowRequested = false;
+  } else if (nearBottom) {
+    // Layout changes must not disable follow-latest, but any route back to the
+    // bottom should re-enable it.
+    isNearChatBottom = true;
+  }
   updateScrollToBottomButton();
 }, { passive: true });
+
+visibleChatMessages.addEventListener('wheel', function (event) {
+  beginChatWheelScroll();
+  if (event.deltaY < 0) stopFollowingLatestMessage();
+}, { passive: true });
+
+visibleChatMessages.addEventListener('pointerdown', () => { chatPointerScrollActive = true; }, { passive: true });
+visibleChatMessages.addEventListener('touchstart', () => { chatTouchScrollActive = true; }, { passive: true });
+document.addEventListener('pointerup', () => { chatPointerScrollActive = false; }, { passive: true });
+document.addEventListener('pointercancel', () => { chatPointerScrollActive = false; }, { passive: true });
+document.addEventListener('touchend', () => { chatTouchScrollActive = false; }, { passive: true });
+document.addEventListener('touchcancel', () => { chatTouchScrollActive = false; }, { passive: true });
 
 if (scrollToBottomBtn) {
   scrollToBottomBtn.addEventListener('click', function () {

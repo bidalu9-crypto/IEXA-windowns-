@@ -566,6 +566,34 @@ test('turn completion preserves an existing scrolled-up chat position', async ()
   assert.match(renderer, /visibleChatMessages\.scrollTop = preserveScrollTop/);
 });
 
+test('streamed assistant text renders markdown live and finalizes from preserved source', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+  const textBody = renderer.slice(renderer.indexOf('function handleTextDelta('), renderer.indexOf('function thinkingEffortLabelFor('));
+  const finalizeBody = renderer.slice(renderer.indexOf('function finalizeAssistantMessage('), renderer.indexOf('function assistantMessageText('));
+
+  assert.match(renderer, /function renderMarkdownContent\(contentEl, markdown, finalRender = false\)/);
+  assert.match(textBody, /renderMarkdownContent\(contentEl, fullText\)/);
+  assert.doesNotMatch(textBody, /contentEl\.textContent\s*=\s*fullText/);
+  assert.match(finalizeBody, /contentEl\._markdownSource/);
+  assert.match(finalizeBody, /renderMarkdownContent\(contentEl, source, true\)/);
+  assert.match(styles, /\.streaming-markdown \{[^}]*overflow-wrap: anywhere;/s);
+});
+
+test('stream follow captures bottom intent before reflow and respects manual upward scrolling', async () => {
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const textBody = renderer.slice(renderer.indexOf('function handleTextDelta('), renderer.indexOf('function thinkingEffortLabelFor('));
+  const scrollBody = renderer.slice(renderer.indexOf('function shouldFollowLatestMessage('), renderer.indexOf('function setProcessing('));
+
+  assert.ok(textBody.indexOf('const followLatest = shouldFollowLatestMessage();') < textBody.indexOf('renderMarkdownContent(contentEl, fullText);'));
+  assert.match(textBody, /scrollToBottom\(false, followLatest\)/);
+  assert.match(scrollBody, /chatBottomFollowRequested = true/);
+  assert.match(scrollBody, /const followThisFrame = chatBottomFollowRequested/);
+  assert.match(scrollBody, /event\.deltaY < 0/);
+  assert.match(scrollBody, /stopFollowingLatestMessage\(\)/);
+  assert.match(scrollBody, /else if \(nearBottom\)[\s\S]*isNearChatBottom = true/);
+});
+
 test('inserted prompts immediately request a turn handoff instead of waiting for natural completion', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   const enqueueBody = renderer.slice(renderer.indexOf('function enqueuePrompt('), renderer.indexOf('/** Withdraw a queued bubble'));
