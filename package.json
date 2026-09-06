@@ -20,11 +20,15 @@
       "dist/**/*",
       "src/renderer/**/*",
       "electron-entry.js",
+      "desktop-agent/publish/**/*",
       "node_modules/**/*"
     ],
     "win": {
       "target": "nsis"
-    }
+    },
+    "asarUnpack": [
+      "desktop-agent/publish/**/*"
+    ]
   },
   "dependencies": {
     "iconv-lite": "^0.7.3",

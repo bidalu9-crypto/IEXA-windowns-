@@ -10,6 +10,7 @@ import { ToolScheduler } from './ToolScheduler';
 import { LoopDetector } from './LoopDetector';
 import { ArtifactStore } from '../context/ArtifactStore';
 import { CommandPolicy } from '../tools/shell/CommandPolicy';
+import { DesktopAgent } from '../tools/DesktopAgent';
 import { makeAgentTools } from '../tools/ToolDefinitions';
 
 export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; }
@@ -26,6 +27,7 @@ export class ToolRuntime {
   private readonly files = new FileTools();
   private readonly memory: MemoryTools;
   private readonly browser = new BrowserFetch();
+  private readonly desktop: DesktopAgent;
   private readonly loopDetector = new LoopDetector();
   private readonly commandPolicy = new CommandPolicy();
   private readonly artifacts: ArtifactStore;
@@ -36,6 +38,7 @@ export class ToolRuntime {
     this.budget = config.budget || new BudgetManager();
     this.shell = new ShellExecutor(config.workspaceDir);
     this.memory = new MemoryTools(config.memoryDir);
+    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'));
     this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
   }
   async initialize(): Promise<void> { await this.memory.initialize(); }
@@ -96,6 +99,7 @@ export class ToolRuntime {
     };
     for (const definition of makeAgentTools(this.config.memoryEnabled !== false)) {
       add(definition, async (args, context) => {
+        if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal);
         if (definition.name === 'todo_write') return todo(args);
         if (definition.name === 'shell_execute') return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal);
         if (definition.name === 'browser_fetch') { const url = await this.network.assertAllowed(String(args.url || '')); return this.browser.fetch(url.toString(), Number(args.max_length) || 25000, context.signal); }
@@ -106,7 +110,7 @@ export class ToolRuntime {
         if (definition.name === 'file_write') { const result = await this.files.writeFile(resolved.path, String(args.content || ''), this.config.workspaceDir, { append: args.append === true, createDirs: args.create_dirs === true }); if (result.success) onSkillWrite?.(resolved.path); return result; }
         if (definition.name === 'file_edit') { const result = await this.files.editFile(resolved.path, String(args.old_string || ''), String(args.new_string || ''), this.config.workspaceDir, args.replace_all === true); if (result.success) onSkillWrite?.(resolved.path); return result; }
         return buildMediaDisplayResult(resolved.path, this.config.workspaceDir);
-      }, { risk: risk[definition.name], parallelSafe: definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch', cancellable: definition.name === 'shell_execute', requiresApproval: risk[definition.name] === 'high' });
+      }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch', cancellable: definition.name === 'shell_execute' || definition.name === 'desktop_control', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
     }
   }
 }

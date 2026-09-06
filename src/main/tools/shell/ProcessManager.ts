@@ -9,6 +9,8 @@ import { IexaError } from '../../errors/IexaError';
 
 export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; killGracePeriodMs: number; }
 
+type TerminationReason = 'cancelled' | 'timeout' | 'output-limit';
+
 const POWERSHELL_UTF8_PREAMBLE = [
   "$utf8 = [System.Text.UTF8Encoding]::new($false)",
   '[Console]::InputEncoding = $utf8',
@@ -41,56 +43,81 @@ export class ProcessManager {
     return new Promise((resolve) => {
       const { child } = launch;
       const stdoutChunks: Buffer[] = []; const stderrChunks: Buffer[] = [];
-      let outputBytes = 0; let settled = false; let timedOut = false;
-      let timeoutFinishTimer: ReturnType<typeof setTimeout> | undefined;
+      let outputBytes = 0; let settled = false;
+      let terminationReason: TerminationReason | undefined;
+      let terminationPromise: Promise<void> | undefined;
+      let forceFinishTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const collectedOutput = (): string => [
+        decodeOutput(Buffer.concat(stdoutChunks)),
+        decodeOutput(Buffer.concat(stderrChunks)),
+      ].filter(Boolean).join('\n').trim() || '(no output)';
+      const boundedOutput = (): string => truncateUtf8(collectedOutput(), policy.maxOutputBytes);
+      const terminatedResult = (reason: TerminationReason): ToolExecutionResult => ({
+        output: reason === 'cancelled'
+          ? 'Command cancelled.'
+          : boundedOutput(),
+        success: false,
+        exitCode: -1,
+        timedOut: reason === 'timeout',
+      });
       const finish = (result: ToolExecutionResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (timeoutFinishTimer) clearTimeout(timeoutFinishTimer);
+        if (forceFinishTimer) clearTimeout(forceFinishTimer);
         signal.removeEventListener('abort', abort);
-        void (launch.cleanup?.() ?? Promise.resolve()).finally(() => resolve(result));
+        child.stdout?.off('data', onStdout);
+        child.stderr?.off('data', onStderr);
+        child.off('error', onError);
+        child.off('close', onClose);
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        void Promise.resolve(terminationPromise)
+          .catch(() => {})
+          .then(() => launch.cleanup?.())
+          .catch(() => {})
+          .finally(() => resolve(result));
       };
       const append = (value: Buffer, target: 'stdout' | 'stderr') => {
+        if (terminationReason) return;
         const remaining = policy.maxOutputBytes - outputBytes;
         if (remaining > 0) {
           const kept = value.subarray(0, remaining);
           (target === 'stdout' ? stdoutChunks : stderrChunks).push(kept);
           outputBytes += kept.length;
         }
-        if (outputBytes >= policy.maxOutputBytes) kill();
+        if (outputBytes >= policy.maxOutputBytes) terminate('output-limit');
       };
-      const kill = () => {
-        if (child.pid && process.platform === 'win32') {
-          // taskkill is asynchronous and a child can keep the shell open even
-          // after the kill request succeeds. Also ask Node to terminate the
-          // direct process; the forced settle timer below prevents a stuck
-          // close event from blocking the agent forever.
-          try { child.kill(); } catch { /* process may already have exited */ }
-          try { spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }); } catch { /* best effort */ }
-        } else {
-          try { child.kill('SIGTERM'); } catch { /* process may already have exited */ }
-        }
+      const terminate = (reason: TerminationReason) => {
+        if (terminationReason || settled) return;
+        terminationReason = reason;
+        // Stop consuming an unbounded producer immediately. More data events
+        // must not launch another taskkill process for every output chunk.
+        child.stdout?.pause();
+        child.stderr?.pause();
+        terminationPromise = terminateProcessTree(child, policy.killGracePeriodMs);
+        forceFinishTimer = setTimeout(
+          () => finish(terminatedResult(reason)),
+          Math.max(50, policy.killGracePeriodMs),
+        );
       };
-      const abort = () => { kill(); finish({ output: 'Command cancelled.', success: false, exitCode: -1, timedOut: false }); };
+      const abort = () => terminate('cancelled');
       const timer = setTimeout(() => {
-        timedOut = true;
-        kill();
-        // Do not wait indefinitely for a misbehaving shell/GUI child to emit
-        // `close`. Preserve any output received so far and report a normal
-        // timeout result after the configured grace period.
-        timeoutFinishTimer = setTimeout(() => {
-          const output = [decodeOutput(Buffer.concat(stdoutChunks)), decodeOutput(Buffer.concat(stderrChunks))]
-            .filter(Boolean).join('\n').trim() || '(no output)';
-          finish({ output, success: false, exitCode: -1, timedOut: true });
-        }, Math.max(0, policy.killGracePeriodMs));
+        terminate('timeout');
       }, policy.timeoutMs);
-      child.stdout?.on('data', (chunk) => append(chunk, 'stdout')); child.stderr?.on('data', (chunk) => append(chunk, 'stderr'));
-      child.on('error', (error) => finish({ output: `Command execution error: ${error.message}`, success: false, exitCode: -1 }));
-      child.on('close', (code) => {
-        const output = [decodeOutput(Buffer.concat(stdoutChunks)), decodeOutput(Buffer.concat(stderrChunks))].filter(Boolean).join('\n').trim() || '(no output)';
-        finish({ output, success: !timedOut && code === 0, exitCode: code ?? -1, timedOut });
-      });
+      const onStdout = (chunk: Buffer) => append(chunk, 'stdout');
+      const onStderr = (chunk: Buffer) => append(chunk, 'stderr');
+      const onError = (error: Error) => finish(terminationReason
+        ? terminatedResult(terminationReason)
+        : { output: `Command execution error: ${error.message}`, success: false, exitCode: -1 });
+      const onClose = (code: number | null) => finish(terminationReason
+        ? terminatedResult(terminationReason)
+        : { output: boundedOutput(), success: code === 0, exitCode: code ?? -1, timedOut: false });
+      child.stdout?.on('data', onStdout);
+      child.stderr?.on('data', onStderr);
+      child.on('error', onError);
+      child.on('close', onClose);
       if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true });
     });
   }
@@ -101,7 +128,7 @@ export class ProcessManager {
     }
     const env: NodeJS.ProcessEnv = { ...process.env, IEXA_WORKSPACE: cwd, PYTHONIOENCODING: 'utf-8' };
     if (process.platform !== 'win32') {
-      return { child: spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true }) };
+      return { child: spawn('/bin/sh', ['-lc', command], { cwd, env, windowsHide: true, detached: true }) };
     }
     // Electron sometimes inherits a stale/rewritten ComSpec value (or a PATH
     // that cannot resolve it). Resolving the executable ourselves prevents all
@@ -172,6 +199,47 @@ export class ProcessManager {
       child: spawn(command, { cwd, env, shell: cmdExecutable, windowsHide: true }),
     };
   }
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const encoded = Buffer.from(value, 'utf8');
+  if (encoded.length <= maxBytes) return value;
+  return encoded.subarray(0, maxBytes).toString('utf8').replace(/\uFFFD$/, '');
+}
+
+/** Terminate exactly one process tree and wait for the cleanup helper. */
+function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promise<void> {
+  if (!child.pid) return Promise.resolve();
+  if (process.platform !== 'win32') {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch {} }
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let done = false;
+    let killer: ChildProcess | undefined;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { if (child.exitCode === null) child.kill(); } catch {}
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      try { killer?.kill(); } catch {}
+      finish();
+    }, Math.max(250, Math.min(2000, gracePeriodMs)));
+    try {
+      killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
+        windowsHide: true,
+        stdio: 'ignore',
+      });
+      killer.once('error', finish);
+      killer.once('close', finish);
+    } catch {
+      finish();
+    }
+  });
 }
 
 /** Locate a real cmd.exe instead of trusting a possibly stale ComSpec value. */

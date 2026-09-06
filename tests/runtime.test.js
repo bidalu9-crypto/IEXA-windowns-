@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execFile, execFileSync } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const { PathSandbox } = require('../dist/main/security/PathSandbox');
@@ -184,6 +184,46 @@ test('ProcessManager cancellation settles a running shell process', async () => 
   assert.match(result.output, /cancelled/i);
 });
 
+test('ProcessManager cancellation removes the full Windows descendant tree', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const marker = `iexa-tree-${Date.now()}-${Math.random().toString(16).slice(2)}.js`;
+  const fixture = path.join(root, marker);
+  await fs.writeFile(fixture, 'setInterval(() => {}, 60000);', 'utf8');
+  const controller = new AbortController();
+  const running = new ProcessManager().run(
+    `"${process.execPath}" "${fixture}"`,
+    root,
+    controller.signal,
+    { timeoutMs: 10_000, maxOutputBytes: 1024, killGracePeriodMs: 500 },
+  );
+  setTimeout(() => controller.abort(), 150);
+  const result = await running;
+  assert.equal(result.success, false);
+  await waitFor(() => {
+    const escaped = fixture.replace(/'/g, "''");
+    const query = `@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -like '*${escaped}*' }).Count`;
+    return Number(execFileSync('powershell.exe', ['-NoProfile', '-Command', query], { encoding: 'utf8' }).trim()) === 0;
+  }, 3000);
+});
+
+test('ProcessManager reclaims repeated CMD and PowerShell invocations', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const manager = new ProcessManager();
+  const marker = `iexa-reclaim-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const policy = { timeoutMs: 10_000, maxOutputBytes: 4096, killGracePeriodMs: 300 };
+  for (let index = 0; index < 20; index++) {
+    const cmd = await manager.run(`echo ${marker}-cmd-${index}`, root, new AbortController().signal, policy);
+    assert.equal(cmd.success, true, cmd.output);
+    assert.match(cmd.output, new RegExp(`${marker}-cmd-${index}`));
+    const ps = await manager.run(`powershell -NoProfile -Command "Write-Output '${marker}-ps-${index}'"`, root, new AbortController().signal, policy);
+    assert.equal(ps.success, true, ps.output);
+    assert.match(ps.output, new RegExp(`${marker}-ps-${index}`));
+  }
+  const escaped = marker.replace(/'/g, "''");
+  const query = `@(Get-CimInstance Win32_Process | Where-Object { $_.Name -notin @('powershell.exe','pwsh.exe') -and $_.CommandLine -like '*${escaped}*' }).Count`;
+  assert.equal(Number(execFileSync('powershell.exe', ['-NoProfile', '-Command', query], { encoding: 'utf8' }).trim()), 0);
+});
+
 test('ProcessManager hard-settles a child when timeout kill does not emit close', async () => {
   const root = await tempWorkspace();
   const command = `"${process.execPath}" -e "setTimeout(() => {}, 60000)"`;
@@ -361,11 +401,27 @@ test('TerminalManager keeps shell state and streams command output', async () =>
     manager.write(session.id, process.platform === 'win32' ? 'echo state:%IEXA_TERMINAL_STATE%' : 'echo state:$IEXA_TERMINAL_STATE', true);
     await waitFor(() => { read(); return /state:alive/.test(output); });
     assert.match(output, /state:alive/);
-    manager.terminate(session.id);
+    await manager.terminate(session.id);
     await waitFor(() => !manager.output(session.id, after).running);
   } finally {
-    manager.terminate(session.id);
+    await manager.terminate(session.id);
+    await manager.shutdown();
   }
+});
+
+test('TerminalManager has no running-session hard limit and releases every PTY on shutdown', async () => {
+  const root = await tempWorkspace();
+  const manager = new TerminalManager();
+  const shell = process.platform === 'win32' ? 'cmd' : 'bash';
+  for (let index = 0; index < 13; index++) manager.create(root, shell);
+  assert.equal(manager.list().filter((session) => session.running).length, 13);
+  await manager.shutdown();
+  assert.equal(manager.list().length, 0);
+});
+
+test('TerminalManager uses ConPTY on Windows', { skip: process.platform !== 'win32' }, async () => {
+  const source = await fs.readFile(path.join(__dirname, '..', 'src', 'main', 'terminals', 'TerminalManager.ts'), 'utf8');
+  assert.match(source, /useConpty:\s*process\.platform === 'win32'/);
 });
 
 test('McpManager connects to a stdio server and calls its tools', async () => {
@@ -477,12 +533,13 @@ test('ToolRuntime preserves complete large output for UI and session history', a
   assert.equal(await fs.readFile(result.artifacts[0].path, 'utf8'), result.output);
 });
 
-test('renderer keeps complete tool input and output inside scrollable detail panes', async () => {
+test('renderer pages tool text while retaining complete text for copying', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
 
   assert.match(renderer, /info\.argsText = typeof args === 'string' \? args : JSON\.stringify\(args \|\| \{\}, null, 2\)/);
-  assert.match(renderer, /resultPre\.textContent = output \|\| ''/);
+  assert.match(renderer, /setPagedText\(resultPre, output \|\| ''\)/);
+  assert.match(renderer, /element\._fullText = text/);
   assert.doesNotMatch(renderer, /output\.substring\(0, 5000\)/);
   assert.match(styles, /\.tool-args, \.tool-body pre\.tool-args \{[^}]*overflow: auto/s);
   assert.match(styles, /\.tool-body \.tool-result \{[^}]*max-height: 340px/s);

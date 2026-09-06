@@ -8,6 +8,11 @@ attachments/
 .iexa-artifacts/
 .runtime/
 
+# Native desktop-agent build intermediates
+desktop-agent/bin/
+desktop-agent/obj/
+desktop-agent/publish-next/
+
 # Build output
 *.exe
 *.dmg

@@ -21,16 +21,17 @@ if (window.marked && window.hljs) {
   marked.use({
     renderer: {
       code({ text, lang, escaped }) {
+        if (typeof arguments[0] === 'string') { text = arguments[0]; lang = arguments[1]; }
+        text = String(text || '');
         let highlighted;
-        if (lang && hljs.getLanguage(lang)) {
+        if (text.length <= 16000 && lang && hljs.getLanguage(lang)) {
           try { highlighted = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value; }
           catch (e) { /* fall through */ }
         }
         if (!highlighted) {
-          try { highlighted = hljs.highlightAuto(text).value; }
-          catch (e) { highlighted = text; }
+          highlighted = escapeHtml(text);
         }
-        const langAttr = lang ? ` class="language-${lang}"` : '';
+        const langAttr = lang ? ` class="language-${escapeHtml(lang)}"` : '';
         return `<pre><code${langAttr}>${highlighted}</code></pre>`;
       },
     },
@@ -707,7 +708,7 @@ function applyMirroredStreamEvent(payload) {
 
 function startConversationSync() {
   if (conversationEventSource) return;
-  conversationEventSource = new EventSource(`${API_BASE}/api/session-events?clientId=${encodeURIComponent(conversationClientId)}`);
+  conversationEventSource = new EventSource(`${API_BASE}/api/session-events?clientId=${encodeURIComponent(conversationClientId)}&stream=delta`);
   conversationEventSource.addEventListener('session_changed', (event) => {
     let payload;
     try { payload = JSON.parse(event.data || '{}'); } catch { return; }
@@ -815,6 +816,12 @@ async function switchSession(id, updateList = true) {
   const viewEpoch = ++sessionViewEpoch;
   // Switching only changes the visible surface. Background SSE streams continue.
   snapshotActiveSessionRuntime(true);
+  for (const [cachedId, cached] of sessionRuntimes) {
+    if (sessionRuntimes.size <= 4) break;
+    if (cachedId === id || cachedId === currentSessionId || cached.isProcessing || cached.turnStopPending || cached.promptQueue?.length || pendingStreamUpdates.has(cachedId)) continue;
+    if (cached.currentTaskTimer) clearInterval(cached.currentTaskTimer);
+    sessionRuntimes.delete(cachedId);
+  }
   currentSessionId = id;
   visibleSessionId = id;
   if (sessionRuntimes.has(id)) {
@@ -856,10 +863,10 @@ async function switchSession(id, updateList = true) {
             const thinkBlock = document.createElement('details');
             thinkBlock.className = 'thinking-block is-complete';
             thinkBlock.open = false;
-            thinkBlock.dataset.reasoning = String(msg.thinking);
+            thinkBlock._reasoning = String(msg.thinking);
             thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort"></span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
             const content = thinkBlock.querySelector('.thinking-content');
-            if (content) content.textContent = String(msg.thinking);
+            if (content) setPagedText(content, String(msg.thinking));
             const answer = el.querySelector('.message-content');
             if (answer) answer.before(thinkBlock); else el.appendChild(thinkBlock);
           }
@@ -889,15 +896,16 @@ async function switchSession(id, updateList = true) {
                   <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
                 <div class="tool-body" id="tool-body-${tc.id}" style="display:none;">
-                  <div class="tool-section-label">输入</div><pre class="tool-args">${escapeHtml(JSON.stringify(tc.args, null, 2))}</pre>
+                  <div class="tool-section-label">输入</div><pre class="tool-args"></pre>
                 </div>
               `;
+              setPagedText(block.querySelector('.tool-args'), JSON.stringify(tc.args, null, 2));
               if (tc.result) {
                 const body = block.querySelector('.tool-body');
                 const result = document.createElement('pre');
                 result.className = 'tool-result';
-                result.textContent = tc.result.output || '';
                 body.appendChild(result);
+                setPagedText(result, tc.result.output || '');
                 if (tc.result.fileChange) renderFileChange(body, tc.result.fileChange);
                 if (tc.result.artifacts) renderToolArtifacts(el, tc.result.artifacts);
               }
@@ -1704,7 +1712,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     if (typeof statusText !== 'undefined' && statusText) statusText.textContent = '处理中...';
     const response = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId },
+      headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId, 'X-IEXA-Stream': 'delta' },
       body: JSON.stringify({
         message: message || displayText,
         sessionId: sessionId,
@@ -1799,6 +1807,40 @@ async function runChatTurn(message, displayText, attachments, opts) {
 // SSE Event Handling
 // =============================================================================
 
+const pendingStreamUpdates = new Map();
+
+function flushStreamUpdates(sessionId) {
+  const pending = pendingStreamUpdates.get(sessionId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingStreamUpdates.delete(sessionId);
+  withSessionRuntime(sessionId, () => {
+    if (pending.turnToken !== activeChatTurnToken) return;
+    if (pending.text !== undefined) handleTextDelta(pending.text);
+    if (pending.thinking.length) handleThinkingDelta(pending.thinking.join(''));
+    for (const data of pending.inputs.values()) handleToolInput(data.name, data.args, data.id);
+    snapshotActiveSessionRuntime();
+  });
+}
+
+function queueStreamUpdate(event, data, turnToken) {
+  const sessionId = currentSessionId;
+  let pending = pendingStreamUpdates.get(sessionId);
+  if (pending && pending.turnToken !== turnToken) {
+    clearTimeout(pending.timer);
+    pendingStreamUpdates.delete(sessionId);
+    pending = null;
+  }
+  if (!pending) {
+    pending = { turnToken, thinking: [], inputs: new Map() };
+    pending.timer = setTimeout(() => flushStreamUpdates(sessionId), sessionId === visibleSessionId ? 80 : 400);
+    pendingStreamUpdates.set(sessionId, pending);
+  }
+  if (event === 'text') pending.text = data.content;
+  else if (event === 'thinking') pending.thinking.push(data.content || '');
+  else pending.inputs.set(data.id || data.name, data);
+}
+
 function handleSSEEvent(raw, turnToken) {
   const lines = raw.split('\n');
   let eventType = '';
@@ -1816,6 +1858,17 @@ function handleSSEEvent(raw, turnToken) {
 
   try {
     const data = JSON.parse(dataStr);
+    if (turnToken != null && turnToken !== activeChatTurnToken) return;
+    if (eventType === 'text_delta') {
+      const previous = pendingStreamUpdates.get(currentSessionId)?.text ?? currentAssistantMsg?._assistantText ?? '';
+      data.content = (data.reset ? '' : previous) + (data.content || '');
+      eventType = 'text';
+    }
+    if (['text', 'thinking', 'tool_input'].includes(eventType)) {
+      queueStreamUpdate(eventType, data, activeChatTurnToken);
+      return;
+    }
+    flushStreamUpdates(currentSessionId);
 
     switch (eventType) {
       case 'text':
@@ -1923,10 +1976,8 @@ function handleTextDelta(fullText) {
   if (!currentAssistantMsg) return;
   currentAssistantMsg._assistantText = String(fullText || '');
   const contentEl = ensureAnswerContentEl();
-  contentEl.innerHTML = marked.parse(fullText || '');
-  normalizeRenderedAssets(contentEl);
-  enhanceCodeBlocks(contentEl);
-  enhanceTables(contentEl);
+  contentEl.classList.add('streaming-plain-text');
+  contentEl.textContent = fullText || '';
   // Hide empty preamble bubbles
   currentAssistantMsg.querySelectorAll('.message-content').forEach((node) => {
     if (node === contentEl) {
@@ -1994,7 +2045,6 @@ function initializeThinkingAutoScroll(content) {
 
 function scrollThinkingToLatest(content) {
   if (!content || content.dataset.followLatest === 'false') return;
-  content.scrollTop = content.scrollHeight;
   // Text layout can finish after the current event. Repeat once on the next
   // frame so wrapped reasoning lines also remain pinned to the latest line.
   requestAnimationFrame(() => {
@@ -2012,7 +2062,7 @@ function handleThinkingDelta(text) {
     thinkBlock.className = 'thinking-block';
     thinkBlock.open = true;
     thinkBlock.dataset.startedAt = String(Date.now());
-    thinkBlock.dataset.reasoning = '';
+    thinkBlock._reasoning = '';
     thinkBlock.dataset.thinkingLevel = level;
     thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
     const host = currentAssistantMsg.querySelector('.tool-steps');
@@ -2021,13 +2071,13 @@ function handleThinkingDelta(text) {
     else if (answer) answer.before(thinkBlock);
     else currentAssistantMsg.appendChild(thinkBlock);
   }
-  const total = (thinkBlock.dataset.reasoning || '') + String(text);
-  thinkBlock.dataset.reasoning = total;
+  const total = (thinkBlock._reasoning || '') + String(text);
+  thinkBlock._reasoning = total;
   updateThinkingTokenCount(thinkBlock, total);
   const content = thinkBlock.querySelector('.thinking-content');
   if (content) {
     initializeThinkingAutoScroll(content);
-    content.textContent = total;
+    setPagedText(content, total);
     scrollThinkingToLatest(content);
   }
   scrollToBottom();
@@ -2306,7 +2356,76 @@ function toolMeta(name, args) {
   return 'IEXA 工具';
 }
 
+let desktopLivePanel;
+let desktopLiveEnabled = false;
+let desktopLiveTimer;
+let desktopLiveUrl;
+let desktopLivePolling = false;
+
+function showDesktopLive() {
+  if (desktopLivePanel) { desktopLivePanel.hidden = false; return; }
+  desktopLivePanel = document.createElement('section');
+  desktopLivePanel.className = 'desktop-live-panel';
+  desktopLivePanel.innerHTML = '<header><strong>实况桌面</strong><button type="button" data-live-toggle>开启预览</button><button type="button" data-live-stop>停止操作</button><button type="button" data-live-resume>恢复操作</button><button type="button" data-live-close>收起</button></header><p data-live-status>预览仅在开启时采集，不保存截图文件。</p><img alt="目标窗口实时画面" hidden>';
+  document.body.appendChild(desktopLivePanel);
+  desktopLivePanel.querySelector('[data-live-resume]').onclick = async () => {
+    const status = desktopLivePanel.querySelector('[data-live-status]');
+    try {
+      const response = await fetch('/api/desktop-live/resume', { method: 'POST' });
+      status.textContent = response.ok ? '已恢复操作权限，请重新发起任务' : '恢复失败';
+    } catch { status.textContent = '桌面服务连接失败'; }
+  };
+  desktopLivePanel.querySelector('[data-live-toggle]').onclick = () => {
+    desktopLiveEnabled = !desktopLiveEnabled;
+    desktopLivePanel.querySelector('[data-live-toggle]').textContent = desktopLiveEnabled ? '暂停预览' : '开启预览';
+    clearTimeout(desktopLiveTimer);
+    if (desktopLiveEnabled) pollDesktopLive();
+  };
+  desktopLivePanel.querySelector('[data-live-close]').onclick = () => {
+    desktopLiveEnabled = false;
+    clearTimeout(desktopLiveTimer);
+    desktopLivePanel.hidden = true;
+    desktopLivePanel.querySelector('[data-live-toggle]').textContent = '开启预览';
+    if (desktopLiveUrl) URL.revokeObjectURL(desktopLiveUrl);
+    desktopLiveUrl = null;
+    desktopLivePanel.querySelector('img').hidden = true;
+  };
+  desktopLivePanel.querySelector('[data-live-stop]').onclick = async () => {
+    const status = desktopLivePanel.querySelector('[data-live-status]');
+    try {
+      const response = await fetch('/api/desktop-live/cancel', { method: 'POST' });
+      status.textContent = response.ok ? '已请求停止并释放鼠标和按键' : '停止请求失败，请手动切换目标窗口';
+    } catch { status.textContent = '连接中断，请手动切换目标窗口'; }
+  };
+}
+
+async function pollDesktopLive() {
+  if (!desktopLiveEnabled || desktopLivePolling) return;
+  desktopLivePolling = true;
+  const started = performance.now();
+  try {
+    if (document.visibilityState !== 'visible') return;
+    const response = await fetch('/api/desktop-live/frame', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error('桌面服务未启动或暂不可用');
+    const blob = await response.blob();
+    if (!desktopLiveEnabled) return;
+    const image = desktopLivePanel.querySelector('img');
+    const previous = desktopLiveUrl;
+    desktopLiveUrl = URL.createObjectURL(blob);
+    image.src = desktopLiveUrl;
+    image.hidden = false;
+    if (previous) URL.revokeObjectURL(previous);
+    desktopLivePanel.querySelector('[data-live-status]').textContent = `实时采集 · ${Math.round(performance.now() - started)} ms · ${new Date().toLocaleTimeString()}`;
+  } catch (error) {
+    if (desktopLiveEnabled) desktopLivePanel.querySelector('[data-live-status]').textContent = error.message;
+  } finally {
+    desktopLivePolling = false;
+    if (desktopLiveEnabled) desktopLiveTimer = setTimeout(pollDesktopLive, Math.max(100, 250 - (performance.now() - started)));
+  }
+}
+
 function handleToolStart(id, name) {
+  if (name === 'desktop_control') showDesktopLive();
   hideWaitingIndicator();
   finishActiveThinkingBlock();
   ensureAssistantMessage();
@@ -2390,9 +2509,9 @@ function handleToolInput(name, args, id) {
   if (argsEl) {
     try {
       const parsed = typeof args === 'string' ? JSON.parse(args) : args;
-      argsEl.textContent = JSON.stringify(parsed, null, 2);
+      setPagedText(argsEl, JSON.stringify(parsed, null, 2));
     } catch {
-      argsEl.textContent = String(args || '');
+      setPagedText(argsEl, String(args || ''));
     }
   }
   const metaEl = info.block.querySelector('.tool-meta');
@@ -2427,9 +2546,9 @@ function handleToolComplete(id, name, args) {
   const argsEl = info.block.querySelector('.tool-args');
   if (argsEl) {
     try {
-      argsEl.textContent = JSON.stringify(args || {}, null, 2);
+      setPagedText(argsEl, JSON.stringify(args || {}, null, 2));
     } catch {
-      argsEl.textContent = String(args || '');
+      setPagedText(argsEl, String(args || ''));
     }
   }
   const metaEl = info.block.querySelector('.tool-meta');
@@ -2444,6 +2563,41 @@ function handleToolComplete(id, name, args) {
   setToolStepStatus(info.block, 'running', '执行中');
   updateTaskSummary(toolLiveTitle(name || info.name, args));
   scrollToBottom();
+}
+
+function setPagedText(element, text) {
+  text = String(text || '');
+  element._fullText = text;
+  const pageSize = 16000;
+  if (text.length <= pageSize && !element._pager) {
+    element.textContent = text;
+    return;
+  }
+  if (!element._pager) {
+    const controls = document.createElement('div');
+    controls.className = 'text-pager';
+    const previous = document.createElement('button');
+    const next = document.createElement('button');
+    const copy = document.createElement('button');
+    const label = document.createElement('span');
+    previous.textContent = '上一页';
+    next.textContent = '下一页';
+    copy.textContent = '复制全文';
+    for (const button of [previous, next, copy]) button.type = 'button';
+    controls.append(previous, label, next, copy);
+    element.after(controls);
+    element._page = 0;
+    element._pager = { previous, next, label };
+    previous.onclick = () => { element._page--; setPagedText(element, element._fullText); };
+    next.onclick = () => { element._page++; setPagedText(element, element._fullText); };
+    copy.onclick = () => writeClipboardText(element._fullText).catch((error) => addError(error.message));
+  }
+  const pages = Math.max(1, Math.ceil(text.length / pageSize));
+  element._page = Math.max(0, Math.min(element._page, pages - 1));
+  element.textContent = text.slice(element._page * pageSize, (element._page + 1) * pageSize);
+  element._pager.label.textContent = `${element._page + 1} / ${pages}`;
+  element._pager.previous.disabled = element._page === 0;
+  element._pager.next.disabled = element._page === pages - 1;
 }
 
 function handleToolResult(id, output, success, todos, fileChange, imageData, imageMimeType, artifacts) {
@@ -2469,7 +2623,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       bodyEl.appendChild(outputLabel);
       bodyEl.appendChild(resultPre);
     }
-    resultPre.textContent = output || '';
+    setPagedText(resultPre, output || '');
     const startedAt = Number(info.block.dataset.startedAt || 0);
     const duration = startedAt ? ((Date.now() - startedAt) / 1000).toFixed(Date.now() - startedAt > 10_000 ? 1 : 2) + 's' : '';
     const status = info.block.querySelector('.tool-status');
@@ -3212,6 +3366,14 @@ function appendAssistantMessageActions(messageEl) {
 
 function finalizeAssistantMessage(messageEl) {
   if (!messageEl) return;
+  flushStreamUpdates(currentSessionId);
+  messageEl.querySelectorAll('.streaming-plain-text').forEach((contentEl) => {
+    contentEl.classList.remove('streaming-plain-text');
+    contentEl.innerHTML = marked.parse(contentEl.textContent || '');
+    normalizeRenderedAssets(contentEl);
+    enhanceCodeBlocks(contentEl);
+    enhanceTables(contentEl);
+  });
   messageEl.classList.remove('is-streaming');
   messageEl.querySelectorAll('.assistant-message-action').forEach((button) => { button.disabled = false; });
 }
@@ -3415,13 +3577,16 @@ function updateScrollToBottomButton() {
 }
 
 /** Keep streaming content visible only while the user is already reading the latest messages. */
+let chatScrollFrame = null;
 function scrollToBottom(force) {
   if (currentSessionId !== visibleSessionId) return;
-  if (force || isNearChatBottom) {
-    visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
-    isNearChatBottom = true;
-  }
-  updateScrollToBottomButton();
+  if (force) isNearChatBottom = true;
+  if (chatScrollFrame !== null) return;
+  chatScrollFrame = requestAnimationFrame(() => {
+    chatScrollFrame = null;
+    if (isNearChatBottom) visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
+    updateScrollToBottomButton();
+  });
 }
 
 visibleChatMessages.addEventListener('scroll', function () {
@@ -4924,8 +5089,22 @@ function cleanTerminalOutput(value) {
 function appendTerminalOutput(text) {
   const output = document.getElementById('terminalOutput');
   if (!output || !text) return;
-  const next = cleanTerminalOutput(output.textContent + text);
-  output.textContent = next.length > 1_000_000 ? `…（早期终端输出已截断）\n${next.slice(-1_000_000)}` : next;
+  if (!output._lastOutputNode || output.lastChild !== output._lastOutputNode) output._outputLength = output.textContent.length;
+  const chunk = cleanTerminalOutput(text);
+  output.appendChild(document.createTextNode(chunk));
+  output._lastOutputNode = output.lastChild;
+  output._outputLength = (output._outputLength || 0) + chunk.length;
+  while (output._outputLength > 100000 && output.firstChild) {
+    const excess = output._outputLength - 100000;
+    const first = output.firstChild;
+    if (first.textContent.length <= excess) {
+      output._outputLength -= first.textContent.length;
+      first.remove();
+    } else {
+      first.textContent = first.textContent.slice(excess);
+      output._outputLength -= excess;
+    }
+  }
   output.scrollTop = output.scrollHeight;
 }
 

@@ -5604,3 +5604,14 @@ body {
   body[data-mobile-client="paired"] .nav-btn[data-view="sync"] { display: none; }
   body[data-mobile-capability="chat"] .nav-btn[data-view="jobs"] { display: none; }
 }
+.streaming-plain-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.text-pager { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.text-pager button { color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.message:not(.is-streaming) { content-visibility: auto; contain-intrinsic-size: auto 180px; }
+.desktop-live-panel { position: fixed; right: 20px; bottom: 90px; z-index: 1500; width: min(480px, 90vw); padding: 12px; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 30px #0005; }
+.desktop-live-panel[hidden] { display: none; }
+.desktop-live-panel header { display: flex; align-items: center; gap: 8px; }
+.desktop-live-panel header strong { margin-right: auto; }
+.desktop-live-panel button { background: var(--bg-secondary); color: inherit; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.desktop-live-panel img { width: 100%; max-height: 40vh; object-fit: contain; }
+.desktop-live-panel p { font-size: 12px; }

@@ -38,6 +38,7 @@ import { VisionFallback } from './vision/VisionFallback';
 import { PluginManager } from './plugins/PluginManager';
 import { MobileBridgeDevice, MobileBridgeManager } from './mobile/MobileBridgeManager';
 import * as QRCode from 'qrcode';
+import { StreamBatcher } from './api/StreamBatcher';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -539,8 +540,8 @@ function loadMessages(sessionId: string): ChatMessage[] {
   return [];
 }
 
-function saveMessages(sessionId: string, msgs: ChatMessage[]): void {
-  messageStore.saveSync(sessionId, msgs);
+async function saveMessages(sessionId: string, msgs: ChatMessage[]): Promise<void> {
+  await messageStore.save(sessionId, msgs);
 }
 
 interface DurableSessionContext {
@@ -766,15 +767,24 @@ interface SessionJob {
   outputPreview?: string;
 }
 
+let jobsCache: SessionJob[] | undefined;
+let jobsSaveTimer: ReturnType<typeof setTimeout> | undefined;
 function loadJobs(): SessionJob[] {
+  if (jobsCache) return jobsCache;
   try {
     const parsed = new JsonStore<unknown>(JOBS_FILE, () => []).loadSync();
-    return Array.isArray(parsed) ? parsed : [];
+    jobsCache = Array.isArray(parsed) ? parsed : [];
+    return jobsCache;
   } catch { return []; }
 }
 function saveJobs(jobs: SessionJob[]): void {
   // Retain a useful recent audit without making the desktop state file unbounded.
-  new JsonStore<SessionJob[]>(JOBS_FILE, () => []).saveSync(jobs.slice(-500));
+  jobsCache = jobs.slice(-500);
+  if (jobsSaveTimer) return;
+  jobsSaveTimer = setTimeout(() => {
+    jobsSaveTimer = undefined;
+    void new JsonStore<SessionJob[]>(JOBS_FILE, () => []).save(jobsCache || []).catch((error) => console.error('Job persistence failed:', error));
+  }, 150);
 }
 function updateJob(sessionId: string, toolId: string, mutate: (job: SessionJob) => void): SessionJob | undefined {
   const jobs = loadJobs();
@@ -925,7 +935,7 @@ function clearPermissionSubscription(sessionId: string): void {
 }
 
 // Helper: persist chat messages after a turn
-function saveSessionMessages(
+async function saveSessionMessages(
   sessionId: string,
   existingMessages: ChatMessage[],
   userMsg: ChatMessage,
@@ -933,7 +943,7 @@ function saveSessionMessages(
   toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
   usage: { inputTokens: number; outputTokens: number } | undefined,
   thinking = '',
-): void {
+): Promise<void> {
   const deliverables = toolCalls
     .filter((call) => call.result?.success && call.result.fileChange?.path)
     .map((call) => ({
@@ -959,7 +969,7 @@ function saveSessionMessages(
     ? updatedMessages.slice(updatedMessages.length - 200)
     : updatedMessages;
 
-  saveMessages(sessionId, trimmed);
+  await saveMessages(sessionId, trimmed);
 
   // Grab the Codex-style compaction summary from the agent (if any)
   const agent = agentCache.get(sessionId);
@@ -1081,7 +1091,27 @@ function toolsAllowedForDevice(tools: ReturnType<typeof makeAgentTools>, device:
   return tools.filter((tool) => fileTools.has(tool.name));
 }
 
+const deltaClients = new WeakMap<http.ServerResponse, Map<string, string>>();
 function sendSSE(res: http.ServerResponse, event: string, data: unknown): void {
+  if (res.destroyed || res.writableEnded) return;
+  if (res.writableLength > 16 * 1024 * 1024) { res.destroy(); return; }
+  const texts = deltaClients.get(res);
+  if (texts) {
+    const envelope = data as any;
+    const nested = event === 'session_stream';
+    const kind = nested ? envelope.event : event;
+    const key = nested ? envelope.sessionId : 'direct';
+    const payload = nested ? envelope.data : envelope;
+    if (kind === 'text') {
+      const previous = texts.get(key) || '';
+      const content = String(payload.content || '');
+      const reset = !content.startsWith(previous);
+      const delta = { content: reset ? content : content.slice(previous.length), reset };
+      texts.set(key, content);
+      if (nested) data = { ...envelope, event: 'text_delta', data: delta };
+      else { event = 'text_delta'; data = delta; }
+    } else if (['turn_started', 'done', 'error', 'cancelled'].includes(kind)) texts.delete(key);
+  }
   // Write + flush so tool steps appear live in the UI (not only after the turn ends).
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   const anyRes = res as http.ServerResponse & { flush?: () => void };
@@ -1294,7 +1324,29 @@ function createServer(): http.Server {
       jsonReply(res, 403, { error: '桥接管理只能在 IEXA 电脑端操作。', code: 'DESKTOP_REQUIRED' }); return;
     }
 
+    if (url.pathname.startsWith('/api/desktop-live/')) {
+      if (!isLoopbackRequest(req)) { jsonReply(res, 403, { error: 'Desktop preview is local-only.' }); return; }
+      const operation = url.pathname.slice('/api/desktop-live/'.length);
+      if (!((operation === 'frame' || operation === 'status') && req.method === 'GET') && !(['cancel', 'resume'].includes(operation) && req.method === 'POST')) {
+        jsonReply(res, 404, { error: 'Unknown desktop endpoint.' }); return;
+      }
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), 2500);
+      res.on('close', () => abort.abort());
+      try {
+        const target = operation === 'frame' ? 'frame?full=0&format=jpeg&width=960' : operation === 'status' ? 'health' : operation === 'cancel' ? 'pause' : 'resume';
+        const upstream = await fetch(`http://127.0.0.1:17891/${target}`, { method: req.method, signal: abort.signal });
+        res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store', 'X-Captured-At': upstream.headers.get('x-captured-at') || '' });
+        res.end(Buffer.from(await upstream.arrayBuffer()));
+      } catch {
+        if (!res.headersSent) jsonReply(res, 503, { error: 'Desktop agent is not ready.' });
+        else res.end();
+      } finally { clearTimeout(timeout); }
+      return;
+    }
+
     if (url.pathname === '/api/session-events' && req.method === 'GET') {
+      if (url.searchParams.get('stream') === 'delta') deltaClients.set(res, new Map());
       const clientId = String(url.searchParams.get('clientId') || '');
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1453,7 +1505,7 @@ function createServer(): http.Server {
         store.sessions.push(session);
         store.activeSessionId = session.id;
         saveSessionStore(store);
-        saveMessages(session.id, []);
+        await saveMessages(session.id, []);
         broadcastSessionEvent('session_changed', { sessionId: session.id, reason: 'created', session });
         jsonReply(res, 200, { session });
         return;
@@ -1468,6 +1520,19 @@ function createServer(): http.Server {
 
       if (req.method === 'GET') {
         const msgs = loadMessages(sid);
+        for (const message of msgs) {
+          for (const call of message.toolCalls || []) {
+            if (!call.result) continue;
+            for (const artifact of call.result.artifacts || []) {
+              const id = `artifact_${require('crypto').createHash('sha256').update(artifact.path).digest('hex')}`;
+              artifactRegistry.set(id, { path: artifact.path, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
+              artifact.url = `/api/artifacts/${id}`;
+            }
+            if (call.result.output.length > 24000 && call.result.artifacts?.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {
+              call.result.output = call.result.output.slice(0, 16000) + '\n\n[完整输出见附件 / Full output in attachment]';
+            }
+          }
+        }
         const session = loadSessionStore().sessions.find((item) => item.id === sid);
         jsonReply(res, 200, { messages: msgs, session });
         return;
@@ -1540,7 +1605,7 @@ function createServer(): http.Server {
           const retainSelected = body.retainSelected !== false;
           const retained = messages.slice(0, messageIndex + (retainSelected ? 1 : 0));
           cancelSessionAgent(sessionId);
-          saveMessages(sessionId, retained);
+          await saveMessages(sessionId, retained);
           saveSessionContext(sessionId, retained);
           const store = loadSessionStore();
           const session = store.sessions.find((s) => s.id === sessionId);
@@ -1691,6 +1756,7 @@ function createServer(): http.Server {
         const message: string = parsed.message || '';
         const sessionId: string = parsed.sessionId || '';
         const sourceClientId = String(req.headers['x-iexa-client-id'] || parsed.clientId || '');
+        if (req.headers['x-iexa-stream'] === 'delta') deltaClients.set(res, new Map());
         requestSessionId = sessionId;
         const rawAttachments: IncomingAttachment[] = Array.isArray(parsed.attachments) ? parsed.attachments : [];
         if (!message && rawAttachments.length === 0) throw new Error('message required');
@@ -1917,7 +1983,7 @@ ${recentMemories}
         const trimmedProvisionalMessages = provisionalMessages.length > 200
           ? provisionalMessages.slice(provisionalMessages.length - 200)
           : provisionalMessages;
-        saveMessages(sessionId, trimmedProvisionalMessages);
+        await saveMessages(sessionId, trimmedProvisionalMessages);
         if (sess) {
           sess.messageCount = trimmedProvisionalMessages.length;
           sess.updated = Date.now();
@@ -1960,10 +2026,11 @@ ${recentMemories}
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
         let lastUsage: { inputTokens: number; outputTokens: number } | undefined;
         let titleJob: Promise<void> | null = null;
-        const emitTurnEvent = (event: string, data: unknown) => {
+        const streamBatcher = new StreamBatcher((event: string, data: unknown) => {
           sendSSE(res, event, data);
           broadcastSessionEvent('session_stream', { sessionId, event, data }, sourceClientId);
-        };
+        });
+        const emitTurnEvent = (event: string, data: unknown) => streamBatcher.emit(event, data);
         broadcastSessionEvent('session_stream', {
           sessionId,
           event: 'turn_started',
@@ -2030,7 +2097,8 @@ ${recentMemories}
             });
             if (job) emitTurnEvent('job', job);
             emitTurnEvent('tool_result', {
-              id, output: r.output, success: r.success,
+              id, output: r.output.length > 24000 && artifacts.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))
+                ? r.output.slice(0, 16000) + '\n\n[完整输出见附件 / Full output in attachment]' : r.output, success: r.success,
               todos: r.todos,
               fileChange: r.fileChange,
               artifacts,
@@ -2046,24 +2114,20 @@ ${recentMemories}
             emitTurnEvent('usage', u);
           },
           onContext: (context) => emitTurnEvent('context', context),
-          onError: (e) => {
+          onError: async (e) => {
             clearPermissionSubscription(sessionId);
-            runningSessionIds.delete(sessionId);
-            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
           },
-          onDone: (sr) => {
+          onDone: async (sr) => {
             clearPermissionSubscription(sessionId);
-            runningSessionIds.delete(sessionId);
-            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -2071,25 +2135,42 @@ ${recentMemories}
               try { res.end(); } catch { /* */ }
             });
           },
-          onCancelled: () => {
+          onCancelled: async () => {
             clearPermissionSubscription(sessionId);
-            runningSessionIds.delete(sessionId);
-            finishPendingAgentInvalidation(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();
           },
         };
-        await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments });
+        let terminalWork: Promise<void> = Promise.resolve();
+        for (const key of ['onDone', 'onError', 'onCancelled'] as const) {
+          const original = cb[key] as (...args: any[]) => unknown;
+          (cb as any)[key] = (...args: any[]) => {
+            terminalWork = Promise.resolve(original(...args)).then(() => {});
+            terminalWork.catch(() => {});
+          };
+        }
+        try {
+          await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments });
+          await terminalWork;
+        } finally {
+          streamBatcher.flush();
+          runningSessionIds.delete(sessionId);
+          finishPendingAgentInvalidation(sessionId);
+        }
         clearPermissionSubscription(sessionId);
         if (titleJob) await titleJob;
       } catch (err: unknown) {
         clearPermissionSubscription(requestSessionId);
         if (!res.headersSent) jsonReply(res, 500, { error: (err as Error).message });
+        else if (!res.writableEnded && !res.destroyed) {
+          sendSSE(res, 'error', { message: (err as Error).message });
+          res.end();
+        }
       }
       return;
     }
@@ -2592,7 +2673,7 @@ ${recentMemories}
           return;
         }
         if (action === 'terminate' && req.method === 'POST') {
-          terminalManager.terminate(id);
+          await terminalManager.terminate(id);
           jsonReply(res, 200, { ok: true });
           return;
         }
@@ -3050,6 +3131,7 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
   return new Promise((resolve) => {
     backfillSessionContexts();
     const srv = createServer();
+    srv.once('close', () => { void terminalManager.shutdown(); });
     srv.listen(port, host, () => {
       const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
       mobileBridge.setPort(actualPort);
@@ -3067,6 +3149,11 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
     });
   });
 }
+
+// Electron can end the Node process before an asynchronous server close has
+// finished. Ensure ConPTY/CMD/PowerShell children are synchronously signalled
+// during the final process-exit phase as a last line of cleanup.
+process.once('exit', () => terminalManager.shutdownSync());
 
 /** Keep a standalone start.bat server tied to its launcher process. */
 function monitorStandaloneParent(server: http.Server): void {
