@@ -562,8 +562,12 @@ test('desktop and mobile conversations use the shared real-time session event st
 test('turn completion preserves an existing scrolled-up chat position', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   assert.match(renderer, /const preserveScrollTop = visibleChatMessages\.scrollTop/);
-  assert.match(renderer, /const preserveScroll = !isChatNearBottom\(\)/);
+  assert.match(renderer, /const followLatest = shouldFollowLatestMessage\(\)/);
+  assert.match(renderer, /const preserveScroll = !followLatest/);
   assert.match(renderer, /visibleChatMessages\.scrollTop = preserveScrollTop/);
+  const doneBody = renderer.slice(renderer.indexOf('function handleDone('), renderer.indexOf('function handleCancelled('));
+  assert.ok(doneBody.indexOf('if (followLatest)') < doneBody.indexOf('else if (preserveScroll)'));
+  assert.match(doneBody, /scrollToBottom\(false, true\)/);
 });
 
 test('streamed assistant text renders markdown live and finalizes from preserved source', async () => {

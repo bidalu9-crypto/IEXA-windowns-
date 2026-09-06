@@ -3096,8 +3096,9 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  const followLatest = shouldFollowLatestMessage();
   const preserveScrollTop = visibleChatMessages.scrollTop;
-  const preserveScroll = !isChatNearBottom();
+  const preserveScroll = !followLatest;
   // setProcessing(false) can immediately drain a pending metadata sync. Mark
   // this completed stream as authoritative before that sync gets scheduled.
   protectLiveTurnDom();
@@ -3122,7 +3123,11 @@ function handleDone(stopReason, turnToken) {
   syncConversationMetadata().catch(() => {});
   // Refresh project files so tool writes are visible
   if (typeof refreshFilesPanelSoft === 'function') refreshFilesPanelSoft();
-  if (preserveScroll) requestAnimationFrame(() => {
+  if (followLatest) {
+    // A final text batch may have queued a bottom-follow frame before this
+    // terminal event. Keep that intent; do not restore the pre-batch scrollTop.
+    scrollToBottom(false, true);
+  } else if (preserveScroll) requestAnimationFrame(() => {
     visibleChatMessages.scrollTop = preserveScrollTop;
     isNearChatBottom = isChatNearBottom();
     updateScrollToBottomButton();
@@ -3134,8 +3139,9 @@ function handleDone(stopReason, turnToken) {
 
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  const followLatest = shouldFollowLatestMessage();
   const preserveScrollTop = visibleChatMessages.scrollTop;
-  const preserveScroll = !isChatNearBottom();
+  const preserveScroll = !followLatest;
   protectLiveTurnDom();
   runtimeForSession(currentSessionId).turnStopPending = false;
   finishActiveThinkingBlock();
@@ -3151,7 +3157,9 @@ function handleCancelled(turnToken) {
   cancelNote.className = 'error-message';
   cancelNote.innerHTML = uiIcon('info') + '<span>任务已取消。</span>';
   chatMessages.appendChild(cancelNote);
-  if (preserveScroll) requestAnimationFrame(() => {
+  if (followLatest) {
+    scrollToBottom(false, true);
+  } else if (preserveScroll) requestAnimationFrame(() => {
     visibleChatMessages.scrollTop = preserveScrollTop;
     isNearChatBottom = isChatNearBottom();
     updateScrollToBottomButton();
