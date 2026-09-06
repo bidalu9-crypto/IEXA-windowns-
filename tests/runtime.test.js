@@ -687,9 +687,11 @@ test('thinking and task summary capsules size to their label instead of stretchi
   assert.match(styles, /\.task-summary \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 680px\);/s);
   assert.match(styles, /\.task-summary-label \{[^}]*flex: 0 1 auto;/s);
   assert.match(styles, /\.thinking-block \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 820px\);/s);
-  assert.match(styles, /\.thinking-block\[open\] \{ width: min\(100%, 820px\); \}/);
+  assert.doesNotMatch(styles, /\.thinking-block\[open\] \{ width: min\(100%, 820px\); \}/);
   assert.match(styles, /\.tool-block \{[^}]*align-self: flex-start;[^}]*width: fit-content;[^}]*max-width: min\(100%, 820px\);/s);
-  assert.match(styles, /\.thinking-title \{[^}]*flex: 0 1 auto;/s);
+  assert.match(styles, /\.thinking-title \{[^}]*flex: 0 0 auto;[^}]*max-width: none;[^}]*overflow: visible;/s);
+  assert.match(renderer, /function stabilizeThinkingBlockWidth\(thinkBlock\)/);
+  assert.match(renderer, /Never lock a pre-flex measurement into pixels/);
 });
 
 test('history restores thinking metadata and opens conversations at the latest message', async () => {
@@ -705,13 +707,15 @@ test('history restores thinking metadata and opens conversations at the latest m
   assert.match(renderer, /\[0, 50, 150, 300, 600, 1000, 1500, 2500, 4000\]/);
   assert.match(renderer, /mountSessionRuntime\(id\);\s*scrollHistoryToLatest\(id\);/);
   assert.match(renderer, /snapshotActiveSessionRuntime\(\);\s*scrollHistoryToLatest\(id\);/);
+  assert.match(renderer, /await loadSessionList\(\);[\s\S]*scrollHistoryToLatest\(currentSessionId\);[\s\S]*setTimeout\(\(\) => scrollHistoryToLatest\(currentSessionId\), 350\)/);
   assert.match(server, /thinkingLevel\?: 'off' \| 'low' \| 'medium' \| 'high'/);
   assert.match(server, /thinkingLevel: thinking \? normalizeThinkingLevel\(thinkingLevel\)/);
   assert.match(server, /const turnThinkingLevel = getThinkingLevel\(\)/);
-  assert.match(styles, /\.chat-messages\.is-positioning-history \.message \{ content-visibility: visible; \}/);
+  assert.match(styles, /\.message:not\(\.is-streaming\) \{ content-visibility: visible; \}/);
   const refreshBody = renderer.slice(renderer.indexOf('async function refreshCurrentSessionHistory('), renderer.indexOf('async function retryAssistantMessage('));
   assert.match(refreshBody, /positioningHistory = visibleChatMessages\.classList\.contains\('is-positioning-history'\)/);
-  assert.match(refreshBody, /if \(positioningHistory \|\| keepAtBottom\) scrollHistoryToLatest\(sessionId\)/);
+  assert.match(refreshBody, /forceHistoryLatest = runtime\?\.forceHistoryLatest === true/);
+  assert.match(refreshBody, /if \(positioningHistory \|\| keepAtBottom \|\| forceHistoryLatest\) scrollHistoryToLatest\(sessionId\)/);
 });
 
 test('assistant replies expose copy and non-duplicating retry controls', async () => {

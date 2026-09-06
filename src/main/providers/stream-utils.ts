@@ -26,9 +26,15 @@ export async function fetchWithRetry(
   throw lastError instanceof Error ? lastError : new Error(String(lastError || 'request failed'));
 }
 
+// Reasoning models can spend several minutes between SSE frames while doing
+// hidden work. A 45s idle cutoff aborts a healthy stream and truncates the
+// visible thinking block. Keep a generous transport watchdog for genuinely
+// dead connections; the caller's AbortSignal still remains the hard cancel.
+export const STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function readWithTimeout<T>(
   reader: ReadableStreamDefaultReader<T>,
-  timeoutMs = 45000,
+  timeoutMs = STREAM_IDLE_TIMEOUT_MS,
 ): Promise<{ done: boolean; value?: T }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

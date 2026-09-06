@@ -206,6 +206,7 @@ test('history startup keeps pinning until lazy message layout reaches its real h
   const visibleChatMessages = {
     scrollTop: 0,
     clientHeight: 100,
+    style: { overflowAnchor: '' },
     get scrollHeight() { return heights[Math.min(heightIndex++, heights.length - 1)]; },
     classList: {
       add: (name) => classes.add(name),

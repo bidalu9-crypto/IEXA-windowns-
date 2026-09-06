@@ -221,7 +221,11 @@ function snapshotActiveSessionRuntime(detachSurface = false) {
   // Background SSE updates render against the detached fragment directly.
   if (detachSurface && currentSessionId === visibleSessionId) {
     while (chatMessages.firstChild) runtime.fragment.appendChild(chatMessages.firstChild);
-    runtime.scrollTop = visibleChatMessages.scrollTop;
+    // A cold-start/history mount owns the viewport until its lazy layout has
+    // settled. Do not persist the transient top position observed mid-mount.
+    if (!(runtime.historyFollowLatestUntil > Date.now()) && !runtime.forceHistoryLatest) {
+      runtime.scrollTop = visibleChatMessages.scrollTop;
+    }
   }
   runtime.isProcessing = isProcessing;
   runtime.currentAssistantMsg = currentAssistantMsg;
@@ -245,7 +249,7 @@ function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
   surface.appendChild(runtime.fragment);
   chatMessages = surface;
   applySessionRuntime(sessionId);
-  if (surface === visibleChatMessages && Number.isFinite(runtime.scrollTop)) {
+  if (surface === visibleChatMessages && Number.isFinite(runtime.scrollTop) && !(runtime.historyFollowLatestUntil > Date.now()) && !runtime.forceHistoryLatest) {
     visibleChatMessages.scrollTop = runtime.scrollTop;
   }
 }
@@ -255,34 +259,68 @@ function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
 // browser lays out older content and leaves the viewport above the real end.
 // Re-pin for a few frames until scrollHeight stops changing.
 let historyScrollGeneration = 0;
+let cancelHistoryScrollPositioning = null;
 function scrollHistoryToLatest(sessionId = currentSessionId) {
   if (!sessionId || sessionId !== currentSessionId || sessionId !== visibleSessionId) return;
+  if (typeof cancelHistoryScrollPositioning === 'function') cancelHistoryScrollPositioning();
   const generation = ++historyScrollGeneration;
+  const runtime = typeof runtimeForSession === 'function' ? runtimeForSession(sessionId) : null;
+  // Keep this intent alive across metadata refreshes and runtime snapshots.
+  if (runtime) {
+    runtime.historyFollowLatestUntil = Date.now() + 6000;
+    runtime.forceHistoryLatest = true;
+    // EventSource/focus synchronization can immediately report the current
+    // session as changed during cold start. Keep that metadata refresh from
+    // rebuilding the just-mounted history surface for a short settling window.
+    runtime.startupHistoryLockUntil = Date.now() + 5000;
+  }
   let frame = 0;
   let previousHeight = -1;
   let lastHeightChangeAt = performance.now();
   const startedAt = performance.now();
   let resizeObserver = null;
   const timers = [];
+  let mutationObserver = null;
+  const previousOverflowAnchor = visibleChatMessages.style.overflowAnchor;
+  visibleChatMessages.style.overflowAnchor = 'none';
   visibleChatMessages.classList.add('is-positioning-history');
+  let cancelled = false;
+  const cleanup = (preservePositioning = false) => {
+    if (cancelled) return;
+    cancelled = true;
+    resizeObserver?.disconnect();
+    mutationObserver?.disconnect();
+    timers.splice(0).forEach((timer) => window.clearTimeout(timer));
+    if (!preservePositioning) {
+      visibleChatMessages.classList.remove('is-positioning-history');
+      visibleChatMessages.style.overflowAnchor = previousOverflowAnchor;
+    }
+    if (cancelHistoryScrollPositioning === cleanup) cancelHistoryScrollPositioning = null;
+  };
+  if (typeof cancelHistoryScrollPositioning !== 'undefined') cancelHistoryScrollPositioning = () => cleanup(false);
   const pin = () => {
     if (generation !== historyScrollGeneration || sessionId !== currentSessionId || sessionId !== visibleSessionId) return false;
     visibleChatMessages.scrollTop = Math.max(0, visibleChatMessages.scrollHeight - visibleChatMessages.clientHeight);
+    if (runtime) runtime.scrollTop = visibleChatMessages.scrollTop;
     return true;
   };
   const finish = () => {
     if (generation !== historyScrollGeneration) return;
-    resizeObserver?.disconnect();
-    timers.splice(0).forEach((timer) => window.clearTimeout(timer));
-    visibleChatMessages.classList.remove('is-positioning-history');
     pin();
+    cleanup(false);
+    visibleChatMessages.style.overflowAnchor = previousOverflowAnchor;
+  if (runtime) {
+    runtime.scrollTop = visibleChatMessages.scrollTop;
+    runtime.historyFollowLatestUntil = 0;
+    runtime.startupHistoryLockUntil = 0;
+  }
     isNearChatBottom = true;
     updateScrollToBottomButton();
   };
   const settle = () => {
-    if (generation !== historyScrollGeneration) return;
+    if (cancelled || generation !== historyScrollGeneration) return;
     if (sessionId !== currentSessionId || sessionId !== visibleSessionId) {
-      visibleChatMessages.classList.remove('is-positioning-history');
+      cleanup(false);
       return;
     }
     pin();
@@ -305,7 +343,16 @@ function scrollHistoryToLatest(sessionId = currentSessionId) {
       lastHeightChangeAt = performance.now();
       pin();
     });
-    resizeObserver.observe(visibleChatMessages.lastElementChild || visibleChatMessages);
+    resizeObserver.observe(visibleChatMessages);
+    if (visibleChatMessages.lastElementChild) resizeObserver.observe(visibleChatMessages.lastElementChild);
+  }
+  if (typeof MutationObserver === 'function') {
+    mutationObserver = new MutationObserver(() => {
+      if (generation !== historyScrollGeneration) return;
+      lastHeightChangeAt = performance.now();
+      requestAnimationFrame(pin);
+    });
+    mutationObserver.observe(visibleChatMessages, { childList: true, subtree: true, characterData: true });
   }
   [0, 50, 150, 300, 600, 1000, 1500, 2500, 4000].forEach((delay) => {
     timers.push(window.setTimeout(() => {
@@ -709,7 +756,13 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     if (shouldRefreshCurrent) {
       const runtime = sessionRuntimes.get(currentSessionId);
       const liveDomOwned = Boolean(runtime?.liveTurnDomOwnedUntil && runtime.liveTurnDomOwnedUntil > Date.now());
-      if (liveDomOwned) {
+      const startupHistoryLocked = Boolean(runtime?.startupHistoryLockUntil && runtime.startupHistoryLockUntil > Date.now());
+      if (startupHistoryLocked) {
+        // Cold-start history is already mounted. Metadata changed/forced sync
+        // must update the sidebar only; rebuilding this DOM would reset scroll
+        // to zero before the anchor pass can run again.
+        scrollHistoryToLatest(currentSessionId);
+      } else if (liveDomOwned) {
         // The streamed DOM already contains the server's completed turn. Keep
         // it mounted while consuming the new session metadata version.
       } else if (!runtime?.isProcessing && !isProcessing) await refreshCurrentSessionHistory(currentSessionId);
@@ -756,6 +809,8 @@ function applyMirroredStreamEvent(payload) {
   if (!sessionId || sessionId !== currentSessionId) return;
   if (event === 'turn_started') {
     beginMirroredTurn(sessionId);
+    const level = normalizeThinkingLevel(payload.data?.thinkingLevel || currentThinkingLevel);
+    if (currentAssistantMsg) currentAssistantMsg.dataset.thinkingLevel = level;
     return;
   }
   const runtime = sessionRuntimes.get(sessionId);
@@ -938,6 +993,7 @@ async function switchSession(id, updateList = true) {
             const content = thinkBlock.querySelector('.thinking-content');
             updateThinkingTokenCount(thinkBlock, String(msg.thinking));
             if (content) setPagedText(content, String(msg.thinking));
+            stabilizeThinkingBlockWidth(thinkBlock);
             const answer = el.querySelector('.message-content');
             if (answer) answer.before(thinkBlock); else el.appendChild(thinkBlock);
           }
@@ -1946,6 +2002,11 @@ function handleSSEEvent(raw, turnToken) {
       case 'text':
         handleTextDelta(data.content);
         break;
+      case 'turn_started': {
+        const level = normalizeThinkingLevel(data.thinkingLevel || currentThinkingLevel);
+        if (currentAssistantMsg) currentAssistantMsg.dataset.thinkingLevel = level;
+        break;
+      }
       case 'thinking':
         handleThinkingDelta(data.content);
         break;
@@ -2113,6 +2174,18 @@ function updateThinkingTokenCount(thinkBlock, text) {
   }
 }
 
+function stabilizeThinkingBlockWidth(thinkBlock) {
+  if (!thinkBlock || thinkBlock.dataset.widthBound === 'true') return;
+  const summary = thinkBlock.querySelector(':scope > summary');
+  if (!summary) return;
+  requestAnimationFrame(() => {
+    if (!summary.isConnected) return;
+    // Let the stylesheet's fit-content sizing resolve the complete label.
+    // Never lock a pre-flex measurement into pixels: it can clip the arrow.
+    thinkBlock.dataset.widthBound = 'true';
+  });
+}
+
 function finishThinkingBlock(thinkBlock) {
   if (!thinkBlock || thinkBlock.classList.contains('is-complete')) return;
   // Compatibility cleanup for blocks created before the simplified design.
@@ -2171,6 +2244,7 @@ function handleThinkingDelta(text) {
     if (host) host.before(thinkBlock);
     else if (answer) answer.before(thinkBlock);
     else currentAssistantMsg.appendChild(thinkBlock);
+    stabilizeThinkingBlockWidth(thinkBlock);
   }
   const total = (thinkBlock._reasoning || '') + String(text);
   thinkBlock._reasoning = total;
@@ -2178,7 +2252,7 @@ function handleThinkingDelta(text) {
   const content = thinkBlock.querySelector('.thinking-content');
   if (content) {
     initializeThinkingAutoScroll(content);
-    setPagedText(content, total);
+    setPagedText(content, total, { followLatest: true });
     scrollThinkingToLatest(content);
   }
   scrollToBottom();
@@ -2666,8 +2740,9 @@ function handleToolComplete(id, name, args) {
   scrollToBottom();
 }
 
-function setPagedText(element, text) {
+function setPagedText(element, text, options) {
   text = String(text || '');
+  options = options || {};
   element._fullText = text;
   const pageSize = 16000;
   if (text.length <= pageSize && !element._pager) {
@@ -2694,6 +2769,7 @@ function setPagedText(element, text) {
     copy.onclick = () => writeClipboardText(element._fullText).catch((error) => addError(error.message));
   }
   const pages = Math.max(1, Math.ceil(text.length / pageSize));
+  if (options.followLatest) element._page = pages - 1;
   element._page = Math.max(0, Math.min(element._page, pages - 1));
   element.textContent = text.slice(element._page * pageSize, (element._page + 1) * pageSize);
   element._pager.label.textContent = `${element._page + 1} / ${pages}`;
@@ -3186,6 +3262,12 @@ function handleDone(stopReason, turnToken) {
   if (currentAssistantMsg) {
     renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
     finalizeAssistantMessage(currentAssistantMsg);
+    if (stopReason === 'maxTokens') {
+      const notice = document.createElement('div');
+      notice.className = 'error-message stream-limit-notice';
+      notice.innerHTML = uiIcon('info') + '<span>模型已达到本轮最大输出长度，已保留当前思考和回复内容。</span>';
+      currentAssistantMsg.appendChild(notice);
+    }
   }
   currentAssistantMsg = null;
   currentToolBlocks = {};
@@ -3564,11 +3646,12 @@ async function refreshCurrentSessionHistory(sessionId) {
   // the top of the transcript after reload. Keep the startup latest-position
   // operation authoritative instead of preserving that transient value.
   const positioningHistory = visibleChatMessages.classList.contains('is-positioning-history');
+  const forceHistoryLatest = runtime?.forceHistoryLatest === true;
   const keepAtBottom = isChatNearBottom();
   const savedScrollTop = visibleChatMessages.scrollTop;
   await reloadSessionView(sessionId);
   if (sessionId !== currentSessionId) return;
-  if (positioningHistory || keepAtBottom) scrollHistoryToLatest(sessionId);
+  if (positioningHistory || keepAtBottom || forceHistoryLatest) scrollHistoryToLatest(sessionId);
   else {
     visibleChatMessages.scrollTop = savedScrollTop;
     isNearChatBottom = isChatNearBottom();
@@ -3723,6 +3806,15 @@ function isChatUserScrollActive() {
 function stopFollowingLatestMessage() {
   isNearChatBottom = false;
   chatBottomFollowRequested = false;
+  if (currentSessionId) {
+    const runtime = typeof runtimeForSession === 'function' ? runtimeForSession(currentSessionId) : null;
+    if (runtime) {
+      runtime.historyFollowLatestUntil = 0;
+      runtime.forceHistoryLatest = false;
+    }
+    if (typeof cancelHistoryScrollPositioning === 'function') cancelHistoryScrollPositioning();
+    if (typeof historyScrollGeneration !== 'undefined') historyScrollGeneration += 1;
+  }
   updateScrollToBottomButton();
 }
 
@@ -3754,6 +3846,10 @@ visibleChatMessages.addEventListener('scroll', function () {
   const nearBottom = isChatNearBottom();
   if (isChatUserScrollActive() && !chatProgrammaticScroll) {
     isNearChatBottom = nearBottom;
+    if (!nearBottom && currentSessionId) {
+      const runtime = typeof runtimeForSession === 'function' ? runtimeForSession(currentSessionId) : null;
+      if (runtime) runtime.forceHistoryLatest = false;
+    }
     if (!nearBottom) chatBottomFollowRequested = false;
   } else if (nearBottom) {
     // Layout changes must not disable follow-latest, but any route back to the
@@ -7010,6 +7106,10 @@ async function init() {
   await loadSystemInfo();
   await refreshModelSelector();
   await loadSessionList();
+  if (currentSessionId === visibleSessionId) {
+    scrollHistoryToLatest(currentSessionId);
+    window.setTimeout(() => scrollHistoryToLatest(currentSessionId), 350);
+  }
   startConversationSync();
   loadJobs();
 }

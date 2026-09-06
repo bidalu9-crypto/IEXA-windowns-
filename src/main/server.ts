@@ -20,7 +20,7 @@ import {
   fallbackTitleFromFirstUserMessage,
 } from './session-title';
 import { SkillStore, ensureBundledSkills } from './skills/SkillStore';
-import { maxThinkingLevel } from './providers/ModelCapabilities';
+import { maxThinkingLevel, clampThinkingLevel } from './providers/ModelCapabilities';
 import { PermissionBroker, PermissionRequest, PendingPermission, PermissionDecision, PermissionMode } from './security/PermissionManager';
 import { SessionManager } from './session/SessionManager';
 import { TraceStore } from './observability/TraceStore';
@@ -855,7 +855,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     model: profile.model,
     apiKey: profile.apiKey,
     baseURL: profile.baseURL || undefined,
-    thinkingLevel: getThinkingLevel(),
+    thinkingLevel: clampThinkingLevel(getThinkingLevel(), profile.provider, profile.model),
     fastMode: useFastMode,
     apiMode: profile.apiMode === 'responses' ? 'responses' : 'chat_completions',
   });
@@ -1766,11 +1766,15 @@ function createServer(): http.Server {
         if (!sessionId) throw new Error('sessionId required');
 
         const profile = profileForSession(sessionId);
-        const turnThinkingLevel = getThinkingLevel();
+        // Resolve the level against the model actually bound to this session.
+        // The UI may retain a higher global setting from another model, but a
+        // turn must be labelled with the exact level the provider can use.
         if (!profile || !profile.apiKey) {
           jsonReply(res, 400, { error: '请先在设置中配置至少一个 AI 模型。' });
           return;
         }
+        const turnThinkingLevel = getThinkingLevel();
+        const effectiveThinkingLevel = clampThinkingLevel(turnThinkingLevel, profile.provider, profile.model);
 
         // Soft-cancel any in-flight turn but keep agent so multi-turn memory stays warm.
         // If none exists (app restart / first message), create and hydrate from disk.
@@ -2035,11 +2039,8 @@ ${recentMemories}
           broadcastSessionEvent('session_stream', { sessionId, event, data }, sourceClientId);
         });
         const emitTurnEvent = (event: string, data: unknown) => streamBatcher.emit(event, data);
-        broadcastSessionEvent('session_stream', {
-          sessionId,
-          event: 'turn_started',
-          data: { timestamp: userMsg.timestamp },
-        }, sourceClientId);
+        // event: 'turn_started' carries the model-clamped level to paired clients.
+        emitTurnEvent('turn_started', { timestamp: userMsg.timestamp, thinkingLevel: effectiveThinkingLevel });
 
         // iOS: generateSessionTitleIfNeeded after each LLM stream completes
         const maybeAiTitle = async () => {
@@ -2122,7 +2123,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
@@ -2131,7 +2132,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -2144,7 +2145,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, turnThinkingLevel);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();
