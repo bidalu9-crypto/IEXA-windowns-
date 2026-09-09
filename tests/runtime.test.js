@@ -29,6 +29,7 @@ const { GitService } = require('../dist/main/git/GitService');
 const { TerminalManager } = require('../dist/main/terminals/TerminalManager');
 const { McpManager } = require('../dist/main/mcp/McpManager');
 const { OpenAIProvider } = require('../dist/main/providers/OpenAIProvider');
+const { maxThinkingLevel, clampThinkingLevel, modelLikelySupportsVision } = require('../dist/main/providers/ModelCapabilities');
 const { ProviderError } = require('../dist/main/providers/ProviderError');
 const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors');
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
@@ -912,6 +913,57 @@ test('OpenAI provider reports malformed tool arguments and preserves reasoning c
     const replay = requests[requests.length - 1].messages.find((message) => message.role === 'assistant');
     assert.equal(replay.reasoning_content, 'think more');
     void historyBody;
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('GPT-6 Astra keeps the selected thinking level and sends each API its native reasoning envelope', async () => {
+  assert.equal(maxThinkingLevel('openai', 'gpt-6-astra'), 'max');
+  assert.equal(maxThinkingLevel('custom', 'openai/gpt_6_astra-2026-09-10'), 'max');
+  assert.equal(clampThinkingLevel('high', 'openai', 'gpt-6-astra'), 'high');
+  assert.equal(modelLikelySupportsVision('openai', 'gpt-6-astra'), true);
+  assert.equal(modelLikelySupportsVision('custom', 'openai/gpt_6_astra-preview'), true);
+  const [renderer, server] = await Promise.all([
+    fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'src', 'main', 'server.ts'), 'utf8'),
+  ]);
+  assert.match(renderer, /gpt-6-astra/);
+  assert.match(server, /return modelLikelySupportsVision\(profile\.provider, profile\.model\)/);
+
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body) });
+    const frames = String(url).endsWith('/responses')
+      ? `data: ${JSON.stringify({ type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: 1 } } })}\n\n`
+      : 'data: [DONE]\n\n';
+    return new Response(frames, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+
+  try {
+    const input = [{ role: 'user', parts: [
+      { type: 'text', text: 'think' },
+      { type: 'imageData', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' },
+    ] }];
+    const responsesProvider = new OpenAIProvider({
+      type: 'openai', name: 'openai', model: 'gpt-6-astra', apiKey: 'test',
+      thinkingLevel: clampThinkingLevel('high', 'openai', 'gpt-6-astra'), apiMode: 'responses',
+    });
+    for await (const _event of responsesProvider.streamMessage(input, '', [], 1000)) {}
+
+    const chatProvider = new OpenAIProvider({
+      type: 'openai', name: 'openai', model: 'openai/gpt-6-astra-preview', apiKey: 'test',
+      thinkingLevel: clampThinkingLevel('xhigh', 'openai', 'openai/gpt-6-astra-preview'), apiMode: 'chat_completions',
+    });
+    for await (const _event of chatProvider.streamMessage(input, '', [], 1000)) {}
+
+    assert.deepEqual(requests[0].body.reasoning, { effort: 'high', summary: 'auto' });
+    assert.equal('reasoning_effort' in requests[0].body, false);
+    assert.deepEqual(requests[0].body.input[0].content[1], { type: 'input_image', image_url: 'data:image/png;base64,iVBORw==' });
+    assert.equal(requests[1].body.reasoning_effort, 'xhigh');
+    assert.equal('reasoning' in requests[1].body, false);
+    assert.deepEqual(requests[1].body.messages[0].content[1], { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw==' } });
   } finally {
     global.fetch = originalFetch;
   }

@@ -3970,12 +3970,13 @@ const THINKING_LEVEL_ORDER = ['off', 'low', 'medium', 'high', 'xhigh', 'max', 'u
 function thinkingMaxLevelForModel(profile) {
   if (profile && THINKING_LEVEL_ORDER.includes(profile.maxThinkingLevel)) return profile.maxThinkingLevel;
   if (!profile || !profile.model) return 'xhigh';
-  const model = String(profile.model).toLowerCase().replace(/\./g, '-');
+  const model = String(profile.model).toLowerCase().replace(/[._]/g, '-');
   const provider = String(profile.provider || '').toLowerCase();
   if (/mimo|agnes|seed-|bytedance-seed|doubao/.test(model)) return 'high';
   if (/claude-opus-4/.test(model)) return 'max';
   if (/gpt-5-5/.test(model)) return 'xhigh';
   if (/gpt-5-6/.test(model)) return 'max';
+  if (/(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(model)) return 'max';
   if (/o[1-9]|gpt-5|deepseek|reason|thinking|\br1\b|qwq|grok/.test(model) || provider === 'deepseek' || provider === 'xai') return 'xhigh';
   return 'off';
 }

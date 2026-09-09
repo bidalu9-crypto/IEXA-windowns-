@@ -2,11 +2,28 @@ export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' 
 
 const ORDER: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
+/** Match the GPT-6 Astra family, including provider-prefixed and dated aliases.
+ * Keep this explicit instead of treating every future GPT-6 id as compatible:
+ * OpenAI-compatible gateways reject unknown reasoning fields aggressively. */
+export function isGpt6AstraModel(model: string): boolean {
+  const id = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  return /(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(id);
+}
+
+/** Shared native-vision gate used by attachment routing and profile metadata. */
+export function modelLikelySupportsVision(provider: string, model: string): boolean {
+  const p = String(provider || '').toLowerCase();
+  const m = String(model || '').toLowerCase();
+  return p === 'anthropic' || p === 'gemini' || isGpt6AstraModel(m) ||
+    /gpt-4o|gpt-4\.1|gpt-5|claude|gemini|vision|vl|llava|qwen2\.5-vl|qwen3-vl/.test(m);
+}
+
 /** Conservative model-id capability registry. Unknown models stay off so a
  * gateway is never sent unsupported reasoning fields by guesswork. */
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  if (isGpt6AstraModel(m)) return 'max';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
     /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(m) ||

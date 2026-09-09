@@ -20,7 +20,7 @@ import {
   fallbackTitleFromFirstUserMessage,
 } from './session-title';
 import { SkillStore, ensureBundledSkills } from './skills/SkillStore';
-import { maxThinkingLevel, clampThinkingLevel } from './providers/ModelCapabilities';
+import { maxThinkingLevel, clampThinkingLevel, modelLikelySupportsVision } from './providers/ModelCapabilities';
 import { PermissionBroker, PermissionRequest, PendingPermission, PermissionDecision, PermissionMode } from './security/PermissionManager';
 import { SessionManager } from './session/SessionManager';
 import { TraceStore } from './observability/TraceStore';
@@ -325,8 +325,7 @@ function loadSettings(): AppSettings {
 
 function profileLikelySupportsVision(profile: ModelProfile | null | undefined): boolean {
   if (!profile) return false;
-  const model = profile.model.toLowerCase();
-  return profile.provider === 'anthropic' || profile.provider === 'gemini' || /gpt-4o|gpt-4\.1|gpt-5|claude|gemini|vision|vl|llava|qwen2\.5-vl|qwen3-vl/.test(model);
+  return modelLikelySupportsVision(profile.provider, profile.model);
 }
 
 function configuredVisionProfile(currentProfileId?: string): ModelProfile | null {
