@@ -10,11 +10,17 @@ export function isGpt6AstraModel(model: string): boolean {
   return /(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(id);
 }
 
+/** Match GLM 5.3 Flash and the common transposed `falsh` catalog alias. */
+export function isGlm53FlashModel(model: string): boolean {
+  const id = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  return /(?:^|[/:-])glm-5-3-(?:flash|falsh)(?:$|[/:-])/.test(id);
+}
+
 /** Shared native-vision gate used by attachment routing and profile metadata. */
 export function modelLikelySupportsVision(provider: string, model: string): boolean {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase();
-  return p === 'anthropic' || p === 'gemini' || isGpt6AstraModel(m) ||
+  return p === 'anthropic' || p === 'gemini' || isGpt6AstraModel(m) || isGlm53FlashModel(m) ||
     /gpt-4o|gpt-4\.1|gpt-5|claude|gemini|vision|vl|llava|qwen2\.5-vl|qwen3-vl/.test(m);
 }
 
@@ -24,6 +30,7 @@ export function maxThinkingLevel(provider: string, model: string): ThinkingLevel
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
   if (isGpt6AstraModel(m)) return 'max';
+  if (isGlm53FlashModel(m)) return 'high';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
     /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(m) ||

@@ -969,6 +969,57 @@ test('GPT-6 Astra keeps the selected thinking level and sends each API its nativ
   }
 });
 
+test('GLM 5.3 Flash is multimodal and sends its native Chat thinking switch', async () => {
+  assert.equal(maxThinkingLevel('openai', 'glm-5.3-flash'), 'high');
+  assert.equal(maxThinkingLevel('custom', 'zai/glm_5_3_falsh-preview'), 'high');
+  assert.equal(clampThinkingLevel('high', 'openai', 'glm-5.3-flash'), 'high');
+  assert.equal(clampThinkingLevel('max', 'openai', 'glm-5.3-flash'), 'high');
+  assert.equal(modelLikelySupportsVision('openai', 'glm-5.3-flash'), true);
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  assert.match(renderer, /glm-5-3-\(\?:flash\|falsh\)/);
+
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+
+  try {
+    const input = [{ role: 'user', parts: [
+      { type: 'text', text: 'inspect and think' },
+      { type: 'imageData', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' },
+    ] }];
+    const enabled = new OpenAIProvider({
+      type: 'openai', name: 'openai', model: 'glm-5.3-flash', apiKey: 'test',
+      thinkingLevel: clampThinkingLevel('high', 'openai', 'glm-5.3-flash'), apiMode: 'chat_completions',
+    });
+    for await (const _event of enabled.streamMessage(input, '', [], 1000)) {}
+
+    const disabled = new OpenAIProvider({
+      type: 'openai', name: 'openai', model: 'zai/glm_5_3_falsh-preview', apiKey: 'test',
+      thinkingLevel: 'off', apiMode: 'chat_completions',
+    });
+    for await (const _event of disabled.streamMessage(input, '', [], 1000)) {}
+
+    const responses = new OpenAIProvider({
+      type: 'openai', name: 'openai', model: 'glm-5.3-flash', apiKey: 'test',
+      thinkingLevel: 'high', apiMode: 'responses',
+    });
+    for await (const _event of responses.streamMessage(input, '', [], 1000)) {}
+
+    assert.deepEqual(requests[0].thinking, { type: 'enabled' });
+    assert.equal(requests[0].reasoning_effort, 'high');
+    assert.deepEqual(requests[0].messages[0].content[1], { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw==' } });
+    assert.deepEqual(requests[1].thinking, { type: 'disabled' });
+    assert.equal(requests[1].reasoning_effort, 'none');
+    assert.deepEqual(requests[2].reasoning, { effort: 'high', summary: 'auto' });
+    assert.deepEqual(requests[2].input[0].content[1], { type: 'input_image', image_url: 'data:image/png;base64,iVBORw==' });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('PermissionBroker supports pending approval and cancellation', async () => {
   const broker = new PermissionBroker(1_000);
   const request = { sessionId: 'permission_test', tool: { name: 'shell_execute', risk: 'high', requiresApproval: true }, args: { command: 'whoami' } };

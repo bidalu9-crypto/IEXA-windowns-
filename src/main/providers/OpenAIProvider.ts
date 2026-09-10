@@ -6,7 +6,7 @@
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readWithTimeout } from './stream-utils';
-import { isGpt6AstraModel } from './ModelCapabilities';
+import { isGlm53FlashModel, isGpt6AstraModel } from './ModelCapabilities';
 
 export class OpenAIProvider {
   readonly name: string;
@@ -567,7 +567,7 @@ export class OpenAIProvider {
   private applyResponsesThinkingLevel(body: Record<string, unknown>): void {
     if (this.thinkingLevel === 'off') return;
     const model = this.model.toLowerCase();
-    if (!isGpt6AstraModel(model) && !/gpt-5|o[1-9]|reason|codex/.test(model)) return;
+    if (!isGpt6AstraModel(model) && !isGlm53FlashModel(model) && !/gpt-5|o[1-9]|reason|codex/.test(model)) return;
     const effort: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
     // Responses does not stream a displayable reasoning trace by default. Ask
     // for the model-produced summary so the UI can render a thinking block,
@@ -678,11 +678,13 @@ export class OpenAIProvider {
     const isDeepSeekV4 = model.includes('deepseek-v4');
     const isDeepSeekProvider = provider === 'deepseek';
     const isGpt6Astra = isGpt6AstraModel(model);
+    const isGlm53Flash = isGlm53FlashModel(model);
 
     // Only attach effort params on models/providers that actually reason.
     // Avoid breaking plain GPT-4 / chat models that reject unknown fields.
     const isReasoningModel =
       isGpt6Astra ||
+      isGlm53Flash ||
       /^o[1-9]/.test(model) ||
       model.includes('gpt-5') ||
       model.includes('o3') ||
@@ -709,6 +711,20 @@ export class OpenAIProvider {
       ultra: 32768,
     };
     const budget = budgetMap[level] ?? 8192;
+
+    // GLM 5.3 Flash uses the GLM-native thinking switch. Preserve the local
+    // effort selector as a sibling hint for OpenAI-compatible gateways while
+    // clamping extended client-only levels to this profile family's high cap.
+    if (isGlm53Flash) {
+      if (level === 'off') {
+        body.thinking = { type: 'disabled' };
+        body.reasoning_effort = 'none';
+      } else {
+        body.thinking = { type: 'enabled' };
+        body.reasoning_effort = level === 'low' || level === 'medium' ? level : 'high';
+      }
+      return;
+    }
 
     // DeepSeek V4 uses a root-level `thinking` switch plus a sibling
     // `reasoning_effort`. Its OpenAI-compatible gateway rejects the Qwen-style

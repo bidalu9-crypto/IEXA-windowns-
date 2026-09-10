@@ -3977,6 +3977,7 @@ function thinkingMaxLevelForModel(profile) {
   if (/gpt-5-5/.test(model)) return 'xhigh';
   if (/gpt-5-6/.test(model)) return 'max';
   if (/(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(model)) return 'max';
+  if (/(?:^|[/:-])glm-5-3-(?:flash|falsh)(?:$|[/:-])/.test(model)) return 'high';
   if (/o[1-9]|gpt-5|deepseek|reason|thinking|\br1\b|qwq|grok/.test(model) || provider === 'deepseek' || provider === 'xai') return 'xhigh';
   return 'off';
 }
