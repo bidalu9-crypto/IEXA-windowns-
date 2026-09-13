@@ -307,18 +307,87 @@ function extractMultilinePythonInlineSource(command: string): MultilinePythonInl
 
 function decodeOutput(value: Buffer): string {
   if (value.length >= 2 && value[0] === 0xff && value[1] === 0xfe) {
-    return value.subarray(2).toString('utf16le');
+    return repairMojibake(value.subarray(2).toString('utf16le'));
   }
   if (value.length >= 2 && value[0] === 0xfe && value[1] === 0xff) {
-    return iconv.decode(value.subarray(2), 'utf16-be');
+    return repairMojibake(iconv.decode(value.subarray(2), 'utf16-be'));
   }
   if (looksLikeUtf16(value)) {
-    return iconv.decode(value, value[0] === 0 ? 'utf16-be' : 'utf16le');
+    return repairMojibake(iconv.decode(value, value[0] === 0 ? 'utf16-be' : 'utf16le'));
   }
   const utf8 = value.toString('utf8');
   // cmd.exe follows the active Windows console code page (commonly CP936 on
   // Chinese systems); UTF-8 subprocesses remain untouched when valid.
-  return process.platform === 'win32' && utf8.includes('\uFFFD') ? iconv.decode(value, 'cp936') : utf8;
+  const decoded = process.platform === 'win32' && utf8.includes('\uFFFD') ? iconv.decode(value, 'cp936') : utf8;
+  return repairMojibake(decoded);
+}
+
+/**
+ * Repair text that was decoded once with the wrong character set before it
+ * reached stdout. At that point the stdout byte stream is valid UTF-8, so a
+ * replacement-character check alone cannot detect strings such as
+ * `ä¸­æ–‡` (Latin-1) or `涓枃` (GBK). Only accept a reversible transform with
+ * strong mojibake evidence and a clear reduction in that evidence.
+ */
+function repairMojibake(value: string): string {
+  if (!value || process.platform !== 'win32') return value;
+  const repaired = repairMojibakeUnit(value);
+  if (repaired !== value || !/[\r\n]/.test(value)) return repaired;
+  return value.split(/(\r\n|\r|\n)/).map((part) => /^(?:\r\n|\r|\n)$/.test(part) ? part : repairMojibakeUnit(part)).join('');
+}
+
+function repairMojibakeUnit(value: string): string {
+  const candidates: Array<{ value: string; evidence: number }> = [];
+  const latinEvidence = latinMojibakeEvidence(value);
+  if (latinEvidence >= 2) {
+    for (const encoding of ['latin1', 'windows-1252']) {
+      const candidate = reverseDecode(value, encoding);
+      if (candidate && textCharacterCount(candidate) >= 2) {
+        candidates.push({ value: candidate, evidence: latinMojibakeEvidence(candidate) });
+      }
+    }
+  }
+
+  const gbkEvidence = gbkMojibakeEvidence(value);
+  if (gbkEvidence >= 3) {
+    const candidate = reverseDecode(value, 'gb18030');
+    if (candidate && textCharacterCount(candidate) >= 2) {
+      candidates.push({ value: candidate, evidence: gbkMojibakeEvidence(candidate) });
+    }
+  }
+
+  if (candidates.length === 0) return value;
+  const sourceEvidence = Math.max(latinEvidence, gbkEvidence);
+  candidates.sort((a, b) => a.evidence - b.evidence);
+  return candidates[0].evidence + 2 <= sourceEvidence ? candidates[0].value : value;
+}
+
+function reverseDecode(value: string, encoding: string): string | null {
+  const bytes = iconv.encode(value, encoding);
+  // An encoding that cannot represent part of the source replaces it. Reject
+  // that lossy route before attempting the reverse conversion.
+  if (iconv.decode(bytes, encoding) !== value) return null;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+function latinMojibakeEvidence(value: string): number {
+  const controls = value.match(/[\u0080-\u009f]/g)?.length || 0;
+  const common = value.match(/(?:Ã.|Â.|â€|ã€|ä.|å.|æ.|ç.|è.|é.|ï¼|ï»¿|ðŸ)/g)?.length || 0;
+  return controls * 2 + common;
+}
+
+function gbkMojibakeEvidence(value: string): number {
+  const privateUse = value.match(/[\ue000-\uf8ff]/g)?.length || 0;
+  const common = value.match(/(?:涓枃|鍏憡|锛氬|骞夸笢|娴嬭瘯|鏂囧瓧|鐨勬|鏄|鎴戜滑|杩欎釜|涓嶆槸|浠诲姟)/g)?.length || 0;
+  return privateUse * 4 + common * 3;
+}
+
+function textCharacterCount(value: string): number {
+  return value.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)?.length || 0;
 }
 
 /** Detect BOM-less UTF-16 by the NUL-byte distribution in its first bytes. */

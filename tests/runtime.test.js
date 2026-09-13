@@ -280,6 +280,57 @@ test('ShellExecutor reads UTF-8 PowerShell source without corrupting Chinese tex
   assert.equal(result.output.replace(/\r\n/g, '\n'), expected);
 });
 
+test('ProcessManager repairs reversible Latin-1 and GBK mojibake from PowerShell output', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const manager = new ProcessManager();
+  const policy = { timeoutMs: 10_000, maxOutputBytes: 4096, killGracePeriodMs: 100 };
+  const expected = '中文公告：广东挂牌价';
+  const latin = await manager.run(
+    "$bytes = [Text.Encoding]::UTF8.GetBytes('中文公告：广东挂牌价'); $bad = [Text.Encoding]::GetEncoding(28591).GetString($bytes); [Console]::Out.Write(\"正常标题`r`n$bad\")",
+    root,
+    new AbortController().signal,
+    policy,
+    'powershell',
+  );
+  assert.equal(latin.success, true, latin.output);
+  assert.equal(latin.output.replace(/\r\n/g, '\n'), `正常标题\n${expected}`);
+
+  const gbk = await manager.run(
+    "$bytes = [Text.Encoding]::UTF8.GetBytes('中文公告：广东挂牌价'); $bad = [Text.Encoding]::GetEncoding(936).GetString($bytes); [Console]::Out.Write($bad)",
+    root,
+    new AbortController().signal,
+    policy,
+    'powershell',
+  );
+  assert.equal(gbk.success, true, gbk.output);
+  assert.equal(gbk.output, expected);
+});
+
+test('ProcessManager decodes raw CP936 output without changing legitimate accented text', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const manager = new ProcessManager();
+  const policy = { timeoutMs: 10_000, maxOutputBytes: 4096, killGracePeriodMs: 100 };
+  const cp936 = await manager.run(
+    "$bytes = [Text.Encoding]::GetEncoding(936).GetBytes('原始简体中文'); $stdout = [Console]::OpenStandardOutput(); $stdout.Write($bytes, 0, $bytes.Length)",
+    root,
+    new AbortController().signal,
+    policy,
+    'powershell',
+  );
+  assert.equal(cp936.success, true, cp936.output);
+  assert.equal(cp936.output, '原始简体中文');
+
+  const accented = await manager.run(
+    "[Console]::Out.Write('Mädchen déjà vu, café')",
+    root,
+    new AbortController().signal,
+    policy,
+    'powershell',
+  );
+  assert.equal(accented.success, true, accented.output);
+  assert.equal(accented.output, 'Mädchen déjà vu, café');
+});
+
 test('ProcessManager recovers from a stale ComSpec path', { skip: process.platform !== 'win32' }, async () => {
   const root = await tempWorkspace();
   const previousComSpec = process.env.ComSpec;
