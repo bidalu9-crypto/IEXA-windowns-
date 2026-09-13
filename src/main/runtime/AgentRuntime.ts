@@ -35,7 +35,7 @@ export class AgentRuntime {
   }
   async initialize(): Promise<void> { await this.tools.initialize(); await this.loop.initialize(); }
   async run(request: AgentRequest): Promise<void> {
-    this.cancellation.begin(this.config.sessionId); this.tools.beginRun(request.tools.map((tool) => tool.name)); this.traceOffset = this.trace.snapshot().length; this.trace.event('run_started', { sessionId: this.config.sessionId }); this.metrics.increment('runs_started'); this.state = { ...this.state, status: 'running', turn: 0, toolCalls: 0, startedAt: Date.now(), updatedAt: Date.now(), budget: this.budget.snapshot() };
+    this.cancellation.begin(this.config.sessionId); this.tools.beginRun(request.tools.map((tool) => tool.name)); this.traceOffset = this.trace.cursor(); this.trace.event('run_started', { sessionId: this.config.sessionId }); this.metrics.increment('runs_started'); this.state = { ...this.state, status: 'running', turn: 0, toolCalls: 0, startedAt: Date.now(), updatedAt: Date.now(), budget: this.budget.snapshot() };
     const callbacks: AgentLoopCallbacks = { ...request.callbacks,
       onTurnStart: (turn) => { this.trace.event('turn_started', { turn }); this.metrics.increment('turns_started'); this.state = { ...this.state, turn, updatedAt: Date.now(), budget: this.budget.snapshot() }; request.callbacks.onTurnStart?.(turn); },
       onToolExecutionStart: (id, name, args) => { this.trace.event('tool_started', { id, name, args }); this.metrics.increment('tools_started'); this.state = { ...this.state, toolCalls: this.state.toolCalls + 1, currentTool: { id, name }, updatedAt: Date.now(), budget: this.budget.snapshot() }; request.callbacks.onToolExecutionStart?.(id, name, args); },
@@ -62,6 +62,6 @@ export class AgentRuntime {
   seedHistoryFromChat(...args: Parameters<AgentLoop['seedHistoryFromChat']>): void { this.loop.seedHistoryFromChat(...args); }
   private finish(status: AgentState['status']): void {
     this.state = { ...this.state, status, currentTool: undefined, updatedAt: Date.now(), budget: this.budget.snapshot() };
-    try { this.traceStore?.append(this.config.sessionId, this.trace.snapshot().slice(this.traceOffset)); } catch { /* Trace persistence must not change agent completion. */ }
+    try { this.traceStore?.append(this.config.sessionId, this.trace.since(this.traceOffset)); } catch { /* Trace persistence must not change agent completion. */ }
   }
 }

@@ -95,7 +95,7 @@ export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.Se
     } catch (error: unknown) { jsonReply(res, 400, { error: (error as Error).message || '权限请求无效。' }); }
     return true;
   }
-  if (url.pathname === '/api/cancel') {
+  if (url.pathname === '/api/cancel' && req.method === 'POST') {
     let sessionId = url.searchParams.get('sessionId') || '';
     if (!sessionId) {
       try { sessionId = JSON.parse(await readBody(req)).sessionId || ''; } catch { /* legacy clients may send no body */ }

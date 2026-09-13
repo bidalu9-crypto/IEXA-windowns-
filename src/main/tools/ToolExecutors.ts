@@ -12,6 +12,10 @@ import { ToolExecutionResult } from '../providers/types';
 import { ProcessManager, ShellKind } from './shell/ProcessManager';
 import { CommandPolicy } from './shell/CommandPolicy';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
+import { PathSandbox, PathPolicy } from '../security/PathSandbox';
+import { NetworkPolicy } from '../security/NetworkPolicy';
+
+export type ToolPathPolicy = Omit<PathPolicy, 'workspaceDir' | 'allowMissing'>;
 
 const MEDIA_MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
@@ -32,9 +36,9 @@ function decodeUtf16Be(buffer: Buffer): string {
 }
 
 /** Build a ToolExecutionResult that surfaces a local media file to the UI. */
-export async function buildMediaDisplayResult(filePath: string, workspaceDir: string): Promise<ToolExecutionResult> {
-  const absolute = path.isAbsolute(filePath) ? filePath : path.resolve(workspaceDir, filePath);
+export async function buildMediaDisplayResult(filePath: string, workspaceDir: string, policy: ToolPathPolicy = {}): Promise<ToolExecutionResult> {
   try {
+    const absolute = new PathSandbox().resolveSync(filePath, { ...policy, workspaceDir }).path;
     const stat = await fs.stat(absolute);
     if (!stat.isFile()) {
       return { output: `Display failed: not a file: ${absolute}`, success: false };
@@ -49,6 +53,7 @@ export async function buildMediaDisplayResult(filePath: string, workspaceDir: st
     let imageData: Buffer | undefined;
     let imageMimeType: string | undefined;
     if (kind === 'image' && stat.size <= 10 * 1024 * 1024) {
+      new PathSandbox().resolveSync(absolute, { ...policy, workspaceDir });
       imageData = await fs.readFile(absolute);
       imageMimeType = mimeType;
     }
@@ -113,6 +118,7 @@ export class ShellExecutor {
 // =============================================================================
 
 export class FileTools {
+  constructor(private readonly pathPolicy: ToolPathPolicy | (() => ToolPathPolicy) = {}) {}
   private static readonly DEFAULT_READ_CHARS = 15_000;
   private static readonly MAX_READ_CHARS = 120_000;
   private static readonly MAX_READ_LINES = 100_000;
@@ -132,29 +138,37 @@ export class FileTools {
     }
   }
 
-  private async atomicWriteText(filePath: string, content: string): Promise<void> {
+  private async atomicWriteText(filePath: string, content: string, workspaceDir: string): Promise<void> {
     const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
     let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    let created = false;
     try {
       let mode: number | undefined;
       try { mode = (await fs.stat(filePath)).mode; } catch (error: unknown) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
-      handle = await fs.open(tempPath, 'w');
+      this.resolvePath(filePath, workspaceDir, true);
+      this.resolvePath(tempPath, workspaceDir, true);
+      handle = await fs.open(tempPath, 'wx');
+      created = true;
       await handle.writeFile(content, 'utf8');
+      if (mode !== undefined) await handle.chmod(mode);
       await handle.sync();
       await handle.close();
       handle = undefined;
-      if (mode !== undefined) await fs.chmod(tempPath, mode);
+      this.resolvePath(filePath, workspaceDir, true);
+      this.resolvePath(tempPath, workspaceDir);
       await fs.rename(tempPath, filePath);
     } finally {
       if (handle) await handle.close().catch(() => {});
-      await fs.unlink(tempPath).catch(() => {});
+      if (created) {
+        try { this.resolvePath(tempPath, workspaceDir, true); await fs.unlink(tempPath); } catch { /* Missing or changed scope: leave it untouched. */ }
+      }
     }
   }
-  private resolvePath(filePath: string, workspaceDir: string): string {
-    if (path.isAbsolute(filePath)) return filePath;
-    return path.resolve(workspaceDir, filePath);
+  private resolvePath(filePath: string, workspaceDir: string, allowMissing = false): string {
+    const policy = typeof this.pathPolicy === 'function' ? this.pathPolicy() : this.pathPolicy;
+    return new PathSandbox().resolveSync(filePath, { ...policy, workspaceDir, allowMissing }).path;
   }
 
   async readFile(
@@ -167,9 +181,8 @@ export class FileTools {
       direction?: 'head' | 'tail';
     } = {}
   ): Promise<ToolExecutionResult> {
-    const resolvedPath = this.resolvePath(filePath, workspaceDir);
-
     try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir);
       const stat = await fs.stat(resolvedPath);
       if (!stat.isFile()) {
         return { output: `Error: not a file: ${filePath}`, success: false };
@@ -177,6 +190,7 @@ export class FileTools {
 
       // Probe only the first 512 bytes. The content body is streamed below so
       // a large source/log file does not need to fit in memory before paging.
+      this.resolvePath(resolvedPath, workspaceDir);
       const handle = await fs.open(resolvedPath, 'r');
       const probe = Buffer.alloc(512);
       let bytesRead = 0;
@@ -222,6 +236,7 @@ export class FileTools {
       // readline can stream UTF-8 directly. UTF-16 files are uncommon but
       // frequent on Windows when created by PowerShell, so decode those with
       // a bounded read and strip the BOM before paging.
+      this.resolvePath(resolvedPath, workspaceDir);
       const input = utf16le || utf16be
         ? Readable.from([(utf16le ? readFileSync(resolvedPath).toString('utf16le') : decodeUtf16Be(readFileSync(resolvedPath))).replace(/^\uFEFF/, '')])
         : createReadStream(resolvedPath, { encoding: 'utf8' });
@@ -283,14 +298,15 @@ export class FileTools {
     workspaceDir: string,
     options: { append?: boolean; createDirs?: boolean } = {}
   ): Promise<ToolExecutionResult> {
-    const resolvedPath = this.resolvePath(filePath, workspaceDir);
-
     try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir, true);
       return await this.withWriteLock(resolvedPath, async () => {
+        this.resolvePath(resolvedPath, workspaceDir, true);
         if (options.createDirs) {
           await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
         }
 
+        this.resolvePath(resolvedPath, workspaceDir, true);
         let before = '';
         let exists = true;
         try {
@@ -303,7 +319,7 @@ export class FileTools {
           exists = false;
         }
         const nextContent = options.append && exists ? before + content : content;
-        await this.atomicWriteText(resolvedPath, nextContent);
+        await this.atomicWriteText(resolvedPath, nextContent, workspaceDir);
         const stat = await fs.stat(resolvedPath);
         return {
           output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
@@ -330,13 +346,13 @@ export class FileTools {
     workspaceDir: string,
     replaceAll: boolean = false
   ): Promise<ToolExecutionResult> {
-    const resolvedPath = this.resolvePath(filePath, workspaceDir);
-
     try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir);
       if (!oldString) {
         return { output: `Error: old_string must not be empty: ${filePath}`, success: false };
       }
       return await this.withWriteLock(resolvedPath, async () => {
+        this.resolvePath(resolvedPath, workspaceDir);
         const content = await fs.readFile(resolvedPath, 'utf-8');
 
       if (replaceAll) {
@@ -347,7 +363,7 @@ export class FileTools {
           };
         }
         const newContent = content.split(oldString).join(newString);
-        await this.atomicWriteText(resolvedPath, newContent);
+        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
         const count = content.split(oldString).length - 1;
         return {
           output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
@@ -370,7 +386,7 @@ export class FileTools {
           };
         }
         const newContent = content.substring(0, firstIndex) + newString + content.substring(firstIndex + oldString.length);
-        await this.atomicWriteText(resolvedPath, newContent);
+        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
         return {
           output: `File edited: ${filePath}\n1 occurrence replaced`,
           success: true,
@@ -460,32 +476,17 @@ export class MemoryTools {
 // =============================================================================
 
 export class BrowserFetch {
+  constructor(private readonly network = new NetworkPolicy()) {}
   async fetch(url: string, maxLength: number = 25000, signal?: AbortSignal): Promise<ToolExecutionResult> {
     try {
-      // Ensure HTTPS
-      if (url.startsWith('http://')) {
-        url = url.replace('http://', 'https://');
+      const response = await this.network.fetch(url, { signal });
+      url = response.url;
+      if (response.status < 200 || response.status >= 300) {
+        return { output: `HTTP ${response.status} ${response.statusText} for ${url}`, success: false };
       }
-      if (!url.startsWith('https://')) {
-        url = 'https://' + url;
-      }
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        signal: signal || AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) {
-        return {
-          output: `HTTP ${response.status} ${response.statusText} for ${url}`,
-          success: false,
-        };
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      const text = await response.text();
+      const contentType = String(response.headers['content-type'] || '');
+      const text = response.body.toString('utf8');
+      maxLength = Number.isFinite(maxLength) ? Math.min(120000, Math.max(1, Math.floor(maxLength))) : 25000;
 
       // Simple HTML to text conversion
       let result: string;

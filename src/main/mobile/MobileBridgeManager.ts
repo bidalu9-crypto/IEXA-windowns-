@@ -126,8 +126,9 @@ export class MobileBridgeManager {
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_MS;
     this.pairTokens.set(id, { hash: this.hash(`pair:${token}`), expiresAt });
     const host = address || networkAddresses()[0];
+    if (host && ![...networkAddresses(), '127.0.0.1', 'localhost'].includes(host)) throw new Error('配对地址不属于本机。');
     if (!host || !this.port) throw new Error('没有检测到可用的局域网地址。');
-    return { token, expiresAt, url: `http://${host}:${this.port}/?pair=${encodeURIComponent(token)}` };
+    return { token, expiresAt, url: `https://${host}:${this.port}/#pair=${encodeURIComponent(token)}` };
   }
 
   pair(token: string, name: string): { device: MobileBridgeDevice; sessionToken: string } | null {
@@ -160,6 +161,7 @@ export class MobileBridgeManager {
     const device = this.state.devices.find((entry) => this.secureEqual(entry.tokenHash, hash));
     if (!device) return null;
     const now = Date.now();
+    if (now - device.createdAt > 30 * 86400_000 || now - device.lastActiveAt > 7 * 86400_000) { this.revoke(device.id); return null; }
     if (now - device.lastActiveAt >= ACTIVE_WRITE_INTERVAL_MS) {
       device.lastActiveAt = now;
       this.save();

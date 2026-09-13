@@ -5,21 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IEXA-WIN</title>
 <link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css" id="hljs-theme-light">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" id="hljs-theme-dark" disabled>
-<script>
-  // Apply saved theme before paint to avoid flash
-  (function () {
-    try {
-      var saved = window.iexaDesktop && window.iexaDesktop.initialAppearance;
-      var t = saved && saved.theme || localStorage.getItem('iexa-theme') || 'light';
-      var a = saved && saved.accent || localStorage.getItem('iexa-accent') || 'violet';
-      if (a === 'opencode') a = 'amber';
-      document.documentElement.setAttribute('data-theme', t);
-      document.documentElement.setAttribute('data-accent', a);
-    } catch (e) {}
-  })();
-</script>
+<link rel="stylesheet" href="vendor/github.min.css" id="hljs-theme-light">
+<link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
+<script src="services/InitialAppearance.js"></script>
 </head>
 <body>
 <!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
@@ -150,9 +138,9 @@
                 <h2>欢迎使用 IEXA-WIN</h2>
                 <p>你的私密、设备端 AI 智能体，带真实 Shell 权限。</p>
                 <div class="quick-actions">
-                  <button class="quick-btn" onclick="sendQuick('列出当前目录的文件')"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>列出文件</span></button>
-                  <button class="quick-btn" onclick="sendQuick('我的操作系统和硬件配置是什么？')"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg><span>系统信息</span></button>
-                  <button class="quick-btn" onclick="sendQuick('创建一个简单的 Python Web 服务器脚本')"><svg class="ui-icon" aria-hidden="true"><use href="#ui-code"/></svg><span>生成 Python 脚本</span></button>
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="列出当前目录的文件"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>列出文件</span></button>
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="我的操作系统和硬件配置是什么？"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg><span>系统信息</span></button>
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="创建一个简单的 Python Web 服务器脚本"><svg class="ui-icon" aria-hidden="true"><use href="#ui-code"/></svg><span>生成 Python 脚本</span></button>
                 </div>
               </div>
             </div>
@@ -170,7 +158,7 @@
                 </button>
                 <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
               </div>
-              <button type="button" class="model-bar-refresh" onclick="refreshModelSelector()" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
+              <button type="button" class="model-bar-refresh" data-ui-action="refreshModelSelector" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
               <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
                 <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="listbox" aria-expanded="false" data-level="medium">
@@ -367,7 +355,7 @@
       <div class="settings-container">
         <div class="settings-header">
           <h2>AI 模型</h2>
-          <button class="btn-primary btn-sm" onclick="showProfileEditor()">+ 添加模型</button>
+          <button class="btn-primary btn-sm" data-ui-action="showProfileEditor">+ 添加模型</button>
         </div>
         <div class="setting-group vision-fallback-setting">
           <label for="visionProfileSelect">视觉输入模型</label>
@@ -403,9 +391,9 @@
               <label>模型 ID</label>
               <div class="model-picker-row">
                 <input type="text" id="profileEditorModel" placeholder="claude-sonnet-4-20250514">
-                <button type="button" class="btn-secondary btn-sm" id="fetchModelsBtn" onclick="fetchModels()">获取模型</button>
+                <button type="button" class="btn-secondary btn-sm" id="fetchModelsBtn" data-ui-action="fetchModels">获取模型</button>
               </div>
-              <select id="profileEditorModelSelect" class="model-pick-select" style="display:none;margin-top:6px;" onchange="if(this.value){document.getElementById('profileEditorModel').value=this.value;}"></select>
+              <select id="profileEditorModelSelect" class="model-pick-select" style="display:none;margin-top:6px;" data-ui-change="select-profile-model"></select>
               <span class="setting-hint" id="fetchModelsHint"></span>
             </div>
             <div class="setting-group">
@@ -430,8 +418,8 @@
               <input type="checkbox" id="profileEditorFastMode">
             </div>
             <div class="profile-editor-actions">
-              <button class="btn-primary" onclick="saveProfile()">保存</button>
-              <button class="btn-secondary" onclick="hideProfileEditor()">取消</button>
+              <button class="btn-primary" data-ui-action="saveProfile">保存</button>
+              <button class="btn-secondary" data-ui-action="hideProfileEditor">取消</button>
             </div>
           </div>
         </div>
@@ -509,11 +497,11 @@
         </div>
 
         <div class="sync-actions">
-          <button class="btn-primary" onclick="saveWebDAVConfig()" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span>保存配置</span></button>
-          <button class="btn-secondary" onclick="testWebDAV()" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-search"/></svg><span>测试连接</span></button>
+          <button class="btn-primary" data-ui-action="saveWebDAVConfig" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span>保存配置</span></button>
+          <button class="btn-secondary" data-ui-action="testWebDAV" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-search"/></svg><span>测试连接</span></button>
         </div>
         <div class="sync-actions" style="margin-top: 10px;">
-          <button class="btn-primary" onclick="syncNow()" id="syncNowBtn" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>立即同步</span></button>
+          <button class="btn-primary" data-ui-action="syncNow" id="syncNowBtn" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>立即同步</span></button>
         </div>
 
         <div class="sync-result" id="syncResult" style="display:none;"></div>
@@ -771,8 +759,10 @@ version: 1.0.0
   </button>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="vendor/marked.umd.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="services/SafeMarkdown.js"></script>
 <script src="services/ApiClient.js"></script>
 <script src="components/PermissionDialog.js"></script>
 <script src="app.js"></script>

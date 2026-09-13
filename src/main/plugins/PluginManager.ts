@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../security/ChildEnvironment';
 import { spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -294,18 +295,23 @@ export class PluginManager {
   }
 
   private runPlugin(entry: string, payload: unknown, signal?: AbortSignal): Promise<ToolExecutionResult> {
+    if (signal?.aborted) return Promise.resolve({ output: '插件调用已取消。', success: false });
+    let input: string;
+    try { input = JSON.stringify(payload); }
+    catch { return Promise.resolve({ output: '插件输入序列化失败。', success: false }); }
     return new Promise((resolve) => {
       const runner = path.join(__dirname, 'PluginRunner.js');
       const child = spawn(process.execPath, [runner, entry], {
         cwd: path.dirname(entry), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' },
+        env: { ...createChildEnvironment(), ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' },
       });
-      let stdout = ''; let stderr = ''; let settled = false;
-      const finish = (result: ToolExecutionResult) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(result); };
-      const abort = () => { child.kill(); finish({ output: '插件调用已取消。', success: false }); };
-      const timer = setTimeout(() => { child.kill(); finish({ output: '插件调用超过 30 秒，已终止。', success: false, timedOut: true }); }, 30_000);
-      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); if (Buffer.byteLength(stdout) > MAX_RESULT_BYTES) { child.kill(); finish({ output: '插件输出超过 8 MB 限制。', success: false }); } });
-      child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-16_000); });
+      let stdout = ''; let stdoutBytes = 0; let stderr = ''; let settled = false;
+      const finish = (result: ToolExecutionResult) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); stdout = ''; stderr = ''; resolve(result); };
+      const stop = (result: ToolExecutionResult) => { finish(result); child.kill(); };
+      const abort = () => stop({ output: '插件调用已取消。', success: false });
+      const timer = setTimeout(() => { stop({ output: '插件调用超过 30 秒，已终止。', success: false, timedOut: true }); }, 30_000);
+      child.stdout.on('data', (chunk: Buffer) => { if (settled) return; if (stdoutBytes + chunk.length > MAX_RESULT_BYTES) { stop({ output: '插件输出超过 8 MB 限制。', success: false }); } else { stdoutBytes += chunk.length; stdout += chunk.toString('utf8'); } });
+      child.stderr.on('data', (chunk: Buffer) => { if (settled) return; stderr = (stderr + chunk.subarray(-16_000).toString('utf8')).slice(-16_000); });
       child.on('error', (error) => finish({ output: `插件进程启动失败：${error.message}`, success: false }));
       child.on('close', (code) => {
         if (settled) return;
@@ -318,7 +324,8 @@ export class PluginManager {
         }
       });
       if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
-      child.stdin.end(JSON.stringify(payload));
+      child.stdin.on('error', (error) => { stop({ output: `插件输入失败：${error.message}`, success: false }); });
+      if (!settled) child.stdin.end(input);
     });
   }
 

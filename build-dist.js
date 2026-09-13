@@ -1,190 +1,63 @@
-// =============================================================================
-// IEXA PC - Distribution Builder
-// Assembles a full Electron app folder for packaging
-// =============================================================================
-
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
-
-const ROOT = path.resolve(__dirname);
-const DIST = path.join(ROOT, 'release', 'IEXA');
-const ELECTRON_SRC = path.join(process.env.LOCALAPPDATA || '', 'electron', 'Cache', 'electron-v28.0.0-win32-x64');
-
-console.log('=== IEXA Distribution Builder ===\n');
-console.log('Root:', ROOT);
-console.log('Electron:', ELECTRON_SRC);
-console.log('Output:', DIST);
-
-// Clean
-if (fs.existsSync(path.join(ROOT, 'release'))) {
-  fs.rmSync(path.join(ROOT, 'release'), { recursive: true, force: true });
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { root: ROOT, electronVersion, runtimeDir, assertInside } = require('./scripts/electron-config.cjs');
+const { ensureNative, probe } = require('./scripts/rebuild-native.cjs');
+const { copyProductionDependencies } = require('./scripts/package-production.cjs');
+const { fileHashes } = require('./download_electron.js');
+const RELEASE = path.join(ROOT, 'release');
+function runNode(args) {
+  const result = spawnSync(process.execPath, args, { cwd: ROOT, stdio: 'inherit', windowsHide: true });
+  if (result.error || result.status !== 0) throw result.error || Error(`Build command failed: node ${args.join(' ')}`);
 }
-
-// Create directories
-fs.mkdirSync(path.join(DIST, 'resources', 'app'), { recursive: true });
-fs.mkdirSync(path.join(DIST, 'locales'), { recursive: true });
-
-// ---- Copy Electron binaries ----
-console.log('\n[1/5] Copying Electron runtime...');
-const electronFiles = fs.readdirSync(ELECTRON_SRC).filter(f => {
-  return !['resources', ' locales'].includes(f.toLowerCase()) &&
-         f !== 'swiftshader' &&
-         !f.startsWith('locales');
-});
-
-for (const f of electronFiles) {
-  const src = path.join(ELECTRON_SRC, f);
-  if (fs.statSync(src).isFile()) {
-    fs.copyFileSync(src, path.join(DIST, f));
-  }
-}
-
-// Rename electron.exe → IEXA.exe
-const electronExe = path.join(DIST, 'electron.exe');
-const IEXAExe = path.join(DIST, 'IEXA.exe');
-if (fs.existsSync(electronExe)) {
-  fs.renameSync(electronExe, IEXAExe);
-  console.log('  Renamed electron.exe → IEXA.exe');
-}
-
-// Copy locales
-console.log('[2/5] Copying locales...');
-const localesSrc = path.join(ELECTRON_SRC, 'locales');
-if (fs.existsSync(localesSrc)) {
-  // Electron needs the active locale (and en-US fallback) before a renderer
-  // process can start. Copying the first alphabetic entries breaks zh-CN PCs.
-  const requiredLocales = ['en-US.pak', 'zh-CN.pak', 'zh-TW.pak'];
-  for (const f of requiredLocales) {
-    const source = path.join(localesSrc, f);
-    if (fs.existsSync(source)) fs.copyFileSync(source, path.join(DIST, 'locales', f));
-  }
-}
-
-// ---- Copy app files ----
-console.log('[3/5] Copying application code...');
-const APP = path.join(DIST, 'resources', 'app');
-
-// package.json for Electron
-const appPkg = {
-  name: 'IEXA',
-  version: '1.0.0',
-  main: 'electron-entry.js',
-};
-fs.writeFileSync(path.join(APP, 'package.json'), JSON.stringify(appPkg, null, 2));
-
-// electron-entry.js
-fs.copyFileSync(path.join(ROOT, 'electron-entry.js'), path.join(APP, 'electron-entry.js'));
-
-// preload.js exposes the constrained renderer bridge used by the desktop app.
-fs.copyFileSync(path.join(ROOT, 'preload.js'), path.join(APP, 'preload.js'));
-
-// dist (compiled TypeScript)
-copyDir(path.join(ROOT, 'dist'), path.join(APP, 'dist'));
-
-// src/renderer (UI files)
-copyDir(path.join(ROOT, 'src', 'renderer'), path.join(APP, 'src', 'renderer'));
-
-// resources (icons)
-const resourcesDir = path.join(ROOT, 'resources');
-if (fs.existsSync(resourcesDir)) {
-  copyDir(resourcesDir, path.join(APP, 'resources'));
-  console.log('  Copied resources (icons)');
-} else {
-  fs.mkdirSync(path.join(APP, 'resources'), { recursive: true });
-}
-
-// Native desktop automation helper used by desktop_control and live preview.
-const desktopAgentDir = path.join(ROOT, 'desktop-agent', 'publish');
-if (!fs.existsSync(path.join(desktopAgentDir, 'Iexa.DesktopAgent.exe'))) {
-  throw new Error('Desktop agent publish output is missing. Run dotnet publish before building the distribution.');
-}
-copyDir(desktopAgentDir, path.join(APP, 'desktop-agent', 'publish'));
-console.log('  Copied desktop agent');
-
-// node_modules — copy all production deps recursively
-console.log('[4/5] Copying node_modules...');
-const pkg = require(path.join(ROOT, 'package.json'));
-
-// Recursively collect all transitive dependencies
-function collectDeps(modName, collected) {
-  if (collected.has(modName)) return;
-  const pkgPath = path.join(ROOT, 'node_modules', modName, 'package.json');
-  if (!fs.existsSync(pkgPath)) return;
-  collected.add(modName);
+async function main() {
+  if (process.platform !== 'win32' || process.arch !== 'x64') throw Error('Distribution target is Windows x64');
+  const agent = path.join(ROOT, 'desktop-agent/publish/Iexa.DesktopAgent.exe');
+  if (!fs.existsSync(agent)) throw Error('Publish the desktop-agent before assembling the distribution');
+  runNode(['scripts/vendor-renderer.cjs', '--check']);
+  runNode(['node_modules/typescript/bin/tsc']);
+  // The installer entry point verifies official SHASUMS and installed file hashes.
+  runNode(['download_electron.js', '--install']);
+  await ensureNative();
+  fs.mkdirSync(RELEASE, { recursive: true });
+  const staging = assertInside(RELEASE, path.join(RELEASE, `IEXA.staging-${process.pid}`));
+  const destination = assertInside(RELEASE, path.join(RELEASE, 'IEXA'));
+  if (fs.existsSync(staging)) throw Error(`Staging path already exists: ${staging}`);
   try {
-    const modPkg = require(pkgPath);
-    const deps = Object.keys(modPkg.dependencies || {});
-    for (const dep of deps) {
-      collectDeps(dep, collected);
+    fs.cpSync(runtimeDir(), staging, { recursive: true }); // preserve all runtime files/locales
+    fs.renameSync(path.join(staging, 'electron.exe'), path.join(staging, 'IEXA.exe'));
+    const app = path.join(staging, 'resources/app');
+    fs.mkdirSync(app, { recursive: true });
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json')));
+    fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({
+      name: pkg.name, version: pkg.version, main: pkg.main, dependencies: pkg.dependencies,
+    }, null, 2) + '\n');
+    fs.copyFileSync(path.join(ROOT, 'package-lock.json'), path.join(app, 'package-lock.json'));
+    for (const relative of ['electron-entry.js', 'preload.js', 'dist', 'src/renderer', 'resources', 'desktop-agent/publish']) {
+      const source = path.join(ROOT, relative);
+      if (!fs.existsSync(source)) throw Error(`Missing required distribution input: ${relative}`);
+      fs.cpSync(source, path.join(app, relative), { recursive: true });
     }
-  } catch { /* skip */ }
-}
-
-const allDeps = new Set();
-for (const mod of Object.keys(pkg.dependencies || {})) {
-  collectDeps(mod, allDeps);
-}
-
-fs.mkdirSync(path.join(APP, 'node_modules'), { recursive: true });
-let copied = 0;
-for (const mod of allDeps) {
-  const src = path.join(ROOT, 'node_modules', mod);
-  const dest = path.join(APP, 'node_modules', mod);
-  if (fs.existsSync(src)) {
-    copyDir(src, dest);
-    copied++;
-  }
-}
-console.log(`  Copied ${copied} packages (${allDeps.size} total deps)`);
-
-// ---- Create app icon (simple placeholder) ----
-console.log('[5/5] Creating launcher...');
-
-// Create a VBS launcher for desktop shortcut
-const vbsLauncher = `
-Set WshShell = CreateObject("WScript.Shell")
-Dim appDir
-appDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\\IEXA"
-WshShell.CurrentDirectory = appDir
-WshShell.Run """" & appDir & "\\IEXA.exe" & """", 1, False
-`;
-fs.writeFileSync(path.join(ROOT, 'release', 'launcher.vbs'), vbsLauncher.trim());
-
-// Copy launcher to dist folder too
-fs.writeFileSync(path.join(DIST, 'launcher.vbs'), vbsLauncher.trim());
-
-// ---- Summary ----
-console.log('\n=== Build Complete ===');
-console.log('Output:', DIST);
-
-const dirs = getDirSize(DIST);
-console.log('Total size:', (dirs / 1024 / 1024).toFixed(1), 'MB');
-
-// ---- Helpers ----
-function copyDir(src, dest) {
-  if (!fs.existsSync(src)) return;
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDir(s, d);
-    } else {
-      fs.copyFileSync(s, d);
+    const packages = copyProductionDependencies(ROOT, app);
+    if (!probe(app, path.join(staging, 'IEXA.exe'))) throw Error('Packaged Electron native smoke failed');
+    for (const name of ['selfsigned', 'webdav', 'dompurify']) {
+      const check = spawnSync(path.join(staging, 'IEXA.exe'), ['-e', `import(require('node:url').pathToFileURL(require.resolve(${JSON.stringify(name)})).href).catch(e=>{console.error(e);process.exitCode=1})`],
+        { cwd: app, windowsHide: true, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+      if (check.status !== 0) throw Error(`Packaged dependency import failed (${name}): ${check.stderr}`);
     }
-  }
-}
-
-function getDirSize(dir) {
-  let size = 0;
-  try {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, entry.name);
-      if (entry.isDirectory()) size += getDirSize(p);
-      else size += fs.statSync(p).size;
+    const manifest = { electron: electronVersion(), packages, files: await fileHashes(staging) };
+    fs.writeFileSync(path.join(staging, 'build-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+    // Preserve previous output for rollback, never recursively delete the release directory.
+    let previous;
+    if (fs.existsSync(destination)) {
+      previous = assertInside(RELEASE, path.join(RELEASE, `IEXA.previous-${Date.now()}`));
+      fs.renameSync(destination, previous);
     }
-  } catch { /* skip */ }
-  return size;
+    try { fs.renameSync(staging, destination); }
+    catch (error) { if (previous) fs.renameSync(previous, destination); throw error; }
+    console.log(`Distribution verified: ${destination}; Electron ${electronVersion()}; ${packages} production packages`);
+  } finally { fs.rmSync(staging, { recursive: true, force: true }); }
 }
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { main };

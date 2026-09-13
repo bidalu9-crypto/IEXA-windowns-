@@ -23,8 +23,8 @@ function Assert-InRuntime([string]$Path) {
 function Test-UsableNode([string]$Executable) {
     if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { return $false }
     try {
-        $major = & $Executable -p "Number(process.versions.node.split('.')[0])" 2>$null
-        return [int]$major -ge 20
+        $version = & $Executable -p "process.versions.node" 2>$null
+        return [version]$version -ge [version]'22.13.0'
     } catch { return $false }
 }
 
@@ -35,8 +35,7 @@ if (Test-UsableNode $nodeExe) {
 
 New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
 $sources = @(
-    'https://nodejs.org/dist/latest-v22.x',
-    'https://npmmirror.com/mirrors/node/latest-v22.x'
+    'https://nodejs.org/dist/latest-v22.x'
 )
 $installed = $false
 $lastError = $null

@@ -1,394 +1,250 @@
-// =============================================================================
-// IEXA PC - WebDAV Sync Module
-// Syncs settings & conversations to a WebDAV server
-// =============================================================================
-
-import { createClient, WebDAVClient } from 'webdav';
+// WebDAV transport: secrets remain device-local; settings use a minimal portable DTO.
+import type { WebDAVClient } from 'webdav';
+import { boundWebDAVClient } from './sync/BoundedWebDAVClient';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JsonStore, writeTextAtomic } from './persistence/JsonStore';
+import { loadProtectedSettings, saveProtectedSettings, ProtectedSettingsStore } from './security/SecretStore';
 import { ConflictResolution, SyncConflictRecord, WebDAVConflictStore } from './sync/WebDAVConflictStore';
+import {
+  MAX_SYNC_BYTES, assertLocalSyncPath, assertRemoteBasename, mergeSettingsSyncDTO,
+  parseBoundedJSON, readLocalSyncText, readRemoteSyncText, remoteEntries,
+  remotePathForKey, sanitizeSyncContent, toSettingsSyncDTO,
+} from './sync/SyncDataProtection';
+export { assertRemoteBasename, mergeSettingsSyncDTO, toSettingsSyncDTO } from './sync/SyncDataProtection';
 
-// ---- Types ----
 export interface WebDAVConfig {
-  url: string;
-  username: string;
-  password: string;
-  enabled: boolean;
-  autoSync: boolean;
-  lastSync: number;
+  url: string; username: string; password: string; enabled: boolean; autoSync: boolean; lastSync: number;
 }
-
-export interface SyncResult {
-  ok: boolean;
-  uploaded: number;
-  downloaded: number;
-  conflicts: SyncConflict[];
-  error?: string;
-}
-
+export interface SyncResult { ok: boolean; uploaded: number; downloaded: number; conflicts: SyncConflict[]; error?: string; }
 export interface SyncConflict {
-  id: string;
-  version: 1;
-  key: string;
-  localPath: string;
-  remotePath: string;
-  remoteCopyPath: string;
-  deviceId: string;
-  createdAt: number;
-  updatedAt: number;
+  id: string; version: 1; key: string; localPath: string; remotePath: string; remoteCopyPath: string;
+  deviceId: string; createdAt: number; updatedAt: number;
 }
-
 interface SyncStamp { localMtime: number; remoteMtime: number; }
 interface SyncState { version: 1; files: Record<string, SyncStamp>; }
-
-// ---- Config I/O ----
-const CONFIG_FILE: string = (() => {
-  // We'll be called from server.ts context; resolve workspace dir
-  return '';
-})();
-
-let _configFile = '';
-
-export function setConfigFile(filePath: string) {
-  _configFile = filePath;
+/** Optional, explicit dependency injection; production never consults a test-mode env var. */
+export interface SyncDependencies {
+  settingsStore?: ProtectedSettingsStore;
+  clientFactory?: (cfg: WebDAVConfig) => WebDAVClient | Promise<WebDAVClient>;
 }
-
-export function loadConfig(): WebDAVConfig {
+const protectedStore: ProtectedSettingsStore = { loadProtectedSettings, saveProtectedSettings };
+let configFile = '';
+export function setConfigFile(filePath: string): void { configFile = filePath; }
+export function loadConfig(store: ProtectedSettingsStore = protectedStore): WebDAVConfig {
   const empty = { url: '', username: '', password: '', enabled: false, autoSync: false, lastSync: 0 };
-  if (!_configFile) return empty;
-  return new JsonStore<WebDAVConfig>(_configFile, () => empty).loadSync();
+  return configFile ? store.loadProtectedSettings(configFile, () => empty) : empty;
+}
+export function saveConfig(cfg: WebDAVConfig, store: ProtectedSettingsStore = protectedStore): void {
+  if (!configFile) throw new Error('WebDAV config path is not configured.');
+  store.saveProtectedSettings(configFile, cfg);
 }
 
-export function saveConfig(c: WebDAVConfig): void {
-  new JsonStore<WebDAVConfig>(_configFile, () => c).saveSync(c);
+// TypeScript's CommonJS target rewrites import() into require(). This preserves
+// native import at runtime for webdav 5.x (ESM), and also supports 4.x during rollout.
+const nativeImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>;
+async function createWebDAVClient(cfg: WebDAVConfig, deps: SyncDependencies): Promise<WebDAVClient> {
+  if (deps.clientFactory) return deps.clientFactory(cfg);
+  const endpoint = new URL(cfg.url);
+  if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.hash) throw new Error('Invalid WebDAV endpoint.');
+  const module = await nativeImport('webdav');
+  const createClient = module.createClient || module.default?.createClient;
+  if (typeof createClient !== 'function') throw new Error('WebDAV client module unavailable.');
+  return boundWebDAVClient(createClient(endpoint.href, {
+    username: cfg.username, password: cfg.password,
+    maxContentLength: MAX_SYNC_BYTES, maxBodyLength: MAX_SYNC_BYTES,
+  }), module, endpoint.href);
+}
+export async function testConnection(cfg: WebDAVConfig, deps: SyncDependencies = {}): Promise<{ ok: boolean; error?: string }> {
+  try { await remoteEntries(await createWebDAVClient(cfg, deps), '/'); return { ok: true }; }
+  catch { return { ok: false, error: 'WebDAV connection failed; check endpoint and credentials locally.' }; }
 }
 
-// ---- Client ----
-function createWebDAVClient(cfg: WebDAVConfig): WebDAVClient {
-  return createClient(cfg.url, {
-    username: cfg.username,
-    password: cfg.password,
-  });
-}
-
-// ---- Test Connection ----
-export async function testConnection(cfg: WebDAVConfig): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const client = createWebDAVClient(cfg);
-    await client.getDirectoryContents('/');
-    return { ok: true };
-  } catch (err: any) {
-    return { ok: false, error: err.message || String(err) };
+const statePath = (workspace: string) => path.join(workspace, '.iexa-webdav-sync-state.json');
+function loadSyncState(workspace: string): SyncState {
+  const empty: SyncState = { version: 1, files: Object.create(null) };
+  if (!fs.existsSync(statePath(workspace))) return empty;
+  const parsed = parseBoundedJSON(readLocalSyncText(statePath(workspace)));
+  if (parsed?.version !== 1 || !parsed.files || typeof parsed.files !== 'object' || Array.isArray(parsed.files)) throw new Error('Invalid sync state.');
+  for (const [key, stamp] of Object.entries(parsed.files) as [string, any][]) {
+    remotePathForKey(key);
+    if (!stamp || !Number.isFinite(stamp.localMtime) || !Number.isFinite(stamp.remoteMtime) || stamp.localMtime < 0 || stamp.remoteMtime < 0) throw new Error('Invalid sync stamp.');
+    empty.files[key] = { localMtime: stamp.localMtime, remoteMtime: stamp.remoteMtime };
   }
+  return empty;
 }
-
-// ---- Sync ----
-const REMOTE_BASE = '/IEXA';
-const SESSIONS_DIR = 'sessions';
-const MEMORY_DIR = 'memory';
-const SKILLS_DIR = 'skills';
-
-function syncStatePath(workspaceDir: string): string { return path.join(workspaceDir, '.iexa-webdav-sync-state.json'); }
-function loadSyncState(workspaceDir: string): SyncState {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(syncStatePath(workspaceDir), 'utf8')) as Partial<SyncState>;
-    if (parsed.version === 1 && parsed.files && typeof parsed.files === 'object') return { version: 1, files: parsed.files };
-  } catch { /* first sync */ }
-  return { version: 1, files: {} };
+function saveSyncState(workspace: string, state: SyncState): void {
+  assertLocalSyncPath(statePath(workspace)); assertLocalSyncPath(`${statePath(workspace)}.bak`);
+  new JsonStore(statePath(workspace), () => state).saveSync(state);
 }
-function saveSyncState(workspaceDir: string, state: SyncState): void { new JsonStore<SyncState>(syncStatePath(workspaceDir), () => state).saveSync(state); }
 export function hasSyncConflict(previous: SyncStamp | undefined, localMtime: number, remoteMtime: number): boolean {
   return !!previous && localMtime > previous.localMtime + 1 && remoteMtime > previous.remoteMtime + 1;
 }
-async function preserveRemoteConflict(client: WebDAVClient, workspaceDir: string, key: string, localPath: string, remotePath: string): Promise<SyncConflict> {
-  const content = await client.getFileContents(remotePath, { format: 'binary' }) as Buffer;
-  return new WebDAVConflictStore(workspaceDir).preserve(key, localPath, remotePath, content);
-}
 
-export function listSyncConflicts(workspaceDir: string, includeResolved = false): SyncConflictRecord[] {
-  return new WebDAVConflictStore(workspaceDir).list(includeResolved);
+function outgoing(key: string, local: string, store: ProtectedSettingsStore): string {
+  assertLocalSyncPath(local);
+  if (key === 'settings') return JSON.stringify(toSettingsSyncDTO(store.loadProtectedSettings(local, () => ({}))), null, 2);
+  return sanitizeSyncContent(key, readLocalSyncText(local));
 }
-
-export interface SyncConflictPreview {
-  conflict: SyncConflictRecord;
-  mergeable: boolean;
-  localContent?: string;
-  remoteContent?: string;
+function incoming(key: string, local: string, text: string, store: ProtectedSettingsStore): void {
+  assertLocalSyncPath(local); assertLocalSyncPath(`${local}.bak`);
+  const sanitized = sanitizeSyncContent(key, text);
+  if (key === 'settings') {
+    const current = store.loadProtectedSettings<Record<string, any>>(local, () => ({}));
+    store.saveProtectedSettings(local, mergeSettingsSyncDTO(current, parseBoundedJSON(sanitized)));
+    return;
+  }
+  let content = sanitized;
+  if (key === 'skills_index') {
+    const remote = parseBoundedJSON(content);
+    const current = fs.existsSync(local) ? parseBoundedJSON(readLocalSyncText(local)) : { skills: [] };
+    for (const skill of remote.skills) {
+      const old = current.skills?.find((s: any) => s.id === skill.id);
+      skill.enabled = old?.enabled === true;
+      skill.systemPrompt = old?.systemPrompt === true;
+    }
+    content = JSON.stringify(remote, null, 2);
+  }
+  writeTextAtomic(local, content);
 }
-
-/** Only session JSON is offered for manual merging; settings may contain credentials. */
-export function previewSyncConflict(workspaceDir: string, id: string): SyncConflictPreview | null {
-  const conflict = new WebDAVConflictStore(workspaceDir).get(id);
+async function preserveRemoteConflict(client: WebDAVClient, workspace: string, key: string, local: string): Promise<SyncConflict> {
+  const remote = remotePathForKey(key);
+  const sanitized = sanitizeSyncContent(key, await readRemoteSyncText(client, remote));
+  return new WebDAVConflictStore(workspace).preserve(key, local, remote, Buffer.from(sanitized));
+}
+export function listSyncConflicts(workspace: string, includeResolved = false): SyncConflictRecord[] {
+  return new WebDAVConflictStore(workspace).list(includeResolved);
+}
+export interface SyncConflictPreview { conflict: SyncConflictRecord; mergeable: boolean; localContent?: string; remoteContent?: string; }
+export function previewSyncConflict(workspace: string, id: string): SyncConflictPreview | null {
+  const conflict = new WebDAVConflictStore(workspace).get(id);
   if (!conflict || conflict.status !== 'pending') return null;
-  const mergeable = conflict.key.startsWith('session:')
-    && fs.existsSync(conflict.localPath)
-    && fs.existsSync(conflict.remoteCopyPath)
-    && fs.statSync(conflict.localPath).size <= 1_000_000
-    && fs.statSync(conflict.remoteCopyPath).size <= 1_000_000;
+  // No local settings hydration or plaintext/reference disclosure in conflict UI.
+  const mergeable = conflict.key.startsWith('session:') && fs.existsSync(conflict.localPath) &&
+    fs.existsSync(conflict.remoteCopyPath) && fs.statSync(conflict.localPath).size <= 1_000_000 && fs.statSync(conflict.remoteCopyPath).size <= 1_000_000;
   if (!mergeable) return { conflict, mergeable: false };
-  return {
-    conflict,
-    mergeable: true,
-    localContent: fs.readFileSync(conflict.localPath, 'utf8'),
-    remoteContent: fs.readFileSync(conflict.remoteCopyPath, 'utf8'),
+  return { conflict, mergeable: true,
+    localContent: sanitizeSyncContent(conflict.key, readLocalSyncText(conflict.localPath)),
+    remoteContent: sanitizeSyncContent(conflict.key, readLocalSyncText(conflict.remoteCopyPath)),
   };
 }
-
 export async function resolveSyncConflict(
-  cfg: WebDAVConfig,
-  workspaceDir: string,
-  id: string,
-  resolution: ConflictResolution,
-  mergedContent?: string,
+  cfg: WebDAVConfig, workspace: string, id: string, resolution: ConflictResolution,
+  mergedContent?: string, deps: SyncDependencies = {},
 ): Promise<SyncConflictRecord | null> {
-  const store = new WebDAVConflictStore(workspaceDir);
-  const conflict = store.get(id);
-  if (!conflict || conflict.status !== 'pending') return null;
-  const client = createWebDAVClient(cfg);
-  if (resolution === 'remote') {
-    if (!fs.existsSync(conflict.remoteCopyPath)) throw new Error('远端冲突副本不存在。');
-    writeTextAtomic(conflict.localPath, fs.readFileSync(conflict.remoteCopyPath));
-  } else {
-    let content: string;
-    if (resolution === 'merge') {
-      if (typeof mergedContent !== 'string') throw new Error('合并处理需要完整内容。');
-      content = mergedContent;
-    } else {
-      content = fs.readFileSync(conflict.localPath, 'utf8');
-    }
-    if (resolution === 'merge') writeTextAtomic(conflict.localPath, content);
-    await client.putFileContents(conflict.remotePath, content, { overwrite: true });
-  }
-  return store.resolve(id, resolution);
-}
-
-export async function syncAll(
-  cfg: WebDAVConfig,
-  workspaceDir: string,
-  sessionsDir: string,
-  settingsFile: string,
-  sessionsStoreFile: string,
-): Promise<SyncResult> {
-  const client = createWebDAVClient(cfg);
-  let uploaded = 0;
-  let downloaded = 0;
-  const conflicts: SyncConflict[] = [];
-  const state = loadSyncState(workspaceDir);
-
   try {
-    // Ensure remote base dirs exist
-    await ensureRemoteDir(client, REMOTE_BASE);
-    await ensureRemoteDir(client, `${REMOTE_BASE}/${SESSIONS_DIR}`);
-    await ensureRemoteDir(client, `${REMOTE_BASE}/${MEMORY_DIR}`);
-    await ensureRemoteDir(client, `${REMOTE_BASE}/${SKILLS_DIR}`);
-
-    // ---- Sync settings file ----
-    const remoteSettingsPath = `${REMOTE_BASE}/settings.json`;
-    if (fs.existsSync(settingsFile)) {
-      const localStat = fs.statSync(settingsFile);
-      const localTime = localStat.mtimeMs;
-      const remoteTime = await getRemoteMtime(client, remoteSettingsPath);
-
-      if (remoteTime > 0 && hasSyncConflict(state.files.settings, localTime, remoteTime)) {
-        conflicts.push(await preserveRemoteConflict(client, workspaceDir, 'settings', settingsFile, remoteSettingsPath));
-      } else if (remoteTime === 0 || localTime > remoteTime) {
-        // Upload local → remote
-        const content = fs.readFileSync(settingsFile, 'utf-8');
-        await client.putFileContents(remoteSettingsPath, content, { overwrite: true });
-        uploaded++;
-        state.files.settings = { localMtime: localTime, remoteMtime: Date.now() };
-      } else if (remoteTime > localTime) {
-        // Download remote → local
-        const content = await client.getFileContents(remoteSettingsPath, { format: 'text' }) as string;
-        writeTextAtomic(settingsFile, content);
-        downloaded++;
-        state.files.settings = { localMtime: fs.statSync(settingsFile).mtimeMs, remoteMtime: remoteTime };
-      } else {
-        state.files.settings = { localMtime: localTime, remoteMtime: remoteTime };
-      }
-    }
-
-    // ---- Sync sessions store file ----
-    const remoteSessionsStorePath = `${REMOTE_BASE}/sessions-store.json`;
-    if (fs.existsSync(sessionsStoreFile)) {
-      const localStat = fs.statSync(sessionsStoreFile);
-      const localTime = localStat.mtimeMs;
-      const remoteTime = await getRemoteMtime(client, remoteSessionsStorePath);
-      if (remoteTime > 0 && hasSyncConflict(state.files.sessions_index, localTime, remoteTime)) {
-        conflicts.push(await preserveRemoteConflict(client, workspaceDir, 'sessions_index', sessionsStoreFile, remoteSessionsStorePath));
-      } else if (remoteTime === 0 || localTime > remoteTime) {
-        const content = fs.readFileSync(sessionsStoreFile, 'utf-8');
-        await client.putFileContents(remoteSessionsStorePath, content, { overwrite: true });
-        uploaded++;
-        state.files.sessions_index = { localMtime: localTime, remoteMtime: Date.now() };
-      } else if (remoteTime > localTime) {
-        const content = await client.getFileContents(remoteSessionsStorePath, { format: 'text' }) as string;
-        writeTextAtomic(sessionsStoreFile, content);
-        downloaded++;
-        state.files.sessions_index = { localMtime: fs.statSync(sessionsStoreFile).mtimeMs, remoteMtime: remoteTime };
-      } else {
-        state.files.sessions_index = { localMtime: localTime, remoteMtime: remoteTime };
-      }
-    }
-
-    // ---- Sync individual session files ----
-    if (fs.existsSync(sessionsDir)) {
-      const localFiles = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.json'));
-
-      for (const f of localFiles) {
-        const localPath = path.join(sessionsDir, f);
-        const remotePath = `${REMOTE_BASE}/${SESSIONS_DIR}/${f}`;
-        const localStat = fs.statSync(localPath);
-        const localTime = localStat.mtimeMs;
-        const remoteTime = await getRemoteMtime(client, remotePath);
-        const key = `session:${f}`;
-        if (remoteTime > 0 && hasSyncConflict(state.files[key], localTime, remoteTime)) {
-          conflicts.push(await preserveRemoteConflict(client, workspaceDir, key, localPath, remotePath));
-        } else if (remoteTime === 0 || localTime > remoteTime) {
-          const content = fs.readFileSync(localPath, 'utf-8');
-          await client.putFileContents(remotePath, content, { overwrite: true });
-          uploaded++;
-          state.files[key] = { localMtime: localTime, remoteMtime: Date.now() };
-        } else if (remoteTime > localTime) {
-          const content = await client.getFileContents(remotePath, { format: 'text' }) as string;
-          writeTextAtomic(localPath, content);
-          downloaded++;
-          state.files[key] = { localMtime: fs.statSync(localPath).mtimeMs, remoteMtime: remoteTime };
-        } else {
-          state.files[key] = { localMtime: localTime, remoteMtime: remoteTime };
-        }
-      }
-
-      // Also pull remote session files not present locally
-      const remoteEntries = await client.getDirectoryContents(`${REMOTE_BASE}/${SESSIONS_DIR}`) as any[];
-      for (const entry of remoteEntries) {
-        if (entry.type === 'file' && entry.basename && entry.basename.endsWith('.json')) {
-          const remotePath = `${REMOTE_BASE}/${SESSIONS_DIR}/${entry.basename}`;
-          const localPath = path.join(sessionsDir, entry.basename);
-          if (!fs.existsSync(localPath)) {
-            try {
-              const content = await client.getFileContents(remotePath, { format: 'text' }) as string;
-              writeTextAtomic(localPath, content);
-              downloaded++;
-            } catch { /* skip unreachable files */ }
-          }
-        }
-      }
-    }
-
-    // ---- Sync durable project memories (Markdown only) ----
-    const memoryDir = path.join(workspaceDir, '.iexa-memory');
-    if (fs.existsSync(memoryDir)) {
-      const localMemory = fs.readdirSync(memoryDir).filter((file) => file.endsWith('.md'));
-      for (const file of localMemory) {
-        const result = await syncManagedFile(client, state, workspaceDir, `memory:${file}`, path.join(memoryDir, file), `${REMOTE_BASE}/${MEMORY_DIR}/${file}`);
-        uploaded += result.uploaded; downloaded += result.downloaded; if (result.conflict) conflicts.push(result.conflict);
-      }
-      const remoteMemory = await client.getDirectoryContents(`${REMOTE_BASE}/${MEMORY_DIR}`) as any[];
-      for (const entry of remoteMemory) {
-        if (entry.type !== 'file' || !entry.basename?.endsWith('.md') || localMemory.includes(entry.basename)) continue;
-        const localPath = path.join(memoryDir, entry.basename);
-        const remotePath = `${REMOTE_BASE}/${MEMORY_DIR}/${entry.basename}`;
-        writeTextAtomic(localPath, await client.getFileContents(remotePath, { format: 'text' }) as string);
-        downloaded++;
-        state.files[`memory:${entry.basename}`] = { localMtime: fs.statSync(localPath).mtimeMs, remoteMtime: await getRemoteMtime(client, remotePath) };
-      }
-    }
-
-    // ---- Sync Skills and the metadata index, excluding transient artifacts and traces ----
-    const skillsDir = path.join(workspaceDir, 'skills');
-    const skillsIndex = path.join(workspaceDir, '.iexa-skills.json');
-    if (fs.existsSync(skillsIndex)) {
-      const result = await syncManagedFile(client, state, workspaceDir, 'skills_index', skillsIndex, `${REMOTE_BASE}/skills-index.json`);
-      uploaded += result.uploaded; downloaded += result.downloaded; if (result.conflict) conflicts.push(result.conflict);
-    }
-    if (fs.existsSync(skillsDir)) {
-      const localSkills = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((item) => item.isDirectory() && fs.existsSync(path.join(skillsDir, item.name, 'SKILL.md'))).map((item) => item.name);
-      for (const id of localSkills) {
-        const result = await syncManagedFile(client, state, workspaceDir, `skill:${id}`, path.join(skillsDir, id, 'SKILL.md'), `${REMOTE_BASE}/${SKILLS_DIR}/${id}/SKILL.md`);
-        uploaded += result.uploaded; downloaded += result.downloaded; if (result.conflict) conflicts.push(result.conflict);
-      }
-      const remoteSkills = await client.getDirectoryContents(`${REMOTE_BASE}/${SKILLS_DIR}`) as any[];
-      for (const entry of remoteSkills) {
-        if (entry.type !== 'directory' || !entry.basename || localSkills.includes(entry.basename)) continue;
-        const remotePath = `${REMOTE_BASE}/${SKILLS_DIR}/${entry.basename}/SKILL.md`;
-        const localPath = path.join(skillsDir, entry.basename, 'SKILL.md');
-        try {
-          writeTextAtomic(localPath, await client.getFileContents(remotePath, { format: 'text' }) as string);
-          downloaded++;
-          state.files[`skill:${entry.basename}`] = { localMtime: fs.statSync(localPath).mtimeMs, remoteMtime: await getRemoteMtime(client, remotePath) };
-        } catch { /* an incomplete remote skill is ignored until it becomes valid */ }
-      }
-    }
-
-    // Update last sync time
-    cfg.lastSync = Date.now();
-    saveConfig(cfg);
-
-    saveSyncState(workspaceDir, state);
-    return { ok: true, uploaded, downloaded, conflicts };
-  } catch (err: any) {
-    return { ok: false, uploaded, downloaded, conflicts, error: err.message || String(err) };
+  if (!['local', 'remote', 'merge'].includes(resolution)) throw new Error('Invalid conflict resolution.');
+  const conflicts = new WebDAVConflictStore(workspace);
+  const conflict = conflicts.get(id);
+  if (!conflict || conflict.status !== 'pending') return null;
+  if (resolution === 'merge' && !conflict.key.startsWith('session:')) throw new Error('Only session conflicts accept manual merges.');
+  const store = deps.settingsStore || protectedStore;
+  const client = await createWebDAVClient(cfg, deps);
+  if (resolution === 'remote') incoming(conflict.key, conflict.localPath, readLocalSyncText(conflict.remoteCopyPath), store);
+  else {
+    if (resolution === 'merge' && typeof mergedContent !== 'string') throw new Error('Merged session content is required.');
+    const content = resolution === 'merge' ? sanitizeSyncContent(conflict.key, mergedContent!) : outgoing(conflict.key, conflict.localPath, store);
+    await client.putFileContents(conflict.remotePath, content, { overwrite: true, signal: AbortSignal.timeout(30_000) });
+    if (resolution === 'merge') incoming(conflict.key, conflict.localPath, content, store);
+  }
+  const state = loadSyncState(workspace);
+  state.files[conflict.key] = { localMtime: fs.statSync(conflict.localPath).mtimeMs, remoteMtime: await getRemoteMtime(client, conflict.remotePath) };
+  saveSyncState(workspace, state);
+  return conflicts.resolve(id, resolution);
+  } catch {
+    // API routes return error.message, so never forward transport/body/auth errors.
+    throw new Error('WebDAV conflict resolution failed; check the local configuration and conflict data.');
   }
 }
 
-async function syncManagedFile(
-  client: WebDAVClient,
-  state: SyncState,
-  workspaceDir: string,
-  key: string,
-  localPath: string,
-  remotePath: string,
-): Promise<{ uploaded: number; downloaded: number; conflict?: SyncConflict }> {
-  const localTime = fs.statSync(localPath).mtimeMs;
-  const remoteTime = await getRemoteMtime(client, remotePath);
-  if (remoteTime > 0 && hasSyncConflict(state.files[key], localTime, remoteTime)) {
-    return { uploaded: 0, downloaded: 0, conflict: await preserveRemoteConflict(client, workspaceDir, key, localPath, remotePath) };
-  }
-  if (remoteTime === 0 || localTime > remoteTime) {
-    await ensureRemoteDir(client, path.posix.dirname(remotePath));
-    await client.putFileContents(remotePath, fs.readFileSync(localPath, 'utf8'), { overwrite: true });
-    state.files[key] = { localMtime: localTime, remoteMtime: Date.now() };
+async function syncManagedFile(client: WebDAVClient, state: SyncState, workspace: string, key: string, local: string, store: ProtectedSettingsStore): Promise<{ uploaded: number; downloaded: number; conflict?: SyncConflict }> {
+  const remote = remotePathForKey(key);
+  assertLocalSyncPath(local);
+  // Migrate primary + backup before obtaining mtimes or writing any conflict.
+  if (key === 'settings') store.loadProtectedSettings(local, () => ({}));
+  const localTime = fs.existsSync(local) ? fs.statSync(local).mtimeMs : 0;
+  const remoteTime = await getRemoteMtime(client, remote);
+  const previous = state.files[key];
+  const localChanged = !previous || Math.abs(localTime - previous.localMtime) > 1;
+  const remoteChanged = !previous || Math.abs(remoteTime - previous.remoteMtime) > 1;
+  if (previous && !localChanged && !remoteChanged) return { uploaded: 0, downloaded: 0 };
+  if (previous && localTime && remoteTime && localChanged && remoteChanged)
+    return { uploaded: 0, downloaded: 0, conflict: await preserveRemoteConflict(client, workspace, key, local) };
+  if (localTime && (!remoteTime || (previous ? localChanged && !remoteChanged : localTime > remoteTime))) {
+    await client.putFileContents(remote, outgoing(key, local, store), { overwrite: true, signal: AbortSignal.timeout(30_000) });
+    state.files[key] = { localMtime: fs.statSync(local).mtimeMs, remoteMtime: await getRemoteMtime(client, remote) };
     return { uploaded: 1, downloaded: 0 };
   }
-  if (remoteTime > localTime) {
-    writeTextAtomic(localPath, await client.getFileContents(remotePath, { format: 'text' }) as string);
-    state.files[key] = { localMtime: fs.statSync(localPath).mtimeMs, remoteMtime: remoteTime };
+  if (remoteTime && (!localTime || (previous ? remoteChanged && !localChanged : remoteTime > localTime))) {
+    incoming(key, local, await readRemoteSyncText(client, remote), store);
+    state.files[key] = { localMtime: fs.statSync(local).mtimeMs, remoteMtime: remoteTime };
     return { uploaded: 0, downloaded: 1 };
   }
   state.files[key] = { localMtime: localTime, remoteMtime: remoteTime };
   return { uploaded: 0, downloaded: 0 };
 }
 
-// ---- Helpers ----
-async function ensureRemoteDir(client: WebDAVClient, dirPath: string): Promise<void> {
+export async function syncAll(cfg: WebDAVConfig, workspace: string, sessionsDir: string, settingsFile: string, sessionsStoreFile: string, deps: SyncDependencies = {}): Promise<SyncResult> {
+  let uploaded = 0, downloaded = 0;
+  const conflicts: SyncConflict[] = [];
   try {
-    const exists = await client.exists(dirPath);
-    if (!exists) {
-      // Create directory path piece by piece
-      const parts = dirPath.split('/').filter(Boolean);
-      let current = '';
-      for (const part of parts) {
-        current += '/' + part;
-        const ex = await client.exists(current);
-        if (!ex) {
-          await client.createDirectory(current);
-        }
-      }
+    const client = await createWebDAVClient(cfg, deps);
+    const store = deps.settingsStore || protectedStore;
+    const state = loadSyncState(workspace);
+    // Also sanitize pre-upgrade conflict copies even if no new conflicts arise.
+    new WebDAVConflictStore(workspace).list(true);
+    for (const dir of ['/IEXA', '/IEXA/sessions', '/IEXA/memory', '/IEXA/skills']) await ensureRemoteDir(client, dir);
+    const sync = async (key: string, local: string) => {
+      const result = await syncManagedFile(client, state, workspace, key, local, store);
+      uploaded += result.uploaded; downloaded += result.downloaded;
+      if (result.conflict) conflicts.push(result.conflict);
+    };
+    if (fs.existsSync(settingsFile) || fs.existsSync(`${settingsFile}.bak`)) await sync('settings', settingsFile);
+    if (fs.existsSync(sessionsStoreFile)) await sync('sessions_index', sessionsStoreFile);
+    const syncDirectory = async (dir: string, kind: 'session' | 'memory', remoteDir: string, extension: string) => {
+      assertLocalSyncPath(dir);
+      fs.mkdirSync(dir, { recursive: true });
+      const locals = fs.readdirSync(dir).filter(file => file.endsWith(extension));
+      const entries = await remoteEntries(client, remoteDir); // Validate whole listing before writing.
+      const names = new Set([...locals, ...entries.filter(e => e.type === 'file' && e.basename.endsWith(extension)).map(e => e.basename as string)]);
+      for (const name of names) { assertRemoteBasename(name); await sync(`${kind}:${name}`, path.join(dir, name)); }
+    };
+    await syncDirectory(sessionsDir, 'session', '/IEXA/sessions', '.json');
+    await syncDirectory(path.join(workspace, '.iexa-memory'), 'memory', '/IEXA/memory', '.md');
+    const skillsIndex = path.join(workspace, '.iexa-skills.json');
+    if (fs.existsSync(skillsIndex)) await sync('skills_index', skillsIndex);
+    const skillsDir = path.join(workspace, 'skills');
+    assertLocalSyncPath(skillsDir);
+    fs.mkdirSync(skillsDir, { recursive: true });
+    const localSkills = fs.readdirSync(skillsDir, { withFileTypes: true }).filter(e => e.isDirectory() && fs.existsSync(path.join(skillsDir, e.name, 'SKILL.md'))).map(e => e.name);
+    const entries = await remoteEntries(client, '/IEXA/skills');
+    for (const id of new Set([...localSkills, ...entries.filter(e => e.type === 'directory').map(e => e.basename as string)])) {
+      assertRemoteBasename(id);
+      const local = path.join(skillsDir, id, 'SKILL.md');
+      assertLocalSyncPath(local);
+      await ensureRemoteDir(client, `/IEXA/skills/${id}`);
+      await sync(`skill:${id}`, local);
     }
+    if (configFile) saveConfig({ ...cfg, lastSync: Date.now() }, store);
+    saveSyncState(workspace, state);
+    return { ok: true, uploaded, downloaded, conflicts };
   } catch {
-    // If cannot check, try to create (might already exist)
-    try { await client.createDirectory(dirPath); } catch { /* ignore */ }
+    // Library errors may echo Authorization, endpoint userinfo, or response bodies.
+    return { ok: false, uploaded, downloaded, conflicts, error: 'WebDAV sync failed; local credentials and policy were not imported from remote settings.' };
   }
 }
-
-async function getRemoteMtime(client: WebDAVClient, remotePath: string): Promise<number> {
+async function ensureRemoteDir(client: WebDAVClient, dir: string): Promise<void> {
+  if (!await client.exists(dir)) await client.createDirectory(dir, { signal: AbortSignal.timeout(30_000) });
+}
+async function getRemoteMtime(client: WebDAVClient, remote: string): Promise<number> {
   try {
-    const stat: any = await client.stat(remotePath);
-    if (stat && stat.lastmod) {
-      return new Date(stat.lastmod).getTime();
-    }
-  } catch { /* file likely doesn't exist */ }
-  return 0;
+    const stat: any = await client.stat(remote, { signal: AbortSignal.timeout(30_000) });
+    if (!stat || stat.type !== 'file' || !Number.isFinite(stat.size) || stat.size < 0 || stat.size > MAX_SYNC_BYTES) throw new Error('Invalid remote file metadata.');
+    const modified = Date.parse(stat.lastmod);
+    if (!Number.isFinite(modified) || modified <= 0) throw new Error('Invalid remote modification time.');
+    return modified;
+  } catch (error: any) {
+    if (error?.status === 404 || error?.response?.status === 404) return 0;
+    throw error;
+  }
 }

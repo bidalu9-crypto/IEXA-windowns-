@@ -1,0 +1,50 @@
+{
+  "purify.min.js": {
+    "package": "dompurify",
+    "version": "3.4.15",
+    "source": "dist/purify.min.js",
+    "sha256": "f263b05369e050fa175d4ecb9c9358eb4253602d510297adfb31df48b2f1c4d5"
+  },
+  "DOMPurify-LICENSE": {
+    "package": "dompurify",
+    "version": "3.4.15",
+    "source": "LICENSE",
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "marked.umd.js": {
+    "package": "marked",
+    "version": "18.0.13",
+    "source": "lib/marked.umd.js",
+    "sha256": "b147274a9ce27d17276587167e49483d719f6893eeca3a3667a59797661d3556"
+  },
+  "marked-LICENSE": {
+    "package": "marked",
+    "version": "18.0.13",
+    "source": "LICENSE",
+    "sha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c"
+  },
+  "highlight.min.js": {
+    "package": "@highlightjs/cdn-assets",
+    "version": "11.12.0",
+    "source": "highlight.min.js",
+    "sha256": "8ab71eb09c51f501e5e25157d9cff100e46cc29bcbfc744d0b746d451fca7f53"
+  },
+  "github.min.css": {
+    "package": "@highlightjs/cdn-assets",
+    "version": "11.12.0",
+    "source": "styles/github.min.css",
+    "sha256": "3a9a5def8b9c311e5ae43abde85c63133185eed4f0d9f67fea4b00a8308cf066"
+  },
+  "github-dark.min.css": {
+    "package": "@highlightjs/cdn-assets",
+    "version": "11.12.0",
+    "source": "styles/github-dark.min.css",
+    "sha256": "9f208d022102b1d0c7aebfecd8e42ca7997d5de636649d2b31ea63093d809019"
+  },
+  "highlightjs-LICENSE": {
+    "package": "highlight.js",
+    "version": "11.12.0",
+    "source": "LICENSE",
+    "sha256": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490"
+  }
+}

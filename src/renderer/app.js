@@ -17,26 +17,44 @@ function uiIcon(name, label = '') {
 // =============================================================================
 // Markdown + code highlighting
 // =============================================================================
-if (window.marked && window.hljs) {
-  marked.use({
-    renderer: {
-      code({ text, lang, escaped }) {
-        if (typeof arguments[0] === 'string') { text = arguments[0]; lang = arguments[1]; }
-        text = String(text || '');
-        let highlighted;
-        if (text.length <= 16000 && lang && hljs.getLanguage(lang)) {
-          try { highlighted = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value; }
-          catch (e) { /* fall through */ }
-        }
-        if (!highlighted) {
-          highlighted = escapeHtml(text);
-        }
-        const langAttr = lang ? ` class="language-${escapeHtml(lang)}"` : '';
-        return `<pre><code${langAttr}>${highlighted}</code></pre>`;
-      },
-    },
-  });
-}
+const renderSafeMarkdown = window.SafeMarkdown.renderSafeMarkdown;
+
+// Trusted UI templates use data actions; SafeMarkdown strips all data-* attributes.
+// Capture preserves the former stopPropagation behavior on nested cards/downloads.
+const rendererActions = Object.freeze({
+  sendQuick: (value) => sendQuick(value),
+  refreshModelSelector: () => refreshModelSelector(),
+  showProfileEditor: () => showProfileEditor(),
+  fetchModels: () => fetchModels(),
+  saveProfile: () => saveProfile(),
+  hideProfileEditor: () => hideProfileEditor(),
+  saveWebDAVConfig: () => saveWebDAVConfig(),
+  testWebDAV: () => testWebDAV(),
+  syncNow: () => syncNow(),
+  switchSession: (value) => switchSession(value),
+  startRename: (value) => startRename(value),
+  deleteSession: (value) => deleteSession(value),
+  toggleToolBody: (value) => toggleToolBody(value),
+  removeAttachment: (value) => removeAttachment(value),
+  activateProfile: (value) => activateProfile(value),
+  editProfile: (value) => editProfile(value),
+  deleteProfile: (value) => deleteProfile(value),
+  stop: () => {},
+});
+document.addEventListener('click', (event) => {
+  const control = event.target.closest?.('[data-ui-action]');
+  if (!control || control.closest('.message-content')) return;
+  const action = Object.hasOwn(rendererActions, control.dataset.uiAction) && rendererActions[control.dataset.uiAction];
+  if (!action) return;
+  event.stopPropagation();
+  Promise.resolve().then(() => action(control.dataset.uiArg || '')).catch(console.error);
+}, true);
+document.addEventListener('change', (event) => {
+  if (event.target.dataset.uiChange === 'select-profile-model' && event.target.value) {
+    document.getElementById('profileEditorModel').value = event.target.value;
+  }
+});
+
 
 // Post-process rendered markdown: wrap code blocks with a header (lang + copy button)
 function enhanceCodeBlocks(rootEl) {
@@ -872,12 +890,12 @@ function renderSessionList() {
     const active = s.id === currentSessionId ? ' active' : '';
     const timeStr = formatTime(s.updated);
     return `
-      <div class="session-item${active}" data-id="${s.id}">
-        <div class="session-item-info" onclick="event.stopPropagation(); switchSession('${s.id}')">
-          <span class="session-item-title" data-sid="${s.id}" onclick="event.stopPropagation(); startRename('${s.id}')" title="点击重命名">${escapeHtml(s.title)}</span>
+      <div class="session-item${active}" data-id="${escapeHtml(s.id)}">
+        <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
+          <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="点击重命名">${escapeHtml(s.title)}</span>
           <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
-        <button class="session-item-delete" onclick="event.stopPropagation(); deleteSession('${s.id}')" title="删除">×</button>
+        <button class="session-item-delete" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除">×</button>
       </div>
     `;
   }).join('');
@@ -1016,13 +1034,13 @@ async function switchSession(id, updateList = true) {
               block.dataset.kind = toolKind(tc.name || '');
               const histTitle = (tc.args && tc.args.tool_title) || toolDisplayName(tc.name);
               block.innerHTML = `
-                <div class="tool-header" onclick="toggleToolBody('tool-body-${tc.id}')">
+                <div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-${escapeHtml(tc.id)}">
                   <span class="tool-icon">${toolIcon(tc.name)}</span>
                   <span class="tool-heading"><span class="tool-name">${escapeHtml(histTitle)}</span><span class="tool-meta">${escapeHtml(toolMeta(tc.name, tc.args))}</span></span>
                   <span class="tool-status done">${uiIcon('check')}<span>完成</span></span>
                   <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
-                <div class="tool-body" id="tool-body-${tc.id}" style="display:none;">
+                <div class="tool-body" id="tool-body-${escapeHtml(tc.id)}" style="display:none;">
                   <div class="tool-section-label">输入</div><pre class="tool-args"></pre>
                 </div>
               `;
@@ -1195,9 +1213,9 @@ function showWelcome() {
       <h2>欢迎使用 ${escapeHtml(soulName())}</h2>
       <p>你的私密、设备端 AI 智能体，带真实 Shell 权限。</p>
       <div class="quick-actions">
-        <button class="quick-btn" onclick="sendQuick('列出当前目录的文件')">${uiIcon('folder')}<span>列出文件</span></button>
-        <button class="quick-btn" onclick="sendQuick('我的操作系统和硬件配置是什么？')">${uiIcon('monitor')}<span>系统信息</span></button>
-        <button class="quick-btn" onclick="sendQuick('创建一个简单的 Python Web 服务器脚本')">${uiIcon('code')}<span>生成 Python 脚本</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="列出当前目录的文件">${uiIcon('folder')}<span>列出文件</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="我的操作系统和硬件配置是什么？">${uiIcon('monitor')}<span>系统信息</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="创建一个简单的 Python Web 服务器脚本">${uiIcon('code')}<span>生成 Python 脚本</span></button>
       </div>
     </div>
   `;
@@ -1251,7 +1269,7 @@ async function performSearch() {
       searchResults.innerHTML = '<div class="search-no-results">未找到结果</div>';
     } else {
       searchResults.innerHTML = results.map(r => `
-        <div class="search-result-item" onclick="switchSession('${r.session.id}')">
+        <div class="search-result-item" data-ui-action="switchSession" data-ui-arg="${escapeHtml(r.session.id)}">
           <div class="search-result-title">${escapeHtml(r.session.title)}</div>
           ${r.matches.map(m => `
             <div class="search-result-snippet"><span class="search-role">${m.role === 'user' ? uiIcon('user') : m.role === 'title' ? uiIcon('edit') : uiIcon('bot')}</span> ${highlightMatch(m.snippet, q)}</div>
@@ -1526,7 +1544,7 @@ function renderAttachPreview() {
       <div class="attach-chip" data-id="${a.id}">
         ${thumb}
         <span class="attach-chip-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-        <button type="button" class="attach-chip-remove" onclick="removeAttachment('${a.id}')" title="移除">×</button>
+        <button type="button" class="attach-chip-remove" data-ui-action="removeAttachment" data-ui-arg="${escapeHtml(a.id)}" title="移除">×</button>
       </div>
     `;
   }).join('');
@@ -2111,7 +2129,7 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   // SSE events are already batched. Only rebuild when the source changed so
   // terminal events can enhance the existing DOM without a visible reflow.
   if (contentEl._renderedMarkdownSource !== source) {
-    contentEl.innerHTML = marked.parse(source);
+    contentEl.innerHTML = renderSafeMarkdown(source);
     contentEl._renderedMarkdownSource = source;
     normalizeRenderedAssets(contentEl);
   }
@@ -2724,12 +2742,12 @@ function handleToolStart(id, name) {
   block.dataset.startedAt = String(Date.now());
   block.dataset.kind = toolKind(name || '');
   block.innerHTML =
-    '<div class="tool-header" onclick="toggleToolBody(\'tool-body-' + id + '\')">' +
+    '<div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-' + escapeHtml(id) + '">' +
       '<span class="tool-icon">' + toolIcon(name) + '</span><span class="tool-heading"><span class="tool-name">' + escapeHtml(toolDisplayName(name)) + '</span><span class="tool-meta">' + escapeHtml(toolMeta(name)) + '</span></span>' +
       '<span class="tool-status running">准备中</span>' +
       '<span class="tool-chevron" aria-hidden="true"></span>' +
     '</div>' +
-    '<div class="tool-body" id="tool-body-' + id + '" style="display:none;">' +
+    '<div class="tool-body" id="tool-body-' + escapeHtml(id) + '" style="display:none;">' +
       '<div class="tool-section-label">输入</div><pre class="tool-args">准备中...</pre>' +
     '</div>';
 
@@ -2976,7 +2994,7 @@ function renderToolArtifacts(host, artifacts) {
       button.className = 'tool-artifact-image';
       button.dataset.artifactKey = src;
       button.title = '点击查看生成的图片';
-      button.innerHTML = `<img src="${escapeHtml(src)}" alt="${escapeHtml(rel)}"><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存图片" aria-label="保存图片" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a><button type="button" class="tool-artifact-action tool-artifact-copy" title="复制图片" aria-label="复制图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></span></span>`;
+      button.innerHTML = `<img src="${escapeHtml(src)}" alt="${escapeHtml(rel)}"><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存图片" aria-label="保存图片" data-ui-action="stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a><button type="button" class="tool-artifact-action tool-artifact-copy" title="复制图片" aria-label="复制图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg></button></span></span>`;
       button.addEventListener('click', (event) => {
         if (event.target.closest('.tool-artifact-actions')) return;
         openImagePreview(src, rel);
@@ -2990,14 +3008,14 @@ function renderToolArtifacts(host, artifacts) {
       const media = document.createElement('div');
       media.className = 'tool-artifact-media tool-artifact-video';
       media.dataset.artifactKey = src;
-      media.innerHTML = `<video controls preload="metadata" playsinline src="${escapeHtml(src)}" aria-label="${escapeHtml(rel)}"></video><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存视频" aria-label="保存视频" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a></span></span>`;
+      media.innerHTML = `<video controls preload="metadata" playsinline src="${escapeHtml(src)}" aria-label="${escapeHtml(rel)}"></video><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存视频" aria-label="保存视频" data-ui-action="stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a></span></span>`;
       media.querySelector('video').addEventListener('dblclick', () => window.open(src, '_blank', 'noopener,noreferrer'));
       card.appendChild(media);
     } else if (artifact.kind === 'audio' || String(artifact.mimeType || '').startsWith('audio/')) {
       const media = document.createElement('div');
       media.className = 'tool-artifact-media tool-artifact-audio';
       media.dataset.artifactKey = src;
-      media.innerHTML = `<audio controls preload="metadata" src="${escapeHtml(src)}" aria-label="${escapeHtml(rel)}"></audio><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存音频" aria-label="保存音频" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a></span></span>`;
+      media.innerHTML = `<audio controls preload="metadata" src="${escapeHtml(src)}" aria-label="${escapeHtml(rel)}"></audio><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="保存音频" aria-label="保存音频" data-ui-action="stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a></span></span>`;
       card.appendChild(media);
     } else {
       const link = document.createElement('a');
@@ -3770,7 +3788,7 @@ function addMessage(role, content, attachments, opts) {
   if (role === 'user') {
     contentDiv.textContent = content;
   } else {
-    contentDiv.innerHTML = marked.parse(content || '');
+    contentDiv.innerHTML = renderSafeMarkdown(content || '');
     normalizeRenderedAssets(contentDiv);
     enhanceCodeBlocks(contentDiv);
     enhanceTables(contentDiv);
@@ -4681,7 +4699,7 @@ async function renderProfileList() {
   }
 
   list.innerHTML = data.profiles.map(p => `
-    <div class="profile-card ${p.id === data.activeProfileId ? 'active' : ''}" onclick="activateProfile('${p.id}')">
+    <div class="profile-card ${p.id === data.activeProfileId ? 'active' : ''}" data-ui-action="activateProfile" data-ui-arg="${escapeHtml(p.id)}">
       <div class="profile-card-radio"></div>
       <div class="profile-card-info">
         <div class="profile-card-name">${escapeHtml(p.name)}</div>
@@ -4689,9 +4707,9 @@ async function renderProfileList() {
         ${p.baseURL ? `<div class="profile-card-detail">${escapeHtml(p.baseURL)}</div>` : ''}
       </div>
       <span class="profile-card-badge">${escapeHtml(p.provider)}</span>
-      <div class="profile-card-actions" onclick="event.stopPropagation()">
-        <button onclick="editProfile('${p.id}')" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
-        <button class="danger" onclick="deleteProfile('${p.id}')" title="删除" aria-label="删除">${uiIcon('trash')}</button>
+      <div class="profile-card-actions" data-ui-action="stop">
+        <button data-ui-action="editProfile" data-ui-arg="${escapeHtml(p.id)}" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
+        <button class="danger" data-ui-action="deleteProfile" data-ui-arg="${escapeHtml(p.id)}" title="删除" aria-label="删除">${uiIcon('trash')}</button>
       </div>
     </div>
   `).join('');
@@ -4898,6 +4916,16 @@ function mobileDeviceName() {
 }
 
 async function verifyMobileAccess() {
+  const pairingURL = new URL(location.href);
+  const fragment = new URLSearchParams(pairingURL.hash.slice(1));
+  const token = fragment.get('pair') || pairingURL.searchParams.get('pair') || '';
+  // Scrub even when the device is already paired, and before ANY network request.
+  if (fragment.has('pair') || pairingURL.searchParams.has('pair')) {
+    fragment.delete('pair');
+    pairingURL.searchParams.delete('pair');
+    pairingURL.hash = fragment.toString();
+    history.replaceState({}, '', pairingURL.pathname + pairingURL.search + pairingURL.hash);
+  }
   const gate = document.getElementById('mobilePairGate');
   const message = document.getElementById('mobilePairMessage');
   const retry = document.getElementById('mobilePairRetry');
@@ -4912,7 +4940,6 @@ async function verifyMobileAccess() {
     }
     gate.hidden = false;
     document.body.classList.add('is-pairing');
-    const token = new URLSearchParams(location.search).get('pair') || '';
     if (!token) {
       message.textContent = status.bridgeEnabled ? '请在电脑端“设备与桥接”页面重新扫描配对二维码。' : '电脑端的手机桥接当前已关闭。';
       retry.hidden = true;
@@ -4925,7 +4952,6 @@ async function verifyMobileAccess() {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '配对失败。');
-    history.replaceState({}, '', `${location.pathname}${location.hash || ''}`);
     document.body.dataset.mobileClient = 'paired';
     document.body.dataset.mobileCapability = data.device?.capability || 'chat';
     document.body.classList.remove('is-pairing');

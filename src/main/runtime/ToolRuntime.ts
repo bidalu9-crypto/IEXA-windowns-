@@ -1,8 +1,7 @@
 import * as path from 'path';
 import { AgentToolDefinition, ToolExecutionResult } from '../providers/types';
 import { ShellExecutor, FileTools, MemoryTools, BrowserFetch, buildMediaDisplayResult } from '../tools/ToolExecutors';
-import { PathSandbox } from '../security/PathSandbox';
-import { NetworkPolicy } from '../security/NetworkPolicy';
+import { PathSandbox, PathPolicy } from '../security/PathSandbox';
 import { PermissionManager, PermissionMode } from '../security/PermissionManager';
 import { BudgetManager } from './BudgetManager';
 import { ToolDefinition, ToolExecutionContext, ToolRegistry } from './ToolRegistry';
@@ -13,18 +12,18 @@ import { CommandPolicy } from '../tools/shell/CommandPolicy';
 import { DesktopAgent } from '../tools/DesktopAgent';
 import { makeAgentTools } from '../tools/ToolDefinitions';
 
-export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; }
+export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; }
 const risk: Record<string, ToolDefinition['risk']> = { todo_write: 'low', shell_execute: 'high', file_read: 'low', file_write: 'medium', file_edit: 'medium', browser_fetch: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
 
 export class ToolRuntime {
   readonly registry = new ToolRegistry();
   private readonly scheduler = new ToolScheduler();
   private readonly sandbox = new PathSandbox();
-  private readonly network = new NetworkPolicy();
   private readonly permissions: PermissionManager;
   private readonly budget: BudgetManager;
   private readonly shell: ShellExecutor;
-  private readonly files = new FileTools();
+  private readonly files = new FileTools(() => this.pathPolicy());
+  private permissionMode: PermissionMode;
   private readonly memory: MemoryTools;
   private readonly browser = new BrowserFetch();
   private readonly desktop: DesktopAgent;
@@ -34,6 +33,7 @@ export class ToolRuntime {
   private allowedTools: Set<string> | null = null;
 
   constructor(private readonly config: ToolRuntimeConfig) {
+    this.permissionMode = config.permissionMode || 'risk';
     this.permissions = new PermissionManager(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), config.permissionResolver, config.permissionMode || 'risk');
     this.budget = config.budget || new BudgetManager();
     this.shell = new ShellExecutor(config.workspaceDir);
@@ -43,7 +43,8 @@ export class ToolRuntime {
   }
   async initialize(): Promise<void> { await this.memory.initialize(); }
   grantPermission(sessionId: string, toolName: string): void { this.permissions.grant(sessionId, toolName); }
-  setPermissionMode(mode: PermissionMode): void { this.permissions.setMode(mode); }
+  setPermissionMode(mode: PermissionMode): void { this.permissionMode = mode; this.permissions.setMode(mode); }
+  private pathPolicy(): Omit<PathPolicy, 'workspaceDir'> { return { permissionMode: this.permissionMode, mode: this.config.pathMode || 'workspace', roots: this.config.selectedRoots }; }
   isParallelSafe(name: string): boolean { return this.registry.get(name)?.parallelSafe === true; }
   definitions(): AgentToolDefinition[] { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
   async execute(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
@@ -51,13 +52,15 @@ export class ToolRuntime {
       return { output: `Tool ${name} is not available for this client permission level.`, success: false };
     }
     this.registry.validate(name, args); this.loopDetector.record(name, args); const tool = this.registry.get(name)!;
-    // Ordinary workspace commands (pwd, git status, tests, file listing, ...)
-    // remain usable without a modal approval. System-level commands retain the
-    // high-risk permission gate declared by CommandPolicy.
     const authorizedTool = name === 'shell_execute'
-      ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: this.commandPolicy.classify(String(args.command || '')) === 'high' }
+      ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
       : tool;
-    await this.permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args }); this.budget.recordTool();
+    // Shell approval is per invocation. Do not let legacy tool-wide/session
+    // grants turn approval of one command into approval of arbitrary later code.
+    const permissions = name === 'shell_execute'
+      ? new PermissionManager(this.config.auditDir || path.join(this.config.workspaceDir, '.iexa-audit'), this.config.permissionResolver, this.permissionMode)
+      : this.permissions;
+    await permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args }); this.budget.recordTool();
     let result: ToolExecutionResult;
     try {
       result = await this.scheduler.execute(tool, args, context);
@@ -107,14 +110,14 @@ export class ToolRuntime {
             : 'auto';
           return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal, requestedShell);
         }
-        if (definition.name === 'browser_fetch') { const url = await this.network.assertAllowed(String(args.url || '')); return this.browser.fetch(url.toString(), Number(args.max_length) || 25000, context.signal); }
+        if (definition.name === 'browser_fetch') return this.browser.fetch(String(args.url || ''), Number(args.max_length) || 25000, context.signal);
         if (definition.name === 'memory_write') return this.memory.writeMemory(String(args.content || ''));
         if (definition.name === 'memory_get') return this.memory.getMemory(String(args.keywords || ''), Number(args.limit) || 20);
-        const filePath = String(args.path || ''); const resolved = await this.sandbox.resolve(filePath, { workspaceDir: this.config.workspaceDir, allowMissing: definition.name === 'file_write' });
+        const filePath = String(args.path || ''); const resolved = await this.sandbox.resolve(filePath, { ...this.pathPolicy(), workspaceDir: this.config.workspaceDir, allowMissing: definition.name === 'file_write' });
         if (definition.name === 'file_read') { const result = await this.files.readFile(resolved.path, this.config.workspaceDir, { offset: args.offset ? Number(args.offset) : undefined, lines: args.lines ? Number(args.lines) : undefined, maxLength: args.max_length ? Number(args.max_length) : undefined, direction: args.direction as 'head' | 'tail' | undefined }); if (result.success) onSkillRead?.(resolved.path); return result; }
         if (definition.name === 'file_write') { const result = await this.files.writeFile(resolved.path, String(args.content || ''), this.config.workspaceDir, { append: args.append === true, createDirs: args.create_dirs === true }); if (result.success) onSkillWrite?.(resolved.path); return result; }
         if (definition.name === 'file_edit') { const result = await this.files.editFile(resolved.path, String(args.old_string || ''), String(args.new_string || ''), this.config.workspaceDir, args.replace_all === true); if (result.success) onSkillWrite?.(resolved.path); return result; }
-        return buildMediaDisplayResult(resolved.path, this.config.workspaceDir);
+        return buildMediaDisplayResult(resolved.path, this.config.workspaceDir, this.pathPolicy());
       }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch', cancellable: definition.name === 'shell_execute' || definition.name === 'desktop_control', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
     }
   }

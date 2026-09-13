@@ -1,3 +1,4 @@
+import { createChildEnvironment } from '../security/ChildEnvironment';
 import { ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -82,6 +83,8 @@ export class McpManager {
     const connection = this.connections.get(id);
     if (connection) {
       for (const pending of connection.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('MCP 连接已断开。')); }
+      connection.pending.clear();
+      connection.buffer = '';
       connection.child.kill();
       this.connections.delete(id);
     }
@@ -109,11 +112,15 @@ export class McpManager {
     if (config.transport === 'http') return this.httpRequest(config, method, params, false);
     let connection = this.connections.get(config.id);
     if (!connection) connection = this.openStdio(config);
+    if (connection.pending.size >= 128) throw new Error('MCP pending request limit reached');
     const id = connection.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { connection?.pending.delete(id); reject(new Error(`MCP 请求超时：${method}`)); }, 20_000);
       connection!.pending.set(id, { resolve, reject, timer });
-      connection!.child.stdin?.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      try {
+        if (!connection!.child.stdin?.writable) throw new Error('MCP stdin is closed');
+        connection!.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      } catch (error) { clearTimeout(timer); connection!.pending.delete(id); reject(error); }
     });
   }
 
@@ -126,20 +133,36 @@ export class McpManager {
 
   private openStdio(config: McpServerConfig): StdioConnection {
     if (!config.command) throw new Error('stdio MCP Server 缺少启动命令。');
-    const child = spawn(config.command, config.args || [], { windowsHide: true, stdio: 'pipe', env: process.env });
+    const child = spawn(config.command, config.args || [], { windowsHide: true, stdio: 'pipe', env: createChildEnvironment() });
     const connection: StdioConnection = { child, buffer: '', nextId: 1, pending: new Map() };
     this.connections.set(config.id, connection);
     child.stdout?.on('data', (chunk: Buffer) => this.consume(config.id, connection, chunk.toString('utf8')));
     child.stderr?.on('data', (chunk: Buffer) => this.log(config.id, chunk.toString('utf8').trim()));
-    child.on('error', (error) => this.log(config.id, `进程错误：${error.message}`));
+    const failPending = (error: Error) => {
+      for (const pending of connection.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
+      connection.pending.clear(); connection.buffer = '';
+    };
+    child.stdin?.on('error', (error) => { failPending(error); child.kill(); });
+    child.on('error', (error) => { failPending(error); this.log(config.id, `进程错误：${error.message}`); });
     child.on('close', (code) => {
-      if (this.connections.get(config.id) === connection) this.connections.delete(config.id);
+      failPending(new Error(`MCP process closed: ${code ?? -1}`));
+      if (this.connections.get(config.id) === connection) {
+        this.connections.delete(config.id);
+        this.setState(config.id, { status: 'disconnected' });
+      }
       if (code !== 0 && code !== null) this.log(config.id, `进程退出：${code}`);
     });
     return connection;
   }
 
   private consume(serverId: string, connection: StdioConnection, text: string): void {
+    if (this.connections.get(serverId) !== connection) return;
+    if (Buffer.byteLength(connection.buffer) + Buffer.byteLength(text) > 8 * 1024 * 1024) {
+      for (const pending of connection.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error('MCP output exceeds 8 MB')); }
+      connection.pending.clear(); connection.buffer = '';
+      connection.child.kill();
+      return;
+    }
     connection.buffer += text;
     let breakIndex = connection.buffer.indexOf('\n');
     while (breakIndex >= 0) {
@@ -203,7 +226,7 @@ export class McpManager {
   private log(id: string, message: string): void {
     if (!message) return;
     const current = this.state.get(id) || { status: 'disconnected' as const, tools: [], resources: [], logs: [] };
-    const logs = [...(current.logs || []), `[${new Date().toLocaleTimeString('zh-CN')}] ${message}`].slice(-80);
+    const logs = [...(current.logs || []), `[${new Date().toLocaleTimeString('zh-CN')}] ${message.slice(-16_000)}`].slice(-80);
     this.state.set(id, { ...current, logs });
   }
 

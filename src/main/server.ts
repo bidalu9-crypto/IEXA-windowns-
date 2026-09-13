@@ -28,7 +28,13 @@ import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd } from './observability/CostTracker';
 import { contextWindowForModel } from './agent/ContextCompactor';
 import { SoulStore, checkSoulBodyLimit, normalizeSoulMetadata } from './agent/SoulStore';
-import { configureApiResponse, jsonReply, readBody, readRawBody } from './api/HttpServer';
+import { configureApiResponse, jsonReply, readBody, readRawBody, HttpError, handleHttpError } from './api/HttpServer';
+import { LocalApiAuth, isTLS } from './security/LocalApiAuth';
+import { searchProjectText } from './search/ProjectSearch';
+import { UploadRoutes } from './api/UploadRoutes';
+import { MobileTlsListener } from './mobile/MobileTlsListener';
+import { resolveScopedPath } from './security/PathSandbox';
+import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
@@ -50,7 +56,7 @@ const MAX_VISION_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
-const WORKSPACE_DIR = process.env.IEXA_WORKSPACE || path.join(process.cwd(), 'workspace');
+const WORKSPACE_DIR = (() => { const root = path.resolve(process.env.IEXA_WORKSPACE || path.join(process.cwd(), 'workspace')); fs.mkdirSync(root, { recursive: true }); return fs.realpathSync.native(root); })();
 const MEMORY_DIR = path.join(WORKSPACE_DIR, '.iexa-memory');
 const SETTINGS_FILE = path.join(WORKSPACE_DIR, '.iexa-settings.json');
 const SESSIONS_FILE = path.join(WORKSPACE_DIR, '.iexa-sessions.json');
@@ -146,7 +152,7 @@ function loadProjectState(): ProjectState {
     if (fs.existsSync(PROJECT_FILE) || fs.existsSync(`${PROJECT_FILE}.bak`)) {
       const raw = new JsonStore<Record<string, unknown>>(PROJECT_FILE, () => ({})).loadSync();
       const root = typeof raw.root === 'string' && raw.root && fs.existsSync(raw.root) && fs.statSync(raw.root).isDirectory()
-        ? path.resolve(raw.root)
+        ? fs.realpathSync.native(raw.root)
         : null;
       const recent = Array.isArray(raw.recent)
         ? raw.recent.filter((p: unknown) => typeof p === 'string' && p && fs.existsSync(p as string)).slice(0, 12)
@@ -196,70 +202,16 @@ function setProjectRoot(root: string | null): {
     invalidateAllAgentsForNextTurn();
     return { ok: true, project: projectInfo() };
   }
-  const abs = path.resolve(root);
+  let abs = path.resolve(root);
   if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
     return { ok: false, error: '文件夹不存在' };
   }
+  abs = fs.realpathSync.native(abs);
   projectState.root = abs;
   projectState.recent = [abs, ...projectState.recent.filter((p) => p !== abs)].slice(0, 12);
   saveProjectState(projectState);
   invalidateAllAgentsForNextTurn();
   return { ok: true, project: projectInfo() };
-}
-
-interface WorkspaceSearchResult {
-  path: string;
-  line: number;
-  column: number;
-  preview: string;
-}
-
-const WORKSPACE_SEARCH_SKIP = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv', 'coverage']);
-
-/** Bounded literal text search used by the project workbench search panel. */
-function searchProjectText(root: string, query: string, limit: number): WorkspaceSearchResult[] {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return [];
-  const results: WorkspaceSearchResult[] = [];
-  const pending = [root];
-  let visitedFiles = 0;
-  const maxFiles = 2_500;
-
-  while (pending.length && results.length < limit && visitedFiles < maxFiles) {
-    const directory = pending.pop()!;
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { continue; }
-    for (const entry of entries) {
-      if (results.length >= limit || visitedFiles >= maxFiles) break;
-      if (entry.name === '.' || entry.name === '..' || WORKSPACE_SEARCH_SKIP.has(entry.name)) continue;
-      const target = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (!entry.name.startsWith('.')) pending.push(target);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      visitedFiles++;
-      let data: Buffer;
-      try {
-        const stat = fs.statSync(target);
-        if (stat.size > 1024 * 1024) continue;
-        data = fs.readFileSync(target);
-      } catch { continue; }
-      if (data.subarray(0, Math.min(data.length, 8192)).includes(0)) continue;
-      const lines = data.toString('utf8').split(/\r?\n/);
-      for (let index = 0; index < lines.length && results.length < limit; index++) {
-        const column = lines[index].toLocaleLowerCase().indexOf(needle);
-        if (column < 0) continue;
-        results.push({
-          path: path.relative(root, target).replace(/\\/g, '/'),
-          line: index + 1,
-          column: column + 1,
-          preview: lines[index].trim().slice(0, 300),
-        });
-      }
-    }
-  }
-  return results;
 }
 
 // ---- Profile Types ----
@@ -297,7 +249,7 @@ interface AppSettings {
 function loadSettings(): AppSettings {
   try {
     if (fs.existsSync(SETTINGS_FILE) || fs.existsSync(`${SETTINGS_FILE}.bak`)) {
-      const raw = new JsonStore<Record<string, any>>(SETTINGS_FILE, () => ({})).loadSync();
+      const raw = loadProtectedSettings<Record<string, any>>(SETTINGS_FILE, () => ({}));
       // Migrate old format
       if (!raw.profiles && raw.provider) {
         return {
@@ -321,7 +273,7 @@ function loadSettings(): AppSettings {
         visionProfileId: typeof raw.visionProfileId === 'string' ? raw.visionProfileId : undefined,
       };
     }
-  } catch { /* ignore */ }
+  } catch (error) { throw error; }
   return { profiles: [], activeProfileId: '', thinkingLevel: 'medium', permissionMode: 'risk' };
 }
 
@@ -403,7 +355,7 @@ function getPermissionMode(): PermissionMode {
 }
 
 function saveSettings(s: AppSettings): void {
-  new JsonStore<AppSettings>(SETTINGS_FILE, () => s).saveSync(s);
+  saveProtectedSettings(SETTINGS_FILE, s);
 }
 
 function activeProfile(): ModelProfile | null {
@@ -749,8 +701,11 @@ const runningSessionIds = new Set<string>();
  * to refresh that envelope; discard its cached runtime after it completes.
  */
 const pendingAgentInvalidation = new Set<string>();
-const artifactRegistry = new Map<string, { path: string; mimeType: string; size: number; created: number }>();
-const uploadRegistry = new Map<string, { sessionId: string; name: string; mime: string; kind: string; size: number; received: number; partPath: string; created: number }>();
+interface RegisteredArtifact { path: string; mimeType: string; size: number; created: number; }
+const artifactRegistry = new class extends Map<string, RegisteredArtifact> {
+  override set(id: string, value: RegisteredArtifact): this { super.delete(id); super.set(id, value); while (this.size > 512) super.delete(this.keys().next().value!); return this; }
+}();
+
 
 type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 interface SessionJob {
@@ -898,6 +853,11 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     desktopCaptureFrames: profileLikelySupportsVision(profile),
   };
   agent = new AgentRuntime({ ...config, sessionId, auditDir: path.join(WORKSPACE_DIR, '.iexa-audit'), traceDir: TRACES_DIR });
+  if (agentCache.size >= 32) {
+    const idle = [...agentCache.keys()].find(id => !runningSessionIds.has(id));
+    if (!idle) throw new HttpError(429, '活动会话配额已满。');
+    cancelSessionAgent(idle); clearPermissionSubscription(idle);
+  }
   agentCache.set(sessionId, agent);
   return agent;
 }
@@ -1018,6 +978,38 @@ const MIME_TYPES: Record<string, string> = {
   '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
 };
 
+const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+function isPrivateFile(file: string): boolean {
+  return file.split(/[\\/]/).some(part => /^\.iexa-/i.test(part) || /^\.env(?:\.|$)/i.test(part) || ['.ssh', '.git'].includes(part.toLowerCase()));
+}
+function applyPreviewIsolation(res: http.ServerResponse, extension: string): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (['.html', '.htm', '.svg', '.xhtml', '.xml'].includes(extension)) {
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+  }
+}
+function scopedArtifact(file: string): string | null {
+  const roots = [WORKSPACE_DIR, getProjectRoot()].filter((value): value is string => Boolean(value));
+  try { const safe = resolveScopedPath(file, roots); if (!isPrivateFile(safe)) return safe; } catch {}
+  // Only application-generated text artifacts may use the otherwise-private artifact directory.
+  if (!/^artifact_[A-Za-z0-9_-]+\.txt$/.test(path.basename(file))) return null;
+  for (const root of roots) {
+    const directory = path.join(root, '.iexa-artifacts');
+    try { const canonicalRoot = fs.realpathSync.native(root); const canonicalDirectory = fs.realpathSync.native(directory); const canonicalFile = fs.realpathSync.native(file);
+      if (!fs.lstatSync(directory).isSymbolicLink() && path.dirname(canonicalDirectory) === canonicalRoot && path.dirname(canonicalFile) === canonicalDirectory) return canonicalFile;
+    } catch {}
+  }
+  return null;
+}
+
+function pipeFile(file: string, res: http.ServerResponse): void {
+  // Headers may already have been sent by the route; set isolation before writeHead.
+
+  const stream = fs.createReadStream(file); stream.once('error', error => handleHttpError(res, error));
+  res.once('close', () => stream.destroy()); stream.pipe(res);
+}
+
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
   const pathname = new URL(req.url || '/', 'http://localhost').pathname;
   const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^[/\\]+/, '');
@@ -1027,7 +1019,9 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
   }
   const ext = path.extname(fp);
   try {
-    const content = fs.readFileSync(fp);
+    const real = resolveScopedPath(fp, [RENDERER_DIR]);
+    const content = fs.readFileSync(real);
+    if (ext === '.html') res.setHeader('Content-Security-Policy', APP_CSP);
     res.writeHead(200, {
       'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
       'Cache-Control': 'no-store',
@@ -1080,13 +1074,13 @@ function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: str
     || pathname === '/api/uploads/complete';
   const permissionRoute = (pathname === '/api/permissions' && readOnly)
     || ((pathname === '/api/permissions/approve' || pathname === '/api/permissions/deny') && method === 'POST');
-  if (permissionRoute) return true;
+  if (permissionRoute) return false;
   if (chatRoutes) {
     if ((pathname === '/api/profiles' || pathname === '/api/appearance' || pathname === '/api/soul') && !readOnly) return false;
     return true;
   }
   if (device.capability !== 'files') return false;
-  return pathname === '/api/project'
+  return (pathname === '/api/project' && readOnly)
     || pathname.startsWith('/api/fs/')
     || pathname === '/api/skills'
     || (pathname.startsWith('/api/skills/') && readOnly);
@@ -1147,15 +1141,8 @@ function sanitizeFileName(name: string): string {
 
 /** Resolve a path relative to the active project; block path traversal. */
 function resolveProjectPath(rel: string): string | null {
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) return null;
-  const raw = (rel || '.').replace(/\\/g, '/').trim() || '.';
-  if (raw.includes('\0')) return null;
-  const abs = path.resolve(projectRoot, raw === '.' ? '' : raw);
-  const root = path.resolve(projectRoot);
-  const relToRoot = path.relative(root, abs);
-  if (relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) return null;
-  return abs;
+  const root = getProjectRoot(); if (!root) return null;
+  try { return resolveScopedPath(rel || '.', [root]); } catch { return null; }
 }
 
 function pathIsInside(root: string, candidate: string): boolean {
@@ -1165,36 +1152,9 @@ function pathIsInside(root: string, candidate: string): boolean {
 
 /** Resolve HTML preview files while preserving a virtual directory for relative assets. */
 function resolveHtmlPreviewPath(scope: string, requestedPath: string): string | null {
-  if (!requestedPath || requestedPath.includes('\0')) return null;
-  const roots = [getProjectRoot(), WORKSPACE_DIR]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => path.resolve(value));
-  let candidate: string;
-  if (scope === 'project') {
-    const projectRoot = getProjectRoot();
-    if (!projectRoot) return null;
-    candidate = path.resolve(projectRoot, requestedPath);
-    if (!pathIsInside(projectRoot, candidate)) return null;
-  } else if (scope === 'workspace') {
-    candidate = path.resolve(WORKSPACE_DIR, requestedPath);
-    if (!pathIsInside(WORKSPACE_DIR, candidate)) return null;
-  } else if (scope === 'absolute') {
-    if (!path.isAbsolute(requestedPath)) return null;
-    candidate = path.resolve(requestedPath);
-    if (!roots.some((root) => pathIsInside(root, candidate))) return null;
-  } else {
-    return null;
-  }
-
-  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return null;
-  // Resolve symlinks before the final containment check so a project symlink
-  // cannot turn the preview route into an arbitrary local-file server.
-  const realCandidate = fs.realpathSync(candidate);
-  const allowed = roots.some((root) => {
-    try { return pathIsInside(fs.realpathSync(root), realCandidate); }
-    catch { return false; }
-  });
-  return allowed ? realCandidate : null;
+  const project = getProjectRoot();
+  const roots = scope === 'workspace' ? [WORKSPACE_DIR] : scope === 'project' ? (project ? [project] : []) : scope === 'absolute' && path.isAbsolute(requestedPath) ? [WORKSPACE_DIR, ...(project ? [project] : [])] : [];
+  try { const target = resolveScopedPath(requestedPath, roots); return !isPrivateFile(target) && fs.statSync(target).isFile() ? target : null; } catch { return null; }
 }
 
 /**
@@ -1324,17 +1284,33 @@ function getSystemInfo(): {
 }
 
 // ---- Create Server ----
-function createServer(): http.Server {
-  return http.createServer(async (req, res) => {
+function createServer(auth: LocalApiAuth): http.Server {
+  const uploads = new UploadRoutes(WORKSPACE_DIR);
+  let bridge: MobileTlsListener;
+  let bridgeTransition: Promise<unknown> = Promise.resolve();
+  const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     const url = new URL(req.url || '/', `http://localhost:${PORT}`);
     configureApiResponse(res);
+    auth.validateRequest(req);
+    const desktopAuthenticated = auth.authenticated(req);
+    if (url.pathname === '/api/health' && req.method === 'GET') { jsonReply(res, 200, { ok: true }); return; }
+    if (url.pathname === '/api/auth/bootstrap' && req.method === 'POST') {
+      auth.rateLimit(req, 'bootstrap');
+      const parsed = JSON.parse(await readBody(req, 4096));
+      if (!auth.acceptBootstrap(req, String(parsed.token || ''))) throw new HttpError(401, '登录码无效或已过期。');
+      auth.setCookie(res, req.socket.localPort!); jsonReply(res, 200, { ok: true }); return;
+    }
+    if (req.method === 'OPTIONS') throw new HttpError(405, '应用仅接受同源请求。');
+    if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE'].includes(req.method || '')) throw new HttpError(405, '请求方法无效。');
+    if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/desktop-live.html') && isLoopbackRequest(req) && !isTLS(req) && !desktopAuthenticated) {
+      req.url = '/auth-login.html'; serveStatic(req, res); return;
+    }
 
-    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     // Pairing is the only API reachable from an untrusted LAN client. Static
     // assets remain public so the browser can render the pairing screen.
     if (url.pathname === '/api/mobile-bridge/client-status' && req.method === 'GET') {
-      if (isLoopbackRequest(req)) { jsonReply(res, 200, { local: true, authenticated: true, capability: 'full' }); return; }
+      if (desktopAuthenticated) { jsonReply(res, 200, { local: true, authenticated: true, capability: 'full' }); return; }
       const device = mobileBridge.authenticate(cookieValue(req, 'iexa_mobile_session'));
       jsonReply(res, 200, device
         ? { local: false, authenticated: true, capability: device.capability, device }
@@ -1343,18 +1319,21 @@ function createServer(): http.Server {
     }
 
     if (url.pathname === '/api/mobile-bridge/pair' && req.method === 'POST') {
+      if (!isTLS(req)) throw new HttpError(403, '配对要求 HTTPS。');
+      auth.rateLimit(req, 'pair');
       try {
         const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>;
         const paired = mobileBridge.pair(String(body.token || ''), String(body.name || req.headers['user-agent'] || '移动设备'));
         if (!paired) { jsonReply(res, 401, { error: '配对码无效、已使用或已过期。' }); return; }
-        res.setHeader('Set-Cookie', `iexa_mobile_session=${encodeURIComponent(paired.sessionToken)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`);
+        res.setHeader('Set-Cookie', `iexa_mobile_session=${encodeURIComponent(paired.sessionToken)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
         jsonReply(res, 200, { ok: true, device: paired.device });
       } catch (error) { jsonReply(res, 400, { error: (error as Error).message || '配对失败。' }); }
       return;
     }
 
     let mobileDevice: MobileBridgeDevice | null = null;
-    if (!isLoopbackRequest(req) && url.pathname.startsWith('/api/')) {
+    if (!desktopAuthenticated && url.pathname.startsWith('/api/')) {
+      if (!isTLS(req)) throw new HttpError(401, '需要有效的本地登录会话。');
       if (!mobileBridge.isEnabled()) { jsonReply(res, 403, { error: 'IEXA 手机桥接未开启。', code: 'BRIDGE_DISABLED' }); return; }
       mobileDevice = mobileBridge.authenticate(cookieValue(req, 'iexa_mobile_session'));
       if (!mobileDevice) { jsonReply(res, 401, { error: '此设备尚未与 IEXA 配对。', code: 'PAIR_REQUIRED' }); return; }
@@ -1364,7 +1343,7 @@ function createServer(): http.Server {
       }
     }
 
-    if (!isLoopbackRequest(req) && (url.pathname === '/api/mobile-bridge/status'
+    if (!desktopAuthenticated && (url.pathname === '/api/mobile-bridge/status'
       || url.pathname === '/api/mobile-bridge/config'
       || url.pathname === '/api/mobile-bridge/pair-token'
       || url.pathname.startsWith('/api/mobile-bridge/devices'))) {
@@ -1372,7 +1351,7 @@ function createServer(): http.Server {
     }
 
     if (url.pathname.startsWith('/api/desktop-live/')) {
-      if (!isLoopbackRequest(req)) { jsonReply(res, 403, { error: 'Desktop preview is local-only.' }); return; }
+      if (!desktopAuthenticated) { jsonReply(res, 403, { error: 'Desktop preview is local-only.' }); return; }
       const operation = url.pathname.slice('/api/desktop-live/'.length);
       if (!((operation === 'frame' || operation === 'status') && req.method === 'GET') && !(['cancel', 'resume'].includes(operation) && req.method === 'POST')) {
         jsonReply(res, 404, { error: 'Unknown desktop endpoint.' }); return;
@@ -1393,6 +1372,7 @@ function createServer(): http.Server {
     }
 
     if (url.pathname === '/api/session-events' && req.method === 'GET') {
+      if (sessionEventClients.size >= 32) throw new HttpError(429, '实时连接配额已满。');
       if (url.searchParams.get('stream') === 'delta') deltaClients.set(res, new Map());
       const clientId = String(url.searchParams.get('clientId') || '');
       res.writeHead(200, {
@@ -1417,7 +1397,16 @@ function createServer(): http.Server {
       jsonReply(res, 200, mobileBridge.status()); return;
     }
     if (url.pathname === '/api/mobile-bridge/config' && req.method === 'PUT') {
-      try { jsonReply(res, 200, mobileBridge.configure(JSON.parse(await readBody(req) || '{}'))); }
+      try {
+        const input = JSON.parse(await readBody(req) || '{}');
+        const transition = bridgeTransition.catch(() => {}).then(async () => {
+          if (input.enabled === true) mobileBridge.setPort(await bridge.start());
+          if (input.enabled === false) { await bridge.stop(); mobileBridge.setPort(0); }
+          return mobileBridge.configure(input);
+        });
+        bridgeTransition = transition;
+        jsonReply(res, 200, await transition);
+      }
       catch (error) { jsonReply(res, 400, { error: (error as Error).message || '桥接配置保存失败。' }); }
       return;
     }
@@ -1721,73 +1710,7 @@ function createServer(): http.Server {
     // =====================================================================
     // Chunked attachment uploads
     // =====================================================================
-    if (url.pathname === '/api/uploads/init' && req.method === 'POST') {
-      try {
-        const parsed = JSON.parse(await readBody(req, 1_000_000) || '{}');
-        const sessionId = String(parsed.sessionId || '').trim();
-        const name = sanitizeFileName(String(parsed.name || 'file'));
-        const mime = String(parsed.mime || 'application/octet-stream');
-        const kind = ['image', 'text', 'file'].includes(String(parsed.kind)) ? String(parsed.kind) : 'file';
-        const size = Number(parsed.size);
-        if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId) || !Number.isSafeInteger(size) || size <= MAX_ATTACHMENT_BYTES || size > MAX_UPLOAD_BYTES) {
-          jsonReply(res, 400, { error: `分块上传文件大小需大于 8 MB 且不超过 ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB。` });
-          return;
-        }
-        const uploadId = `upl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-        const uploadDir = path.join(WORKSPACE_DIR, 'uploads', sessionId, '.chunks');
-        fs.mkdirSync(uploadDir, { recursive: true });
-        const partPath = path.join(uploadDir, `${uploadId}.part`);
-        fs.writeFileSync(partPath, Buffer.alloc(0));
-        uploadRegistry.set(uploadId, { sessionId, name, mime, kind, size, received: 0, partPath, created: Date.now() });
-        jsonReply(res, 200, { uploadId, chunkBytes: MAX_UPLOAD_CHUNK_BYTES });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message || '上传初始化失败。' });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/uploads/chunk' && req.method === 'POST') {
-      try {
-        const uploadId = String(url.searchParams.get('uploadId') || '');
-        const upload = uploadRegistry.get(uploadId);
-        const offset = Number(url.searchParams.get('offset') || '0');
-        if (!upload || Date.now() - upload.created > 2 * 60 * 60 * 1000) throw new Error('上传已过期或不存在。');
-        if (!Number.isSafeInteger(offset) || offset !== upload.received) throw new Error(`分块偏移错误，期望 ${upload.received}。`);
-        // Leave a small transport margin; enforce the actual decoded chunk
-        // size after collection so chunked transfer framing never trips the
-        // body reader at the exact 4 MB boundary.
-        const chunk = await readRawBody(req, MAX_UPLOAD_CHUNK_BYTES + 64 * 1024);
-        if (chunk.length > MAX_UPLOAD_CHUNK_BYTES) throw new Error(`上传分块过大（上限 ${MAX_UPLOAD_CHUNK_BYTES} 字节）。`);
-        if (upload.received + chunk.length > upload.size) throw new Error('分块超出文件声明大小。');
-        fs.appendFileSync(upload.partPath, chunk);
-        upload.received += chunk.length;
-        jsonReply(res, 200, { received: upload.received, size: upload.size });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message || '上传分块失败。' });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/uploads/complete' && req.method === 'POST') {
-      try {
-        const parsed = JSON.parse(await readBody(req, 1_000_000) || '{}');
-        const uploadId = String(parsed.uploadId || '');
-        const upload = uploadRegistry.get(uploadId);
-        if (!upload) throw new Error('上传已过期或不存在。');
-        if (upload.received !== upload.size) throw new Error(`文件尚未上传完整（${upload.received}/${upload.size}）。`);
-        const stamp = Date.now().toString(36);
-        const destName = `${stamp}_${upload.name}`;
-        const destDir = path.join(WORKSPACE_DIR, 'uploads', upload.sessionId);
-        const dest = path.join(destDir, destName);
-        fs.renameSync(upload.partPath, dest);
-        uploadRegistry.delete(uploadId);
-        const savedPath = path.join('uploads', upload.sessionId, destName).replace(/\\/g, '/');
-        jsonReply(res, 200, { savedPath, name: upload.name, mime: upload.mime, kind: upload.kind, size: upload.size });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message || '上传完成失败。' });
-      }
-      return;
-    }
+    if (await uploads.handle(req, res, url, mobileDevice?.id || 'desktop')) return;
 
     // =====================================================================
     // Chat API
@@ -1881,8 +1804,8 @@ ${recentMemories}
               const candidates = path.isAbsolute(requested)
                 ? [path.resolve(requested)]
                 : allowedRoots.map((root) => path.resolve(root, requested));
-              const source = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0] || '';
-              if (!allowedRoots.some((root) => { const relative = path.relative(root, source); return !relative.startsWith('..') && !path.isAbsolute(relative); })) throw new Error('图片路径不在当前工作区或项目中。');
+              const source = resolveScopedPath(candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0] || '', allowedRoots);
+              if (isPrivateFile(source)) throw new Error('图片路径不在展示范围。');
               const mimeType = imageMimeType(source);
               if (!mimeType || !fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error('未找到可识别的图片文件。');
               if (fs.statSync(source).size > MAX_VISION_IMAGE_BYTES) throw new Error('图片超过 20 MB。');
@@ -1961,8 +1884,8 @@ ${recentMemories}
           let savedStat: fs.Stats | undefined;
 
           if (savedPath) {
-            const candidate = path.resolve(WORKSPACE_DIR, savedPath);
-            const uploadRoot = path.resolve(WORKSPACE_DIR, 'uploads', sessionId);
+            const candidate = resolveScopedPath(path.resolve(WORKSPACE_DIR, savedPath), [path.join(WORKSPACE_DIR, 'uploads', sessionId)]);
+            const uploadRoot = fs.realpathSync.native(path.resolve(WORKSPACE_DIR, 'uploads', sessionId));
             const relative = path.relative(uploadRoot, candidate);
             if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(candidate)) throw new Error(`上传文件不存在：${safeName}`);
             savedStat = fs.statSync(candidate);
@@ -2091,6 +2014,7 @@ ${recentMemories}
 
         // This session now owns a live turn; the model route cannot change
         // until a terminal callback clears this fence.
+        if (runningSessionIds.size >= 8) throw new HttpError(429, '并发会话配额已满。');
         runningSessionIds.add(sessionId);
 
         // Accumulate assistant response for saving
@@ -2554,7 +2478,7 @@ ${recentMemories}
       }
     }
 
-    if (url.pathname === '/api/reset') {
+    if (url.pathname === '/api/reset' && req.method === 'POST') {
       let sessionId = url.searchParams.get('sessionId') || '';
       if (sessionId) {
         cancelSessionAgent(sessionId);
@@ -2968,7 +2892,7 @@ ${recentMemories}
       }
       const requestedLimit = Number(url.searchParams.get('limit') || '100');
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, Math.floor(requestedLimit))) : 100;
-      jsonReply(res, 200, { query, results: searchProjectText(projectRoot, query, limit), scanned: true });
+      jsonReply(res, 200, { query, results: await searchProjectText(projectRoot, query, limit), scanned: true });
       return;
     }
 
@@ -2976,16 +2900,19 @@ ${recentMemories}
     // Project file browser (only when a project is open)
     // =====================================================================
     if (url.pathname.startsWith('/api/artifacts/') && req.method === 'GET') {
+      applyPreviewIsolation(res, '.html');
       const id = decodeURIComponent(url.pathname.slice('/api/artifacts/'.length));
       const artifact = artifactRegistry.get(id);
       if (!artifact || !fs.existsSync(artifact.path) || Date.now() - artifact.created > 30 * 60 * 1000) {
         artifactRegistry.delete(id);
         res.writeHead(404); res.end('artifact not found'); return;
       }
-      const stat = fs.statSync(artifact.path);
+      const safePath = scopedArtifact(artifact.path);
+      if (!safePath) throw new HttpError(403, '工件路径不在当前授权范围。');
+      const stat = fs.statSync(safePath);
       const range = req.headers.range;
       const commonHeaders = {
-        'Content-Type': artifact.mimeType,
+        'Content-Type': MIME_TYPES[path.extname(safePath).toLowerCase()] || 'application/octet-stream',
         'Content-Disposition': 'inline',
         'Cache-Control': 'no-store',
         'Accept-Ranges': 'bytes',
@@ -3001,13 +2928,13 @@ ${recentMemories}
               'Content-Length': end - start + 1,
               'Content-Range': `bytes ${start}-${end}/${stat.size}`,
             });
-            fs.createReadStream(artifact.path, { start, end }).pipe(res);
+            const stream = fs.createReadStream(safePath, { start, end }); stream.once('error', error => handleHttpError(res, error)); res.once('close', () => stream.destroy()); stream.pipe(res);
             return;
           }
         }
       }
       res.writeHead(200, { ...commonHeaders, 'Content-Length': stat.size });
-      fs.createReadStream(artifact.path).pipe(res);
+      pipeFile(safePath, res);
       return;
     }
 
@@ -3025,13 +2952,14 @@ ${recentMemories}
           res.writeHead(404); res.end('预览文件不存在'); return;
         }
         const ext = path.extname(target).toLowerCase();
+        applyPreviewIsolation(res, ext);
         res.writeHead(200, {
           'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
           'Content-Disposition': 'inline',
           'Cache-Control': 'no-store',
           'X-Content-Type-Options': 'nosniff',
         });
-        fs.createReadStream(target).pipe(res);
+        pipeFile(target, res);
       } catch {
         res.writeHead(400); res.end('预览路径无效');
       }
@@ -3043,30 +2971,34 @@ ${recentMemories}
         const projectRoot = getProjectRoot();
         const rel = (url.searchParams.get('path') || '').replace(/\\/g, '/');
         const base = projectRoot || WORKSPACE_DIR;
-        const candidate = path.resolve(base, rel || '.');
-        const within = path.relative(path.resolve(base), candidate);
-        const target = within.startsWith('..') || path.isAbsolute(within) ? null : candidate;
+        let target: string | null;
+        try { target = resolveScopedPath(rel || '.', [base]); } catch { target = null; }
+        if (target && isPrivateFile(target)) target = null;
         if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
           res.writeHead(404); res.end('文件不存在'); return;
         }
         const ext = path.extname(target).toLowerCase();
+        applyPreviewIsolation(res, ext);
         res.writeHead(200, {
           'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
           'Content-Disposition': 'inline; filename="' + sanitizeFileName(path.basename(target)) + '"',
           'Cache-Control': 'no-store',
         });
-        fs.createReadStream(target).pipe(res);
+        pipeFile(target, res);
       } catch { res.writeHead(400); res.end('无法读取文件'); }
       return;
     }
 
     if (url.pathname.startsWith('/api/attachments/') && req.method === 'GET') {
+      applyPreviewIsolation(res, '.html');
       const parts = url.pathname.split('/').filter(Boolean);
       const sid = parts[2] || '';
       const name = sanitizeFileName(decodeURIComponent(parts.slice(3).join('/')));
-      const target = path.resolve(WORKSPACE_DIR, 'uploads', sid, name);
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(sid) || !name) throw new HttpError(404, '附件不存在。');
       const uploadRoot = path.resolve(WORKSPACE_DIR, 'uploads', sid);
-      const rel = path.relative(uploadRoot, target);
+      let target: string;
+      try { target = resolveScopedPath(name, [uploadRoot]); } catch { throw new HttpError(404, '附件不存在。'); }
+      const rel = path.relative(fs.realpathSync.native(uploadRoot), target);
       if (!sid || !name || rel.startsWith('..') || path.isAbsolute(rel) || !fs.existsSync(target)) {
         res.writeHead(404); res.end('附件不存在'); return;
       }
@@ -3076,7 +3008,7 @@ ${recentMemories}
         'Content-Disposition': 'inline; filename="' + name + '"',
         'Cache-Control': 'no-store',
       });
-      fs.createReadStream(target).pipe(res);
+      pipeFile(target, res);
       return;
     }
 
@@ -3089,6 +3021,7 @@ ${recentMemories}
         }
         const rel = (url.searchParams.get('path') || '.').replace(/\\/g, '/');
         const target = resolveProjectPath(rel);
+        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
         if (!target) {
           jsonReply(res, 400, { error: '路径无效' });
           return;
@@ -3100,7 +3033,7 @@ ${recentMemories}
         const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv']);
         const entries = fs.readdirSync(target, { withFileTypes: true })
           .filter((d) => {
-            if (d.name === '.' || d.name === '..') return false;
+            if (d.name === '.' || d.name === '..' || isPrivateFile(path.join(target, d.name))) return false;
             if (d.name.startsWith('.') && d.name !== '.env' && d.name !== '.gitignore') return false;
             if (SKIP.has(d.name)) return false;
             return true;
@@ -3152,6 +3085,7 @@ ${recentMemories}
         }
         const rel = (url.searchParams.get('path') || '').replace(/\\/g, '/');
         const target = resolveProjectPath(rel);
+        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
         if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
           jsonReply(res, 404, { error: '文件不存在' });
           return;
@@ -3194,6 +3128,7 @@ ${recentMemories}
         let rel = '';
         try { rel = (JSON.parse(body).path || '').replace(/\\/g, '/'); } catch { /* */ }
         const target = resolveProjectPath(rel);
+        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
         if (!target) {
           jsonReply(res, 400, { error: '路径无效' });
           return;
@@ -3219,27 +3154,57 @@ ${recentMemories}
       return;
     }
 
+    if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'API 不存在或方法不匹配。');
     serveStatic(req, res);
-  });
+  };
+  const listener: http.RequestListener = (req, res) => {
+    // A client reset may emit an error after a body reader removed its listeners.
+    req.on('error', () => {}); res.on('error', () => {});
+    void handle(req, res).catch(error => handleHttpError(res, error));
+  };
+  const server = http.createServer(listener);
+  server.requestTimeout = 60_000; server.headersTimeout = 15_000;
+  bridge = new MobileTlsListener(WORKSPACE_DIR, listener);
+  server.once('listening', () => { if (mobileBridge.isEnabled()) bridgeTransition = bridge.start().then(port => mobileBridge.setPort(port)).catch(() => { mobileBridge.configure({ enabled: false }); }); });
+  const cleanup = setInterval(() => {
+    for (const [id, artifact] of artifactRegistry) if (Date.now() - artifact.created > 30 * 60_000) artifactRegistry.delete(id);
+    while (artifactRegistry.size > 512) artifactRegistry.delete(artifactRegistry.keys().next().value!);
+  }, 60_000); cleanup.unref();
+  server.once('close', () => { clearInterval(cleanup); uploads.close(); void bridge.stop(); });
+  return server;
 }
 
 // ---- Export ----
-export function startServer(port: number = PORT, autoOpen: boolean = true, host: string = process.env.IEXA_BIND_HOST || '0.0.0.0'): Promise<http.Server> {
-  return new Promise((resolve) => {
+const serverAuth = new WeakMap<http.Server, LocalApiAuth>();
+/** Main-process only; never exposed over HTTP or preload. */
+export function getServerCredentials(server: http.Server): { token: string; loginCode: string; cookieName: string } {
+  const auth = serverAuth.get(server); if (!auth) throw new Error('Unknown server');
+  return { token: auth.token, loginCode: auth.createBootstrap(), cookieName: `iexa_desktop_session_${(server.address() as { port: number }).port}` };
+}
+
+export function startServer(port: number = PORT, autoOpen: boolean = true, host: string = '127.0.0.1'): Promise<http.Server> {
+  return new Promise((resolve, reject) => {
+    if (!['127.0.0.1', '::1', 'localhost'].includes(host)) { reject(new Error('Desktop listener must use loopback; use the HTTPS mobile bridge for LAN.')); return; }
     backfillSessionContexts();
-    const srv = createServer();
+    const auth = new LocalApiAuth();
+    const srv = createServer(auth);
+    serverAuth.set(srv, auth);
+    srv.once('error', reject);
     srv.once('close', () => { void terminalManager.shutdown(); });
     srv.listen(port, host, () => {
       const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
-      mobileBridge.setPort(actualPort);
+      if (!mobileBridge.isEnabled()) mobileBridge.setPort(0);
       console.log(`[IEXA] Server running at http://${host}:${actualPort}`);
       if (autoOpen) {
+        const loginCode = auth.createBootstrap();
+        const loginUrl = `http://127.0.0.1:${actualPort}/#login=${loginCode}`;
+        console.log(`[IEXA] One-use login code (5 minutes): ${loginCode}`);
         const { exec } = require('child_process');
         const cmd = process.platform === 'win32'
-          ? `start http://localhost:${port}`
+          ? `start "" "${loginUrl}"`
           : process.platform === 'darwin'
-            ? `open http://localhost:${port}`
-            : `xdg-open http://localhost:${port}`;
+            ? `open '${loginUrl}'`
+            : `xdg-open '${loginUrl}'`;
         exec(cmd);
       }
       resolve(srv);

@@ -42,6 +42,8 @@ export interface TerminalSessionInfo {
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MAX_ENDED_SESSION_HISTORY = 20;
+export const DEFAULT_MAX_ACTIVE_TERMINALS = 8;
+const MAX_OUTPUT_CHUNKS = 4096;
 
 /**
  * Persistent shell processes for the desktop terminal workbench. The process
@@ -51,8 +53,15 @@ const MAX_ENDED_SESSION_HISTORY = 20;
 export class TerminalManager {
   private readonly sessions = new Map<string, TerminalSessionRecord>();
 
+  constructor(private readonly maxActive = DEFAULT_MAX_ACTIVE_TERMINALS) {
+    if (!Number.isSafeInteger(maxActive) || maxActive < 1) throw new RangeError('maxActive must be a positive integer');
+  }
+
   create(cwd: string, requestedShell?: string): TerminalSessionInfo {
     this.trimSessions();
+    if ([...this.sessions.values()].filter((record) => record.endedAt === undefined).length >= this.maxActive) {
+      throw new Error(`Active terminal limit reached (${this.maxActive})`);
+    }
     const shell = this.resolveShell(requestedShell);
     const command = this.commandFor(shell);
     const cols = 120; const rows = 32;
@@ -81,7 +90,7 @@ export class TerminalManager {
     return {
       chunks: record.chunks.filter((chunk) => chunk.seq > sequence),
       lastSeq: record.nextSeq - 1,
-      running: !record.endedAt,
+      running: record.endedAt === undefined && !record.stopping,
     };
   }
 
@@ -131,11 +140,18 @@ export class TerminalManager {
   }
 
   private append(record: TerminalSessionRecord, value: Buffer | string): void {
-    const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
+    let text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
+    if (!text) return;
+    if (Buffer.byteLength(text) > MAX_OUTPUT_BYTES) {
+      const bytes = Buffer.from(text);
+      let start = bytes.length - MAX_OUTPUT_BYTES;
+      while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+      text = bytes.subarray(start).toString('utf8');
+    }
     const size = Buffer.byteLength(text);
     record.chunks.push({ seq: record.nextSeq++, text });
     record.outputBytes += size;
-    while (record.outputBytes > MAX_OUTPUT_BYTES && record.chunks.length > 1) {
+    while ((record.outputBytes > MAX_OUTPUT_BYTES || record.chunks.length > MAX_OUTPUT_CHUNKS) && record.chunks.length > 1) {
       const removed = record.chunks.shift()!;
       record.outputBytes -= Buffer.byteLength(removed.text);
     }
@@ -186,17 +202,14 @@ export class TerminalManager {
     }
     record.stopping = true;
     const exited = new Promise<void>((resolve) => record.exitWaiters.push(resolve));
-        killPtyWithoutConsoleEnumeration(record.pty);
-    const exitedNormally = await Promise.race([
-      exited.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1000)),
-    ]);
+    killPtyWithoutConsoleEnumeration(record.pty);
+    const exitedNormally = await waitForExit(exited, 1000);
     // node-pty owns the ConPTY teardown path. Starting taskkill at the same
     // time races its console-list helper and produces AttachConsole failures.
     // Use tree termination only when node-pty did not exit in the grace period.
     if (!exitedNormally && record.endedAt === undefined && process.platform === 'win32') {
       await killWindowsTree(record.pty.pid).catch(() => {});
-      await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 1000))]);
+      await waitForExit(exited, 1000);
     }
     if (record.endedAt === undefined) this.finalize(record, -1);
   }
@@ -212,6 +225,7 @@ export class TerminalManager {
     record.dataSubscription = undefined;
     record.exitSubscription = undefined;
     record.exitWaiters.splice(0).forEach((resolve) => resolve());
+    this.trimSessions();
   }
 }
 
@@ -261,4 +275,15 @@ function killWindowsTree(pid: number): Promise<void> {
       child.once('close', finish);
     } catch { finish(); }
   });
+}
+
+/** Clear grace-period timers even when the PTY exits synchronously. */
+async function waitForExit(exited: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exited.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+  } finally { if (timer !== undefined) clearTimeout(timer); }
 }

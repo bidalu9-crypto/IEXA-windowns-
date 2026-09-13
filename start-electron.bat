@@ -3,8 +3,8 @@ setlocal
 chcp 65001 >nul
 title IEXA-WIN
 
-set "ELECTRON_EXE=%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\electron.exe"
 for %%I in ("%~dp0.") do set "APP_DIR=%%~fI"
+set "ELECTRON_EXE=%APP_DIR%\node_modules\electron\dist\electron.exe"
 
 echo ========================================
 echo   IEXA-WIN - Multi-instance Desktop Client

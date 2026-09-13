@@ -1,7 +1,32 @@
 export const STREAM_RETRY_DELAYS_MS = [2000, 5000, 10000];
 
+export function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const value = error as { name?: string; code?: string };
+  return value.name === 'AbortError' || value.code === 'ABORT_ERR' || value.code === 'PROVIDER_ABORTED';
+}
+
+export function throwIfAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted) throw signal.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+}
+
+/** Reject on cancellation and remove the listener on every settlement path. */
+export function abortableSleep(delayMs: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    throwIfAborted(signal);
+    const finish = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(); };
+    const abort = () => {
+      clearTimeout(timer); signal?.removeEventListener('abort', abort);
+      reject(signal?.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+}
+
 export function isRetryableStatus(status: number): boolean {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  return status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599);
 }
 
 export async function fetchWithRetry(
@@ -9,19 +34,28 @@ export async function fetchWithRetry(
   init: RequestInit,
   attempts = STREAM_RETRY_DELAYS_MS.length + 1,
 ): Promise<Response> {
+  const signal = init.signal === undefined && typeof Request !== 'undefined' && input instanceof Request ? input.signal : init.signal;
+  throwIfAborted(signal);
+  if (!Number.isSafeInteger(attempts) || attempts < 1) throw new RangeError('attempts must be a positive integer');
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    throwIfAborted(signal);
     try {
       const response = await fetch(input, init);
+      if (signal?.aborted) {
+        void response.body?.cancel().catch(() => {});
+        throwIfAborted(signal);
+      }
       if (response.ok || !isRetryableStatus(response.status) || attempt === attempts - 1) return response;
-      // Drain the body before retrying so keep-alive connections are reusable.
-      try { await response.arrayBuffer(); } catch { /* */ }
+      // Do not buffer (or await draining) an arbitrarily large/erroring body.
+      void response.body?.cancel().catch(() => {});
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
+      throwIfAborted(signal);
+      if (isAbortError(error) || attempt === attempts - 1) throw error;
       lastError = error;
-      if (attempt === attempts - 1) throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, STREAM_RETRY_DELAYS_MS[Math.min(attempt, STREAM_RETRY_DELAYS_MS.length - 1)]));
+    await abortableSleep(STREAM_RETRY_DELAYS_MS[Math.min(attempt, STREAM_RETRY_DELAYS_MS.length - 1)], signal);
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError || 'request failed'));
 }
@@ -42,8 +76,8 @@ export async function readWithTimeout<T>(
       reader.read(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          void reader.cancel('stream idle timeout').catch(() => {});
           reject(new Error(`stream idle timeout after ${timeoutMs}ms`));
+          void reader.cancel('stream idle timeout').catch(() => {});
         }, timeoutMs);
       }),
     ]);

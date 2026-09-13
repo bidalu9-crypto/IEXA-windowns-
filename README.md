@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-09-13 安全与运行时更新
+
+本次修复说明见 [优化修复交付记录](docs/REMEDIATION_2026-09-13.md)，构建细节见 [可重复构建说明](docs/RENDERER_BUILD_REPRODUCIBILITY.md)。
+
+- 本地 API 使用受保护会话；浏览器启动链接含五分钟一次性登录码，Electron 自动建立 HttpOnly 会话。直接访问接口不再默认获得权限。
+- 默认 HTTP 仅监听回环地址。手机桥接单独开启 HTTPS；首次连接需在手机端信任工作区导出的 `iexa-bridge-certificate.crt`，或用 `IEXA_TLS_CERT` / `IEXA_TLS_KEY` 指定受信任证书。
+- 工作区与选定项目是文件权限边界；任意 Shell 在 risk 模式下每次审批。明确启用 full 模式才开放工具全路径访问。
+- 模型密钥/WebDAV 密码迁移为 OS 加密的本地 vault；普通同步只同步允许的偏好设置，不再复制密钥、端点或权限配置。
+- Markdown 依赖随包提供，主动文件预览使用隔离策略；界面无需 CDN 脚本。
+- Node.js 至少 22.13，推荐用本次验证的 Node 24；使用 `npm ci` 安装锁定依赖，`npm test` 自动先构建再运行回归。
+
 ## ✨ 功能特性
 
 - 🔧 **真实 Shell 执行** — AI 可直接运行 `cmd.exe` / `bash` 命令，读写文件系统、执行脚本
@@ -27,15 +38,15 @@
 
 | 层级 | 技术 |
 |------|------|
-| **运行时** | Node.js 20+ |
-| **桌面框架** | Electron 28 |
+| **运行时** | Node.js 22.13+ |
+| **桌面框架** | Electron 44.3.0 |
 | **语言** | TypeScript 5 (后端) / JavaScript (前端) |
 | **构建工具** | `tsc` + 自定义打包脚本 (`build-dist.js`) |
 | **Web 框架** | 原生 HTML / CSS / JS（无前端框架） |
-| **Markdown 渲染** | [marked](https://github.com/markedjs/marked) v12 |
+| **Markdown 渲染** | [marked](https://github.com/markedjs/marked) v18 |
 | **代码高亮** | [highlight.js](https://highlightjs.org/) v11 |
 | **图片处理** | [sharp](https://github.com/lovell/sharp) v35 |
-| **文件同步** | [webdav](https://github.com/perry-mitchell/webdav) v4 |
+| **文件同步** | [webdav](https://github.com/perry-mitchell/webdav) v5 |
 | **AI 协议** | OpenAI Chat Completions API（SSE 流式） |
 
 ---
@@ -44,7 +55,7 @@
 
 ### 前置条件
 
-- **Node.js ≥ 20**（建议 LTS 版本）
+- **Node.js ≥ 22.13**（建议 LTS 版本）
 - **npm**（随 Node.js 安装）
 - **Windows 10 / 11**
 
@@ -58,10 +69,10 @@ cd IEXA-windowns-
 ### 二、安装依赖
 
 ```bash
-npm install
+npm ci
 ```
 
-直接双击下方任一 Windows 批处理入口时，脚本也会自动检查 Node.js、npm 和依赖完整性；缺少 `node_modules` 时会优先执行 `npm ci`，失败后自动回退到 `npm install`。
+直接双击下方任一 Windows 批处理入口时，脚本也会自动检查 Node.js、npm 和依赖完整性；缺少 `node_modules` 时会优先执行 `npm ci`，失败时保留锁文件并显示错误。
 
 ### 三、编译 TypeScript
 
@@ -96,7 +107,7 @@ node dist/main/server.js
 
 #### 方式 3：Electron 桌面模式（可选）
 
-双击 `start-electron.bat`。首次运行会自动安装 Node 依赖，并在 Electron 运行时缺失时下载及解压 Electron 28；安装或编译失败时窗口会保留并显示具体错误。
+双击 `start-electron.bat`。首次运行会自动安装 Node 依赖，并在 Electron 运行时缺失时下载及解压 Electron 44.3.0；安装或编译失败时窗口会保留并显示具体错误。
 
 ---
 
@@ -173,7 +184,7 @@ node build-dist.js
 
 输出到 `release/IEXA/` 目录。
 
-> `build-installer.bat` 会自动准备 Electron 28；直接运行 `build-dist.js` 时仍需确保 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\` 已存在。
+> `build-installer.bat` 会自动准备 Electron 44.3.0；直接运行 `build-dist.js` 时仍需确保 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\` 已存在。
 
 ---
 

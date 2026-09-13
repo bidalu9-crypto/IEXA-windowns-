@@ -3,7 +3,7 @@
 // Native desktop window using the local agent server
 // =============================================================================
 
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -13,6 +13,7 @@ const net = require('net');
 // Electron's own control path on an explicit IPv4 loopback address because
 // some Windows installations resolve `localhost` to ::1 first.
 const LOOPBACK_HOST = '127.0.0.1';
+const HEADLESS = process.env.IEXA_HEADLESS === '1';
 
 /** Find a random free port on 127.0.0.1 */
 function findFreePort() {
@@ -100,8 +101,25 @@ function saveDesktopLiveWindowState() {
   });
 }
 
+function trustedSender(event) {
+  const contents = event.sender;
+  if (![mainWindow, desktopLiveWindow].some(win => win && !win.isDestroyed() && win.webContents === contents)) return false;
+  try { const url = new URL(event.senderFrame.url); return url.origin === `http://${LOOPBACK_HOST}:${PORT}` && ['/', '/index.html', '/desktop-live.html'].includes(url.pathname) && event.senderFrame === contents.mainFrame; } catch { return false; }
+}
+const registerHandle = ipcMain.handle.bind(ipcMain);
+ipcMain.handle = (channel, handler) => registerHandle(channel, (event, ...args) => {
+  if (!trustedSender(event)) throw new Error('Untrusted IPC sender');
+  return handler(event, ...args);
+});
+function secureNavigation(win, trustedPage) {
+  win.webContents.on('will-navigate', (event, target) => {
+    try { const url = new URL(target); if (url.origin === `http://${LOOPBACK_HOST}:${PORT}` && trustedPage.includes(url.pathname)) return; } catch {}
+    event.preventDefault();
+  });
+}
+
 ipcMain.on('iexa:get-initial-appearance', (event) => {
-  event.returnValue = readJsonFile(workspaceFile('.iexa-appearance.json'), null);
+  event.returnValue = trustedSender(event) ? readJsonFile(workspaceFile('.iexa-appearance.json'), null) : null;
 });
 
 function createDesktopLiveWindow() {
@@ -163,6 +181,8 @@ function createDesktopLiveWindow() {
     desktopLiveWindow = null;
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('iexa:desktop-live-closed');
   });
+  secureNavigation(desktopLiveWindow, ['/desktop-live.html']);
+  desktopLiveWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   desktopLiveWindow.loadURL(`http://${LOOPBACK_HOST}:${PORT}/desktop-live.html`);
   return desktopLiveWindow;
 }
@@ -281,9 +301,7 @@ ipcMain.handle('iexa:open-path', async (_evt, targetPath) => {
   }
   try {
     const abs = path.resolve(targetPath);
-    if (!fs.existsSync(abs)) {
-      fs.mkdirSync(abs, { recursive: true });
-    }
+    if (/^(\\\\|\\\\[?.]\\)/.test(targetPath) || !fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) return { ok: false, error: '请选择已存在的本地目录。' };
     const err = await shell.openPath(abs);
     if (err) return { ok: false, error: err };
     return { ok: true, path: abs };
@@ -333,8 +351,10 @@ function startBackendServer() {
       const serverPath = path.join(__dirname, 'dist', 'main', 'server');
       console.log('[IEXA] Loading server from:', serverPath);
 
-      const { startServer } = require(serverPath);
-      startServer(PORT, false, '0.0.0.0').then((srv) => {
+      const { startServer, getServerCredentials } = require(serverPath);
+      startServer(PORT, false, LOOPBACK_HOST).then(async (srv) => {
+        const credentials = getServerCredentials(srv);
+        await session.defaultSession.cookies.set({ url: `http://${LOOPBACK_HOST}:${PORT}`, name: credentials.cookieName, value: credentials.token, path: '/', httpOnly: true, sameSite: 'strict' });
         server = srv;
         console.log('[IEXA] Backend server ready on port', PORT);
         resolve();
@@ -379,9 +399,9 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
 
   mainWindow.once('ready-to-show', () => {
-    if (savedWindow.maximized) mainWindow.maximize();
+    if (!HEADLESS && savedWindow.maximized) mainWindow.maximize();
     console.log('[IEXA] Window ready, showing...');
-    mainWindow.show();
+    if (!HEADLESS) mainWindow.show();
     // Open DevTools in development
     // mainWindow.webContents.openDevTools();
   });
@@ -413,11 +433,15 @@ function createWindow() {
   });
 
   // Open external links in system browser
+  secureNavigation(mainWindow, ['/', '/index.html']);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(`http://${LOOPBACK_HOST}:` + PORT) || url.startsWith('http://localhost:' + PORT) || url.startsWith('file://')) {
-      return { action: 'allow' };
-    }
-    shell.openExternal(url);
+    try {
+      const parsed = new URL(url);
+      if (parsed.origin === `http://${LOOPBACK_HOST}:${PORT}` && (parsed.pathname.startsWith('/api/fs/preview/') || parsed.pathname === '/api/fs/raw')) {
+        return { action: 'allow', overrideBrowserWindowOptions: { webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: undefined } } };
+      }
+      if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password) void shell.openExternal(parsed.href);
+    } catch {}
     return { action: 'deny' };
   });
 
@@ -435,7 +459,8 @@ function createWindow() {
 function waitForServer(retries = 20) {
   return new Promise((resolve, reject) => {
     function check(remaining) {
-      http.get(`http://${LOOPBACK_HOST}:${PORT}/`, (res) => {
+      http.get(`http://${LOOPBACK_HOST}:${PORT}/api/health`, (res) => {
+        res.resume();
         if (res.statusCode === 200) {
           resolve();
         } else {
@@ -518,6 +543,11 @@ function createTray() {
 }
 
 // ---- App Lifecycle ----
+// Scope Chromium cookies/cache to the same explicit workspace as the backend.
+ensureInstanceWorkspace();
+const profileDirectory = path.join(process.env.IEXA_WORKSPACE, '.iexa-electron-profile');
+fs.mkdirSync(profileDirectory, { recursive: true });
+app.setPath('userData', profileDirectory);
 app.whenReady().then(async () => {
   console.log('[IEXA] Electron app starting...');
   console.log('[IEXA] App dir:', __dirname);
@@ -533,7 +563,7 @@ app.whenReady().then(async () => {
     await startBackendServer();
     await waitForServer();
     createWindow();
-    createTray();
+    if (!HEADLESS) createTray();
     console.log('[IEXA] App ready!');
   } catch (err) {
     console.error('[IEXA] Startup failed:', err.message);

@@ -4,12 +4,18 @@
   "description": "IEXA-WIN - Your private Windows AI agent",
   "main": "electron-entry.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run vendor:renderer && tsc",
     "start": "npm run build && node dist/main/server.js",
-    "electron": "npm run build && electron .",
+    "electron": "npm run build && npm run electron:runtime && npm run electron:rebuild && electron .",
     "dev": "tsc && node dist/main/server.js",
-    "test": "npm run build && node --test tests/runtime.test.js tests/desktop-agent.test.js",
-    "test:browser-permission": "npm run build && node tests/browser-permission-smoke.js"
+    "test": "node --test tests/*.test.js",
+    "vendor:renderer": "node scripts/vendor-renderer.cjs",
+    "vendor:check": "node scripts/vendor-renderer.cjs --check",
+    "electron:runtime": "node download_electron.js --install",
+    "electron:rebuild": "node scripts/rebuild-native.cjs",
+    "dist": "node build-dist.js",
+    "postinstall": "node scripts/vendor-renderer.cjs",
+    "pretest": "npm run build"
   },
   "build": {
     "appId": "app.IEXA.desktop",
@@ -22,26 +28,40 @@
       "src/renderer/**/*",
       "electron-entry.js",
       "desktop-agent/publish/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "preload.js",
+      "resources/**/*"
     ],
     "win": {
       "target": "nsis"
     },
     "asarUnpack": [
-      "desktop-agent/publish/**/*"
+      "desktop-agent/publish/**/*",
+      "node_modules/node-pty/**/*"
     ]
   },
   "dependencies": {
-    "iconv-lite": "^0.7.3",
-    "marked": "^12.0.2",
-    "node-pty": "^1.1.0",
-    "qrcode": "^1.5.4",
-    "webdav": "^4.11.5"
+    "iconv-lite": "0.7.3",
+    "marked": "18.0.13",
+    "node-pty": "1.1.0",
+    "qrcode": "1.5.4",
+    "webdav": "5.10.0",
+    "dompurify": "3.4.15",
+    "highlight.js": "11.12.0",
+    "selfsigned": "5.5.0"
   },
   "devDependencies": {
-    "@types/node": "^20.12.0",
-    "@types/qrcode": "^1.5.5",
-    "sharp": "^0.35.3",
-    "typescript": "^5.5.0"
+    "@types/node": "20.19.43",
+    "@types/qrcode": "1.5.5",
+    "sharp": "0.35.4",
+    "typescript": "5.9.3",
+    "electron": "44.3.0",
+    "@electron/rebuild": "4.2.0",
+    "@highlightjs/cdn-assets": "11.12.0",
+    "jsdom": "29.0.1"
+  },
+  "engines": {
+    "node": ">=22.13.0",
+    "npm": ">=10"
   }
 }

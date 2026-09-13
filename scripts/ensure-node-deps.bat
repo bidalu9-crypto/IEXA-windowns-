@@ -13,7 +13,7 @@ if errorlevel 1 call :install_portable_node
 if errorlevel 1 exit /b %ERRORLEVEL%
 call :detect_supported_node
 if errorlevel 1 (
-    echo [ERROR] Node.js installation completed, but Node.js 20 or newer is still unavailable.
+    echo [ERROR] Node.js installation completed, but Node.js 22.13 or newer is still unavailable.
     exit /b 12
 )
 
@@ -23,7 +23,8 @@ if not defined NODE_MAJOR (
     echo [ERROR] Node.js was found but could not be executed.
     exit /b 12
 )
-if %NODE_MAJOR% LSS 20 (
+node "%APP_DIR%\scripts\check-node-version.cjs"
+if errorlevel 1 (
     echo [ERROR] Node.js %NODE_VERSION% is too old after automatic setup.
     exit /b 13
 )
@@ -65,21 +66,14 @@ if "%NEED_INSTALL%"=="0" (
 
 echo.
 echo [Setup] Node dependencies are missing or incomplete.
-if exist "package-lock.json" (
-    echo [Setup] Running npm ci. This may take several minutes on first launch...
-    call npm.cmd ci
-    if not errorlevel 1 goto verify_dependencies
-    echo.
-    echo [Warn] npm ci failed. Retrying with npm install...
-) else (
-    echo [Setup] package-lock.json was not found. Running npm install...
+if not exist "package-lock.json" (
+    echo [ERROR] package-lock.json is required. Restore it from the same source revision.
+    exit /b 20
 )
-
-call npm.cmd install
+echo [Setup] Running locked npm ci. This may take several minutes on first launch...
+call npm.cmd ci
 if errorlevel 1 (
-    echo.
-    echo [ERROR] Dependency installation failed.
-    echo         Check the network, proxy, npm registry, and the error above.
+    echo [ERROR] npm ci failed. Resolve the reported error; the lockfile was not rewritten.
     exit /b 20
 )
 
@@ -97,7 +91,7 @@ goto success
 :dependency_error
 echo.
 echo [ERROR] npm finished, but required dependencies are still incomplete.
-echo         Run "npm install" in this directory and review the npm error log.
+echo         Run "npm ci" in this directory and review the npm error log.
 exit /b 21
 
 :detect_supported_node
@@ -108,13 +102,14 @@ if errorlevel 1 exit /b 1
 for /f "usebackq delims=" %%V in (`node.exe -p "process.versions.node" 2^>nul`) do set "NODE_VERSION=%%V"
 for /f "usebackq delims=" %%V in (`node.exe -p "Number(process.versions.node.split('.')[0])" 2^>nul`) do set "NODE_MAJOR=%%V"
 if not defined NODE_MAJOR exit /b 1
-if %NODE_MAJOR% LSS 20 exit /b 1
+node "%APP_DIR%\scripts\check-node-version.cjs"
+if errorlevel 1 exit /b 1
 where npm.cmd >nul 2>&1
 if errorlevel 1 exit /b 1
 exit /b 0
 
 :install_portable_node
-echo [Setup] Node.js 20 or newer was not found. Installing a portable LTS runtime...
+echo [Setup] Node.js 22.13 or newer was not found. Installing a portable LTS runtime...
 where powershell.exe >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Windows PowerShell is required for automatic Node.js installation.
