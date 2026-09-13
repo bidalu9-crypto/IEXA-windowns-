@@ -9,7 +9,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
   const tools: AgentToolDefinition[] = [
     {
       name: 'desktop_control',
-      description: 'Operate real Windows applications using persistent native input, not scripts or JSON files. Never use shell/curl or write observe results to disk for desktop tasks. Activate the requested app, observe its current controls, then use short batch actions to avoid model round-trips. Re-observe after navigation; do not guess stale element IDs. Use verifyText to verify completion, and frame for fresh visual evidence when controls are unavailable. OCR is opt-in. If the user changes foreground, stop rather than steal focus. Use minimize instead of closing apps. Report concrete actions and verification, never claim success from input dispatch alone.',
+      description: 'Operate real Windows applications using persistent native input, not scripts or JSON files. Never use shell/curl or write observe results to disk for desktop tasks. Activate the requested app, observe its current controls, then use short batch actions to avoid model round-trips. Re-observe after navigation; do not guess stale element IDs. UI Automation patterns run first. If click_element reports effectObserved=false, re-observe and retry that element once with forcePointer=true; never blindly repeat a successful or changed action. Use verifyText to verify completion, and frame for fresh visual evidence when controls are unavailable. OCR is opt-in. If the user changes foreground, stop rather than steal focus. Use minimize instead of closing apps. Report concrete actions and verification, never claim success from input dispatch alone.',
       parameters: {
         tool_title: { type: 'string', description: 'A concise 5-10 word summary of the desktop action.' },
         detail: { type: 'string', description: 'Compact human-readable output by default; raw JSON only for explicit debugging.', enumValues: ['compact', 'raw'] },
@@ -20,6 +20,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
         elementId: { type: 'string', description: 'Semantic element ID returned by the latest observe.' },
         role: { type: 'string', description: 'Role filter for find_element, such as button, search, edit, icon.' },
         replace: { type: 'boolean', description: 'For type_element, select existing content before typing (default true).' },
+        forcePointer: { type: 'boolean', description: 'For click_element only, bypass UIA patterns and issue one managed physical click after a fresh observe. Use only when the prior pattern action returned effectObserved=false.' },
         threshold: { type: 'integer', description: 'Frame-change threshold expressed as thousandths, e.g. 15 means 0.015.' },
         x: { type: 'integer', description: 'Absolute virtual-screen X coordinate; relative coordinates are preferred.' },
         y: { type: 'integer', description: 'Absolute virtual-screen Y coordinate; relative coordinates are preferred.' },
@@ -52,7 +53,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
         verifyText: { type: 'string', description: 'After a batch, verify this text is visible in the foreground UI tree.' },
       },
       required: ['tool_title', 'action'],
-      propertyOrdering: ['tool_title', 'action', 'window', 'process', 'handle', 'observationToken', 'elementId', 'role', 'relativeX', 'relativeY', 'toRelativeX', 'toRelativeY', 'x', 'y', 'toX', 'toY', 'autoActivate', 'allowGeometryChange', 'settleMs', 'durationMs', 'button', 'count', 'text', 'replace', 'intervalMs', 'key', 'keys', 'allowClose', 'delta', 'timeoutMs', 'threshold', 'includeElements', 'includeOcr', 'includeRegions', 'captureFrame', 'limit', 'actions', 'verifyText'],
+      propertyOrdering: ['tool_title', 'action', 'window', 'process', 'handle', 'observationToken', 'elementId', 'role', 'relativeX', 'relativeY', 'toRelativeX', 'toRelativeY', 'x', 'y', 'toX', 'toY', 'autoActivate', 'allowGeometryChange', 'settleMs', 'durationMs', 'button', 'count', 'text', 'replace', 'forcePointer', 'intervalMs', 'key', 'keys', 'allowClose', 'delta', 'timeoutMs', 'threshold', 'includeElements', 'includeOcr', 'includeRegions', 'captureFrame', 'limit', 'actions', 'verifyText'],
     },
     {
       name: 'todo_write',

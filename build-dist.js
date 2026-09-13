@@ -52,9 +52,12 @@ if (fs.existsSync(electronExe)) {
 console.log('[2/5] Copying locales...');
 const localesSrc = path.join(ELECTRON_SRC, 'locales');
 if (fs.existsSync(localesSrc)) {
-  const localeFiles = fs.readdirSync(localesSrc).filter(f => f.endsWith('.pak'));
-  for (const f of localeFiles.slice(0, 5)) {  // Just a few for size
-    fs.copyFileSync(path.join(localesSrc, f), path.join(DIST, 'locales', f));
+  // Electron needs the active locale (and en-US fallback) before a renderer
+  // process can start. Copying the first alphabetic entries breaks zh-CN PCs.
+  const requiredLocales = ['en-US.pak', 'zh-CN.pak', 'zh-TW.pak'];
+  for (const f of requiredLocales) {
+    const source = path.join(localesSrc, f);
+    if (fs.existsSync(source)) fs.copyFileSync(source, path.join(DIST, 'locales', f));
   }
 }
 
@@ -90,6 +93,14 @@ if (fs.existsSync(resourcesDir)) {
 } else {
   fs.mkdirSync(path.join(APP, 'resources'), { recursive: true });
 }
+
+// Native desktop automation helper used by desktop_control and live preview.
+const desktopAgentDir = path.join(ROOT, 'desktop-agent', 'publish');
+if (!fs.existsSync(path.join(desktopAgentDir, 'Iexa.DesktopAgent.exe'))) {
+  throw new Error('Desktop agent publish output is missing. Run dotnet publish before building the distribution.');
+}
+copyDir(desktopAgentDir, path.join(APP, 'desktop-agent', 'publish'));
+console.log('  Copied desktop agent');
 
 // node_modules — copy all production deps recursively
 console.log('[4/5] Copying node_modules...');

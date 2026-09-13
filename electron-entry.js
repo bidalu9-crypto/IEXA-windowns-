@@ -28,10 +28,12 @@ function findFreePort() {
 
 let PORT = null;
 let mainWindow = null;
+let desktopLiveWindow = null;
 let server = null;
 let tray = null;
 let isQuitting = false;
 let windowStateSaveTimer = null;
+let desktopLiveStateSaveTimer = null;
 
 function workspaceFile(name) {
   return path.join(process.env.IEXA_WORKSPACE || path.join(__dirname, 'workspace'), name);
@@ -68,8 +70,128 @@ function saveWindowState() {
   writeJsonAtomic(workspaceFile('.iexa-window-state.json'), { ...bounds, maximized: mainWindow.isMaximized() });
 }
 
+function loadDesktopLiveWindowState() {
+  const raw = readJsonFile(workspaceFile('.iexa-desktop-live-state.json'));
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = Math.round(Math.min(960, Math.max(360, Number(raw.width) || 520)));
+  const height = Math.round(Math.min(760, Math.max(260, Number(raw.height) || 390)));
+  const fallback = {
+    x: area.x + Math.max(12, area.width - width - 24),
+    y: area.y + Math.max(12, area.height - height - 24),
+    width,
+    height,
+    pinned: raw.pinned !== false,
+  };
+  const x = Number.isFinite(Number(raw.x)) ? Math.round(Number(raw.x)) : fallback.x;
+  const y = Number.isFinite(Number(raw.y)) ? Math.round(Number(raw.y)) : fallback.y;
+  const visible = screen.getAllDisplays().some((display) => {
+    const work = display.workArea;
+    return x < work.x + work.width - 80 && x + width > work.x + 80
+      && y < work.y + work.height - 40 && y + height > work.y + 40;
+  });
+  return visible ? { x, y, width, height, pinned: fallback.pinned } : fallback;
+}
+
+function saveDesktopLiveWindowState() {
+  if (!desktopLiveWindow || desktopLiveWindow.isDestroyed()) return;
+  writeJsonAtomic(workspaceFile('.iexa-desktop-live-state.json'), {
+    ...desktopLiveWindow.getNormalBounds(),
+    pinned: desktopLiveWindow.isAlwaysOnTop(),
+  });
+}
+
 ipcMain.on('iexa:get-initial-appearance', (event) => {
   event.returnValue = readJsonFile(workspaceFile('.iexa-appearance.json'), null);
+});
+
+function createDesktopLiveWindow() {
+  if (desktopLiveWindow && !desktopLiveWindow.isDestroyed()) {
+    desktopLiveWindow.show();
+    desktopLiveWindow.focus();
+    return desktopLiveWindow;
+  }
+  if (!PORT) throw new Error('IEXA backend is not ready.');
+  const saved = loadDesktopLiveWindowState();
+  desktopLiveWindow = new BrowserWindow({
+    x: saved.x,
+    y: saved.y,
+    width: saved.width,
+    height: saved.height,
+    minWidth: 360,
+    minHeight: 260,
+    maxWidth: 1200,
+    maxHeight: 900,
+    title: 'IEXA 实况桌面',
+    icon: path.join(__dirname, 'resources', 'icon.png'),
+    frame: false,
+    transparent: false,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: saved.pinned,
+    skipTaskbar: false,
+    backgroundColor: '#1c1c1e',
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  desktopLiveWindow.setMenuBarVisibility(false);
+  desktopLiveWindow.setAlwaysOnTop(saved.pinned, 'floating');
+  const scheduleSave = () => {
+    if (desktopLiveStateSaveTimer) clearTimeout(desktopLiveStateSaveTimer);
+    desktopLiveStateSaveTimer = setTimeout(() => {
+      desktopLiveStateSaveTimer = null;
+      saveDesktopLiveWindowState();
+    }, 200);
+  };
+  desktopLiveWindow.on('move', scheduleSave);
+  desktopLiveWindow.on('resize', scheduleSave);
+  desktopLiveWindow.once('ready-to-show', () => desktopLiveWindow?.show());
+  desktopLiveWindow.on('close', () => {
+    if (desktopLiveStateSaveTimer) {
+      clearTimeout(desktopLiveStateSaveTimer);
+      desktopLiveStateSaveTimer = null;
+    }
+    saveDesktopLiveWindowState();
+  });
+  desktopLiveWindow.on('closed', () => {
+    desktopLiveWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('iexa:desktop-live-closed');
+  });
+  desktopLiveWindow.loadURL(`http://${LOOPBACK_HOST}:${PORT}/desktop-live.html`);
+  return desktopLiveWindow;
+}
+
+ipcMain.handle('iexa:desktop-live-open', () => {
+  const win = createDesktopLiveWindow();
+  return { open: true, pinned: win.isAlwaysOnTop(), bounds: win.getBounds() };
+});
+
+ipcMain.handle('iexa:desktop-live-state', () => {
+  if (!desktopLiveWindow || desktopLiveWindow.isDestroyed()) return { open: false, pinned: true };
+  return { open: true, pinned: desktopLiveWindow.isAlwaysOnTop(), bounds: desktopLiveWindow.getBounds() };
+});
+
+ipcMain.handle('iexa:desktop-live-pin', (_event, pinned) => {
+  if (!desktopLiveWindow || desktopLiveWindow.isDestroyed()) return { open: false, pinned: Boolean(pinned) };
+  desktopLiveWindow.setAlwaysOnTop(Boolean(pinned), 'floating');
+  saveDesktopLiveWindowState();
+  return { open: true, pinned: desktopLiveWindow.isAlwaysOnTop() };
+});
+
+ipcMain.handle('iexa:desktop-live-minimize', () => {
+  if (desktopLiveWindow && !desktopLiveWindow.isDestroyed()) desktopLiveWindow.minimize();
+  return { ok: true };
+});
+
+ipcMain.handle('iexa:desktop-live-close', () => {
+  if (desktopLiveWindow && !desktopLiveWindow.isDestroyed()) desktopLiveWindow.close();
+  return { ok: true };
 });
 
 // ---- Per-instance workspace ----

@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
 
@@ -15,8 +16,15 @@ export class DesktopAgent {
     if (Date.now() < this.healthyUntil) return true;
     try {
       const r = await fetch(`${ENDPOINT}/health`, { signal: AbortSignal.timeout(600) });
-      if (r.ok) this.healthyUntil = Date.now() + 5000;
-      return r.ok;
+      if (!r.ok) return false;
+      const health = await r.json() as Record<string, unknown>;
+      const valid = health.product === 'IEXA Desktop Agent'
+        && health.protocolVersion === 4
+        && health.automationEngine === 'FlaUI 5'
+        && typeof health.instanceNonce === 'string'
+        && health.instanceNonce.length >= 16;
+      if (valid) this.healthyUntil = Date.now() + 5000;
+      return valid;
     } catch { return false; }
   }
 
@@ -39,14 +47,31 @@ export class DesktopAgent {
     const exe = candidates.find((p) => fs.existsSync(p));
     const dll = candidates.map((candidate) => candidate.replace(/\.exe$/, '.dll')).find((candidate) => fs.existsSync(candidate));
     if (!exe && !dll) throw new Error('Desktop agent is missing. Run dotnet publish desktop-agent/Iexa.DesktopAgent.csproj.');
-    const child = spawn(exe || 'dotnet', exe ? [] : [dll!], { detached: true, stdio: 'ignore', windowsHide: true });
+    const logDir = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'IEXA-WIN', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, 'desktop-agent.log');
+    const previousLogPath = `${logPath}.1`;
+    try {
+      if (fs.statSync(logPath).size >= 2 * 1024 * 1024) {
+        fs.rmSync(previousLogPath, { force: true });
+        fs.renameSync(logPath, previousLogPath);
+      }
+    } catch {}
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] starting ${exe || dll}\n`);
+    const logFd = fs.openSync(logPath, 'a');
+    let child;
+    try {
+      child = spawn(exe || 'dotnet', exe ? [] : [dll!], { detached: true, stdio: ['ignore', logFd, logFd], windowsHide: true });
+    } finally {
+      fs.closeSync(logFd);
+    }
     child.on('error', () => { this.healthyUntil = 0; });
     child.unref();
     for (let i = 0; i < 40; i++) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       if (await this.healthy()) return;
     }
-    throw new Error('Desktop agent did not become ready.');
+    throw new Error(`Desktop agent did not become ready. See ${logPath}`);
   }
 
   async execute(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecutionResult> {
@@ -63,26 +88,26 @@ export class DesktopAgent {
       if (signal.aborted) abortParent();
       else signal.addEventListener('abort', abortParent, { once: true });
     }
-      const action = String(args.action || 'observe');
+    const action = String(args.action || 'observe');
     const requestedTimeout = Number(args.timeoutMs || 0);
     const actionTimeout = action === 'observe' ? Math.max(8000, requestedTimeout || 15000) : Math.max(5000, requestedTimeout || 10000);
     const timeout = setTimeout(abortParent, actionTimeout);
-      try {
-        await this.ensureStarted(controller.signal);
-        if (action === 'frame') {
-          const frame = await fetch(`${ENDPOINT}/frame?full=0`, { signal: controller.signal });
-          if (!frame.ok) throw new Error(`Desktop frame capture failed (${frame.status}).`);
-          const bytes = Buffer.from(await frame.arrayBuffer());
-          return {
-            output: JSON.stringify({ ok: true, action, bytes: bytes.length, mimeType: 'image/png' }),
-            success: true,
-            durationMs: Date.now() - started,
-            imageData: bytes,
-            imageMimeType: 'image/png',
-            metadata: { endpoint: ENDPOINT, action },
-          };
-        }
-        const payload: Record<string, unknown> = { ...args, action };
+    try {
+      await this.ensureStarted(controller.signal);
+      if (action === 'frame') {
+        const frame = await fetch(`${ENDPOINT}/frame?full=0`, { signal: controller.signal });
+        if (!frame.ok) throw new Error(`Desktop frame capture failed (${frame.status}).`);
+        const bytes = Buffer.from(await frame.arrayBuffer());
+        return {
+          output: JSON.stringify({ ok: true, action, bytes: bytes.length, mimeType: 'image/png' }),
+          success: true,
+          durationMs: Date.now() - started,
+          imageData: bytes,
+          imageMimeType: 'image/png',
+          metadata: { endpoint: ENDPOINT, action },
+        };
+      }
+      const payload: Record<string, unknown> = { ...args, action };
       delete payload.tool_title;
       const response = await fetch(`${ENDPOINT}/execute`, {
         method: 'POST',

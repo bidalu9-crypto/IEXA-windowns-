@@ -2536,13 +2536,32 @@ let desktopLiveEnabled = false;
 let desktopLiveTimer;
 let desktopLiveUrl;
 let desktopLivePolling = false;
+let desktopLiveDetached = false;
+const DESKTOP_LIVE_POSITION_KEY = 'iexa-desktop-live-panel-position-v1';
 
 function showDesktopLive() {
-  if (desktopLivePanel) { desktopLivePanel.hidden = false; return; }
+  if (window.iexaDesktop?.getDesktopLiveWindowState) {
+    window.iexaDesktop.getDesktopLiveWindowState().then((state) => {
+      if (state?.open) {
+        desktopLiveDetached = true;
+        window.iexaDesktop.openDesktopLiveWindow();
+        return;
+      }
+      showEmbeddedDesktopLive();
+    }).catch(() => showEmbeddedDesktopLive());
+    return;
+  }
+  showEmbeddedDesktopLive();
+}
+
+function showEmbeddedDesktopLive() {
+  if (desktopLivePanel) { desktopLivePanel.hidden = false; clampDesktopLivePanel(); return; }
   desktopLivePanel = document.createElement('section');
   desktopLivePanel.className = 'desktop-live-panel';
-  desktopLivePanel.innerHTML = '<header><strong>实况桌面</strong><button type="button" data-live-toggle>开启预览</button><button type="button" data-live-stop>停止操作</button><button type="button" data-live-resume>恢复操作</button><button type="button" data-live-close>收起</button></header><p data-live-status>预览仅在开启时采集，不保存截图文件。</p><img alt="目标窗口实时画面" hidden>';
+  desktopLivePanel.innerHTML = '<header data-live-drag><span class="desktop-live-indicator" aria-hidden="true"></span><strong>实况桌面</strong><div class="desktop-live-actions"><button type="button" data-live-toggle>开启预览</button><button type="button" data-live-stop>停止操作</button><button type="button" data-live-resume>恢复操作</button><button type="button" data-live-detach>独立悬浮</button><button type="button" data-live-close>收起</button></div></header><p data-live-status>预览待机</p><div class="desktop-live-frame"><img alt="目标窗口实时画面" hidden></div>';
   document.body.appendChild(desktopLivePanel);
+  restoreDesktopLivePanelPosition();
+  enableDesktopLivePanelDrag();
   desktopLivePanel.querySelector('[data-live-resume]').onclick = async () => {
     const status = desktopLivePanel.querySelector('[data-live-status]');
     try {
@@ -2557,13 +2576,19 @@ function showDesktopLive() {
     if (desktopLiveEnabled) pollDesktopLive();
   };
   desktopLivePanel.querySelector('[data-live-close]').onclick = () => {
-    desktopLiveEnabled = false;
-    clearTimeout(desktopLiveTimer);
-    desktopLivePanel.hidden = true;
-    desktopLivePanel.querySelector('[data-live-toggle]').textContent = '开启预览';
-    if (desktopLiveUrl) URL.revokeObjectURL(desktopLiveUrl);
-    desktopLiveUrl = null;
-    desktopLivePanel.querySelector('img').hidden = true;
+    hideEmbeddedDesktopLive();
+  };
+  const detach = desktopLivePanel.querySelector('[data-live-detach]');
+  if (!window.iexaDesktop?.openDesktopLiveWindow) detach.hidden = true;
+  detach.onclick = async () => {
+    const status = desktopLivePanel.querySelector('[data-live-status]');
+    try {
+      const state = await window.iexaDesktop.openDesktopLiveWindow();
+      desktopLiveDetached = state?.open === true;
+      if (desktopLiveDetached) hideEmbeddedDesktopLive();
+    } catch (error) {
+      status.textContent = error?.message || '独立窗口启动失败';
+    }
   };
   desktopLivePanel.querySelector('[data-live-stop]').onclick = async () => {
     const status = desktopLivePanel.querySelector('[data-live-status]');
@@ -2573,6 +2598,77 @@ function showDesktopLive() {
     } catch { status.textContent = '连接中断，请手动切换目标窗口'; }
   };
 }
+
+function hideEmbeddedDesktopLive() {
+  desktopLiveEnabled = false;
+  clearTimeout(desktopLiveTimer);
+  if (!desktopLivePanel) return;
+  desktopLivePanel.hidden = true;
+  desktopLivePanel.querySelector('[data-live-toggle]').textContent = '开启预览';
+  if (desktopLiveUrl) URL.revokeObjectURL(desktopLiveUrl);
+  desktopLiveUrl = null;
+  desktopLivePanel.querySelector('img').hidden = true;
+}
+
+function restoreDesktopLivePanelPosition() {
+  if (!desktopLivePanel) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(DESKTOP_LIVE_POSITION_KEY) || 'null');
+    if (Number.isFinite(saved?.left) && Number.isFinite(saved?.top)) {
+      desktopLivePanel.style.left = `${saved.left}px`;
+      desktopLivePanel.style.top = `${saved.top}px`;
+      desktopLivePanel.style.right = 'auto';
+      desktopLivePanel.style.bottom = 'auto';
+    }
+  } catch {}
+  requestAnimationFrame(clampDesktopLivePanel);
+}
+
+function clampDesktopLivePanel() {
+  if (!desktopLivePanel || desktopLivePanel.hidden) return;
+  const rect = desktopLivePanel.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.left, window.innerWidth - Math.min(rect.width, window.innerWidth) - 8));
+  const top = Math.max(8, Math.min(rect.top, window.innerHeight - Math.min(rect.height, window.innerHeight) - 8));
+  desktopLivePanel.style.left = `${left}px`;
+  desktopLivePanel.style.top = `${top}px`;
+  desktopLivePanel.style.right = 'auto';
+  desktopLivePanel.style.bottom = 'auto';
+}
+
+function enableDesktopLivePanelDrag() {
+  const handle = desktopLivePanel?.querySelector('[data-live-drag]');
+  if (!handle) return;
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.target.closest('button')) return;
+    const rect = desktopLivePanel.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    desktopLivePanel.classList.add('is-dragging');
+    handle.setPointerCapture?.(event.pointerId);
+    const move = (next) => {
+      const left = Math.max(8, Math.min(next.clientX - offsetX, window.innerWidth - desktopLivePanel.offsetWidth - 8));
+      const top = Math.max(8, Math.min(next.clientY - offsetY, window.innerHeight - desktopLivePanel.offsetHeight - 8));
+      desktopLivePanel.style.left = `${left}px`;
+      desktopLivePanel.style.top = `${top}px`;
+      desktopLivePanel.style.right = 'auto';
+      desktopLivePanel.style.bottom = 'auto';
+    };
+    const finish = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+      desktopLivePanel.classList.remove('is-dragging');
+      const position = desktopLivePanel.getBoundingClientRect();
+      localStorage.setItem(DESKTOP_LIVE_POSITION_KEY, JSON.stringify({ left: Math.round(position.left), top: Math.round(position.top) }));
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+  });
+}
+
+window.addEventListener('resize', clampDesktopLivePanel);
+window.iexaDesktop?.onDesktopLiveClosed?.(() => { desktopLiveDetached = false; });
 
 async function pollDesktopLive() {
   if (!desktopLiveEnabled || desktopLivePolling) return;

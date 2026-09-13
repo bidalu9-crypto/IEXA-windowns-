@@ -78,6 +78,8 @@ static class Program
     {
         ApplicationConfiguration.Initialize();
         var logPath = args.Length > 0 ? Path.GetFullPath(args[0]) : null;
-        Application.Run(new FixtureForm(logPath));
+        var form = new FixtureForm(logPath);
+        if (args.Length > 1 && !string.IsNullOrWhiteSpace(args[1])) form.Text = args[1];
+        Application.Run(form);
     }
 }

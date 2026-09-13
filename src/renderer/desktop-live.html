@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IEXA 实况桌面</title>
+  <link rel="stylesheet" href="desktop-live.css">
+  <script>
+    (function () {
+      var appearance = window.iexaDesktop && window.iexaDesktop.initialAppearance;
+      document.documentElement.dataset.theme = appearance && appearance.theme || 'dark';
+      document.documentElement.dataset.accent = appearance && appearance.accent || 'violet';
+    })();
+  </script>
+</head>
+<body>
+  <main class="live-window">
+    <header class="live-titlebar">
+      <div class="window-controls">
+        <button type="button" class="window-control close" data-window-close title="关闭" aria-label="关闭"></button>
+        <button type="button" class="window-control minimize" data-window-minimize title="最小化" aria-label="最小化"></button>
+      </div>
+      <div class="live-title"><span class="live-dot" aria-hidden="true"></span><strong>实况桌面</strong></div>
+      <button type="button" class="pin-button" data-live-pin title="切换置顶" aria-pressed="true"><span class="pin-mark" aria-hidden="true"></span><span data-pin-label>置顶</span></button>
+    </header>
+    <section class="live-toolbar" aria-label="实况控制">
+      <button type="button" data-live-toggle>暂停预览</button>
+      <button type="button" data-live-stop>停止操作</button>
+      <button type="button" data-live-resume>恢复操作</button>
+      <span class="live-status" data-live-status>正在连接</span>
+    </section>
+    <section class="live-canvas">
+      <img data-live-frame alt="目标窗口实时画面" hidden>
+      <div class="live-placeholder" data-live-placeholder>等待桌面画面</div>
+    </section>
+  </main>
+  <script src="desktop-live.js"></script>
+</body>
+</html>

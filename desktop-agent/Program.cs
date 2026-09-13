@@ -8,7 +8,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Windows.Automation;
 using System.Windows.Forms;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
@@ -21,9 +20,11 @@ internal static class Program
 {
     static readonly int Port = int.TryParse(Environment.GetEnvironmentVariable("IEXA_DESKTOP_PORT"), out var port) && port >= 1024 && port <= 65535 ? port : 17891;
     static readonly string Prefix = $"http://127.0.0.1:{Port}/";
+    static readonly string InstanceNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
     static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = false };
     static readonly object InputLock = new();
     static readonly SemaphoreSlim ActionGate = new(1, 1);
+    static readonly MatureAutomation Automation = new();
     static readonly ConcurrentDictionary<string, SemanticElement> ElementCache = new();
     static int CancelRequested;
     static long CancellationEpoch;
@@ -39,13 +40,13 @@ internal static class Program
     static int ActiveStep;
     static int TotalSteps;
     static int Paused;
-    record SemanticElement(string Id, string Role, string Text, int Left, int Top, int Width, int Height, string Source, double Confidence, bool Enabled = true);
+    record SemanticElement(string Id, string Role, string Text, int Left, int Top, int Width, int Height, string Source, double Confidence, bool Enabled = true, AutomationSelector? Selector = null);
     record FrameState(byte[] Gray, int Width, int Height, string Hash, long CapturedAt);
 
     [STAThread]
     static async Task Main()
     {
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => InputLease.ReleaseActive();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => { InputLease.ReleaseActive(); Automation.Dispose(); };
         AppDomain.CurrentDomain.UnhandledException += (_, _) => InputLease.ReleaseActive();
         using var mutex = new Mutex(true, Port == 17891 ? "Local\\IexaDesktopAgent" : $"Local\\IexaDesktopAgent-{Port}", out var first);
         if (!first) return;
@@ -79,7 +80,7 @@ internal static class Program
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/health")
             {
-                await Reply(context, 200, new { ok = true, version = 3, pid = Environment.ProcessId, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", version = 4, protocolVersion = 4, instanceNonce = InstanceNonce, automationEngine = "FlaUI 5", pid = Environment.ProcessId, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
                 return;
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/frame")
@@ -88,7 +89,7 @@ internal static class Program
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/capabilities")
             {
-                await Reply(context, 200, new { ok = true, transport = "persistent-local-http", actions = new[] { "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", protocolVersion = 4, instanceNonce = InstanceNonce, transport = "persistent-local-http", actions = new[] { "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, automationEngine = "FlaUI 5", primaryBackend = "UIA3", fallbackBackend = "UIA2", stableSelectors = true, patternActions = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true });
                 return;
             }
             // Cancellation must bypass the serialized action gate. A long
@@ -196,30 +197,13 @@ internal static class Program
         var screens = Screen.AllScreens.Select(s => new { name = s.DeviceName, primary = s.Primary, bounds = Rect(s.Bounds), workingArea = Rect(s.WorkingArea) }).ToArray();
         var windows = EnumWindowsSnapshot().Take(80).ToArray();
         var semantic = new List<SemanticElement>();
+        AutomationObservation? automationObservation = null;
         if (includeElements && fg != IntPtr.Zero)
         {
-            try
-            {
-                var root = AutomationElement.FromHandle(fg);
-                var walker = TreeWalker.ControlViewWalker;
-                var pending = new Queue<AutomationElement>();
-                pending.Enqueue(root);
-                var visited = 0;
-                var deadline = Stopwatch.StartNew();
-                while (pending.Count > 0 && visited++ < 300 && deadline.ElapsedMilliseconds < 500)
-                {
-                    ThrowIfCancelled();
-                    var e = pending.Dequeue();
-                    var item = SemanticFromUia(e); if (item != null) semantic.Add(item);
-                    if (semantic.Count >= limit) break;
-                    var child = walker.GetFirstChild(e);
-                    while (child != null && pending.Count < 300 && deadline.ElapsedMilliseconds < 500) {
-                        pending.Enqueue(child);
-                        child = walker.GetNextSibling(child);
-                    }
-                }
-            }
-            catch { }
+            automationObservation = Automation.Observe(fg, limit, ObservationEpoch + 1, ThrowIfCancelled);
+            semantic.AddRange(automationObservation.Elements.Select(e => new SemanticElement(
+                e.Id, e.Role, e.Text, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width, e.Bounds.Height,
+                e.Selector.Backend, 1, e.Enabled, e.Selector)));
         }
         using var bitmap = CaptureForeground(fg, out var captureBounds);
         ThrowIfCancelled();
@@ -234,7 +218,7 @@ internal static class Program
         BoundWindow = fg; BoundBounds = captureBounds; ObservationEpoch++;
         ObservationToken = MakeObservationToken(fg, captureBounds, current.Hash, ObservationEpoch);
         ElementCache.Clear(); foreach (var element in merged) ElementCache[element.Id] = element;
-        return new { mode = "structured-local-perception-v2", session = SessionState(), foreground = WindowInfo(fg), cursor = new { x = cursor.X, y = cursor.Y }, screens, windows, frame = new { hash = current.Hash, width = bitmap.Width, height = bitmap.Height, changedRatio = change, capturedAt = current.CapturedAt }, ocr = new { status = LastOcrStatus, language = LastOcrLanguage, count = LastOcrCount }, elements = merged.Select(PublicElement).ToArray() };
+        return new { mode = "structured-local-perception-v2", perceptionVersion = 3, session = SessionState(), foreground = WindowInfo(fg), cursor = new { x = cursor.X, y = cursor.Y }, screens, windows, frame = new { hash = current.Hash, width = bitmap.Width, height = bitmap.Height, changedRatio = change, capturedAt = current.CapturedAt }, automation = automationObservation == null ? null : new { engine = "FlaUI 5", backend = automationObservation.Backend, fallbackUsed = automationObservation.FallbackUsed, diagnostics = automationObservation.Diagnostics }, ocr = new { status = LastOcrStatus, language = LastOcrLanguage, count = LastOcrCount }, elements = merged.Select(PublicElement).ToArray() };
     }
 
     static Bitmap CaptureForeground(IntPtr h, out Rectangle bounds)
@@ -351,23 +335,9 @@ internal static class Program
         return regions;
     }
 
-    static SemanticElement? SemanticFromUia(AutomationElement e)
-    {
-        try
-        {
-            var r = e.Current.BoundingRectangle; if (r.IsEmpty || double.IsInfinity(r.X) || r.Width < 2 || r.Height < 2 || e.Current.IsOffscreen) return null;
-            var role = (e.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", "") ?? "element").ToLowerInvariant(); var text = e.Current.Name?.Trim() ?? "";
-            if (e.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObj) && valueObj is ValuePattern valuePattern && !string.IsNullOrWhiteSpace(valuePattern.Current.Value)) text = valuePattern.Current.Value.Trim();
-            else if (e.TryGetCurrentPattern(TextPattern.Pattern, out var textObj) && textObj is TextPattern textPattern) { var value = textPattern.DocumentRange.GetText(4096).TrimEnd('\r', '\n', '\0'); if (!string.IsNullOrWhiteSpace(value)) text = value; }
-            var left = (int)r.Left; var top = (int)r.Top; var width = (int)r.Width; var height = (int)r.Height;
-            return new SemanticElement(MakeId("uia", role, text, left, top, width, height), role, text, left, top, width, height, "uia", 1, e.Current.IsEnabled);
-        }
-        catch { return null; }
-    }
-
     static SemanticElement[] MergeElements(IEnumerable<SemanticElement> elements)
     {
-        var ordered = elements.OrderByDescending(e => e.Source == "uia").ThenByDescending(e => e.Confidence).ToList(); var result = new List<SemanticElement>();
+        var ordered = elements.OrderByDescending(e => e.Selector != null).ThenByDescending(e => e.Confidence).ToList(); var result = new List<SemanticElement>();
         foreach (var e in ordered)
         {
             var duplicate = result.Any(x => Overlap(x, e.Left, e.Top, e.Width, e.Height) > .72 && (string.IsNullOrEmpty(e.Text) || string.IsNullOrEmpty(x.Text) || x.Text.Contains(e.Text, StringComparison.OrdinalIgnoreCase) || e.Text.Contains(x.Text, StringComparison.OrdinalIgnoreCase)));
@@ -376,21 +346,14 @@ internal static class Program
         return result.OrderBy(e => e.Top).ThenBy(e => e.Left).ToArray();
     }
 
-    static object PublicElement(SemanticElement e) => new { id = e.Id, role = e.Role, text = e.Text, bounds = new { left = e.Left, top = e.Top, width = e.Width, height = e.Height, centerX = e.Left + e.Width / 2, centerY = e.Top + e.Height / 2 }, source = e.Source, confidence = e.Confidence, enabled = e.Enabled };
+    static object PublicElement(SemanticElement e) => new { id = e.Id, role = e.Role, text = e.Text, bounds = new { left = e.Left, top = e.Top, width = e.Width, height = e.Height, centerX = e.Left + e.Width / 2, centerY = e.Top + e.Height / 2 }, source = e.Source, confidence = e.Confidence, enabled = e.Enabled, selector = e.Selector };
     static string GuessRole(string text, int left, int top, int width, int height, Rectangle window) { var t = text.ToLowerInvariant(); if (t.Contains("搜索") || t.Contains("search")) return "search"; if (t is "发送" or "send" or "确定" or "取消" or "登录" or "保存" or "打开") return "button_text"; if (top < window.Top + Math.Max(80, window.Height / 8)) return "toolbar_text"; return width > height * 2.8 ? "text_or_field" : "text"; }
     static string MakeId(string source, string role, string text, int left, int top, int width, int height) { var raw = $"{source}|{role}|{text}|{left / 4}|{top / 4}|{width / 4}|{height / 4}"; return "e_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw))).ToLowerInvariant()[..10]; }
     static double Overlap(SemanticElement a, int left, int top, int width, int height) { var x1 = Math.Max(a.Left, left); var y1 = Math.Max(a.Top, top); var x2 = Math.Min(a.Left + a.Width, left + width); var y2 = Math.Min(a.Top + a.Height, top + height); if (x2 <= x1 || y2 <= y1) return 0; var intersection = (double)(x2 - x1) * (y2 - y1); return intersection / Math.Min((double)a.Width * a.Height, (double)width * height); }
 
     static object ReadFocused()
     {
-        try
-        {
-            var e = AutomationElement.FocusedElement; var role = (e.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", "") ?? "element").ToLowerInvariant(); var text = e.Current.Name ?? ""; var method = "name";
-            if (e.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObj) && valueObj is ValuePattern value) { text = value.Current.Value; method = "uia_value"; }
-            else if (e.TryGetCurrentPattern(TextPattern.Pattern, out var textObj) && textObj is TextPattern textPattern) { text = textPattern.DocumentRange.GetText(8192).TrimEnd('\r', '\n', '\0'); method = "uia_text"; }
-            return new { role, text, method, automationId = e.Current.AutomationId ?? "" };
-        }
-        catch (Exception ex) { return new { role = "", text = "", method = "error", error = ex.Message }; }
+        return Automation.ReadFocused(BoundWindow);
     }
 
     static object FindElement(JsonObject req)
@@ -404,50 +367,50 @@ internal static class Program
     {
         ThrowIfCancelled();
         var element = ResolveElement(req); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
-        if (element.Source == "uia")
+        AutomationActionResult? automation = null;
+        var forcePointer = req["forcePointer"]?.GetValue<bool>() ?? false;
+        if (element.Selector != null && !forcePointer)
         {
-            try
+            automation = Automation.Click(element.Selector, ThrowIfCancelled);
+            if (automation.Success)
             {
-                var point = new System.Windows.Point(element.Left + element.Width / 2, element.Top + element.Height / 2);
-                var target = AutomationElement.FromPoint(point);
-                if (target.TryGetCurrentPattern(InvokePattern.Pattern, out var invokeObj) && invokeObj is InvokePattern invoke) { invoke.Invoke(); method = "uia_invoke"; }
-                else if (target.TryGetCurrentPattern(TogglePattern.Pattern, out var toggleObj) && toggleObj is TogglePattern toggle) { toggle.Toggle(); method = "uia_toggle"; }
-                else if (target.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var selectionObj) && selectionObj is SelectionItemPattern selection) { selection.Select(); method = "uia_select"; }
+                method = automation.Method;
             }
-            catch { method = "pointer"; }
+            else if (!automation.RequiresInputFallback)
+                throw new InvalidOperationException($"UI Automation click failed at {automation.ErrorStage}: {automation.Error}");
+            else
+                element = RelocateBounds(element, automation.Selector);
         }
-        Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 100, 0, 2000));
-        var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground); var stillBound = foreground == BoundWindow; var after = stillBound ? CaptureBoundFrame() : before;
-        var changed = stillBound ? FrameDifference(before, after) : 1;
-        // Some custom-drawn apps expose a misleading UIA InvokePattern that
-        // returns successfully without dispatching a real click. Fall back to
-        // physical input when the frame did not change, so success reflects an
-        // actual interaction rather than a pattern call that was ignored.
-        if (method != "pointer" && changed < 0.0005)
+        if (method == "pointer")
         {
-            method = "pointer_fallback";
             lock (InputLock)
             {
                 using var input = new InputLease();
                 HumanMove(element.Left + element.Width / 2, element.Top + element.Height / 2, duration);
                 input.Click(req["button"]?.GetValue<string>() ?? "left");
             }
-            Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 100, 0, 2000));
-            foreground = GetForegroundWindow(); FollowForegroundWindow(foreground); stillBound = foreground == BoundWindow; after = stillBound ? CaptureBoundFrame() : before;
-            changed = stillBound ? FrameDifference(before, after) : 1;
         }
+        Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 100, 0, 2000));
+        var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground); var stillBound = foreground == BoundWindow; var after = stillBound ? CaptureBoundFrame() : before;
+        var changed = stillBound ? FrameDifference(before, after) : 1;
+        var effectObserved = !stillBound || changed >= 0.0005;
         ElementCache.Clear(); ObservationToken = "";
-        return new { element = PublicElement(element), method, foregroundVerified = stillBound, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
+        return new { element = PublicElement(element), method, automation, effectObserved, foregroundVerified = stillBound, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
     }
 
     static object TypeElement(JsonObject req)
     {
         ThrowIfCancelled();
         var element = ResolveElement(req); var text = Required(req, "text"); var replace = req["replace"]?.GetValue<bool>() ?? true; var method = "keyboard"; var before = CaptureBoundFrame();
-        var target = AutomationElement.FromPoint(new System.Windows.Point(element.Left + element.Width / 2, element.Top + element.Height / 2));
-        if (element.Source == "uia" && replace)
+        AutomationActionResult? automation = null;
+        if (element.Selector != null)
         {
-            try { if (target.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObj) && valueObj is ValuePattern value && !value.Current.IsReadOnly) { value.SetValue(text); method = "uia_value"; } } catch { }
+            automation = Automation.Type(element.Selector, text, replace, ThrowIfCancelled);
+            if (automation.Success) method = automation.Method;
+            else if (!automation.RequiresInputFallback)
+                throw new InvalidOperationException($"UI Automation typing failed at {automation.ErrorStage}: {automation.Error}");
+            else
+                element = RelocateBounds(element, automation.Selector);
         }
         if (method == "keyboard")
         {
@@ -461,8 +424,18 @@ internal static class Program
         }
         Thread.Sleep(100); if (GetForegroundWindow() != BoundWindow) throw new InvalidOperationException("Target window lost foreground during element typing.");
         var after = CaptureBoundFrame(); var focused = ReadFocused(); ElementCache.Clear(); ObservationToken = "";
-        return new { chars = text.Length, method, element = PublicElement(element), focused, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
+        return new { chars = text.Length, method, automation, element = PublicElement(element), focused, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
     }
+
+    static SemanticElement RelocateBounds(SemanticElement element, AutomationSelector selector) => element with
+    {
+        Left = selector.Left,
+        Top = selector.Top,
+        Width = selector.Width,
+        Height = selector.Height,
+        Source = selector.Backend,
+        Selector = selector,
+    };
 
     static SemanticElement ResolveElement(JsonObject req)
     {
@@ -771,13 +744,7 @@ internal static class Program
     {
         var h = GetForegroundWindow(); if (h == IntPtr.Zero) return false;
         if ((GetWindowText(h) ?? "").Contains(text, StringComparison.OrdinalIgnoreCase)) return true;
-        try
-        {
-            var root = AutomationElement.FromHandle(h);
-            foreach (AutomationElement e in root.FindAll(TreeScope.Descendants, Condition.TrueCondition))
-                if ((e.Current.Name ?? "").Contains(text, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        catch { }
+        if (Automation.Contains(h, text, out _, out _)) return true;
         if (ElementCache.Values.Any(e => e.Text.Contains(text, StringComparison.OrdinalIgnoreCase))) return true;
         return false;
     }
@@ -818,17 +785,6 @@ internal static class Program
         GetWindowThreadProcessId(h, out var pid); GetWindowRect(h, out var r);
         string process = ""; try { process = Process.GetProcessById((int)pid).ProcessName; } catch { }
         return new { handle = h.ToInt64(), title = GetWindowText(h), process, pid, bounds = new { left = r.Left, top = r.Top, width = r.Right - r.Left, height = r.Bottom - r.Top } };
-    }
-
-    static object? ElementInfo(AutomationElement e)
-    {
-        try
-        {
-            var r = e.Current.BoundingRectangle;
-            if (r.IsEmpty || double.IsInfinity(r.X) || r.Width < 1 || r.Height < 1) return null;
-            return new { name = e.Current.Name ?? "", type = e.Current.ControlType?.ProgrammaticName?.Replace("ControlType.", "") ?? "", automationId = e.Current.AutomationId ?? "", enabled = e.Current.IsEnabled, offscreen = e.Current.IsOffscreen, bounds = new { left = (int)r.Left, top = (int)r.Top, width = (int)r.Width, height = (int)r.Height } };
-        }
-        catch { return null; }
     }
 
     static void HumanMove(int tx, int ty, int durationMs)

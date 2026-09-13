@@ -122,9 +122,15 @@ test('Electron uses IPv4 loopback for its local health check and window URL', as
   assert.match(electronEntry, /mainWindow\.loadURL\(url\)/);
 });
 
-test('distribution builder includes the Electron preload bridge', async () => {
+test('distribution builder includes the Electron bridge and native desktop agent', async () => {
   const builder = await fs.readFile(path.join(__dirname, '..', 'build-dist.js'), 'utf8');
   assert.match(builder, /fs\.copyFileSync\(path\.join\(ROOT, 'preload\.js'\), path\.join\(APP, 'preload\.js'\)\)/);
+  assert.match(builder, /path\.join\(ROOT, 'desktop-agent', 'publish'\)/);
+  assert.match(builder, /path\.join\(APP, 'desktop-agent', 'publish'\)/);
+  assert.match(builder, /Iexa\.DesktopAgent\.exe/);
+  assert.match(builder, /'en-US\.pak'/);
+  assert.match(builder, /'zh-CN\.pak'/);
+  assert.doesNotMatch(builder, /localeFiles\.slice\(0, 5\)/);
 });
 
 test('PathSandbox resolves workspace and explicitly addressed local paths', async () => {
@@ -846,6 +852,36 @@ test('desktop source persists native window state and boot appearance', async ()
   assert.match(preload, /initialAppearance: ipcRenderer\.sendSync/);
   assert.match(renderer, /fetch\(`\$\{API_BASE\}\/api\/appearance`/);
   assert.match(renderer, /scheduleAppearanceSave\(\)/);
+});
+
+test('live desktop supports draggable embedded and independent always-on-top windows', async () => {
+  const electronEntry = await fs.readFile(path.join(__dirname, '..', 'electron-entry.js'), 'utf8');
+  const preload = await fs.readFile(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const styles = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8');
+  const floatingHtml = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'desktop-live.html'), 'utf8');
+  const floatingCss = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'desktop-live.css'), 'utf8');
+  const floatingJs = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'desktop-live.js'), 'utf8');
+
+  assert.match(electronEntry, /desktopLiveWindow = new BrowserWindow/);
+  assert.match(electronEntry, /frame: false/);
+  assert.match(electronEntry, /alwaysOnTop: saved\.pinned/);
+  assert.match(electronEntry, /setAlwaysOnTop\(saved\.pinned, 'floating'\)/);
+  assert.match(electronEntry, /\.iexa-desktop-live-state\.json/);
+  assert.match(electronEntry, /desktop-live\.html/);
+  assert.match(preload, /openDesktopLiveWindow/);
+  assert.match(preload, /setDesktopLivePinned/);
+  assert.match(renderer, /enableDesktopLivePanelDrag\(\)/);
+  assert.match(renderer, /setPointerCapture/);
+  assert.match(renderer, /DESKTOP_LIVE_POSITION_KEY/);
+  assert.match(renderer, /data-live-detach/);
+  assert.match(styles, /\.desktop-live-panel\.is-dragging/);
+  assert.match(floatingHtml, /class="live-titlebar"/);
+  assert.match(floatingCss, /-webkit-app-region: drag/);
+  assert.match(floatingCss, /-webkit-app-region: no-drag/);
+  assert.match(floatingJs, /\/api\/desktop-live\/frame/);
+  assert.match(floatingJs, /\/api\/desktop-live\/cancel/);
+  assert.match(floatingJs, /\/api\/desktop-live\/resume/);
 });
 
 test('tool definitions include structured array item schemas', async () => {
