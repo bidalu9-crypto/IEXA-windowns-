@@ -1613,7 +1613,9 @@ body.chat-focus-mode .message.user {
 .permission-dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  /* Permission decisions must sit above live desktop previews, menus, and
+     every other app surface; otherwise the dialog is visible but unclickable. */
+  z-index: 10000;
   display: grid;
   place-items: center;
   padding: 20px;

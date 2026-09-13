@@ -35,6 +35,7 @@ import { GitService } from './git/GitService';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { VisionFallback } from './vision/VisionFallback';
+import { imageDimensions } from './vision/ImageMetadata';
 import { PluginManager } from './plugins/PluginManager';
 import { MobileBridgeDevice, MobileBridgeManager } from './mobile/MobileBridgeManager';
 import * as QRCode from 'qrcode';
@@ -45,6 +46,7 @@ const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
 const MAX_ATTACHMENTS = 8;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TOTAL_BYTES = 256 * 1024 * 1024;
+const MAX_VISION_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 /** App data dir (sessions / settings / memory) — always under iexa workspace */
@@ -1075,6 +1077,9 @@ function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: str
     || pathname === '/api/uploads/init'
     || pathname === '/api/uploads/chunk'
     || pathname === '/api/uploads/complete';
+  const permissionRoute = (pathname === '/api/permissions' && readOnly)
+    || ((pathname === '/api/permissions/approve' || pathname === '/api/permissions/deny') && method === 'POST');
+  if (permissionRoute) return true;
   if (chatRoutes) {
     if ((pathname === '/api/profiles' || pathname === '/api/appearance' || pathname === '/api/soul') && !readOnly) return false;
     return true;
@@ -1818,7 +1823,10 @@ ${recentMemories}
           agent.seedHistoryFromChat(persistedMessages);
         }
         const visionProfile = configuredVisionProfile(profile.id);
-        if (visionProfile && !profileLikelySupportsVision(profile)) {
+        // A separately selected vision profile is an explicit user choice and
+        // takes precedence over model-name heuristics used for custom gateways.
+        const useVisionProxy = Boolean(visionProfile && visionProfile.id !== profile.id);
+        if (visionProfile && useVisionProxy) {
           agent.registerDynamicTool({
             name: 'read_image',
             description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns a factual description and OCR text for this text-only model.`,
@@ -1828,12 +1836,16 @@ ${recentMemories}
             }, required: ['path'], propertyOrdering: ['path', 'prompt'],
           }, async (args) => {
             try {
-              const source = path.resolve(String(args.path || ''));
+              const requested = String(args.path || '').trim();
               const allowedRoots = [WORKSPACE_DIR, getProjectRoot()].filter((value): value is string => Boolean(value)).map((value) => path.resolve(value));
+              const candidates = path.isAbsolute(requested)
+                ? [path.resolve(requested)]
+                : allowedRoots.map((root) => path.resolve(root, requested));
+              const source = candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0] || '';
               if (!allowedRoots.some((root) => { const relative = path.relative(root, source); return !relative.startsWith('..') && !path.isAbsolute(relative); })) throw new Error('图片路径不在当前工作区或项目中。');
               const mimeType = imageMimeType(source);
               if (!mimeType || !fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error('未找到可识别的图片文件。');
-              if (fs.statSync(source).size > 10 * 1024 * 1024) throw new Error('图片超过 10 MB。');
+              if (fs.statSync(source).size > MAX_VISION_IMAGE_BYTES) throw new Error('图片超过 20 MB。');
               const output = await visionFallback.describe({ ...visionProfile, type: visionProfile.provider as ProviderType, displayName: visionProfile.name }, fs.readFileSync(source), mimeType, String(args.prompt || ''));
               return { output, success: true };
             } catch (error) { return { output: `图片识别失败：${(error as Error).message}`, success: false }; }
@@ -1863,7 +1875,7 @@ ${recentMemories}
         for (const binding of pluginBindings) {
           agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
         }
-        const availableTools = [...makeAgentTools(true), ...(visionProfile && !profileLikelySupportsVision(profile) ? [{
+        const availableTools = [...makeAgentTools(true), ...(visionProfile && useVisionProxy ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
           required: ['path'], propertyOrdering: ['path', 'prompt'],
@@ -1888,6 +1900,8 @@ ${recentMemories}
           data?: Buffer;
           text?: string;
           savedPath?: string;
+          width?: number;
+          height?: number;
         }> = [];
         const metaAttachments: ChatAttachmentMeta[] = [];
 
@@ -1915,7 +1929,8 @@ ${recentMemories}
             if (!savedStat.isFile() || savedStat.size > MAX_UPLOAD_BYTES) throw new Error(`上传文件大小或类型无效：${safeName}`);
             if (kind === 'image') {
               previewUrl = `/api/attachments/${encodeURIComponent(sessionId)}/${encodeURIComponent(path.basename(candidate))}`;
-              if (savedStat.size <= 10 * 1024 * 1024) data = fs.readFileSync(candidate);
+              if (savedStat.size > MAX_VISION_IMAGE_BYTES) throw new Error(`图片超过 ${MAX_VISION_IMAGE_BYTES / (1024 * 1024)} MB：${safeName}`);
+              data = fs.readFileSync(candidate);
             }
           }
 
@@ -1954,10 +1969,21 @@ ${recentMemories}
           // Text-only active models receive a stable local image path and can
           // call read_image, which delegates pixels to the configured vision
           // profile. Native vision models retain the direct image bytes.
-          const directImageData = kind === 'image' && !profileLikelySupportsVision(profile) && configuredVisionProfile(profile.id)
+          const directImageData = kind === 'image' && useVisionProxy
             ? undefined
             : data;
-          agentAttachments.push({ name: safeName, mime, kind, data: directImageData, text: savedPath && kind === 'text' ? undefined : text, savedPath });
+          const dimensions = kind === 'image' && data ? imageDimensions(data, mime) : undefined;
+          const modelPath = savedPath ? path.resolve(WORKSPACE_DIR, savedPath) : undefined;
+          agentAttachments.push({
+            name: safeName,
+            mime,
+            kind,
+            data: directImageData,
+            text: savedPath && kind === 'text' ? undefined : text,
+            savedPath: modelPath,
+            width: dimensions?.width,
+            height: dimensions?.height,
+          });
           metaAttachments.push({ name: safeName, mime, kind, savedPath, previewUrl });
         }
 

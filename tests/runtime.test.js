@@ -4,6 +4,8 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile, execFileSync } = require('node:child_process');
+const http = require('node:http');
+const vm = require('node:vm');
 const { promisify } = require('node:util');
 
 const { PathSandbox } = require('../dist/main/security/PathSandbox');
@@ -35,6 +37,8 @@ const { FileTools, ShellExecutor } = require('../dist/main/tools/ToolExecutors')
 const { SoulStore, parseSoulMarkdown, soulTokenCount, checkSoulBodyLimit, buildSoulPromptSection } = require('../dist/main/agent/SoulStore');
 const { PluginManager } = require('../dist/main/plugins/PluginManager');
 const { MobileBridgeManager } = require('../dist/main/mobile/MobileBridgeManager');
+const { imageDimensions } = require('../dist/main/vision/ImageMetadata');
+const { handleRuntimeRoute } = require('../dist/main/api/RuntimeRoutes');
 
 async function tempWorkspace() { return fs.mkdtemp(path.join(os.tmpdir(), 'iexa-runtime-')); }
 const execFileAsync = promisify(execFile);
@@ -314,6 +318,34 @@ test('ProcessManager executes every line of a Windows CMD command', { skip: proc
   assert.match(result.output, /second:works/);
 });
 
+test('ProcessManager routes explicit multi-line PowerShell to a temporary UTF-8 script', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const result = await new ProcessManager().run(
+    "$value = '中文 & quoted'; Write-Output \"$value\"\nGet-Location | Select-Object -ExpandProperty Path",
+    root,
+    new AbortController().signal,
+    { timeoutMs: 10_000, maxOutputBytes: 4096, killGracePeriodMs: 100 },
+    'powershell',
+  );
+  assert.equal(result.success, true, result.output);
+  assert.match(result.output, /中文 & quoted/);
+  assert.match(result.output, new RegExp(path.basename(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('ProcessManager preserves CMD metacharacters in an explicit batch script', { skip: process.platform !== 'win32' }, async () => {
+  const root = await tempWorkspace();
+  const result = await new ProcessManager().run(
+    'set "IEXA_SPECIAL=one^&two"\r\necho %IEXA_SPECIAL%\r\n(echo left ^| findstr left)\r\nexit /b 0',
+    root,
+    new AbortController().signal,
+    { timeoutMs: 10_000, maxOutputBytes: 4096, killGracePeriodMs: 100 },
+    'cmd',
+  );
+  assert.equal(result.success, true, result.output);
+  assert.match(result.output, /one&two/);
+  assert.match(result.output, /left/);
+});
+
 test('ProcessManager preserves a multi-line CMD script exit code', { skip: process.platform !== 'win32' }, async () => {
   const root = await tempWorkspace();
   const result = await new ProcessManager().run(
@@ -497,6 +529,12 @@ test('ToolRuntime uses registry, sandbox, and artifact storage', async () => {
   assert.equal(await fs.readFile(externalPath, 'utf8'), 'updated');
   const shell = await runtime.execute('shell_execute', { tool_title: 'run command', command: 'echo runtime-ok' }, { signal, sessionId: 'session_1', toolCallId: 'call_6', workspaceDir: root });
   assert.equal(shell.success, true); assert.match(shell.output, /runtime-ok/i);
+  const shellDefinition = runtime.definitions().find((definition) => definition.name === 'shell_execute');
+  assert.deepEqual(shellDefinition.parameters.shell.enumValues, ['auto', 'cmd', 'powershell', 'pwsh']);
+  if (process.platform === 'win32') {
+    const powershell = await runtime.execute('shell_execute', { tool_title: 'run powershell', shell: 'powershell', command: "$v = 'runtime-中文'; Write-Output $v" }, { signal, sessionId: 'session_1', toolCallId: 'call_7', workspaceDir: root });
+    assert.equal(powershell.success, true, powershell.output); assert.match(powershell.output, /runtime-中文/);
+  }
   const artifact = await new ArtifactStore(path.join(root, 'artifacts')).put('result');
   assert.equal((await fs.readFile(artifact.path, 'utf8')), 'result');
 });
@@ -1020,6 +1058,64 @@ test('GLM 5.3 Flash is multimodal and sends its native Chat thinking switch', as
   }
 });
 
+test('image metadata keeps original pixel coordinates available for attachment prompts', () => {
+  const png = Buffer.alloc(24);
+  png.write('PNG', 1, 'ascii');
+  png.writeUInt32BE(1920, 16);
+  png.writeUInt32BE(1080, 20);
+  assert.deepEqual(imageDimensions(png, 'image/png'), { width: 1920, height: 1080 });
+
+  const gif = Buffer.alloc(10);
+  gif.write('GIF89a', 0, 'ascii');
+  gif.writeUInt16LE(640, 6);
+  gif.writeUInt16LE(480, 8);
+  assert.deepEqual(imageDimensions(gif, 'image/gif'), { width: 640, height: 480 });
+});
+
+test('AgentRuntime sends original image bytes and coordinate metadata to the model', async () => {
+  const root = await tempWorkspace();
+  let envelope;
+  const provider = {
+    name: 'vision-capture', model: 'vision-capture', defaultMaxTokens: 1024,
+    async *streamMessage(messages) {
+      envelope = messages;
+      yield { type: 'done', stopReason: 'endTurn' };
+    },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'image-envelope', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({
+    message: '定位错误按钮', tools: runtime.toolDefinitions(),
+    attachments: [{ name: 'screen.png', mime: 'image/png', kind: 'image', data: Buffer.from([1, 2, 3]), savedPath: path.join(root, 'screen.png'), width: 1920, height: 1080 }],
+    callbacks: { onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {} },
+  });
+  const user = envelope.findLast((message) => message.role === 'user');
+  assert.deepEqual(user.parts.find((part) => part.type === 'imageData').data, Buffer.from([1, 2, 3]));
+  assert.match(user.parts.find((part) => part.type === 'text').text, /original pixel size 1920x1080/);
+  assert.match(user.parts.find((part) => part.type === 'text').text, /top-left/);
+});
+
+test('AgentRuntime instructs a text model to read the exact absolute screenshot path', async () => {
+  const root = await tempWorkspace();
+  const imagePath = path.join(root, 'screen.png');
+  let envelope;
+  const provider = {
+    name: 'text-capture', model: 'text-capture', defaultMaxTokens: 1024,
+    async *streamMessage(messages) { envelope = messages; yield { type: 'done', stopReason: 'endTurn' }; },
+  };
+  const runtime = new AgentRuntime({ sessionId: 'image-path', provider, workspaceDir: root, memoryDir: path.join(root, 'memory'), memoryEnabled: false });
+  await runtime.initialize();
+  await runtime.run({
+    message: '看图', tools: runtime.toolDefinitions(),
+    attachments: [{ name: 'screen.png', mime: 'image/png', kind: 'image', savedPath: imagePath, width: 800, height: 600 }],
+    callbacks: { onTextDelta() {}, onThinkingDelta() {}, onToolCallStart() {}, onToolInputDelta() {}, onToolCallComplete() {}, onToolResult() {}, onUsage() {}, onContext() {}, onError(error) { throw new Error(error); }, onCancelled() { throw new Error('unexpected cancellation'); }, onDone() {} },
+  });
+  const text = envelope.findLast((message) => message.role === 'user').parts.find((part) => part.type === 'text').text;
+  assert.match(text, /Call read_image with this exact path/);
+  assert.ok(text.includes(imagePath), text);
+  assert.doesNotMatch(text, /Attached binary file/);
+});
+
 test('PermissionBroker supports pending approval and cancellation', async () => {
   const broker = new PermissionBroker(1_000);
   const request = { sessionId: 'permission_test', tool: { name: 'shell_execute', risk: 'high', requiresApproval: true }, args: { command: 'whoami' } };
@@ -1046,6 +1142,68 @@ test('PermissionManager distinguishes allow-once from session grants', async () 
   granted.grant('s', 'shell_execute');
   await granted.authorize({ sessionId: 's', tool, args: { command: 'echo ok' } });
   assert.equal(called, false);
+});
+
+test('permission approval HTTP endpoint resolves the exact pending tool wait', async () => {
+  const broker = new PermissionBroker(2_000);
+  const server = http.createServer(async (req, res) => {
+    const handled = await handleRuntimeRoute(req, res, new URL(req.url, 'http://127.0.0.1'), {
+      agents: new Map(),
+      permissionBroker: broker,
+      permissionPayload: (item) => ({ id: item.id }),
+      getPermissionMode: () => 'risk',
+      setPermissionMode() {},
+      normalizePermissionMode: () => 'risk',
+      loadJobs: () => [],
+      readTraces: () => [],
+      cancelSession() {},
+      clearRunningSession() {},
+      cancelLiveJobs() {},
+    });
+    if (!handled) { res.writeHead(404); res.end(); }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const pending = broker.request({ sessionId: 'permission-http', tool: { name: 'shell_execute', risk: 'high', requiresApproval: true }, args: { command: 'reg query HKCU' } });
+    const id = broker.list('permission-http')[0].id;
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/permissions/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, scope: 'once' }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, id, decision: 'allow_once' });
+    assert.equal(await pending, 'allow_once');
+    assert.equal(broker.list('permission-http').length, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('permission dialog button posts its decision and closes the blocking overlay', async () => {
+  class Element {
+    constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.dataset = {}; this.attributes = {}; this.parent = null; this.disabled = false; this.textContent = ''; }
+    append(...children) { children.forEach((child) => this.appendChild(child)); }
+    appendChild(child) { child.parent = this; this.children.push(child); return child; }
+    addEventListener(type, listener) { this.listeners[type] = listener; }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    removeAttribute(name) { delete this.attributes[name]; }
+    remove() { if (this.parent) this.parent.children = this.parent.children.filter((child) => child !== this); }
+  }
+  const body = new Element('body');
+  const calls = [];
+  const window = { IexaApi: { async json(url, options) { calls.push({ url, options }); return { ok: true }; } } };
+  const source = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'components', 'PermissionDialog.js'), 'utf8');
+  vm.runInNewContext(source, { window, document: { body, createElement: (tag) => new Element(tag) }, JSON, Object, Map, String });
+  window.IexaPermissionDialog.show({ id: 'perm_click', tool: { name: 'shell_execute', risk: 'high' }, args: { command: 'reg query HKCU' } }, { apiBase: '', onError(error) { throw error; } });
+  const overlay = body.children[0];
+  const buttons = overlay.children[0].children.find((child) => child.className === 'permission-dialog-actions').children;
+  await buttons.find((button) => button.textContent === '允许一次').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/api/permissions/approve');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { id: 'perm_click', scope: 'once' });
+  assert.equal(body.children.length, 0);
 });
 
 test('Security audit records operation fields without leaking secrets', async () => {

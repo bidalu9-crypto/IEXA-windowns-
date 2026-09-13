@@ -104,7 +104,7 @@ version: 1.0.0
 ## 核心能力
 
 你可以使用以下工具：
-- **shell_execute**：在系统 Shell 中执行命令（Windows 为 cmd.exe，Unix 为 /bin/sh）。每次调用会启动新进程。默认超时 15 分钟。工作目录见下方「当前工作区」。
+- **shell_execute**：在独立 Shell 中执行命令。Windows 下必须按语法显式选择 shell：批处理/CMD 使用 cmd，PowerShell 源码使用 powershell（已安装 PowerShell 7 时可用 pwsh）；不要把 PowerShell 再嵌进 CMD 字符串。每次调用会启动新进程，默认超时 15 分钟。工作目录见下方「当前工作区」。
 - **file_read**：读取本地文件，返回元数据与内容。相对路径相对于工作区根目录。
 - **file_write**：创建或覆盖文件，支持追加模式，可自动创建目录。
 - **file_edit**：用精确字符串替换对现有文件做定点修改。

@@ -8,6 +8,7 @@ import { ToolExecutionResult } from '../../providers/types';
 import { IexaError } from '../../errors/IexaError';
 
 export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; killGracePeriodMs: number; }
+export type ShellKind = 'auto' | 'cmd' | 'powershell' | 'pwsh';
 
 type TerminationReason = 'cancelled' | 'timeout' | 'output-limit';
 
@@ -28,10 +29,10 @@ interface ProcessLaunch {
 }
 
 export class ProcessManager {
-  async run(command: string, cwd: string, signal: AbortSignal, policy: ProcessPolicy): Promise<ToolExecutionResult> {
+  async run(command: string, cwd: string, signal: AbortSignal, policy: ProcessPolicy, shell: ShellKind = 'auto'): Promise<ToolExecutionResult> {
     let launch: ProcessLaunch;
     try {
-      launch = await this.launch(command, cwd);
+      launch = await this.launch(command, cwd, shell);
     } catch (error) {
       return {
         output: `Command execution error: ${(error as Error).message}`,
@@ -122,7 +123,7 @@ export class ProcessManager {
     });
   }
 
-  private async launch(command: string, cwd: string): Promise<ProcessLaunch> {
+  private async launch(command: string, cwd: string, shell: ShellKind): Promise<ProcessLaunch> {
     if (!fsSync.existsSync(cwd) || !fsSync.statSync(cwd).isDirectory()) {
       throw new Error(`Command working directory does not exist: ${cwd}`);
     }
@@ -137,68 +138,64 @@ export class ProcessManager {
     env.ComSpec = cmdExecutable;
     env.COMSPEC = cmdExecutable;
 
-    // cmd.exe executes only the first physical line supplied through /c.  Use a
-    // short-lived batch file for true multi-line input so command blocks,
-    // conditionals and one-command-per-line snippets retain CMD semantics.
-    if (/\r|\n/.test(command)) {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-cmd-'));
-      const scriptPath = path.join(tempDir, 'command.cmd');
-      const pythonSource = extractMultilinePythonInlineSource(command);
-      try {
-        let batchCommand = normalizeCmdNewlines(command);
-        if (pythonSource) {
-          const pythonScriptPath = path.join(tempDir, 'inline-python.py');
-          // A Python -c body with physical newlines cannot survive CMD parsing:
-          // after the first line CMD treats the remaining Python statements as
-          // commands. Materialize only that body as a short-lived script while
-          // leaving an optional CMD prefix/suffix (for example `chcp &&`) intact.
-          await fs.writeFile(pythonScriptPath, pythonSource.source, 'utf8');
-          batchCommand = `${pythonSource.prefix}${pythonSource.executable} "${pythonScriptPath}"${pythonSource.suffix}`;
-        }
-        // No UTF-8 BOM: CMD treats it as part of the first token.  The command
-        // prefix supplied by ShellExecutor switches to UTF-8 before user input.
-        await fs.writeFile(scriptPath, `@echo off\r\n${batchCommand}\r\n`, 'utf8');
-      } catch (error) {
-        await fs.rm(tempDir, { recursive: true, force: true });
-        throw error;
-      }
-
-      return {
-        // Pass the script path as the command argument rather than constructing
-        // `call "..."`.  Node quotes a single argv item that contains embedded
-        // quotes when it builds the Windows command line; CMD then sees those
-        // quotes literally and tries to execute a command whose name includes
-        // quote characters.  CMD's /c accepts a batch-file path directly and
-        // preserves the batch file's final errorlevel.
-        child: spawn(cmdExecutable, ['/d', '/c', scriptPath], {
-          cwd,
-          env,
-          windowsHide: true,
-        }),
-        cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
-      };
+    const legacyPowerShell = shell === 'auto' ? parsePowerShellCommand(command) : null;
+    if (shell === 'powershell' || shell === 'pwsh' || legacyPowerShell) {
+      return createPowerShellLaunch(
+        legacyPowerShell?.script ?? command,
+        cwd,
+        env,
+        shell === 'pwsh' || legacyPowerShell?.executable.toLowerCase().startsWith('pwsh') ? 'pwsh.exe' : 'powershell.exe',
+      );
     }
 
-    // PowerShell's nested `-Command "..."` quoting is fragile when it passes
-    // through Node's extra CMD shell layer. Detect only a top-level PowerShell
-    // invocation and pass its script as a dedicated argv item; ordinary CMD
-    // commands keep the existing shell behavior and quoting semantics.
-    const powershell = parsePowerShellCommand(command);
-    if (powershell) {
-      // Windows PowerShell can reject a restricted temp directory when Node
-      // assigns it as the process cwd. Start from the inherited cwd and move
-      // inside PowerShell instead; this preserves command semantics while
-      // avoiding the startup-time access check.
-      const escapedCwd = cwd.replace(/'/g, "''");
-      const scriptIndex = powershell.args.length - 1;
-      powershell.args[scriptIndex] = `${POWERSHELL_UTF8_PREAMBLE}; Set-Location -LiteralPath '${escapedCwd}'; ${powershell.args[scriptIndex]}`;
-      return { child: spawn(powershell.executable, powershell.args, { env, windowsHide: true }) };
-    }
-
-    return {
-      child: spawn(command, { cwd, env, shell: cmdExecutable, windowsHide: true }),
-    };
+    // Materializing CMD input removes Node -> cmd.exe command-line quoting from
+    // the equation. It also makes single-line and multi-line calls behave the
+    // same for %, !, ^, &, pipes, parentheses and nested quotes.
+    return createCmdLaunch(command, cwd, env, cmdExecutable);
   }
+}
+
+async function createCmdLaunch(command: string, cwd: string, env: NodeJS.ProcessEnv, executable: string): Promise<ProcessLaunch> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-cmd-'));
+  const scriptPath = path.join(tempDir, 'command.cmd');
+  const pythonSource = extractMultilinePythonInlineSource(command);
+  try {
+    let batchCommand = normalizeCmdNewlines(command);
+    if (pythonSource) {
+      const pythonScriptPath = path.join(tempDir, 'inline-python.py');
+      await fs.writeFile(pythonScriptPath, pythonSource.source, 'utf8');
+      batchCommand = `${pythonSource.prefix}${pythonSource.executable} "${pythonScriptPath}"${pythonSource.suffix}`;
+    }
+    await fs.writeFile(scriptPath, `@echo off\r\n@chcp 65001 >nul\r\n${batchCommand}\r\n`, 'utf8');
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    child: spawn(executable, ['/d', '/q', '/c', scriptPath], { cwd, env, windowsHide: true }),
+    cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
+  };
+}
+
+async function createPowerShellLaunch(script: string, cwd: string, env: NodeJS.ProcessEnv, executable: string): Promise<ProcessLaunch> {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-ps-'));
+  const scriptPath = path.join(tempDir, 'command.ps1');
+  const escapedCwd = cwd.replace(/'/g, "''");
+  const source = `${POWERSHELL_UTF8_PREAMBLE}\r\nSet-Location -LiteralPath '${escapedCwd}'\r\n${script}\r\n`;
+  try {
+    // Windows PowerShell 5.1 needs a BOM to decode non-ASCII script source as UTF-8.
+    await fs.writeFile(scriptPath, `\uFEFF${source}`, 'utf8');
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    child: spawn(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      env,
+      windowsHide: true,
+    }),
+    cleanup: () => fs.rm(tempDir, { recursive: true, force: true }),
+  };
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {
@@ -258,21 +255,27 @@ function resolveWindowsCmdExecutable(): string {
   return executable;
 }
 
-function parsePowerShellCommand(command: string): { executable: string; args: string[] } | null {
+function parsePowerShellCommand(command: string): { executable: string; script: string } | null {
   const match = /^\s*(powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+([\s\S]+)$/i.exec(command);
   if (!match) return null;
   const rest = match[2];
-  const commandMatch = /(?:^|\s)(-command|-c)\s+([\s\S]+)$/i.exec(rest);
+  const commandMatch = /(?:^|\s)(?:-command|-c)\s+([\s\S]+)$/i.exec(rest);
   if (!commandMatch) return null;
-  const prefix = rest.slice(0, commandMatch.index).trim();
-  const prefixArgs = prefix.match(/(?:"[^"]*"|'[^']*'|[^\s]+)/g)?.map((arg) => {
-    return arg.length >= 2 && ((arg.startsWith('"') && arg.endsWith('"')) || (arg.startsWith("'") && arg.endsWith("'")))
-      ? arg.slice(1, -1)
-      : arg;
-  }) || [];
-  let script = commandMatch[2].trim();
-  if (script.length >= 2 && script.startsWith('"') && script.endsWith('"')) script = script.slice(1, -1);
-  return { executable: match[1], args: [...prefixArgs, '-Command', script] };
+  let script = commandMatch[1].trim();
+  // cmd.exe uses double quotes to wrap a -Command payload. A leading/trailing
+  // single quote is valid PowerShell source and must remain part of the script.
+  if (hasMatchingOuterQuotes(script, '"')) script = script.slice(1, -1);
+  return { executable: match[1], script };
+}
+
+function hasMatchingOuterQuotes(value: string, quote: '"' | "'"): boolean {
+  if (value.length < 2 || value[0] !== quote || value[value.length - 1] !== quote) return false;
+  // The wrapper produced by models normally quotes the complete -Command body.
+  // Only strip that pair when the final quote is not escaped with an odd run of
+  // PowerShell backticks. Inner quotes remain untouched in the temporary file.
+  let backticks = 0;
+  for (let index = value.length - 2; index >= 0 && value[index] === '`'; index--) backticks++;
+  return backticks % 2 === 0;
 }
 
 function normalizeCmdNewlines(command: string): string {

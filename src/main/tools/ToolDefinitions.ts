@@ -79,7 +79,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
     {
       name: 'shell_execute',
       description:
-        'Execute a command in a shell process. The command runs via the system shell (cmd.exe on Windows, /bin/sh on Unix) with stdout and stderr captured separately. Each invocation spawns a fresh process — there is no shared terminal session. Default timeout is 15 minutes (900s).',
+        'Execute a command in a fresh shell process with stdout and stderr captured. On Windows, set shell to cmd for CMD/batch syntax or powershell/pwsh for raw PowerShell source. auto remains compatible with commands that start with powershell -Command. Default timeout is 15 minutes (900s).',
       parameters: {
         tool_title: {
           type: 'string',
@@ -91,6 +91,11 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
           description:
             'The shell command to execute. Supports multi-line commands. Keep under 4000 chars; for longer scripts, write to a file with file_write first, then run it.',
         },
+        shell: {
+          type: 'string',
+          description: 'Interpreter for this command. On Windows use cmd for batch syntax and powershell or pwsh for raw PowerShell source. auto detects a top-level powershell -Command invocation and otherwise uses CMD.',
+          enumValues: ['auto', 'cmd', 'powershell', 'pwsh'],
+        },
         timeout: {
           type: 'integer',
           description:
@@ -98,7 +103,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
         },
       },
       required: ['tool_title', 'command'],
-      propertyOrdering: ['tool_title', 'command', 'timeout'],
+      propertyOrdering: ['tool_title', 'shell', 'command', 'timeout'],
     },
     {
       name: 'file_read',

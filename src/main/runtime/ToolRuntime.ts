@@ -101,7 +101,12 @@ export class ToolRuntime {
       add(definition, async (args, context) => {
         if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal);
         if (definition.name === 'todo_write') return todo(args);
-        if (definition.name === 'shell_execute') return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal);
+        if (definition.name === 'shell_execute') {
+          const requestedShell = ['auto', 'cmd', 'powershell', 'pwsh'].includes(String(args.shell || 'auto'))
+            ? String(args.shell || 'auto') as 'auto' | 'cmd' | 'powershell' | 'pwsh'
+            : 'auto';
+          return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal, requestedShell);
+        }
         if (definition.name === 'browser_fetch') { const url = await this.network.assertAllowed(String(args.url || '')); return this.browser.fetch(url.toString(), Number(args.max_length) || 25000, context.signal); }
         if (definition.name === 'memory_write') return this.memory.writeMemory(String(args.content || ''));
         if (definition.name === 'memory_get') return this.memory.getMemory(String(args.keywords || ''), Number(args.limit) || 20);

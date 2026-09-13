@@ -2,6 +2,7 @@
   var dialogs = new Map();
 
   function show(data, options) {
+    options = options || {};
     if (!data || !data.id || dialogs.has(data.id)) return;
     var overlay = document.createElement('div');
     overlay.className = 'permission-dialog-overlay';
@@ -23,12 +24,13 @@
     function close() { overlay.remove(); dialogs.delete(data.id); }
     async function decide(endpoint, body) {
       [deny, once, session].forEach(function (button) { button.disabled = true; });
+      overlay.setAttribute('aria-busy', 'true');
       try { await window.IexaApi.json((options.apiBase || '') + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ id: data.id }, body)) }); close(); }
-      catch (error) { [deny, once, session].forEach(function (button) { button.disabled = false; }); options.onError(error.message || String(error)); }
+      catch (error) { overlay.removeAttribute('aria-busy'); [deny, once, session].forEach(function (button) { button.disabled = false; }); if (options && typeof options.onError === 'function') options.onError(error.message || String(error)); }
     }
-    deny.addEventListener('click', function () { decide('/api/permissions/deny', {}); });
-    once.addEventListener('click', function () { decide('/api/permissions/approve', { scope: 'once' }); });
-    session.addEventListener('click', function () { decide('/api/permissions/approve', { scope: 'session' }); });
+    deny.addEventListener('click', function (event) { event.preventDefault(); event.stopPropagation(); void decide('/api/permissions/deny', {}); });
+    once.addEventListener('click', function (event) { event.preventDefault(); event.stopPropagation(); void decide('/api/permissions/approve', { scope: 'once' }); });
+    session.addEventListener('click', function (event) { event.preventDefault(); event.stopPropagation(); void decide('/api/permissions/approve', { scope: 'session' }); });
   }
 
   function makeButton(label, className) { var button = document.createElement('button'); button.type = 'button'; button.className = className; button.textContent = label; return button; }

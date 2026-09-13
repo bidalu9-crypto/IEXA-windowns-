@@ -262,6 +262,8 @@ export class AgentLoop {
       data?: Buffer;
       text?: string;
       savedPath?: string;
+      width?: number;
+      height?: number;
     }>,
   ): Promise<void> {
     this.callbacks = callbacks;
@@ -276,7 +278,11 @@ export class AgentLoop {
       for (const att of attachments) {
         if (att.kind === 'image' && att.data) {
           parts.push({ type: 'imageData', data: att.data, mimeType: att.mime || 'image/png' });
-          notes.push(`[Image attached: ${att.name}${att.savedPath ? ` → saved as ${att.savedPath}` : ''}]`);
+          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+          notes.push(`[User image attached as original pixels: ${att.name}${dimensions}${att.savedPath ? `; saved as ${att.savedPath}` : ''}. Inspect the attached pixels, not a UI thumbnail. If you identify a point or region, use original-image coordinates with (0,0) at the top-left.]`);
+        } else if (att.kind === 'image') {
+          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+          notes.push(`[User image requires visual inspection: ${att.name}${dimensions}${att.savedPath ? `; absolute path: ${att.savedPath}` : ''}. Call read_image with this exact path before answering about the image. Do not guess from its filename, chat thumbnail, or an earlier image. Ask the vision tool to transcribe visible text and locate relevant regions using original-image coordinates from the top-left.]`);
         } else if (att.kind === 'text' && att.text != null) {
           const clipped = att.text.length > 80000
             ? att.text.substring(0, 80000) + '\n\n... (truncated)'
