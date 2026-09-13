@@ -1009,7 +1009,7 @@ function backfillSessionContexts(): void {
 
 // ---- MIME ----
 const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
+  '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
   '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml',
   '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime',
@@ -1156,6 +1156,45 @@ function resolveProjectPath(rel: string): string | null {
   const relToRoot = path.relative(root, abs);
   if (relToRoot.startsWith('..') || path.isAbsolute(relToRoot)) return null;
   return abs;
+}
+
+function pathIsInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** Resolve HTML preview files while preserving a virtual directory for relative assets. */
+function resolveHtmlPreviewPath(scope: string, requestedPath: string): string | null {
+  if (!requestedPath || requestedPath.includes('\0')) return null;
+  const roots = [getProjectRoot(), WORKSPACE_DIR]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => path.resolve(value));
+  let candidate: string;
+  if (scope === 'project') {
+    const projectRoot = getProjectRoot();
+    if (!projectRoot) return null;
+    candidate = path.resolve(projectRoot, requestedPath);
+    if (!pathIsInside(projectRoot, candidate)) return null;
+  } else if (scope === 'workspace') {
+    candidate = path.resolve(WORKSPACE_DIR, requestedPath);
+    if (!pathIsInside(WORKSPACE_DIR, candidate)) return null;
+  } else if (scope === 'absolute') {
+    if (!path.isAbsolute(requestedPath)) return null;
+    candidate = path.resolve(requestedPath);
+    if (!roots.some((root) => pathIsInside(root, candidate))) return null;
+  } else {
+    return null;
+  }
+
+  if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) return null;
+  // Resolve symlinks before the final containment check so a project symlink
+  // cannot turn the preview route into an arbitrary local-file server.
+  const realCandidate = fs.realpathSync(candidate);
+  const allowed = roots.some((root) => {
+    try { return pathIsInside(fs.realpathSync(root), realCandidate); }
+    catch { return false; }
+  });
+  return allowed ? realCandidate : null;
 }
 
 /**
@@ -2969,6 +3008,33 @@ ${recentMemories}
       }
       res.writeHead(200, { ...commonHeaders, 'Content-Length': stat.size });
       fs.createReadStream(artifact.path).pipe(res);
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/fs/preview/') && req.method === 'GET') {
+      try {
+        const encoded = url.pathname.slice('/api/fs/preview/'.length);
+        const separator = encoded.indexOf('/');
+        if (separator < 1) {
+          res.writeHead(404); res.end('预览文件不存在'); return;
+        }
+        const scope = encoded.slice(0, separator);
+        const requestedPath = decodeURIComponent(encoded.slice(separator + 1)).replace(/\//g, path.sep);
+        const target = resolveHtmlPreviewPath(scope, requestedPath);
+        if (!target) {
+          res.writeHead(404); res.end('预览文件不存在'); return;
+        }
+        const ext = path.extname(target).toLowerCase();
+        res.writeHead(200, {
+          'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+          'Content-Disposition': 'inline',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        });
+        fs.createReadStream(target).pipe(res);
+      } catch {
+        res.writeHead(400); res.end('预览路径无效');
+      }
       return;
     }
 

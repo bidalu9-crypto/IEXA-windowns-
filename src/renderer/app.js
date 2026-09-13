@@ -3004,9 +3004,21 @@ function renderToolArtifacts(host, artifacts) {
       link.className = 'tool-artifact-file';
       link.dataset.artifactKey = src;
       link.href = src;
-      link.target = '_blank';
-      link.rel = 'noreferrer';
       link.textContent = rel;
+      const htmlTarget = (isHtmlFilePath(rel) || String(artifact.mimeType || '').toLowerCase() === 'text/html')
+        ? resolveHtmlPreviewTarget(artifact.path)
+        : null;
+      if (htmlTarget) {
+        link.classList.add('is-html-preview');
+        link.title = '在 IEXA 中预览 HTML 效果';
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          openHtmlPreview(htmlTarget);
+        });
+      } else {
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+      }
       card.appendChild(link);
     }
   }
@@ -3124,6 +3136,7 @@ function renderDeliverables(messageEl, files) {
 
 async function openDeliverablePreview(path, absolutePath) {
   const normalized = String(path || '').replace(/\\/g, '/').replace(/^\.\//, '');
+  if (isHtmlFilePath(absolutePath || normalized) && openHtmlPreview(absolutePath || normalized)) return;
   // The project file preview is safer and keeps the user in IEXA when this
   // deliverable belongs to the currently opened project.
   if (projectRoot && normalized && !/^(?:[A-Za-z]:\/|\/)/.test(normalized)) {
@@ -3176,6 +3189,22 @@ function normalizeRenderedAssets(contentEl) {
       img.addEventListener('click', () => openImagePreview(img.src, img.alt || '图片'));
       img.style.cursor = 'zoom-in';
     }
+  });
+  contentEl.querySelectorAll('a').forEach((link) => {
+    if (link.dataset.iexaHtmlPreview) return;
+    const rawHref = link.getAttribute('href') || '';
+    const target = resolveHtmlPreviewTarget(rawHref);
+    if (!target) return;
+    link.dataset.iexaHtmlPreview = target.displayPath || target.path;
+    link.classList.add('markdown-html-preview-link');
+    link.removeAttribute('target');
+    link.removeAttribute('rel');
+    link.title = '在 IEXA 中预览 HTML 效果';
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openHtmlPreview(target);
+    });
   });
 }
 
@@ -3455,6 +3484,213 @@ async function stopProcessing() {
   // The SSE terminal event clears turnStopPending and drains the queue. Do not
   // start another request merely because the cancel HTTP call returned.
 }
+
+// =============================================================================
+// HTML effect preview
+// =============================================================================
+
+const HTML_PREVIEW_STORAGE_KEY = 'iexa-html-preview-viewport';
+let htmlPreviewTarget = null;
+let htmlPreviewLastFocus = null;
+
+function safelyDecodePath(value) {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function isHtmlFilePath(value) {
+  return /\.(?:html?|xhtml)(?:[?#].*)?$/i.test(String(value || '').trim());
+}
+
+function relativePathWithin(absolutePath, rootPath) {
+  const value = String(absolutePath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const root = String(rootPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!value || !root) return null;
+  const valueLower = value.toLowerCase();
+  const rootLower = root.toLowerCase();
+  if (valueLower === rootLower) return '';
+  return valueLower.startsWith(rootLower + '/') ? value.slice(root.length + 1) : null;
+}
+
+function htmlPreviewUrl(scope, filePath) {
+  const encodedPath = String(filePath || '').replace(/\\/g, '/').split('/')
+    .filter((segment) => segment.length > 0)
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  return `${API_BASE}/api/fs/preview/${scope}/${encodedPath}`;
+}
+
+function resolveHtmlPreviewTarget(rawValue) {
+  let raw = String(rawValue || '').trim();
+  if (!raw || !isHtmlFilePath(raw)) return null;
+  if (/^(?:https?|mailto|javascript|data|blob):/i.test(raw)) return null;
+
+  if (!/^file:/i.test(raw) && /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (url.hostname.toLowerCase() !== 'attachments') return null;
+      const workspacePath = safelyDecodePath(`${url.hostname}${url.pathname}`).replace(/^\/+/, '');
+      if (!isHtmlFilePath(workspacePath)) return null;
+      return {
+        scope: 'workspace',
+        path: workspacePath,
+        displayPath: `workspace/${workspacePath}`,
+        absolutePath: '',
+        url: htmlPreviewUrl('workspace', workspacePath),
+      };
+    } catch { return null; }
+  }
+
+  if (/^file:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      raw = safelyDecodePath(url.pathname).replace(/^\/(?=[A-Za-z]:\/)/, '');
+    } catch { return null; }
+  } else {
+    raw = safelyDecodePath(raw.split('#')[0].split('?')[0]);
+  }
+  raw = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!isHtmlFilePath(raw) || (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^[A-Za-z]:\//.test(raw))) return null;
+
+  const isAbsolute = /^[A-Za-z]:\//.test(raw) || raw.startsWith('/');
+  if (isAbsolute) {
+    const projectRelative = relativePathWithin(raw, projectRoot);
+    if (projectRelative != null) {
+      return {
+        scope: 'project', path: projectRelative, displayPath: raw,
+        absolutePath: raw, url: htmlPreviewUrl('project', projectRelative),
+      };
+    }
+    return {
+      scope: 'absolute', path: raw, displayPath: raw,
+      absolutePath: raw, url: htmlPreviewUrl('absolute', raw),
+    };
+  }
+
+  if (!projectRoot && /^workspace\//i.test(raw)) {
+    const workspacePath = raw.replace(/^workspace\//i, '');
+    return {
+      scope: 'workspace', path: workspacePath, displayPath: raw,
+      absolutePath: '', url: htmlPreviewUrl('workspace', workspacePath),
+    };
+  }
+  return {
+    scope: projectRoot ? 'project' : 'workspace', path: raw, displayPath: raw,
+    absolutePath: projectRoot ? `${String(projectRoot).replace(/[\\/]$/, '')}\\${raw.replace(/\//g, '\\')}` : '',
+    url: htmlPreviewUrl(projectRoot ? 'project' : 'workspace', raw),
+  };
+}
+
+function setHtmlPreviewViewport(viewport) {
+  const allowed = new Set(['desktop', 'tablet', 'mobile']);
+  const selected = allowed.has(viewport) ? viewport : 'desktop';
+  const stage = document.getElementById('htmlPreviewStage');
+  if (stage) stage.dataset.viewport = selected;
+  document.querySelectorAll('[data-preview-viewport]').forEach((button) => {
+    const active = button.dataset.previewViewport === selected;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  try { localStorage.setItem(HTML_PREVIEW_STORAGE_KEY, selected); } catch { /* ignore */ }
+  updateHtmlPreviewDimensions();
+}
+
+function updateHtmlPreviewDimensions() {
+  const canvas = document.getElementById('htmlPreviewCanvas');
+  const label = document.getElementById('htmlPreviewDimensions');
+  if (!canvas || !label) return;
+  const rect = canvas.getBoundingClientRect();
+  label.textContent = rect.width > 0 ? `${Math.round(rect.width)} × ${Math.round(rect.height)} px` : '自适应画布';
+}
+
+function openHtmlPreview(rawPath) {
+  const target = typeof rawPath === 'object' && rawPath ? rawPath : resolveHtmlPreviewTarget(rawPath);
+  const overlay = document.getElementById('htmlPreviewOverlay');
+  const frame = document.getElementById('htmlPreviewFrame');
+  if (!target || !overlay || !frame) return false;
+  htmlPreviewTarget = target;
+  htmlPreviewLastFocus = document.activeElement;
+  const title = String(target.displayPath || target.path).replace(/\\/g, '/').split('/').pop() || 'HTML 预览';
+  const titleEl = document.getElementById('htmlPreviewTitle');
+  const address = document.getElementById('htmlPreviewAddress');
+  const status = document.getElementById('htmlPreviewStatus');
+  const loading = document.getElementById('htmlPreviewLoading');
+  if (titleEl) titleEl.textContent = title;
+  if (address) { address.textContent = target.displayPath || target.path; address.title = target.displayPath || target.path; }
+  if (status) status.textContent = '正在载入';
+  if (loading) loading.hidden = false;
+  overlay.hidden = false;
+  document.body.classList.add('html-preview-open');
+  frame.src = `${target.url}?iexa_preview=${Date.now()}`;
+  requestAnimationFrame(updateHtmlPreviewDimensions);
+  document.getElementById('htmlPreviewClose')?.focus();
+  return true;
+}
+
+function closeHtmlPreview() {
+  const overlay = document.getElementById('htmlPreviewOverlay');
+  const frame = document.getElementById('htmlPreviewFrame');
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  if (frame) frame.src = 'about:blank';
+  document.body.classList.remove('html-preview-open');
+  htmlPreviewTarget = null;
+  if (htmlPreviewLastFocus && typeof htmlPreviewLastFocus.focus === 'function') htmlPreviewLastFocus.focus();
+  htmlPreviewLastFocus = null;
+}
+
+function reloadHtmlPreview() {
+  if (!htmlPreviewTarget) return;
+  openHtmlPreview(htmlPreviewTarget);
+}
+
+function initHtmlPreview() {
+  const overlay = document.getElementById('htmlPreviewOverlay');
+  const frame = document.getElementById('htmlPreviewFrame');
+  const loading = document.getElementById('htmlPreviewLoading');
+  const status = document.getElementById('htmlPreviewStatus');
+  document.getElementById('htmlPreviewClose')?.addEventListener('click', closeHtmlPreview);
+  document.getElementById('htmlPreviewReload')?.addEventListener('click', reloadHtmlPreview);
+  document.getElementById('htmlPreviewCopyPath')?.addEventListener('click', async (event) => {
+    if (!htmlPreviewTarget) return;
+    const button = event.currentTarget;
+    try {
+      await navigator.clipboard.writeText(htmlPreviewTarget.absolutePath || htmlPreviewTarget.displayPath || htmlPreviewTarget.path);
+      button.classList.add('is-confirmed');
+      window.setTimeout(() => button.classList.remove('is-confirmed'), 1200);
+    } catch { /* clipboard permission is surfaced by the browser */ }
+  });
+  document.getElementById('htmlPreviewOpenExternal')?.addEventListener('click', async () => {
+    if (!htmlPreviewTarget) return;
+    if (htmlPreviewTarget.absolutePath && window.iexaDesktop?.openPath) {
+      await window.iexaDesktop.openPath(htmlPreviewTarget.absolutePath);
+      return;
+    }
+    window.open(htmlPreviewTarget.url, '_blank', 'noopener,noreferrer');
+  });
+  document.querySelectorAll('[data-preview-viewport]').forEach((button) => {
+    button.addEventListener('click', () => setHtmlPreviewViewport(button.dataset.previewViewport));
+  });
+  if (frame) {
+    frame.addEventListener('load', () => {
+      if (!overlay || overlay.hidden || frame.src === 'about:blank') return;
+      if (loading) loading.hidden = true;
+      if (status) status.textContent = '预览已就绪';
+      updateHtmlPreviewDimensions();
+    });
+  }
+  if (overlay) overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeHtmlPreview();
+  });
+  const canvas = document.getElementById('htmlPreviewCanvas');
+  if (canvas && window.ResizeObserver) new ResizeObserver(updateHtmlPreviewDimensions).observe(canvas);
+  let savedViewport = 'desktop';
+  try { savedViewport = localStorage.getItem(HTML_PREVIEW_STORAGE_KEY) || 'desktop'; } catch { /* ignore */ }
+  setHtmlPreviewViewport(savedViewport);
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !document.getElementById('htmlPreviewOverlay')?.hidden) closeHtmlPreview();
+});
 
 // =============================================================================
 // Image attachment preview
@@ -6240,6 +6476,7 @@ async function loadFilesList(relPath, silent) {
 }
 
 async function openFilePreview(relPath) {
+  if (isHtmlFilePath(relPath) && openHtmlPreview(relPath)) return;
   const box = document.getElementById('filesPreview');
   const nameEl = document.getElementById('filesPreviewName');
   const bodyEl = document.getElementById('filesPreviewBody');
@@ -7190,6 +7427,7 @@ async function init() {
   initSidebarNavigationScroll();
   initMobileDrawers();
   initChatFocusMode();
+  initHtmlPreview();
   initMobileBridge();
   initTextContextMenu();
   initFilesPanel();

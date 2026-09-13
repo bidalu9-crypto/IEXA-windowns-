@@ -32,6 +32,8 @@
     <symbol id="ui-brain" viewBox="0 0 24 24"><path d="M12 5.25a3.25 3.25 0 0 0-6.23 1.32A3.8 3.8 0 0 0 4.5 9.5a3.8 3.8 0 0 0 1.7 3.15A3.8 3.8 0 0 0 8.5 19a3.25 3.25 0 0 0 3.5 1.7V5.25Z"/><path d="M12 5.25a3.25 3.25 0 0 1 6.23 1.32A3.8 3.8 0 0 1 19.5 9.5a3.8 3.8 0 0 1-1.7 3.15A3.8 3.8 0 0 1 15.5 19a3.25 3.25 0 0 1-3.5 1.7V5.25Z"/><path d="M7.1 8.8h1.15a2 2 0 0 1 2 2v.2M16.9 8.8h-1.15a2 2 0 0 0-2 2v.2M6.8 14.2h1.4a2 2 0 0 1 2 2M17.2 14.2h-1.4a2 2 0 0 0-2 2"/></symbol>
     <symbol id="ui-folder" viewBox="0 0 24 24"><path d="M3.5 6.8A1.8 1.8 0 0 1 5.3 5h4.4l1.8 2h7.2a1.8 1.8 0 0 1 1.8 1.8v8.5a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V6.8Z"/></symbol>
     <symbol id="ui-monitor" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="12" rx="1.8"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="ui-tablet" viewBox="0 0 24 24"><rect x="4" y="2.8" width="16" height="18.4" rx="2.2"/><path d="M11.4 18h1.2"/></symbol>
+    <symbol id="ui-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></symbol>
     <symbol id="ui-code" viewBox="0 0 24 24"><path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M14 4l-4 16"/></symbol>
     <symbol id="ui-file" viewBox="0 0 24 24"><path d="M6 3.5h7l5 5v12H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/><path d="M13 3.5v5h5M8 13h8M8 16.5h6"/></symbol>
     <symbol id="ui-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 13h9.4l.8-13M10 11v5M14 11v5"/></symbol>
@@ -701,6 +703,49 @@ version: 1.0.0
     <p id="mobilePairMessage">正在验证此设备…</p>
     <button type="button" class="btn-primary" id="mobilePairRetry" hidden>重新配对</button>
   </div>
+</div>
+
+<!-- Sandboxed in-app HTML effect preview -->
+<div class="html-preview-overlay" id="htmlPreviewOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="htmlPreviewTitle">
+  <section class="html-preview-window" id="htmlPreviewWindow">
+    <header class="html-preview-titlebar">
+      <div class="html-preview-traffic" aria-label="窗口控制">
+        <button type="button" class="html-preview-dot is-close" id="htmlPreviewClose" title="关闭预览" aria-label="关闭预览"></button>
+        <span class="html-preview-dot is-minimize" aria-hidden="true"></span>
+        <span class="html-preview-dot is-zoom" aria-hidden="true"></span>
+      </div>
+      <div class="html-preview-document">
+        <span class="html-preview-file-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-code"/></svg></span>
+        <span id="htmlPreviewTitle">HTML 预览</span>
+      </div>
+      <div class="html-preview-title-actions">
+        <button type="button" id="htmlPreviewCopyPath" title="复制文件路径" aria-label="复制文件路径"><svg class="ui-icon"><use href="#ui-copy"/></svg></button>
+        <button type="button" id="htmlPreviewOpenExternal" title="在默认浏览器中打开" aria-label="在默认浏览器中打开"><svg class="ui-icon"><use href="#ui-external"/></svg></button>
+        <button type="button" id="htmlPreviewReload" title="刷新预览" aria-label="刷新预览"><svg class="ui-icon"><use href="#ui-refresh"/></svg></button>
+      </div>
+    </header>
+    <div class="html-preview-toolbar">
+      <div class="html-preview-address" title="当前文件">
+        <svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg>
+        <span id="htmlPreviewAddress"></span>
+      </div>
+      <div class="html-preview-viewports" role="group" aria-label="预览画布尺寸">
+        <button type="button" data-preview-viewport="desktop" class="is-active" title="桌面视图" aria-label="桌面视图" aria-pressed="true"><svg class="ui-icon"><use href="#ui-monitor"/></svg></button>
+        <button type="button" data-preview-viewport="tablet" title="平板视图" aria-label="平板视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-tablet"/></svg></button>
+        <button type="button" data-preview-viewport="mobile" title="手机视图" aria-label="手机视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></button>
+      </div>
+    </div>
+    <div class="html-preview-stage" id="htmlPreviewStage" data-viewport="desktop">
+      <div class="html-preview-canvas" id="htmlPreviewCanvas">
+        <iframe id="htmlPreviewFrame" title="HTML 效果预览" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
+        <div class="html-preview-loading" id="htmlPreviewLoading"><span></span><b>正在渲染</b></div>
+      </div>
+    </div>
+    <footer class="html-preview-statusbar">
+      <span class="html-preview-ready"><i aria-hidden="true"></i><span id="htmlPreviewStatus">就绪</span></span>
+      <span id="htmlPreviewDimensions">自适应画布</span>
+    </footer>
+  </section>
 </div>
 
 <!-- 图片附件预览：点击用户消息中的缩略图后显示 -->

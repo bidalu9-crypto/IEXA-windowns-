@@ -686,6 +686,30 @@ test('streamed assistant text renders markdown live and finalizes from preserved
   assert.match(styles, /\.streaming-markdown \{[^}]*overflow-wrap: anywhere;/s);
 });
 
+test('renderer opens local HTML links in the sandboxed in-app preview studio', async () => {
+  const [renderer, markup, styles, server] = await Promise.all([
+    fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'styles.css'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'src', 'main', 'server.ts'), 'utf8'),
+  ]);
+  assert.match(renderer, /function resolveHtmlPreviewTarget\(rawValue\)/);
+  assert.match(renderer, /url\.hostname\.toLowerCase\(\) !== 'attachments'/);
+  assert.doesNotMatch(renderer, /ze:\/\//i);
+  assert.match(renderer, /link\.dataset\.iexaHtmlPreview/);
+  assert.match(renderer, /openHtmlPreview\(target\)/);
+  assert.match(renderer, /if \(isHtmlFilePath\(relPath\) && openHtmlPreview\(relPath\)\) return/);
+  assert.match(markup, /id="htmlPreviewOverlay"/);
+  assert.match(markup, /id="htmlPreviewFrame"[^>]*sandbox="(?![^"]*allow-same-origin)[^"]*allow-scripts/);
+  assert.match(markup, /data-preview-viewport="desktop"/);
+  assert.match(markup, /data-preview-viewport="tablet"/);
+  assert.match(markup, /data-preview-viewport="mobile"/);
+  assert.match(styles, /\.html-preview-window\s*\{/);
+  assert.match(styles, /\.html-preview-stage\[data-viewport="mobile"\]/);
+  assert.match(server, /url\.pathname\.startsWith\('\/api\/fs\/preview\/'\)/);
+  assert.match(server, /fs\.realpathSync\(candidate\)/);
+});
+
 test('stream follow captures bottom intent before reflow and respects manual upward scrolling', async () => {
   const renderer = await fs.readFile(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   const textBody = renderer.slice(renderer.indexOf('function handleTextDelta('), renderer.indexOf('function thinkingEffortLabelFor('));
@@ -1655,6 +1679,19 @@ test('HTTP route modules expose runtime and WebDAV conflict endpoints', async ()
     assert.deepEqual(conflicts.conflicts, []);
     const traces = await fetch(`http://127.0.0.1:${port}/api/traces`).then((response) => response.json());
     assert.match(traces.error, /sessionId required/);
+    await fs.mkdir(path.join(root, 'preview-site', 'assets'), { recursive: true });
+    await fs.writeFile(path.join(root, 'preview-site', 'index.html'), '<!doctype html><link rel="stylesheet" href="assets/site.css"><h1>Preview works</h1>', 'utf8');
+    await fs.writeFile(path.join(root, 'preview-site', 'assets', 'site.css'), 'h1 { color: rgb(12, 34, 56); }', 'utf8');
+    const previewHtml = await fetch(`http://127.0.0.1:${port}/api/fs/preview/workspace/preview-site/index.html`);
+    assert.equal(previewHtml.status, 200);
+    assert.match(previewHtml.headers.get('content-type') || '', /^text\/html/);
+    assert.match(await previewHtml.text(), /Preview works/);
+    const previewCss = await fetch(`http://127.0.0.1:${port}/api/fs/preview/workspace/preview-site/assets/site.css`);
+    assert.equal(previewCss.status, 200);
+    assert.match(previewCss.headers.get('content-type') || '', /^text\/css/);
+    assert.match(await previewCss.text(), /rgb\(12, 34, 56\)/);
+    const previewEscape = await fetch(`http://127.0.0.1:${port}/api/fs/preview/workspace/%2e%2e/package.json`);
+    assert.notEqual(previewEscape.status, 200);
     const uploadSize = 8 * 1024 * 1024 + 123;
     const initialized = await fetch(`http://127.0.0.1:${port}/api/uploads/init`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
