@@ -518,6 +518,12 @@ export class AgentLoop {
               imageData: result.imageData,
               imageMimeType: result.imageMimeType,
             });
+            // Provider adapters serialize images as model-visible user input.
+            // Keeping pixels only as toolResult metadata made desktop frames
+            // visible in the IEXA UI but invisible to the model itself.
+            if (result.imageData && result.imageMimeType) {
+              toolResults.push({ type: 'imageData', data: result.imageData, mimeType: result.imageMimeType });
+            }
           }
           toolIndex += batch.length;
         }

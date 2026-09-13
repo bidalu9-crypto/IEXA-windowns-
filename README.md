@@ -163,7 +163,9 @@ IEXA-windowns-/
 
 ## 📦 打包发布
 
-双击 `build-installer.bat` 可自动检查依赖和 Electron 运行时、编译项目并生成安装程序。也可以手动运行自定义打包脚本，仅生成可分发的 Electron 应用目录：
+双击 `build-installer.bat` 可自动检查依赖和 Electron 运行时、编译项目并生成安装程序。`IEXA-Setup.exe` 会显示安装向导，安装目录可以直接编辑或通过“浏览”按钮选择，并会记住上一次安装位置。也可以手动运行自定义打包脚本，仅生成可分发的 Electron 应用目录：
+
+不需要本地构建环境的用户可以直接下载最新的 [IEXA-Setup.exe](https://github.com/bidalu9-crypto/IEXA-windowns-/releases/latest/download/IEXA-Setup.exe)。
 
 ```bash
 node build-dist.js

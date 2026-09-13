@@ -5,12 +5,13 @@ import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
 
 const ENDPOINT = 'http://127.0.0.1:17891';
+const PROTOCOL_VERSION = 5;
 
 export class DesktopAgent {
   private startPromise: Promise<void> | null = null;
   private healthyUntil = 0;
 
-  constructor(private readonly appRoot: string) {}
+  constructor(private readonly appRoot: string, private readonly captureFramesByDefault: boolean = false) {}
 
   private async healthy(): Promise<boolean> {
     if (Date.now() < this.healthyUntil) return true;
@@ -19,7 +20,7 @@ export class DesktopAgent {
       if (!r.ok) return false;
       const health = await r.json() as Record<string, unknown>;
       const valid = health.product === 'IEXA Desktop Agent'
-        && health.protocolVersion === 4
+        && health.protocolVersion === PROTOCOL_VERSION
         && health.automationEngine === 'FlaUI 5'
         && typeof health.instanceNonce === 'string'
         && health.instanceNonce.length >= 16;
@@ -36,6 +37,7 @@ export class DesktopAgent {
   }
 
   private async start(): Promise<void> {
+    await this.stopIncompatibleHelper();
     const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath || path.dirname(process.execPath);
     const candidates = [
       path.join(this.appRoot, 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
@@ -72,6 +74,26 @@ export class DesktopAgent {
       if (await this.healthy()) return;
     }
     throw new Error(`Desktop agent did not become ready. See ${logPath}`);
+  }
+
+  private async stopIncompatibleHelper(): Promise<void> {
+    try {
+      const response = await fetch(`${ENDPOINT}/health`, { signal: AbortSignal.timeout(600) });
+      if (!response.ok) return;
+      const health = await response.json() as Record<string, unknown>;
+      if (health.product !== 'IEXA Desktop Agent' || health.protocolVersion === PROTOCOL_VERSION) return;
+      try { await fetch(`${ENDPOINT}/shutdown`, { method: 'POST', signal: AbortSignal.timeout(800) }); } catch {}
+      for (let index = 0; index < 15; index++) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        try { await fetch(`${ENDPOINT}/health`, { signal: AbortSignal.timeout(150) }); }
+        catch { return; }
+      }
+      const pid = Number(health.pid);
+      if (Number.isInteger(pid) && pid > 0) {
+        try { process.kill(pid); } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    } catch {}
   }
 
   async execute(args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecutionResult> {
@@ -124,7 +146,8 @@ export class DesktopAgent {
         durationMs: Date.now() - started,
         metadata: { endpoint: ENDPOINT, action },
       };
-      if (response.ok && action === 'observe' && args.captureFrame === true) {
+      const captureFrame = args.captureFrame === true || (args.captureFrame !== false && this.captureFramesByDefault);
+      if (response.ok && action === 'observe' && captureFrame) {
         const frame = await fetch(`${ENDPOINT}/frame?full=0`, { signal: controller.signal });
         if (frame.ok) {
           result.imageData = Buffer.from(await frame.arrayBuffer());
@@ -151,12 +174,16 @@ export function formatDesktopResult(value: any): string {
   const data = value.data || {};
   const lines = [`${value.action} · ${value.elapsedMs ?? 0} ms · ${data.found === false ? '未找到目标' : '已执行'}`];
   if (data.foreground) lines.push(`窗口：${data.foreground.title} (${data.foreground.process}) handle=${data.foreground.handle}`);
+  if (data.window) lines.push(`目标：${data.window.title} (${data.window.process}) pid=${data.window.pid} handle=${data.window.handle}`);
   if (data.session) lines.push(`observationToken=${data.session.observationToken || ''}`);
   if (data.frame) lines.push(`画面：${data.frame.width}×${data.frame.height}，capturedAt=${data.frame.capturedAt}，hash=${data.frame.hash}`);
   if (data.elements) for (const element of data.elements.slice(0, 80)) {
     lines.push(`${element.id} | ${element.role} | ${String(element.text || '').slice(0, 180)} | ${JSON.stringify(element.bounds)}`);
   }
   if (data.results) for (const [index, step] of data.results.entries()) lines.push(`${index + 1}. ${step.action}: ${JSON.stringify(step.result)}`);
+  if (data.windows) for (const window of data.windows.slice(0, 40)) {
+    lines.push(`窗口：${window.title} | process=${window.process} | pid=${window.pid} | handle=${window.handle} | bounds=${JSON.stringify(window.bounds)}`);
+  }
   const { elements, windows, screens, frame, foreground, session, results, ...rest } = data;
   if (Object.keys(rest).length) lines.push(JSON.stringify(rest));
   lines.push('仅表示输入已执行；业务成功需核对界面文字或截图。');

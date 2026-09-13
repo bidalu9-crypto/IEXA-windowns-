@@ -229,14 +229,6 @@ export class AnthropicProvider {
     return messages.map((msg) => {
       const content: Record<string, unknown>[] = [];
 
-      // Collect tool results for batch injection
-      const toolResults: Array<{
-        tool_use_id: string;
-        type: 'tool_result';
-        content: string;
-        is_error?: boolean;
-      }> = [];
-
       for (const part of msg.parts) {
         if (part.type === 'text') {
           content.push({ type: 'text', text: part.text });
@@ -248,7 +240,7 @@ export class AnthropicProvider {
             input: part.input,
           });
         } else if (part.type === 'toolResult') {
-          toolResults.push({
+          content.push({
             type: 'tool_result' as const,
             tool_use_id: part.id,
             content: part.content,
@@ -264,12 +256,6 @@ export class AnthropicProvider {
             },
           });
         }
-      }
-
-      // Add tool results to content
-      for (const tr of toolResults) {
-        const tc: Record<string, unknown> = { ...tr };
-        content.push(tc);
       }
 
       return {

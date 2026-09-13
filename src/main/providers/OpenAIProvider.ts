@@ -546,13 +546,17 @@ export class OpenAIProvider {
         else if (part.type === 'toolUse') calls.push({ type: 'function_call', call_id: part.id, name: part.name, arguments: JSON.stringify(part.input) });
         else if (part.type === 'toolResult') outputs.push({ type: 'function_call_output', call_id: part.id, output: part.content });
       }
+      // Function outputs must immediately follow their function calls. Any
+      // screenshot produced by that tool is a subsequent user image.
+      if (message.role === 'user') result.push(...outputs);
       if (text.length || images.length) {
         const content: Record<string, unknown>[] = [];
         if (text.length) content.push({ type: message.role === 'user' ? 'input_text' : 'output_text', text: text.join('') });
         content.push(...images);
         result.push({ role: message.role, content });
       }
-      result.push(...calls, ...outputs);
+      result.push(...calls);
+      if (message.role !== 'user') result.push(...outputs);
     }
     return result;
   }
@@ -610,12 +614,12 @@ export class OpenAIProvider {
           }
         }
 
-        if (contentParts.length > 0) {
-          result.push({ role: 'user', content: contentParts });
-        }
-
         for (const tr of toolResults) {
           result.push(tr);
+        }
+
+        if (contentParts.length > 0) {
+          result.push({ role: 'user', content: contentParts });
         }
       } else if (msg.role === 'assistant') {
         // Build assistant message with potential tool_calls

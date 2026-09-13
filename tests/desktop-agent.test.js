@@ -8,12 +8,13 @@ const { spawn, spawnSync } = require('node:child_process');
 const { makeAgentTools } = require('../dist/main/tools/ToolDefinitions');
 const { DesktopAgent, formatDesktopResult } = require('../dist/main/tools/DesktopAgent');
 
-test('desktop_control exposes non-vision semantic actions', () => {
+test('desktop_control exposes application lifecycle and semantic actions', () => {
   const tool = makeAgentTools(true).find((x) => x.name === 'desktop_control');
   assert.ok(tool);
-  for (const action of ['observe', 'activate', 'minimize', 'bind_window', 'session_state', 'click_element', 'type_element', 'find_element', 'read_focused', 'wait_change', 'batch']) {
+  for (const action of ['list_windows', 'launch', 'observe', 'activate', 'minimize', 'bind_window', 'session_state', 'click_element', 'type_element', 'find_element', 'read_focused', 'wait_change', 'batch']) {
     assert.ok(tool.parameters.action.enumValues.includes(action));
   }
+  for (const field of ['app', 'executable', 'arguments', 'workingDirectory', 'waitForWindowMs', 'pid', 'includeHidden']) assert.ok(tool.parameters[field]);
   assert.ok(tool.parameters.includeOcr);
   assert.ok(tool.parameters.includeRegions);
   assert.ok(tool.parameters.elementId);
@@ -51,14 +52,14 @@ test('desktop agent accepts tray-hidden windows when resolving an explicit proce
   assert.match(source, /var visible = IsWindowVisible\(h\)/);
 });
 
-test('compact desktop feedback keeps actionable IDs without window-list noise', () => {
+test('compact desktop feedback keeps actionable IDs and discoverable windows', () => {
   const output = formatDesktopResult({ ok: true, action: 'observe', elapsedMs: 25, data: {
     session: { observationToken: 'token' }, elements: [{ id: 'edit1', role: 'edit', text: 'Input', bounds: { left: 10 } }],
-    windows: Array(200).fill({ title: 'noise' }),
+    windows: [{ title: 'Notes', process: 'notepad', pid: 42, handle: 100, bounds: { left: 1, top: 2, width: 3, height: 4 } }],
   } });
   assert.match(output, /edit1/);
   assert.match(output, /token/);
-  assert.doesNotMatch(output, /noise/);
+  assert.match(output, /Notes.*process=notepad.*pid=42.*handle=100/);
 });
 
 test('desktop adapter treats native failure and missed waits as failures', async () => {
@@ -66,7 +67,7 @@ test('desktop adapter treats native failure and missed waits as failures', async
   try {
     for (const payload of [{ ok: false, error: 'blocked' }, { ok: true, action: 'wait', data: { found: false } }]) {
       global.fetch = async (url) => String(url).endsWith('/health')
-        ? new Response(JSON.stringify({ product: 'IEXA Desktop Agent', protocolVersion: 4, automationEngine: 'FlaUI 5', instanceNonce: '0123456789abcdef' }), { status: 200 })
+        ? new Response(JSON.stringify({ product: 'IEXA Desktop Agent', protocolVersion: 5, automationEngine: 'FlaUI 5', instanceNonce: '0123456789abcdef' }), { status: 200 })
         : new Response(JSON.stringify(payload), { status: 200 });
       const result = await new DesktopAgent(path.resolve(__dirname, '..')).execute({ action: 'wait', text: 'target' });
       assert.equal(result.success, false);
@@ -81,6 +82,7 @@ test('native pause persists and batch failures stop execution', async () => {
   assert.match(source, /actions\.Count > 24/);
   assert.match(source, /Batch input completed but verification text was not found/);
   assert.match(source, /includeOcr.*false/);
+  assert.match(source, /AbsolutePath == "\/shutdown"/);
 });
 
 test('FlaUI native agent performs 20 stable pattern-based fixture interactions', { timeout: 120_000, skip: process.platform !== 'win32' }, async (t) => {
@@ -107,13 +109,13 @@ test('FlaUI native agent performs 20 stable pattern-based fixture interactions',
 
   const fixtureExe = path.join(fixturePublish, 'PerceptionFixture.exe');
   const agentExe = path.join(publish, 'Iexa.DesktopAgent.exe');
-  const fixture = spawn(fixtureExe, [logPath, title], { cwd: root, stdio: 'ignore' });
   const agent = spawn(agentExe, [], {
     cwd: root,
     env: { ...process.env, IEXA_DESKTOP_PORT: String(port) },
     stdio: 'ignore',
   });
   const endpoint = `http://127.0.0.1:${port}`;
+  let fixturePid = 0;
 
   const waitFor = async (probe, timeoutMs = 10_000) => {
     const deadline = Date.now() + timeoutMs;
@@ -163,7 +165,7 @@ test('FlaUI native agent performs 20 stable pattern-based fixture interactions',
       return response.ok ? response.json() : null;
     });
     assert.equal(health.product, 'IEXA Desktop Agent');
-    assert.equal(health.protocolVersion, 4);
+    assert.equal(health.protocolVersion, 5);
     assert.equal(health.automationEngine, 'FlaUI 5');
     assert.ok(health.instanceNonce.length >= 16);
 
@@ -173,11 +175,28 @@ test('FlaUI native agent performs 20 stable pattern-based fixture interactions',
     assert.equal(capabilities.fallbackBackend, 'UIA2');
     assert.equal(capabilities.stableSelectors, true);
     assert.equal(capabilities.patternActions, true);
+    assert.equal(capabilities.applicationLaunch, true);
+    assert.equal(capabilities.pidTargeting, true);
 
-    await waitFor(async () => {
-      try { return await post({ action: 'activate', window: title }); }
-      catch { return null; }
+    const launched = await post({
+      action: 'launch',
+      app: fixtureExe,
+      arguments: `"${logPath}" "${title}"`,
+      window: title,
+      process: 'PerceptionFixture',
+      waitForWindowMs: 10_000,
     });
+    fixturePid = launched.startedPid;
+    assert.equal(launched.launched, true);
+    assert.equal(launched.window.title, title);
+    assert.ok(launched.readyElements >= 3, 'Application controls were not ready when launch returned.');
+    assert.match(launched.readyBackend, /^uia[23]$/);
+    assert.ok(launched.readyStableSamples >= 2, 'Application controls did not stabilize before launch returned.');
+    const listed = await post({ action: 'list_windows', pid: launched.window.pid });
+    assert.equal(listed.count, 1);
+    assert.equal(listed.windows[0].title, title);
+    const activatedByPid = await post({ action: 'activate', pid: launched.window.pid });
+    assert.equal(activatedByPid.verified, true);
 
     const messages = [];
     const durations = [];
@@ -243,9 +262,17 @@ test('FlaUI native agent performs 20 stable pattern-based fixture interactions',
     assert.deepEqual(records.map((record) => record.text), messages);
     const p95 = [...durations].sort((a, b) => a - b)[Math.ceil(durations.length * 0.95) - 1];
     assert.ok(p95 < 20_000, `p95 ${p95} ms exceeded the 20 second requirement.`);
+    await post({ action: 'minimize' });
+    const minimizedFrame = await fetch(`${endpoint}/frame?full=0&format=jpeg&width=960`);
+    const minimizedFrameError = minimizedFrame.ok ? '' : await minimizedFrame.clone().text();
+    assert.equal(minimizedFrame.status, 200, minimizedFrameError);
+    assert.match(minimizedFrame.headers.get('content-type') || '', /^image\/jpeg/);
+    assert.equal(minimizedFrame.headers.get('x-iexa-capture-scope'), 'virtual-screen-fallback');
+    assert.ok((await minimizedFrame.arrayBuffer()).byteLength > 1_000);
     t.diagnostic(`20/20 messages verified; p95=${p95} ms; max=${Math.max(...durations)} ms`);
   } finally {
-    const cleanup = await Promise.allSettled([stop(agent), stop(fixture)]);
+    const fixture = fixturePid ? { pid: fixturePid, kill: () => process.kill(fixturePid) } : { pid: -1, kill() {} };
+    const cleanup = await Promise.allSettled([stop(agent), fixturePid ? stop(fixture) : Promise.resolve()]);
     try { fs.rmSync(logPath, { force: true, maxRetries: 10, retryDelay: 50 }); }
     finally {
       const failed = cleanup.find((result) => result.status === 'rejected');

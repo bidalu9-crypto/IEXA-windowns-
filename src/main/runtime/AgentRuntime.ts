@@ -10,7 +10,7 @@ import { Metrics } from '../observability/Metrics';
 import { CostTracker } from '../observability/CostTracker';
 import { TraceStore } from '../observability/TraceStore';
 
-export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; }
+export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; }
 export interface AgentRequest { message: string; tools: AgentToolDefinition[]; callbacks: AgentLoopCallbacks; attachments?: Parameters<AgentLoop['run']>[3]; }
 
 export class AgentRuntime {
@@ -28,7 +28,7 @@ export class AgentRuntime {
     this.costs = new CostTracker(config.provider.name, config.provider.model);
     this.budget = new BudgetManager(config.budget);
     this.traceStore = config.traceDir ? new TraceStore(config.traceDir) : undefined;
-    this.tools = new ToolRuntime({ workspaceDir: config.workspaceDir, memoryDir: config.memoryDir, memoryEnabled: config.memoryEnabled, auditDir: config.auditDir, permissionResolver: config.permissionResolver, permissionMode: config.permissionMode, budget: this.budget });
+    this.tools = new ToolRuntime({ workspaceDir: config.workspaceDir, memoryDir: config.memoryDir, memoryEnabled: config.memoryEnabled, auditDir: config.auditDir, permissionResolver: config.permissionResolver, permissionMode: config.permissionMode, budget: this.budget, desktopCaptureFrames: config.desktopCaptureFrames });
     this.tools.registerDefaults(config.onSkillRead, config.onSkillWrite);
     this.loop = new AgentLoop({ ...config, sessionId: config.sessionId, toolRuntime: this.tools, getAbortSignal: () => this.cancellation.signal(config.sessionId) });
     this.state = { sessionId: config.sessionId, status: 'idle', turn: 0, toolCalls: 0, startedAt: 0, updatedAt: Date.now(), budget: this.budget.snapshot() };

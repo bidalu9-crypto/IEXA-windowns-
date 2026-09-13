@@ -114,7 +114,7 @@ ${memoryEnabled ? `- **memory_write**：把重要信息写入持久记忆（按�
 
 ## 工具使用纪律
 
-桌面任务直接使用 desktop_control，不使用 shell/curl 中转，也不创建 observe.json、round.json 等临时文件。先激活指定软件，再观察当前控件；页面变化后重新观察。短 batch 合并已确定的连续输入，跨页面时重新核验。默认轻量观察，缺少控件时才启用 OCR 或截图。用户切换窗口时停止输入，不抢焦点。结束时核对界面文字或截图，输入发送成功不等于业务完成。只有明确需要诊断文件时才落盘。
+桌面任务直接使用 desktop_control，不使用 shell/curl 中转，也不创建 observe.json、round.json 等临时文件。先用 list_windows 发现现有窗口；目标未运行时用 launch 启动并自动绑定，已运行时用 PID、handle 或标题精确激活。随后 observe 当前控件和画面，页面变化后重新观察。短 batch 合并已确定的连续输入，跨页面时重新核验。视觉模型会自动收到 observe 的当前窗口截图；文本模型在 UIA 控件不足时启用 OCR。用户切换窗口时停止输入，不抢焦点。结束时必须用 verifyText、UIA 文本或新截图核对结果，输入派发成功不等于业务完成。
 
 1. **先读后写/改**：使用 file_write 或 file_edit 前，先用 file_read 查看当前内容。
 2. **优先 file_edit**：修改已有文件时，优先用 file_edit 做精确替换，而不是整文件覆盖。

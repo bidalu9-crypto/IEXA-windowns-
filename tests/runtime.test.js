@@ -79,10 +79,11 @@ test('MobileBridgeManager pairs once, authenticates, changes capability, and rev
 });
 
 test('Windows launchers bootstrap dependencies and keep actionable failures visible', async () => {
-  const [serverBat, electronBat, installerBat, dependencyHelper, electronHelper, nodeBootstrap] = await Promise.all([
+  const [serverBat, electronBat, installerBat, installerSource, dependencyHelper, electronHelper, nodeBootstrap] = await Promise.all([
     fs.readFile(path.join(__dirname, '..', 'start.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'start-electron.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'build-installer.bat'), 'utf8'),
+    fs.readFile(path.join(__dirname, '..', 'create-installer.ps1'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-node-deps.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'scripts', 'ensure-electron-runtime.bat'), 'utf8'),
     fs.readFile(path.join(__dirname, '..', 'scripts', 'install-portable-node.ps1'), 'utf8'),
@@ -105,6 +106,11 @@ test('Windows launchers bootstrap dependencies and keep actionable failures visi
   assert.match(dependencyHelper, /node_modules\\typescript\\bin\\tsc/i);
   assert.match(electronBat, /ensure-electron-runtime\.bat/i);
   assert.match(installerBat, /ensure-electron-runtime\.bat/i);
+  assert.match(installerSource, /FolderBrowserDialog/);
+  assert.match(installerSource, /InstallLocation/);
+  assert.match(installerSource, /VerifyWritable/);
+  assert.match(installerSource, /MessageBox\.Show\(this, ex\.Message/);
+  assert.doesNotMatch(installerSource, /Directory\.Delete\(InstallDir, true\)/);
   assert.match(electronHelper, /Expand-Archive/i);
   assert.match(electronHelper, /resources\\default_app\.asar/i);
   assert.doesNotMatch(electronBat, /extract_electron\.js/i);
@@ -882,6 +888,8 @@ test('live desktop supports draggable embedded and independent always-on-top win
   assert.match(floatingJs, /\/api\/desktop-live\/frame/);
   assert.match(floatingJs, /\/api\/desktop-live\/cancel/);
   assert.match(floatingJs, /\/api\/desktop-live\/resume/);
+  assert.match(floatingJs, /response\.clone\(\)\.json\(\)/);
+  assert.match(floatingJs, /payload\?\.error/);
 });
 
 test('tool definitions include structured array item schemas', async () => {
@@ -1140,6 +1148,46 @@ test('GLM 5.3 Flash is multimodal and sends its native Chat thinking switch', as
     assert.equal(requests[1].reasoning_effort, 'none');
     assert.deepEqual(requests[2].reasoning, { effort: 'high', summary: 'auto' });
     assert.deepEqual(requests[2].input[0].content[1], { type: 'input_image', image_url: 'data:image/png;base64,iVBORw==' });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('desktop tool screenshots remain model-visible after OpenAI tool results', async () => {
+  const originalFetch = global.fetch;
+  const requests = [];
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body) });
+    const frames = String(url).endsWith('/responses')
+      ? `data: ${JSON.stringify({ type: 'response.completed', response: { usage: { input_tokens: 1, output_tokens: 1 } } })}\n\n`
+      : 'data: [DONE]\n\n';
+    return new Response(frames, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  const messages = [
+    { role: 'assistant', parts: [{ type: 'toolUse', id: 'desktop-1', name: 'desktop_control', input: { action: 'observe' } }] },
+    { role: 'user', parts: [
+      { type: 'toolResult', id: 'desktop-1', name: 'desktop_control', content: 'observed', isError: false },
+      { type: 'imageData', data: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' },
+    ] },
+  ];
+  try {
+    const responses = new OpenAIProvider({ type: 'openai', name: 'openai', model: 'gpt-5', apiKey: 'test', apiMode: 'responses' });
+    for await (const _event of responses.streamMessage(messages, '', [], 1000)) {}
+    const chat = new OpenAIProvider({ type: 'openai', name: 'openai', model: 'gpt-5', apiKey: 'test', apiMode: 'chat_completions' });
+    for await (const _event of chat.streamMessage(messages, '', [], 1000)) {}
+
+    const responseItems = requests[0].body.input;
+    const outputIndex = responseItems.findIndex((item) => item.type === 'function_call_output');
+    const imageIndex = responseItems.findIndex((item) => item.role === 'user' && item.content?.some((part) => part.type === 'input_image'));
+    assert.ok(outputIndex >= 0 && imageIndex > outputIndex, JSON.stringify(responseItems));
+    const chatMessages = requests[1].body.messages;
+    const toolIndex = chatMessages.findIndex((item) => item.role === 'tool');
+    const userImageIndex = chatMessages.findIndex((item) => item.role === 'user' && item.content?.some?.((part) => part.type === 'image_url'));
+    assert.ok(toolIndex >= 0 && userImageIndex > toolIndex, JSON.stringify(chatMessages));
+
+    const agentLoop = await fs.readFile(path.join(__dirname, '..', 'src', 'main', 'agent', 'AgentLoop.ts'), 'utf8');
+    assert.match(agentLoop, /result\.imageData && result\.imageMimeType/);
+    assert.match(agentLoop, /type: 'imageData', data: result\.imageData/);
   } finally {
     global.fetch = originalFetch;
   }

@@ -895,6 +895,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     contextWindow: effectiveContextWindow(profile, profile.contextCompactionLimit ?? getContextCompactionLimit()),
     permissionResolver: (request: PermissionRequest) => permissionBroker.request(request),
     permissionMode: getPermissionMode(),
+    desktopCaptureFrames: profileLikelySupportsVision(profile),
   };
   agent = new AgentRuntime({ ...config, sessionId, auditDir: path.join(WORKSPACE_DIR, '.iexa-audit'), traceDir: TRACES_DIR });
   agentCache.set(sessionId, agent);

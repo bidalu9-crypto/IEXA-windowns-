@@ -17,7 +17,14 @@
 
   async function request(path, init) {
     const response = await fetch(path, init);
-    if (!response.ok) throw new Error(`请求失败 (${response.status})`);
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.clone().json();
+        detail = typeof payload?.error === 'string' ? payload.error.trim() : '';
+      } catch {}
+      throw new Error(detail || `请求失败 (${response.status})`);
+    }
     return response;
   }
 

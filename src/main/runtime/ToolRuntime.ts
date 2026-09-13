@@ -13,7 +13,7 @@ import { CommandPolicy } from '../tools/shell/CommandPolicy';
 import { DesktopAgent } from '../tools/DesktopAgent';
 import { makeAgentTools } from '../tools/ToolDefinitions';
 
-export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; }
+export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; }
 const risk: Record<string, ToolDefinition['risk']> = { todo_write: 'low', shell_execute: 'high', file_read: 'low', file_write: 'medium', file_edit: 'medium', browser_fetch: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
 
 export class ToolRuntime {
@@ -38,7 +38,7 @@ export class ToolRuntime {
     this.budget = config.budget || new BudgetManager();
     this.shell = new ShellExecutor(config.workspaceDir);
     this.memory = new MemoryTools(config.memoryDir);
-    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'));
+    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true);
     this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
   }
   async initialize(): Promise<void> { await this.memory.initialize(); }

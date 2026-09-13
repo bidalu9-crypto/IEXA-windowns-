@@ -80,7 +80,7 @@ internal static class Program
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/health")
             {
-                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", version = 4, protocolVersion = 4, instanceNonce = InstanceNonce, automationEngine = "FlaUI 5", pid = Environment.ProcessId, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", version = 5, protocolVersion = 5, instanceNonce = InstanceNonce, automationEngine = "FlaUI 5", pid = Environment.ProcessId, executablePath = Environment.ProcessPath, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
                 return;
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/frame")
@@ -89,7 +89,13 @@ internal static class Program
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/capabilities")
             {
-                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", protocolVersion = 4, instanceNonce = InstanceNonce, transport = "persistent-local-http", actions = new[] { "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, automationEngine = "FlaUI 5", primaryBackend = "UIA3", fallbackBackend = "UIA2", stableSelectors = true, patternActions = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", protocolVersion = 5, instanceNonce = InstanceNonce, transport = "persistent-local-http", actions = new[] { "list_windows", "launch", "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, automationEngine = "FlaUI 5", primaryBackend = "UIA3", fallbackBackend = "UIA2", stableSelectors = true, patternActions = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true, applicationLaunch = true, pidTargeting = true });
+                return;
+            }
+            if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/shutdown")
+            {
+                await Reply(context, 200, new { ok = true, shuttingDown = true });
+                _ = Task.Run(() => { Thread.Sleep(80); Environment.Exit(0); });
                 return;
             }
             // Cancellation must bypass the serialized action gate. A long
@@ -126,6 +132,8 @@ internal static class Program
                 TotalSteps = 0;
                 object data = action switch
                 {
+                    "list_windows" => ListWindows(req),
+                    "launch" => await Launch(req),
                     "observe" => await Observe(req),
                     "activate" => Activate(req),
                     "minimize" => Minimize(req),
@@ -165,13 +173,9 @@ internal static class Program
     static async Task ReplyFrame(HttpListenerContext context)
     {
         var fullScreen = context.Request.QueryString["full"] == "1";
-        Rectangle bounds;
-        if (!fullScreen && BoundWindow != IntPtr.Zero && GetWindowRect(BoundWindow, out var wr)) bounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
-        else bounds = Screen.AllScreens.Select(s => s.Bounds).Aggregate(Rectangle.Union);
-        bounds = Rectangle.Intersect(bounds, SystemInformation.VirtualScreen);
-        if (bounds.Width < 2 || bounds.Height < 2) throw new InvalidOperationException("Screen capture bounds are unavailable.");
-        using var bitmap = new Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (var graphics = Graphics.FromImage(bitmap)) graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bitmap.Size, CopyPixelOperation.SourceCopy);
+        var requestedWindow = fullScreen ? IntPtr.Zero : BoundWindow;
+        var requestedWindowUsable = requestedWindow != IntPtr.Zero && !IsIconic(requestedWindow);
+        using var bitmap = CaptureForeground(requestedWindowUsable ? requestedWindow : IntPtr.Zero, out var bounds);
         var jpeg = context.Request.QueryString["format"] == "jpeg";
         var maxWidth = int.TryParse(context.Request.QueryString["width"], out var requestedWidth) ? Math.Clamp(requestedWidth, 320, 1920) : bounds.Width;
         var width = Math.Min(bounds.Width, maxWidth);
@@ -180,6 +184,7 @@ internal static class Program
         var data = stream.ToArray(); context.Response.StatusCode = 200; context.Response.ContentType = jpeg ? "image/jpeg" : "image/png"; context.Response.ContentLength64 = data.Length;
         context.Response.Headers["Cache-Control"] = "no-store";
         context.Response.Headers["X-Captured-At"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+        context.Response.Headers["X-IEXA-Capture-Scope"] = requestedWindowUsable ? "bound-window" : "virtual-screen-fallback";
         await context.Response.OutputStream.WriteAsync(data); context.Response.Close();
     }
 
@@ -475,6 +480,180 @@ internal static class Program
         return new { verified = true, session = SessionState(), window = WindowInfo(h) };
     }
 
+    static object ListWindows(JsonObject req)
+    {
+        ThrowIfCancelled();
+        var query = req["window"]?.GetValue<string>() ?? "";
+        var process = req["process"]?.GetValue<string>() ?? "";
+        var pid = req["pid"]?.GetValue<int>() ?? 0;
+        var includeHidden = req["includeHidden"]?.GetValue<bool>() ?? false;
+        var limit = Math.Clamp(req["limit"]?.GetValue<int>() ?? 40, 1, 100);
+        var windows = new List<object>();
+        EnumWindows((h, _) =>
+        {
+            if (windows.Count >= limit || (!includeHidden && !IsWindowVisible(h))) return true;
+            var title = GetWindowText(h);
+            if (string.IsNullOrWhiteSpace(title)) return true;
+            GetWindowThreadProcessId(h, out var actualPid);
+            string processName = "";
+            try { processName = Process.GetProcessById((int)actualPid).ProcessName; } catch { }
+            if (!string.IsNullOrWhiteSpace(query) && !title.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+            if (!string.IsNullOrWhiteSpace(process) && !processName.Contains(process, StringComparison.OrdinalIgnoreCase)) return true;
+            if (pid > 0 && (int)actualPid != pid) return true;
+            windows.Add(WindowInfo(h));
+            return true;
+        }, IntPtr.Zero);
+        return new { count = windows.Count, windows };
+    }
+
+    static async Task<object> Launch(JsonObject req)
+    {
+        ThrowIfCancelled();
+        var app = req["app"]?.GetValue<string>() ?? req["executable"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(app)) throw new InvalidOperationException("app or executable is required.");
+        var arguments = req["arguments"]?.GetValue<string>() ?? "";
+        var (fileName, launchArguments, expectedProcess) = ResolveLaunchSpec(app.Trim(), arguments);
+        var workingDirectory = req["workingDirectory"]?.GetValue<string>() ?? "";
+        if (!string.IsNullOrWhiteSpace(workingDirectory) && !Directory.Exists(workingDirectory))
+            throw new InvalidOperationException($"Working directory not found: {workingDirectory}");
+        var before = SnapshotWindowHandles();
+        var foregroundBefore = GetForegroundWindow();
+        var info = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = launchArguments,
+            UseShellExecute = true,
+            WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
+        };
+        Process? started;
+        try { started = Process.Start(info); }
+        catch (Exception ex) { throw new InvalidOperationException($"Application launch failed for '{app}': {ex.Message}", ex); }
+        if (started is null) throw new InvalidOperationException($"Application launch returned no process for '{app}'.");
+
+        var title = req["window"]?.GetValue<string>() ?? "";
+        var process = req["process"]?.GetValue<string>() ?? expectedProcess;
+        var pid = req["pid"]?.GetValue<int>() ?? 0;
+        var timeout = Math.Clamp(req["waitForWindowMs"]?.GetValue<int>() ?? 15000, 500, 60000);
+        var clock = Stopwatch.StartNew();
+        IntPtr h = IntPtr.Zero;
+        do
+        {
+            ThrowIfCancelled();
+            if (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(process) || pid > 0)
+            {
+                h = FindWindow(title, process, pid);
+                if (h != IntPtr.Zero && before.Contains(h.ToInt64()) && string.IsNullOrWhiteSpace(title) && pid <= 0)
+                    h = IntPtr.Zero;
+            }
+            try { started.Refresh(); if (h == IntPtr.Zero && started.MainWindowHandle != IntPtr.Zero) h = started.MainWindowHandle; } catch { }
+            if (h == IntPtr.Zero)
+            {
+                var foreground = GetForegroundWindow();
+                if (foreground != IntPtr.Zero && foreground != foregroundBefore && IsWindowVisible(foreground)
+                    && (WindowMatchesRequest(foreground, title, process, pid) || !before.Contains(foreground.ToInt64())))
+                    h = foreground;
+            }
+            if (h == IntPtr.Zero) h = FindNewWindow(before);
+            if (h != IntPtr.Zero && IsWindow(h)) break;
+            await Task.Delay(80);
+        } while (clock.ElapsedMilliseconds < timeout);
+        if (h == IntPtr.Zero || !IsWindow(h))
+            throw new InvalidOperationException($"Application started (pid {started.Id}) but no controllable top-level window appeared within {timeout} ms. Call list_windows to inspect running windows.");
+        var logicalTitle = GetWindowText(h);
+        GetWindowThreadProcessId(h, out var logicalPid);
+        ForceForeground(h); await Task.Delay(120);
+        h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+        if (GetForegroundWindow() != h)
+        {
+            ForceForeground(h); await Task.Delay(120);
+            h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+        }
+        if (GetForegroundWindow() != h) throw new InvalidOperationException($"Application launched but foreground verification failed for handle {h.ToInt64()}.");
+        // WinUI/UWP windows often expose only their frame for several hundred
+        // milliseconds. Returning at that point makes the first observe look
+        // empty even though controls appear moments later.
+        var readyClock = Stopwatch.StartNew();
+        var readyElements = 0;
+        var readyBackend = "none";
+        var previousReadyElements = -1;
+        var stableReadySamples = 0;
+        do
+        {
+            ThrowIfCancelled();
+            h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+            try
+            {
+                var readiness = Automation.Observe(h, 12, 0, ThrowIfCancelled);
+                readyElements = readiness.Elements.Length;
+                readyBackend = readiness.Backend;
+                stableReadySamples = readyElements >= 3 && readyElements == previousReadyElements ? stableReadySamples + 1 : readyElements >= 3 ? 1 : 0;
+                previousReadyElements = readyElements;
+                if (readyClock.ElapsedMilliseconds >= 350 && stableReadySamples >= 2) break;
+            }
+            catch { }
+            await Task.Delay(120);
+        } while (readyClock.ElapsedMilliseconds < Math.Min(3000, timeout));
+        BindToWindow(h);
+        return new { launched = true, requestedApp = app, executable = fileName, arguments = launchArguments, startedPid = started.Id, waitedMs = clock.ElapsedMilliseconds, readyWaitMs = readyClock.ElapsedMilliseconds, readyElements, readyBackend, readyStableSamples = stableReadySamples, window = WindowInfo(h), session = SessionState() };
+    }
+
+    static IntPtr FollowLaunchWindowTransition(IntPtr original, string logicalTitle, uint logicalPid)
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground == original) return original;
+        if (foreground == IntPtr.Zero || !IsWindow(foreground) || !IsWindowVisible(foreground)) return original;
+        GetWindowThreadProcessId(foreground, out var foregroundPid);
+        var foregroundTitle = GetWindowText(foreground);
+        var titleMatches = !string.IsNullOrWhiteSpace(logicalTitle)
+            && foregroundTitle.Equals(logicalTitle, StringComparison.OrdinalIgnoreCase);
+        var processMatches = logicalPid != 0 && foregroundPid == logicalPid;
+        return titleMatches || (processMatches && string.IsNullOrWhiteSpace(logicalTitle)) ? foreground : original;
+    }
+
+    static (string FileName, string Arguments, string ExpectedProcess) ResolveLaunchSpec(string app, string arguments)
+    {
+        var key = Path.GetFileNameWithoutExtension(app).Trim().ToLowerInvariant();
+        return key switch
+        {
+            "记事本" or "notepad" => ("notepad.exe", arguments, "notepad"),
+            "计算器" or "calculator" or "calc" => ("calc.exe", arguments, "Calculator"),
+            "画图" or "paint" or "mspaint" => ("mspaint.exe", arguments, "mspaint"),
+            "文件资源管理器" or "资源管理器" or "explorer" => ("explorer.exe", arguments, "explorer"),
+            "设置" or "settings" => ("explorer.exe", string.IsNullOrWhiteSpace(arguments) ? "ms-settings:" : $"ms-settings:{arguments}", "ApplicationFrameHost"),
+            "终端" or "terminal" or "windows terminal" or "wt" => ("wt.exe", arguments, "WindowsTerminal"),
+            "命令提示符" or "cmd" => ("cmd.exe", arguments, "cmd"),
+            "powershell" => ("powershell.exe", arguments, "powershell"),
+            "微信" or "wechat" or "weixin" => (ResolveFirstExisting(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tencent", "Weixin", "Weixin.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Tencent", "WeChat", "WeChat.exe"),
+                "Weixin.exe"), arguments, "Weixin"),
+            _ => (app, arguments, Path.GetFileNameWithoutExtension(app)),
+        };
+    }
+
+    static string ResolveFirstExisting(params string[] candidates) => candidates.FirstOrDefault(File.Exists) ?? candidates[^1];
+
+    static HashSet<long> SnapshotWindowHandles()
+    {
+        var result = new HashSet<long>();
+        EnumWindows((h, _) => { result.Add(h.ToInt64()); return true; }, IntPtr.Zero);
+        return result;
+    }
+
+    static IntPtr FindNewWindow(HashSet<long> before)
+    {
+        IntPtr result = IntPtr.Zero; long bestArea = -1;
+        EnumWindows((h, _) =>
+        {
+            if (before.Contains(h.ToInt64()) || !IsWindowVisible(h) || string.IsNullOrWhiteSpace(GetWindowText(h))) return true;
+            long area = 0;
+            if (GetWindowRect(h, out var r)) area = Math.Max(0, r.Right - r.Left) * (long)Math.Max(0, r.Bottom - r.Top);
+            if (area > bestArea) { bestArea = area; result = h; }
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+
     static object Minimize(JsonObject req)
     {
         ThrowIfCancelled();
@@ -516,10 +695,11 @@ internal static class Program
     {
         var query = req["window"]?.GetValue<string>() ?? "";
         var process = req["process"]?.GetValue<string>() ?? "";
+        var pid = req["pid"]?.GetValue<int>() ?? 0;
         var handle = req["handle"]?.GetValue<long>() ?? 0;
-        var h = handle != 0 ? new IntPtr(handle) : (!string.IsNullOrWhiteSpace(query) || !string.IsNullOrWhiteSpace(process) ? FindWindow(query, process) : BoundWindow);
+        var h = handle != 0 ? new IntPtr(handle) : (!string.IsNullOrWhiteSpace(query) || !string.IsNullOrWhiteSpace(process) || pid > 0 ? FindWindow(query, process, pid) : BoundWindow);
         if (h != IntPtr.Zero && !IsWindow(h)) h = IntPtr.Zero;
-        if (required && h == IntPtr.Zero) throw new InvalidOperationException($"Window not found: {query} {process} {handle}".Trim());
+        if (required && h == IntPtr.Zero) throw new InvalidOperationException($"Window not found: {query} {process} {handle}. Call list_windows to inspect running apps or launch to start it.".Trim());
         return h;
     }
 
@@ -714,7 +894,7 @@ internal static class Program
             var name = Required(a, "action");
             ActiveStep++;
             ActiveAction = name;
-            object result = name switch { "activate" => Activate(a), "minimize" => Minimize(a), "click" => Click(a), "drag" => Drag(a), "click_element" => ClickElement(a), "type_element" => TypeElement(a), "find_element" => FindElement(a), "move" => Move(a), "type" => TypeText(a), "key" => Key(a), "hotkey" => Hotkey(a), "scroll" => Scroll(a), "wait" => Wait(a), "wait_change" => WaitChange(a).GetAwaiter().GetResult(), _ => throw new InvalidOperationException($"Unsupported batch action: {name}") };
+            object result = name switch { "list_windows" => ListWindows(a), "launch" => Launch(a).GetAwaiter().GetResult(), "activate" => Activate(a), "minimize" => Minimize(a), "click" => Click(a), "drag" => Drag(a), "click_element" => ClickElement(a), "type_element" => TypeElement(a), "find_element" => FindElement(a), "move" => Move(a), "type" => TypeText(a), "key" => Key(a), "hotkey" => Hotkey(a), "scroll" => Scroll(a), "wait" => Wait(a), "wait_change" => WaitChange(a).GetAwaiter().GetResult(), _ => throw new InvalidOperationException($"Unsupported batch action: {name}") };
             results.Add(new { action = name, result });
             var resultNode = JsonSerializer.SerializeToNode(result, JsonOptions);
             if (resultNode?["found"] is JsonValue found && found.TryGetValue<bool>(out var matched) && !matched) throw new InvalidOperationException($"Step {ActiveStep} ({name}) did not find its target; batch stopped.");
@@ -756,15 +936,17 @@ internal static class Program
         return list;
     }
 
-    static IntPtr FindWindow(string query, string process = "")
+    static IntPtr FindWindow(string query, string process = "", int requestedPid = 0)
     {
         IntPtr found = IntPtr.Zero; long bestScore = long.MinValue;
         EnumWindows((h, _) => {
             var title = GetWindowText(h);
             var titleMatch = string.IsNullOrEmpty(query) || title.Contains(query, StringComparison.OrdinalIgnoreCase);
+            GetWindowThreadProcessId(h, out var pid);
+            var pidMatch = requestedPid <= 0 || (int)pid == requestedPid;
             var processMatch = string.IsNullOrEmpty(process);
-            if (!processMatch) { try { GetWindowThreadProcessId(h, out var pid); processMatch = Process.GetProcessById((int)pid).ProcessName.Contains(process, StringComparison.OrdinalIgnoreCase); } catch { } }
-            if (!titleMatch || !processMatch) return true;
+            if (!processMatch) { try { processMatch = Process.GetProcessById((int)pid).ProcessName.Contains(process, StringComparison.OrdinalIgnoreCase); } catch { } }
+            if (!titleMatch || !processMatch || !pidMatch) return true;
             var visible = IsWindowVisible(h);
             // Background apps such as Weixin keep their logged-in main window
             // hidden in the tray. Accept a hidden match when a process/title
@@ -777,6 +959,18 @@ internal static class Program
             return true;
         }, IntPtr.Zero);
         return found;
+    }
+
+    static bool WindowMatchesRequest(IntPtr h, string query, string process, int requestedPid)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return false;
+        var title = GetWindowText(h);
+        if (!string.IsNullOrWhiteSpace(query) && !title.Contains(query, StringComparison.OrdinalIgnoreCase)) return false;
+        GetWindowThreadProcessId(h, out var pid);
+        if (requestedPid > 0 && (int)pid != requestedPid) return false;
+        if (string.IsNullOrWhiteSpace(process)) return true;
+        try { return Process.GetProcessById((int)pid).ProcessName.Contains(process, StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
     }
 
     static object WindowInfo(IntPtr h)
