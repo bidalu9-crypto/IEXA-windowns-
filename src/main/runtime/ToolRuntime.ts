@@ -1,0 +1,170 @@
+import * as path from 'path';
+import { ProjectInstructions } from '../agent/ProjectInstructions';
+import { AgentToolDefinition, ToolExecutionResult } from '../providers/types';
+import { ShellExecutor, FileTools, MemoryTools, BrowserFetch, WebSearch, buildMediaDisplayResult } from '../tools/ToolExecutors';
+import { PathSandbox, PathPolicy } from '../security/PathSandbox';
+import { PermissionManager, PermissionMode } from '../security/PermissionManager';
+import { BudgetManager } from './BudgetManager';
+import { ToolDefinition, ToolExecutionContext, ToolRegistry } from './ToolRegistry';
+import { ToolScheduler } from './ToolScheduler';
+import { ToolLifecycle, ToolExecutionStatus } from './ToolLifecycle';
+import { LoopDetector } from './LoopDetector';
+import { ArtifactStore } from '../context/ArtifactStore';
+import { CommandPolicy } from '../tools/shell/CommandPolicy';
+import { DesktopAgent } from '../tools/DesktopAgent';
+import { makeAgentTools } from '../tools/ToolDefinitions';
+
+export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; }
+const risk: Record<string, ToolDefinition['risk']> = { project_instructions: 'low', todo_write: 'low', shell_execute: 'high', file_read: 'low', file_write: 'medium', file_edit: 'medium', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
+
+export class ToolRuntime {
+  readonly registry = new ToolRegistry();
+  private readonly scheduler = new ToolScheduler();
+  private readonly sandbox = new PathSandbox();
+  private readonly permissions: PermissionManager;
+  private readonly budget: BudgetManager;
+  private readonly shell: ShellExecutor;
+  private readonly files = new FileTools(() => this.pathPolicy());
+  private permissionMode: PermissionMode;
+  private readonly memory: MemoryTools;
+  private readonly browser = new BrowserFetch();
+  private readonly webSearch = new WebSearch();
+  private readonly desktop: DesktopAgent;
+  private readonly loopDetector = new LoopDetector();
+  private readonly commandPolicy = new CommandPolicy();
+  private readonly artifacts: ArtifactStore;
+  private allowedTools: Set<string> | null = null;
+  private lifecycle = new ToolLifecycle();
+  private activeExecutions = 0;
+  private readonly executions = new Map<string, { fingerprint: string; result: Promise<ToolExecutionResult> }>();
+
+  constructor(private readonly config: ToolRuntimeConfig) {
+    this.permissionMode = config.permissionMode || 'risk';
+    this.permissions = new PermissionManager(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), config.permissionResolver, config.permissionMode || 'risk');
+    this.budget = config.budget || new BudgetManager();
+    this.shell = new ShellExecutor(config.workspaceDir);
+    this.memory = new MemoryTools(config.memoryDir);
+    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true);
+    this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
+  }
+  async initialize(): Promise<void> { await this.memory.initialize(); }
+  grantPermission(sessionId: string, toolName: string): void { this.permissions.grant(sessionId, toolName); }
+  setPermissionMode(mode: PermissionMode): void { this.permissionMode = mode; this.permissions.setMode(mode); }
+  private pathPolicy(): Omit<PathPolicy, 'workspaceDir'> { return { permissionMode: this.permissionMode, mode: this.config.pathMode || 'workspace', roots: this.config.selectedRoots }; }
+  isParallelSafe(name: string): boolean { return this.registry.get(name)?.parallelSafe === true; }
+  definitions(): AgentToolDefinition[] { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
+  async execute(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    // Retransmission of the same call ID must not execute a write/command twice.
+    const fingerprint = JSON.stringify([name, args], (_key, value) => value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
+    const key = JSON.stringify([context.sessionId, context.toolCallId]);
+    const existing = this.executions.get(key);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) return { output: 'Tool call ID was reused with different arguments. No second execution was performed.', success: false, executionStatus: 'failed' };
+      return existing.result;
+    }
+    if (this.executions.size >= 4096) return { output: 'Tool execution ledger limit reached.', success: false, executionStatus: 'failed' };
+    this.activeExecutions++;
+    const snapshot = JSON.parse(fingerprint)[1] as Record<string, unknown>;
+    const result = Promise.resolve().then(() => this.executeOnce(name, snapshot, context)).finally(() => { this.activeExecutions--; });
+    this.executions.set(key, { fingerprint, result });
+    return result;
+  }
+  private async executeOnce(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    let current: ToolExecutionStatus | undefined;
+    const emit = (status: ToolExecutionStatus) => {
+      if (status === current) return;
+      const event = this.lifecycle.transition(context.sessionId, context.toolCallId, name, status);
+      current = status;
+      try { context.onToolState?.(event); } catch { /* Observers cannot change tool execution. */ }
+      return event;
+    };
+    emit('queued');
+    const onCancellation = () => { if (current === 'queued' || current === 'awaiting_approval' || current === 'running') emit('cancelling'); };
+    context.signal.addEventListener('abort', onCancellation, { once: true });
+    let result: ToolExecutionResult;
+    try {
+      if (context.signal.aborted) throw new Error('Tool cancelled before execution.');
+      if (this.allowedTools && !this.allowedTools.has(name)) throw new Error(`Tool ${name} is not available for this client permission level.`);
+      this.registry.validate(name, args); this.loopDetector.record(name, args);
+      const tool = this.registry.get(name)!;
+      const authorizedTool = name === 'shell_execute'
+        ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
+        : tool;
+      const permissions = name === 'shell_execute'
+        ? new PermissionManager(this.config.auditDir || path.join(this.config.workspaceDir, '.iexa-audit'), this.config.permissionResolver, this.permissionMode)
+        : this.permissions;
+      await permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args, signal: context.signal, toolCallId: context.toolCallId, runId: this.lifecycle.runId,
+        onAwaitingApproval: () => emit('awaiting_approval') });
+      if (context.signal.aborted) throw new Error('Tool cancelled after approval.');
+      this.budget.recordTool();
+      emit('running');
+      result = await this.scheduler.execute(tool, args, { ...context, onCancellation });
+    } catch (error) {
+      result = { output: (error as Error).message || 'Tool execution failed.', success: false,
+        executionStatus: (error as { code?: string }).code === 'PERMISSION_DENIED' ? 'denied' : 'failed' };
+    } finally { context.signal.removeEventListener('abort', onCancellation); }
+    if (result.timedOut) result = { ...result, success: false, executionStatus: 'timed_out' };
+    else if (context.signal.aborted || result.cancelled) result = { ...result, success: false, cancelled: true, executionStatus: 'cancelled' };
+    else result.executionStatus = result.success ? 'completed' : result.executionStatus === 'denied' ? 'denied' : 'failed';
+    // An optional output attachment failing does not undo an already successful command.
+    if (result.output.length > 24_000) {
+      try {
+        const artifact = await this.artifacts.put(result.output);
+        result.artifacts = [...(result.artifacts || []), { kind: 'file', path: artifact.path, mimeType: 'text/plain', size: artifact.size }];
+      } catch (error) { result.metadata = { ...result.metadata, artifactError: (error as Error).message }; }
+    }
+    const terminal = emit(result.executionStatus!);
+    result.durationMs ??= terminal?.durationMs ?? 0;
+    return result;
+  }
+  getToolExecutions() { return this.lifecycle.snapshot(); }
+  getBudget(): ReturnType<BudgetManager['snapshot']> { return this.budget.snapshot(); }
+  beginRun(allowedTools?: Iterable<string>): void {
+    if (this.activeExecutions) throw new Error('Previous tool executions are still settling; wait before starting another run.');
+    this.executions.clear(); this.lifecycle = new ToolLifecycle();
+    this.allowedTools = allowedTools ? new Set(allowedTools) : null;
+    this.budget.reset(); this.loopDetector.reset();
+  }
+  beginTurn(): void { this.budget.beginTurn(); }
+  recordInputTokens(tokens: number): void { this.budget.recordInputTokens(tokens); }
+  registerDynamicTool(definition: AgentToolDefinition, execute: ToolDefinition['execute']): void {
+    if (this.registry.has(definition.name)) return;
+    this.registry.register({ ...definition, risk: 'medium', parallelSafe: false, cancellable: true, requiresApproval: true, execute });
+  }
+
+  registerDefaults(onSkillRead?: (p: string) => void, onSkillWrite?: (p: string) => void): void {
+    const add = (definition: AgentToolDefinition, execute: ToolDefinition['execute'], options: Partial<ToolDefinition> = {}) => this.registry.register({ ...definition, risk: options.risk || risk[definition.name] || 'medium', parallelSafe: options.parallelSafe ?? false, cancellable: options.cancellable ?? false, requiresApproval: options.requiresApproval ?? ((options.risk || risk[definition.name]) === 'high'), ...options, execute });
+    const todo = (args: Record<string, unknown>): ToolExecutionResult => {
+      const raw = Array.isArray(args.todos) ? args.todos : null; if (!raw || raw.length < 1 || raw.length > 24) return { output: 'Error: todos must contain between 1 and 24 items.', success: false };
+      const seen = new Set<string>(); let inProgress = 0; const todos: NonNullable<ToolExecutionResult['todos']> = [];
+      for (const item of raw) { if (!item || typeof item !== 'object') return { output: 'Error: every todo must be an object.', success: false }; const content = String((item as Record<string, unknown>).content || '').trim(); const status = String((item as Record<string, unknown>).status || ''); if (!content || content.length > 240 || !['pending', 'in_progress', 'completed'].includes(status)) return { output: 'Error: invalid todo item.', success: false }; if (seen.has(content.toLowerCase())) return { output: 'Error: duplicate todo content.', success: false }; seen.add(content.toLowerCase()); if (status === 'in_progress') inProgress++; todos.push({ content, status: status as NonNullable<ToolExecutionResult['todos']>[number]['status'] }); }
+      if (inProgress > 1) return { output: 'Error: at most one todo may be in_progress.', success: false }; const completed = todos.filter((t) => t.status === 'completed').length; const active = todos.filter((t) => t.status === 'in_progress').length; return { output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`, success: true, todos };
+    };
+    for (const definition of makeAgentTools(this.config.memoryEnabled !== false)) {
+      add(definition, async (args, context) => {
+        if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal);
+        if (definition.name === 'todo_write') return todo(args);
+        if (definition.name === 'shell_execute') {
+          const requestedShell = ['auto', 'cmd', 'powershell', 'pwsh'].includes(String(args.shell || 'auto'))
+            ? String(args.shell || 'auto') as 'auto' | 'cmd' | 'powershell' | 'pwsh'
+            : 'auto';
+          return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal, requestedShell);
+        }
+        if (definition.name === 'project_instructions') {
+          const result = await new ProjectInstructions(this.config.workspaceDir).resolve(String(args.path || '.'), args.kind === 'directory' ? 'directory' : 'file');
+          return { output: ProjectInstructions.format(result), success: result.warnings.length === 0 };
+        }
+        if (definition.name === 'web_search') return this.webSearch.search(String(args.query || ''), Number(args.limit) || 8, Number(args.recency_days) || undefined, context.signal);
+        if (definition.name === 'browser_fetch') return this.browser.fetch(String(args.url || ''), Number(args.max_length) || 25000, context.signal);
+        if (definition.name === 'memory_write') return this.memory.writeMemory(String(args.content || ''));
+        if (definition.name === 'memory_get') return this.memory.getMemory(String(args.keywords || ''), Number(args.limit) || 20);
+        const filePath = String(args.path || ''); const resolved = await this.sandbox.resolve(filePath, { ...this.pathPolicy(), workspaceDir: this.config.workspaceDir, allowMissing: definition.name === 'file_write' });
+        if (definition.name === 'file_read') { const result = await this.files.readFile(resolved.path, this.config.workspaceDir, { offset: args.offset ? Number(args.offset) : undefined, lines: args.lines ? Number(args.lines) : undefined, maxLength: args.max_length ? Number(args.max_length) : undefined, direction: args.direction as 'head' | 'tail' | undefined }); if (result.success) onSkillRead?.(resolved.path); return result; }
+        if (definition.name === 'file_write') { const result = await this.files.writeFile(resolved.path, String(args.content || ''), this.config.workspaceDir, { append: args.append === true, createDirs: args.create_dirs === true }); if (result.success) onSkillWrite?.(resolved.path); return result; }
+        if (definition.name === 'file_edit') { const result = await this.files.editFile(resolved.path, String(args.old_string || ''), String(args.new_string || ''), this.config.workspaceDir, args.replace_all === true); if (result.success) onSkillWrite?.(resolved.path); return result; }
+        return buildMediaDisplayResult(resolved.path, this.config.workspaceDir, this.pathPolicy());
+      }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'project_instructions' || definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch' || definition.name === 'web_search', cancellable: definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'shell_execute' || definition.name === 'desktop_control', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
+    }
+  }
+}

@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="violet">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IEXA-WIN</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="vendor/github.min.css" id="hljs-theme-light">
+<link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
+<script src="services/InitialAppearance.js"></script>
+</head>
+<body>
+<!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
+<svg class="ui-icon-sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="ui-chat" viewBox="0 0 24 24"><path d="M5 18.5 3.8 21l4-1.5A8.8 8.8 0 1 0 4 16.6"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
+    <symbol id="ui-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 0-3.6h-1.4a1.4 1.4 0 0 1 0-2.8H14a7 7 0 0 0 7-7 4.6 4.6 0 0 0-4.7-4.6Z"/><circle cx="7.7" cy="11" r=".8"/><circle cx="10" cy="7.5" r=".8"/><circle cx="14" cy="7" r=".8"/></symbol>
+    <symbol id="ui-puzzle" viewBox="0 0 24 24"><path d="M8.7 4.5a2.5 2.5 0 1 1 4.8 1H17a2 2 0 0 1 2 2v3.2a2.5 2.5 0 1 0 0 4.8v1a2 2 0 0 1-2 2h-3.5a2.5 2.5 0 1 0-4.8 0H7a2 2 0 0 1-2-2V13a2.5 2.5 0 1 0 0-4.8V7a2 2 0 0 1 2-2h1.7Z"/></symbol>
+    <symbol id="ui-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V20.3h-3v-.1a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.16 15a1.7 1.7 0 0 0-1.55-1H5.5v-3h.1a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-1.55V4.7h3v.1a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.44 10a1.7 1.7 0 0 0 1.55 1h.1v3H21a1.7 1.7 0 0 0-1.56 1Z"/></symbol>
+    <symbol id="ui-brain" viewBox="0 0 24 24"><path d="M12 5.25a3.25 3.25 0 0 0-6.23 1.32A3.8 3.8 0 0 0 4.5 9.5a3.8 3.8 0 0 0 1.7 3.15A3.8 3.8 0 0 0 8.5 19a3.25 3.25 0 0 0 3.5 1.7V5.25Z"/><path d="M12 5.25a3.25 3.25 0 0 1 6.23 1.32A3.8 3.8 0 0 1 19.5 9.5a3.8 3.8 0 0 1-1.7 3.15A3.8 3.8 0 0 1 15.5 19a3.25 3.25 0 0 1-3.5 1.7V5.25Z"/><path d="M7.1 8.8h1.15a2 2 0 0 1 2 2v.2M16.9 8.8h-1.15a2 2 0 0 0-2 2v.2M6.8 14.2h1.4a2 2 0 0 1 2 2M17.2 14.2h-1.4a2 2 0 0 0-2 2"/></symbol>
+    <symbol id="ui-folder" viewBox="0 0 24 24"><path d="M3.5 6.8A1.8 1.8 0 0 1 5.3 5h4.4l1.8 2h7.2a1.8 1.8 0 0 1 1.8 1.8v8.5a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V6.8Z"/></symbol>
+    <symbol id="ui-monitor" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="12" rx="1.8"/><path d="M8 20h8M12 16v4"/></symbol>
+    <symbol id="ui-tablet" viewBox="0 0 24 24"><rect x="4" y="2.8" width="16" height="18.4" rx="2.2"/><path d="M11.4 18h1.2"/></symbol>
+    <symbol id="ui-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></symbol>
+    <symbol id="ui-code" viewBox="0 0 24 24"><path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M14 4l-4 16"/></symbol>
+    <symbol id="ui-file" viewBox="0 0 24 24"><path d="M6 3.5h7l5 5v12H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/><path d="M13 3.5v5h5M8 13h8M8 16.5h6"/></symbol>
+    <symbol id="ui-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 13h9.4l.8-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="ui-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="ui-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.35 6.65"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="ui-paste" viewBox="0 0 24 24"><path d="M9 5.5h6M10 3.5h4a1 1 0 0 1 1 1v2H9v-2a1 1 0 0 1 1-1Z"/><rect x="5" y="6.5" width="14" height="14" rx="2"/><path d="M9 12h6M9 15.5h4"/></symbol>
+    <symbol id="ui-link" viewBox="0 0 24 24"><path d="M10 13.8a4 4 0 0 0 5.7.1l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7M14 10.2a4 4 0 0 0-5.7-.1l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7"/></symbol>
+    <symbol id="ui-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 4M20 4v7h-7"/></symbol>
+    <symbol id="ui-save" viewBox="0 0 24 24"><path d="M5 3.5h12l3 3v14H4v-15a2 2 0 0 1 1-2Z"/><path d="M8 3.5v5h8v-5M8 20.5v-7h8v7"/></symbol>
+    <symbol id="ui-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="ui-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.8-3.5 3.1-5.3 7-5.3s6.2 1.8 7 5.3"/></symbol>
+    <symbol id="ui-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3.5V7M9 12h.01M15 12h.01M8 15.5c2 1 6 1 8 0"/></symbol>
+    <symbol id="ui-box" viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/></symbol>
+    <symbol id="ui-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 16h4"/></symbol>
+    <symbol id="ui-edit" viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/><path d="m14.5 6.5 3 3"/></symbol>
+    <symbol id="ui-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.8 12h16.4M12 3.5c2.3 2.4 3.3 5.2 3.3 8.5S14.3 18.1 12 20.5c-2.3-2.4-3.3-5.2-3.3-8.5S9.7 5.9 12 3.5Z"/></symbol>
+    <symbol id="ui-memory" viewBox="0 0 24 24"><path d="M7 7V5h10v2M6 9H4v6h2M18 9h2v6h-2M7 17v2h10v-2M7 8h10v8H7z"/><path d="M10 11h4M10 14h4"/></symbol>
+    <symbol id="ui-check" viewBox="0 0 24 24"><path d="m5 12 4.2 4.2L19 6.7"/></symbol>
+    <symbol id="ui-alert" viewBox="0 0 24 24"><path d="M12 4 21 20H3L12 4Z"/><path d="M12 9v5M12 17h.01"/></symbol>
+    <symbol id="ui-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.5V16M12 7.5h.01"/></symbol>
+    <symbol id="ui-upload" viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/></symbol>
+    <symbol id="ui-bolt" viewBox="0 0 24 24"><path d="m13.1 2.8-8 10.1h6.2l-.6 8.3 8.2-10.5h-6.2l.4-8.1Z"/></symbol>
+    <symbol id="ui-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="ui-smartphone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.2"/><path d="M10 5h4M11 18.5h2"/></symbol>
+  </defs>
+</svg>
+<div class="app">
+  <button type="button" class="mobile-toolbar-button mobile-menu-button" id="mobileMenuBtn" title="打开导航" aria-label="打开导航"><svg class="ui-icon"><use href="#ui-menu"/></svg></button>
+  <button type="button" class="mobile-toolbar-button mobile-files-button" id="mobileFilesBtn" title="打开项目工具" aria-label="打开项目工具"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+  <div class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" hidden></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-row">
+        <img class="brand-logo" src="mobile-pair-logo.png" width="20" height="20" alt="IEXA-WIN Logo">
+        <h1 id="brandName">IEXA</h1>
+      </div>
+      <span class="version" id="sysVersion">Windows</span>
+    </div>
+    <div class="sidebar-sessions">
+      <div class="sessions-header">
+        <span class="sessions-title">会话列表</span>
+        <button class="sessions-new-btn" id="newSessionBtn" title="新建会话" aria-label="新建会话">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M13.5 4.5H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V10.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="m14 5.5 4.5 4.5M13 11l6.3-6.3a1.6 1.6 0 1 0-2.3-2.3L10.7 8.7 10 11.7l3-.7Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="搜索会话...">
+        <button class="search-clear" id="searchClear" title="清除" style="display:none;">×</button>
+      </div>
+      <div class="search-results" id="searchResults" style="display:none;"></div>
+      <div class="sessions-list" id="sessionsList">
+        <div class="sessions-empty">暂无会话</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span>对话</span></button>
+      <button class="nav-btn" data-view="appearance"><svg class="ui-icon" aria-hidden="true"><use href="#ui-palette"/></svg><span>外观</span></button>
+      <button class="nav-btn" data-view="skills"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>技能</span></button>
+      <button class="nav-btn" data-view="soul"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg><span>灵魂</span></button>
+      <button class="nav-btn nav-btn-token-usage" data-view="token-calculator">
+        <svg class="nav-token-usage-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="4" y="12" width="3" height="7" rx="1" stroke="currentColor" stroke-width="1.8"/>
+          <rect x="10.5" y="8" width="3" height="11" rx="1" stroke="currentColor" stroke-width="1.8"/>
+          <rect x="17" y="4" width="3" height="15" rx="1" stroke="currentColor" stroke-width="1.8"/>
+        </svg>
+        <span>Token 用量</span>
+      </button>
+      <button class="nav-btn nav-btn-jobs" data-view="jobs"><svg class="ui-icon" aria-hidden="true"><use href="#ui-terminal"/></svg><span>任务中心</span><b class="nav-job-badge" id="navJobBadge" hidden>0</b></button>
+      <button class="nav-btn" data-view="mcp"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>MCP</span></button>
+      <button class="nav-btn" data-view="plugins"><svg class="ui-icon" aria-hidden="true"><use href="#ui-box"/></svg><span>拓展</span></button>
+      <button class="nav-btn" data-view="settings"><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span>配置</span></button>
+      <button class="nav-btn" data-view="sync">
+        <svg class="nav-device-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="3.5" y="4" width="17" height="12" rx="1.8" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+        <span>设备与桥接</span>
+      </button>
+      <button class="nav-btn" data-view="about">
+        <svg class="nav-about-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M12 10.5v5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+          <circle cx="12" cy="7.3" r="1" fill="currentColor"/>
+        </svg>
+        <span>关于</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">就绪</span>
+    </div>
+  </aside>
+  <div class="panel-resizer panel-resizer-sidebar" id="sidebarResizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+
+  <main class="main">
+    <!-- Chat View -->
+    <div class="view active" id="view-chat">
+      <div class="chat-layout">
+        <div class="chat-container">
+          <div class="chat-focus-reveal" aria-hidden="false">
+            <button type="button" class="chat-focus-toggle" id="chatFocusToggle" aria-pressed="false" title="隐藏左右面板，展开聊天区">
+              <svg class="chat-focus-toggle-icon chat-focus-icon-expand" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg class="chat-focus-toggle-icon chat-focus-icon-collapse" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 3-6 6m0-6v6h6M15 21l6-6m0 6v-6h-6M3 15l6 6m-6 0h6v-6M21 9l-6-6m6 0h-6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="chat-focus-toggle-label">展开聊天</span>
+            </button>
+          </div>
+          <div class="chat-messages-area">
+            <div class="chat-messages" id="chatMessages">
+              <div class="welcome">
+                <div class="welcome-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg></div>
+                <h2>欢迎使用 IEXA-WIN</h2>
+                <p>你的私密、设备端 AI 智能体，带真实 Shell 权限。</p>
+                <div class="quick-actions">
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="列出当前目录的文件"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>列出文件</span></button>
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="我的操作系统和硬件配置是什么？"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg><span>系统信息</span></button>
+                  <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="创建一个简单的 Python Web 服务器脚本"><svg class="ui-icon" aria-hidden="true"><use href="#ui-code"/></svg><span>生成 Python 脚本</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="chat-messages-overlay" aria-hidden="true">
+              <button type="button" class="scroll-to-bottom-btn" id="scrollToBottomBtn" title="回到最新消息" aria-label="回到最新消息" style="display:none;"><span aria-hidden="true"></span></button>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <div class="model-bar" id="modelBar">
+              <span class="model-bar-label">模型：</span>
+              <div class="model-selector-wrap" id="modelSelectorWrap">
+                <button type="button" id="modelSelector" class="model-selector" title="选择模型" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="model-selector-label" id="modelSelectorLabel">— 尚未配置模型 —</span>
+                  <span class="model-selector-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
+              </div>
+              <button type="button" class="model-bar-refresh" data-ui-action="refreshModelSelector" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
+              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
+              <div class="thinking-level-wrap" id="thinkingLevelWrap">
+                <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="listbox" aria-expanded="false" data-level="medium">
+                  <span class="thinking-level-icon" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M9.5 2a1 1 0 0 1 .96.72l.2.72A7.5 7.5 0 0 1 18 10.5c0 2.2-1 4.17-2.56 5.5H8.56A7.49 7.49 0 0 1 6 10.5 7.5 7.5 0 0 1 12.34 3.4l.2-.68A1 1 0 0 1 13.5 2h-4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                      <path d="M9 18h6M10 21h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="thinking-level-label" id="thinkingLevelLabel">标准</span>
+                  <span class="thinking-level-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="thinking-level-menu" id="thinkingLevelMenu" role="listbox" style="display:none;">
+                  <button type="button" class="thinking-level-option" data-level="off" role="option"><span class="thinking-level-option-title">关闭</span><span class="thinking-level-option-desc">不启用额外思考</span></button>
+                  <button type="button" class="thinking-level-option" data-level="low" role="option"><span class="thinking-level-option-title">低</span><span class="thinking-level-option-desc">快速轻量推理</span></button>
+                  <button type="button" class="thinking-level-option" data-level="medium" role="option"><span class="thinking-level-option-title">标准</span><span class="thinking-level-option-desc">平衡速度与深度</span></button>
+                  <button type="button" class="thinking-level-option" data-level="high" role="option"><span class="thinking-level-option-title">高</span><span class="thinking-level-option-desc">更深入的长思考</span></button>
+                  <button type="button" class="thinking-level-option" data-level="xhigh" role="option"><span class="thinking-level-option-title">超高</span><span class="thinking-level-option-desc">最大化推理深度</span></button>
+                  <button type="button" class="thinking-level-option" data-level="max" role="option"><span class="thinking-level-option-title">最大</span><span class="thinking-level-option-desc">使用模型允许的最大思考</span></button>
+                  <button type="button" class="thinking-level-option" data-level="ultra" role="option"><span class="thinking-level-option-title">Ultra</span><span class="thinking-level-option-desc">更强的深度推理模式</span></button>
+                </div>
+              </div>
+              <div class="context-compaction-wrap" id="contextCompactionWrap">
+                <button type="button" class="context-compaction-btn" id="contextCompactionBtn" title="自动压缩档位" aria-haspopup="listbox" aria-expanded="false" data-limit="auto">
+                  <svg class="context-compaction-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2v-4Z" stroke="currentColor" stroke-width="1.7"/><path d="M8 3v3M16 3v3M8 18v3M16 18v3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                  <span class="context-compaction-label" id="contextCompactionLabel">自动</span>
+                  <span class="thinking-level-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="context-compaction-menu" id="contextCompactionMenu" role="listbox" style="display:none;">
+                  <button type="button" class="context-compaction-option" data-limit="auto" role="option"><span class="thinking-level-option-title">自动</span><span class="thinking-level-option-desc">按模型上下文上限</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="128000" role="option"><span class="thinking-level-option-title">128K</span><span class="thinking-level-option-desc">约 12.8 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="256000" role="option"><span class="thinking-level-option-title">256K</span><span class="thinking-level-option-desc">约 25.6 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="384000" role="option"><span class="thinking-level-option-title">384K</span><span class="thinking-level-option-desc">约 38.4 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="768000" role="option"><span class="thinking-level-option-title">768K</span><span class="thinking-level-option-desc">约 76.8 万 token</span></button>
+                  <button type="button" class="context-compaction-option" data-limit="1000000" role="option"><span class="thinking-level-option-title">1M</span><span class="thinking-level-option-desc">约 100 万 token</span></button>
+                </div>
+              </div>
+              <div class="permission-mode-wrap" id="permissionModeWrap">
+                <button type="button" class="permission-mode-btn" id="permissionModeBtn" title="权限模式" aria-haspopup="menu" aria-expanded="false">
+                  <svg class="permission-mode-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.8 12 2.1 2.1 4.4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span id="permissionModeLabel">帮我批准</span><span class="thinking-level-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="permission-mode-menu" id="permissionModeMenu" role="menu" style="display:none;">
+                  <button type="button" data-permission-menu-mode="ask" role="menuitem"><strong>请求批准</strong><small>编辑、命令和网络操作始终询问</small></button>
+                  <button type="button" data-permission-menu-mode="risk" role="menuitem"><strong>帮我批准</strong><small>仅风险操作请求批准</small></button>
+                  <button type="button" data-permission-menu-mode="full" role="menuitem"><strong>完全访问权限</strong><small>不再逐次请求授权</small></button>
+                </div>
+              </div>
+              <button type="button" class="context-progress" id="contextProgress" title="上下文用量：正在估算" aria-label="查看上下文用量" data-state="ok">
+                <svg class="context-progress-ring" viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="context-progress-track" cx="18" cy="18" r="15.5"></circle>
+                  <circle class="context-progress-value" id="contextProgressValue" cx="18" cy="18" r="15.5" pathLength="100"></circle>
+                </svg>
+                <span class="context-progress-tooltip" id="contextProgressTooltip" role="status">上下文用量正在估算</span>
+              </button>
+              <span class="model-bar-hint" id="modelBarHint"></span>
+            </div>
+            <div class="attach-preview" id="attachPreview" style="display:none;"></div>
+            <div class="chat-input-wrapper">
+              <button type="button" id="attachBtn" class="attach-btn" title="添加附件" aria-label="添加附件"></button>
+              <input type="file" id="attachInput" multiple hidden
+                accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
+              <textarea id="chatInput" placeholder="有问题，随便问" rows="1"></textarea>
+              <div class="input-actions">
+                <button type="button" id="sendBtn" title="发送 (Enter)" aria-label="发送">
+                  <svg class="send-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M22 2 11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M22 2 15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <svg class="queue-insert-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <button type="button" id="stopBtn" title="停止" aria-label="停止" style="display:none;"></button>
+              </div>
+            </div>
+            <div class="input-hint">AI也有犯错的时候，生成内容仅供参考</div>
+            <div class="slash-menu" id="slashMenu" style="display:none;"></div>
+          </div>
+        </div>
+
+        <div class="panel-resizer panel-resizer-files" id="filesResizer" role="separator" aria-orientation="vertical" aria-label="Resize files panel" tabindex="0"></div>
+        <aside class="files-panel" id="filesPanel">
+          <div class="files-panel-header">
+            <div class="files-panel-title">
+              <span id="filesPanelTitle">项目</span>
+              <div class="files-panel-actions">
+                <button type="button" class="files-icon-btn" id="filesOpenBtn" title="打开项目">+</button>
+                <button type="button" class="files-icon-btn" id="filesRefreshBtn" title="刷新" style="display:none;">↻</button>
+                <button type="button" class="files-icon-btn" id="filesCloseProjectBtn" title="关闭项目" style="display:none;">×</button>
+              </div>
+            </div>
+            <div class="files-path" id="filesPath" style="display:none;"></div>
+            <div class="files-crumb" id="filesCrumb" style="display:none;"></div>
+            <div class="workbench-tabs" id="workbenchTabs" aria-label="项目工作台">
+              <button type="button" class="workbench-tab active" data-workbench-view="files">文件</button>
+              <button type="button" class="workbench-tab" data-workbench-view="git">更改</button>
+              <button type="button" class="workbench-tab" data-workbench-view="search">搜索</button>
+              <button type="button" class="workbench-tab" data-workbench-view="terminal">终端</button>
+            </div>
+          </div>
+          <div class="files-list" id="filesList">
+            <div class="files-empty-state" id="filesEmptyState">
+              <div class="files-empty-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg></div>
+              <p>尚未打开项目</p>
+              <p class="files-empty-hint">打开一个文件夹后，这里会显示项目文件</p>
+              <button type="button" class="btn-primary btn-sm" id="filesOpenBtnMain">打开项目</button>
+              <div class="files-recent" id="filesRecent" style="display:none;"></div>
+            </div>
+          </div>
+          <section class="workbench-panel git-panel" id="gitPanel" style="display:none;" aria-label="Git 更改">
+            <div class="workbench-empty">打开项目后可查看 Git 更改。</div>
+          </section>
+          <section class="workbench-panel search-panel" id="searchPanel" style="display:none;" aria-label="项目搜索">
+            <div class="workspace-search-box">
+              <input id="workspaceSearchInput" type="search" placeholder="搜索项目内容（至少 2 个字符）" autocomplete="off">
+            </div>
+            <div class="workspace-search-results" id="workspaceSearchResults">
+              <div class="workbench-empty">输入内容以搜索项目文件。</div>
+            </div>
+          </section>
+          <section class="workbench-panel terminal-panel" id="terminalPanel" style="display:none;" aria-label="项目终端">
+            <div class="terminal-toolbar">
+              <select id="terminalShell" aria-label="终端 Shell">
+                <option value="powershell">PowerShell</option>
+                <option value="cmd">CMD</option>
+                <option value="bash">Git Bash</option>
+                <option value="wsl">WSL</option>
+              </select>
+              <button type="button" id="terminalNewBtn">新建</button>
+              <button type="button" id="terminalInterruptBtn" title="发送 Ctrl+C">Ctrl+C</button>
+              <button type="button" id="terminalStopBtn" title="终止当前终端">停止</button>
+            </div>
+            <div class="terminal-tabs" id="terminalTabs"></div>
+            <pre class="terminal-output" id="terminalOutput" aria-live="polite">点击“新建”启动终端。</pre>
+            <div class="terminal-command-row">
+              <textarea id="terminalCommand" rows="2" placeholder="输入命令，Ctrl+Enter 执行"></textarea>
+              <button type="button" id="terminalRunBtn">运行</button>
+            </div>
+          </section>
+          <div class="files-preview" id="filesPreview" style="display:none;">
+            <div class="files-preview-header">
+              <span class="files-preview-name" id="filesPreviewName"></span>
+              <button type="button" class="files-icon-btn" id="filesPreviewClose" title="关闭预览">×</button>
+            </div>
+            <pre class="files-preview-body" id="filesPreviewBody"></pre>
+          </div>
+        </aside>
+        <div class="files-context-menu" id="filesContextMenu" style="display:none;">
+          <button type="button" class="files-context-item" data-action="delete"><svg class="ui-icon" aria-hidden="true"><use href="#ui-trash"/></svg><span>删除</span></button>
+          <button type="button" class="files-context-item" data-action="copy"><svg class="ui-icon" aria-hidden="true"><use href="#ui-copy"/></svg><span>复制</span></button>
+          <button type="button" class="files-context-item" data-action="copy-path"><svg class="ui-icon" aria-hidden="true"><use href="#ui-link"/></svg><span>复制路径</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-mcp">
+      <div class="settings-container mcp-settings-container">
+        <div class="settings-header"><h2>MCP Servers</h2></div>
+        <section class="mcp-panel" id="mcpPanel" aria-label="MCP Servers">
+          <form class="mcp-add-form" id="mcpAddForm">
+            <input id="mcpName" placeholder="Server 名称" required>
+            <select id="mcpTransport" aria-label="MCP 传输方式"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
+            <input id="mcpCommand" placeholder="命令，例如 npx">
+            <input id="mcpArgs" placeholder="参数，空格分隔">
+            <input id="mcpUrl" placeholder="HTTP URL（HTTP 模式）" style="display:none;">
+            <button type="submit">添加 Server</button>
+          </form>
+          <div class="mcp-server-list" id="mcpServerList"><div class="workbench-empty">还没有配置 MCP Server。</div></div>
+          <pre class="mcp-output" id="mcpOutput">选择一个 MCP 工具可在此查看结果。</pre>
+        </section>
+      </div>
+    </div>
+
+    <div class="view" id="view-plugins">
+      <div class="settings-container plugin-settings-container">
+        <div class="settings-header plugin-page-header">
+          <div><h2>拓展插件</h2><p class="sync-desc">管理本地插件、AI 工具与插件界面。</p></div>
+          <div class="plugin-header-actions">
+            <button type="button" class="btn-secondary btn-sm plugin-icon-action" id="pluginOpenDirBtn" title="打开插件目录" aria-label="打开插件目录"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+            <button type="button" class="btn-primary btn-sm" id="pluginInstallBtn"><svg class="ui-icon"><use href="#ui-upload"/></svg><span>添加插件</span></button>
+          </div>
+        </div>
+        <div class="plugin-summary" id="pluginSummary">
+          <span><b id="pluginCount">0</b> 个插件</span><span><b id="pluginEnabledCount">0</b> 个启用</span><span><b id="pluginToolCount">0</b> 个工具</span>
+        </div>
+        <div class="plugin-list" id="pluginList"><div class="profile-empty">正在读取插件…</div></div>
+        <pre class="plugin-output" id="pluginOutput" aria-live="polite">选择插件工具可在此调试执行。</pre>
+      </div>
+    </div>
+
+    <!-- Models / Settings View -->
+    <div class="view" id="view-settings">
+      <div class="settings-container">
+        <div class="settings-header">
+          <h2>AI 模型</h2>
+          <button class="btn-primary btn-sm" data-ui-action="showProfileEditor">+ 添加模型</button>
+        </div>
+        <div class="setting-group vision-fallback-setting">
+          <label for="visionProfileSelect">视觉输入模型</label>
+          <select id="visionProfileSelect"><option value="">不使用视觉代理</option></select>
+          <span class="setting-hint">当前模型不支持图片时，IEXA 会将图片交给此模型识别，再把 OCR 与描述作为文本结果返回。</span>
+        </div>
+        <div class="profile-list" id="profileList">
+          <div class="profile-empty">尚未配置模型。点击"＋ 添加模型"开始。</div>
+        </div>
+
+        <!-- Profile Editor (hidden, shown as overlay) -->
+        <div class="profile-editor-overlay" id="profileEditorOverlay" style="display:none;">
+          <div class="profile-editor">
+            <h3 id="profileEditorTitle">添加模型</h3>
+            <input type="hidden" id="profileEditorId">
+            <div class="setting-group">
+              <label>显示名称</label>
+              <input type="text" id="profileEditorName" placeholder="例如：代码用 Claude、写作用 GPT">
+            </div>
+            <div class="setting-group">
+              <label>服务商</label>
+              <select id="profileEditorProvider">
+                <option value="anthropic">Anthropic (Claude)</option>
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="gemini">Google (Gemini)</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="xai">xAI (Grok)</option>
+                <option value="custom">自定义 (OpenAI 兼容)</option>
+              </select>
+            </div>
+            <div class="setting-group">
+              <label>模型 ID</label>
+              <div class="model-picker-row">
+                <input type="text" id="profileEditorModel" placeholder="claude-sonnet-4-20250514">
+                <button type="button" class="btn-secondary btn-sm" id="fetchModelsBtn" data-ui-action="fetchModels">获取模型</button>
+              </div>
+              <select id="profileEditorModelSelect" class="model-pick-select" style="display:none;margin-top:6px;" data-ui-change="select-profile-model"></select>
+              <span class="setting-hint" id="fetchModelsHint"></span>
+            </div>
+            <div class="setting-group">
+              <label>API 密钥</label>
+              <input type="password" id="profileEditorApiKey" placeholder="sk-...">
+              <span class="setting-hint">留空则保留现有密钥</span>
+            </div>
+            <div class="setting-group">
+              <label>接口地址（可选，自定义端点用）</label>
+              <input type="text" id="profileEditorBaseURL" placeholder="按服务商自动识别">
+            </div>
+            <div class="setting-group">
+              <label>请求接口</label>
+              <select id="profileEditorApiMode">
+                <option value="chat_completions">Chat Completions (/v1/chat/completions)</option>
+                <option value="responses">Responses API (/v1/responses)</option>
+              </select>
+              <span class="setting-hint">Responses 使用独立的消息、工具和流式事件协议；仅在端点实际支持时选择。</span>
+            </div>
+            <div class="setting-group setting-switch fast-capability-setting">
+              <div><label for="profileEditorFastMode">支持 Codex Fast</label><span class="setting-hint">仅当此端点真实支持 <code>service_tier: priority</code> 时开启；Fast 可能提高额度消耗。</span></div>
+              <input type="checkbox" id="profileEditorFastMode">
+            </div>
+            <div class="profile-editor-actions">
+              <button class="btn-primary" data-ui-action="saveProfile">保存</button>
+              <button class="btn-secondary" data-ui-action="hideProfileEditor">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync / WebDAV View -->
+    <div class="view" id="view-sync">
+      <div class="settings-container device-settings-container">
+        <section class="mobile-bridge-panel">
+          <div class="mobile-bridge-heading">
+            <div class="mobile-bridge-icon"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></div>
+            <div><h2>手机桥接</h2><p class="sync-desc">同一 Wi-Fi 下扫码，在手机浏览器使用 IEXA。</p></div>
+            <label class="plugin-toggle mobile-bridge-toggle" title="开启手机桥接"><input type="checkbox" id="mobileBridgeEnabled"><span></span></label>
+          </div>
+          <div class="mobile-bridge-content" id="mobileBridgeContent">
+            <div class="mobile-bridge-offline" id="mobileBridgeOffline">桥接当前已关闭。开启后，只有扫码配对的设备可以访问。</div>
+            <div class="mobile-bridge-live" id="mobileBridgeLive" hidden>
+              <div class="mobile-bridge-grid">
+                <div class="mobile-bridge-qr-shell">
+                  <img id="mobileBridgeQr" alt="手机桥接二维码">
+                  <div class="mobile-bridge-qr-placeholder" id="mobileBridgeQrPlaceholder">点击生成二维码</div>
+                </div>
+                <div class="mobile-bridge-actions">
+                  <div class="setting-group">
+                    <label for="mobileBridgeAddress">局域网地址</label>
+                    <select id="mobileBridgeAddress"></select>
+                  </div>
+                  <div class="setting-group">
+                    <label for="mobileBridgeCapability">新设备默认权限</label>
+                    <select id="mobileBridgeCapability">
+                      <option value="chat">仅聊天</option>
+                      <option value="files">聊天与文件</option>
+                      <option value="full">完整控制</option>
+                    </select>
+                  </div>
+                  <button type="button" class="btn-primary" id="mobileBridgePairBtn"><svg class="ui-icon"><use href="#ui-refresh"/></svg><span>生成配对二维码</span></button>
+                  <code class="mobile-bridge-url" id="mobileBridgeUrl"></code>
+                  <span class="setting-hint" id="mobileBridgeExpiry">二维码一次有效，5 分钟后自动失效。</span>
+                </div>
+              </div>
+              <div class="mobile-device-heading"><strong>已配对设备</strong><button type="button" class="plugin-icon-action mobile-device-revoke-all" id="mobileBridgeRevokeAll" title="移除全部设备" aria-label="移除全部设备"><svg class="ui-icon"><use href="#ui-trash"/></svg></button></div>
+              <div class="mobile-device-list" id="mobileBridgeDevices"></div>
+            </div>
+          </div>
+          <div class="sync-result" id="mobileBridgeResult" hidden aria-live="polite"></div>
+        </section>
+
+        <div class="device-section-divider"></div>
+        <h2 class="ui-heading"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>WebDAV 同步</span></h2>
+        <p class="sync-desc">通过 WebDAV（NextCloud、ownCloud、NAS 等）在多个设备间同步设置与会话。</p>
+
+        <div class="sync-status-bar" id="syncStatusBar">
+          <span id="syncStatusIcon" class="sync-status-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-info"/></svg></span>
+          <span id="syncStatusText">未配置</span>
+          <span class="sync-last-time" id="syncLastTime"></span>
+        </div>
+
+        <div class="setting-group">
+          <label>WebDAV 服务器地址</label>
+          <input type="text" id="webdavUrl" placeholder="https://你的服务器/remote.php/dav/files/用户名/">
+        </div>
+        <div class="setting-group">
+          <label>用户名</label>
+          <input type="text" id="webdavUser" placeholder="请输入用户名">
+        </div>
+        <div class="setting-group">
+          <label>密码</label>
+          <input type="password" id="webdavPass" placeholder="输入密码（留空保持不变）">
+        </div>
+
+        <div class="setting-group setting-switch">
+          <label>每次对话后自动同步</label>
+          <input type="checkbox" id="webdavAutoSync">
+        </div>
+
+        <div class="sync-actions">
+          <button class="btn-primary" data-ui-action="saveWebDAVConfig" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span>保存配置</span></button>
+          <button class="btn-secondary" data-ui-action="testWebDAV" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-search"/></svg><span>测试连接</span></button>
+        </div>
+        <div class="sync-actions" style="margin-top: 10px;">
+          <button class="btn-primary" data-ui-action="syncNow" id="syncNowBtn" style="flex:1;"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>立即同步</span></button>
+        </div>
+
+        <div class="sync-result" id="syncResult" style="display:none;"></div>
+        <div class="sync-conflicts" id="syncConflicts" style="display:none;" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <!-- Skills View -->
+    <div class="view" id="view-skills">
+      <div class="settings-container">
+        <div class="settings-header">
+          <h2>Skills</h2>
+          <div class="skills-header-actions">
+            <div class="skill-add-wrap" id="skillAddWrap">
+              <button type="button" class="btn-primary btn-sm skill-add-btn" id="skillAddBtn" title="添加 Skill">+</button>
+              <div class="skill-add-menu" id="skillAddMenu" style="display:none;">
+                <button type="button" class="skill-add-item" id="skillImportFileBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span>导入文件（SKILL.md）</span></button>
+                <button type="button" class="skill-add-item" id="skillImportBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-edit"/></svg><span>创建 Skill（粘贴）</span></button>
+                <button type="button" class="skill-add-item" id="skillOpenDirBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>打开 Skills 目录</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="sync-desc">
+          点 <strong>+</strong>：导入文件 / 创建（粘贴）/ 打开本机 Skills 目录管理。
+          也可让 AI 按规范写入该目录自动收录。对话输入 <code>/</code> 可插入技能名。
+        </p>
+        <input type="file" id="skillFileInput" accept=".md,text/markdown,text/plain" hidden>
+        <div class="skill-list" id="skillList">
+          <div class="profile-empty">加载中…</div>
+        </div>
+      </div>
+
+      <div class="profile-editor-overlay" id="skillEditorOverlay" style="display:none;">
+        <div class="profile-editor skill-editor">
+          <h3 id="skillEditorTitle">导入 Skill</h3>
+          <div class="setting-group">
+            <label>SKILL.md 内容</label>
+            <textarea id="skillEditorContent" rows="16" placeholder="---
+name: my-skill
+description: 做什么
+version: 1.0.0
+---
+
+# 说明
+..."></textarea>
+          </div>
+          <div class="profile-editor-actions">
+            <button type="button" class="btn-secondary" id="skillEditorCancel">取消</button>
+            <button type="button" class="btn-primary" id="skillEditorSave">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token Calculator View -->
+    <!-- SOUL.md: persistent assistant identity and personality -->
+    <div class="view" id="view-soul">
+      <div class="settings-container soul-settings-container">
+        <div class="settings-header">
+          <div>
+            <h2>灵魂</h2>
+            <p class="sync-desc">为 IEXA 设定长期身份、语气与行事风格。保存后会立即用于后续所有对话。</p>
+          </div>
+          <div class="soul-header-actions">
+            <span class="soul-save-status" id="soulSaveStatus" role="status" aria-live="polite"></span>
+            <button type="button" class="btn-primary btn-sm" id="soulSaveBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span class="soul-save-button-label">保存</span></button>
+          </div>
+        </div>
+        <section class="soul-preview" aria-label="灵魂身份预览">
+          <div class="soul-preview-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg></div>
+          <div>
+            <strong id="soulPreviewName">IEXA</strong>
+            <p id="soulPreviewStyle">未设置风格</p>
+          </div>
+        </section>
+        <div class="soul-grid">
+          <div class="setting-group">
+            <label for="soulName">名称</label>
+            <input type="text" id="soulName" maxlength="100" placeholder="例如：IEXA">
+          </div>
+          <div class="setting-group">
+            <label for="soulLanguage">语言偏好</label>
+            <select id="soulLanguage">
+              <option value="auto">自动（跟随用户）</option>
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-group">
+          <label for="soulStyle">风格</label>
+          <input type="text" id="soulStyle" maxlength="300" placeholder="例如：温暖、直接、有主见">
+          <span class="setting-hint">简短的语气提示，会贯穿每次回复。</span>
+        </div>
+        <div class="setting-group soul-personality-group">
+          <div class="soul-editor-heading"><label for="soulBody">人格提示词</label><span id="soulTokenCount" class="soul-token-count">0 / 2,000 tokens</span></div>
+          <textarea id="soulBody" rows="15" maxlength="24000" placeholder="描述你希望这个助手具备的人格、立场、沟通方式和工作习惯…"></textarea>
+          <span class="setting-hint">写入 <code>SOUL.md</code>。中文、日文、韩文按字符计数，其他文本按词计数；上限为 2,000 tokens。</span>
+        </div>
+        <div class="soul-footer-actions">
+          <button type="button" class="btn-secondary" id="soulRestoreBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>恢复默认</span></button>
+          <span id="soulFilePath" class="soul-file-path"></span>
+        </div>
+        <div class="sync-result" id="soulResult" style="display:none;" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <!-- Token Calculator View -->
+    <div class="view" id="view-token-calculator">
+      <div class="settings-container token-calculator-container">
+        <h2>Token 用量</h2>
+        <p class="sync-desc">按模型分别统计 API 返回的实际 Token 用量。每次模型调用完成后自动累加，不是文本长度估算。</p>
+        <div class="token-usage-toolbar">
+          <span class="token-usage-live"><i></i> 实时统计</span>
+          <span class="token-usage-updated" id="tokenUsageUpdated">等待首次调用</span>
+        </div>
+        <div class="token-usage-list" id="tokenUsageList" aria-live="polite">
+          <div class="token-usage-empty">尚无模型用量记录，发送消息后会自动统计。</div>
+        </div>
+        <p class="token-calculator-footnote">统计来源为模型 API 返回的 usage；输入 Token 包含上下文，输出 Token 包含模型生成内容。</p>
+      </div>
+    </div>
+
+    <!-- Background Task Center -->
+    <div class="view" id="view-jobs">
+      <div class="settings-container jobs-container">
+        <div class="settings-header"><h2>任务中心</h2><button type="button" class="btn-secondary btn-sm" id="jobsRefreshBtn">刷新</button></div>
+        <p class="sync-desc">工具执行按会话独立记录。这里可查看后台会话正在运行、已完成或失败的任务。</p>
+        <div class="jobs-filter" id="jobsFilter">
+          <button type="button" data-jobs-filter="current" class="is-active">当前会话</button>
+          <button type="button" data-jobs-filter="all">全部会话</button>
+        </div>
+        <div class="jobs-list" id="jobsList"><div class="profile-empty">加载任务中…</div></div>
+      </div>
+    </div>
+
+    <!-- Appearance View -->
+    <div class="view" id="view-appearance">
+      <div class="settings-container">
+        <h2>外观</h2>
+        <p class="sync-desc">调整界面明暗与主题色，设置会自动保存。</p>
+        <div class="theme-panel">
+          <div class="theme-panel-row">
+            <span>显示模式</span>
+            <div class="theme-seg" id="themeSeg">
+              <button type="button" data-theme-set="light">浅色</button>
+              <button type="button" data-theme-set="dark">深色</button>
+            </div>
+          </div>
+          <div class="theme-panel-row theme-panel-row-block">
+            <span>主题色</span>
+            <div class="accent-picker" id="accentPicker"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- About View -->
+    <div class="view" id="view-about">
+      <div class="about-container">
+        <h2>关于 IEXA-WIN</h2>
+        <p>IEXA-WIN 是 <a href="https://IEXA.app" target="_blank">IEXA</a> iOS/Android 应用的 Windows 桌面版本。</p>
+        <p>它把主流 AI 模型带进原生桌面体验，并支持真实 Shell、文件系统访问和网页浏览能力。</p>
+        <h3>功能特性</h3>
+        <ul>
+          <li><svg class="ui-icon" aria-hidden="true"><use href="#ui-terminal"/></svg><span>真实 Shell 访问（cmd.exe / bash）</span></li>
+          <li><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>文件系统操作（读写、编辑）</span></li>
+          <li><svg class="ui-icon" aria-hidden="true"><use href="#ui-globe"/></svg><span>网页内容抓取</span></li>
+          <li><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg><span>跨会话持久记忆</span></li>
+          <li><svg class="ui-icon" aria-hidden="true"><use href="#ui-bot"/></svg><span>多模型：可配置多个 AI 配置档并随时切换</span></li>
+        </ul>
+        <h3>技术栈</h3>
+        <p>基于 TypeScript、Node.js 和原生 Web 技术构建，由 Electron 封装为原生桌面体验。</p>
+        <p class="about-open-source">
+          <svg class="ui-icon" aria-hidden="true"><use href="#ui-box"/></svg><span>开源地址：<a href="https://github.com/bidalu9-crypto/IEXA-windowns-" target="_blank">GitHub →</a></span>
+        </p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="mobile-pair-gate" id="mobilePairGate" hidden>
+  <div class="mobile-pair-dialog">
+    <img class="mobile-pair-logo" src="mobile-pair-logo.png" width="52" height="52" alt="IEXA">
+    <h1>连接 IEXA</h1>
+    <p id="mobilePairMessage">正在验证此设备…</p>
+    <button type="button" class="btn-primary" id="mobilePairRetry" hidden>重新配对</button>
+  </div>
+</div>
+
+<!-- Sandboxed in-app HTML effect preview -->
+<div class="html-preview-overlay" id="htmlPreviewOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="htmlPreviewTitle">
+  <section class="html-preview-window" id="htmlPreviewWindow">
+    <header class="html-preview-titlebar">
+      <div class="html-preview-traffic" aria-label="窗口控制">
+        <button type="button" class="html-preview-dot is-close" id="htmlPreviewClose" title="关闭预览" aria-label="关闭预览"></button>
+        <span class="html-preview-dot is-minimize" aria-hidden="true"></span>
+        <span class="html-preview-dot is-zoom" aria-hidden="true"></span>
+      </div>
+      <div class="html-preview-document">
+        <span class="html-preview-file-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-code"/></svg></span>
+        <span id="htmlPreviewTitle">HTML 预览</span>
+      </div>
+      <div class="html-preview-title-actions">
+        <button type="button" id="htmlPreviewCopyPath" title="复制文件路径" aria-label="复制文件路径"><svg class="ui-icon"><use href="#ui-copy"/></svg></button>
+        <button type="button" id="htmlPreviewOpenExternal" title="在默认浏览器中打开" aria-label="在默认浏览器中打开"><svg class="ui-icon"><use href="#ui-external"/></svg></button>
+        <button type="button" id="htmlPreviewReload" title="刷新预览" aria-label="刷新预览"><svg class="ui-icon"><use href="#ui-refresh"/></svg></button>
+      </div>
+    </header>
+    <div class="html-preview-toolbar">
+      <div class="html-preview-address" title="当前文件">
+        <svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg>
+        <span id="htmlPreviewAddress"></span>
+      </div>
+      <div class="html-preview-viewports" role="group" aria-label="预览画布尺寸">
+        <button type="button" data-preview-viewport="desktop" class="is-active" title="桌面视图" aria-label="桌面视图" aria-pressed="true"><svg class="ui-icon"><use href="#ui-monitor"/></svg></button>
+        <button type="button" data-preview-viewport="tablet" title="平板视图" aria-label="平板视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-tablet"/></svg></button>
+        <button type="button" data-preview-viewport="mobile" title="手机视图" aria-label="手机视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></button>
+      </div>
+    </div>
+    <div class="html-preview-stage" id="htmlPreviewStage" data-viewport="desktop">
+      <div class="html-preview-canvas" id="htmlPreviewCanvas">
+        <iframe id="htmlPreviewFrame" title="HTML 效果预览" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
+        <div class="html-preview-loading" id="htmlPreviewLoading"><span></span><b>正在渲染</b></div>
+      </div>
+    </div>
+    <footer class="html-preview-statusbar">
+      <span class="html-preview-ready"><i aria-hidden="true"></i><span id="htmlPreviewStatus">就绪</span></span>
+      <span id="htmlPreviewDimensions">自适应画布</span>
+    </footer>
+  </section>
+</div>
+
+<!-- 图片附件预览：点击用户消息中的缩略图后显示 -->
+<div class="image-preview-overlay" id="imagePreviewOverlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="imagePreviewTitle">
+  <div class="image-preview-dialog">
+    <div class="image-preview-header">
+      <span class="image-preview-title" id="imagePreviewTitle"></span>
+      <button type="button" class="image-preview-close" id="imagePreviewClose" title="关闭预览" aria-label="关闭预览">×</button>
+    </div>
+    <div class="image-preview-body">
+      <img id="imagePreviewImage" alt="">
+    </div>
+  </div>
+</div>
+
+<!-- App-level text context menu. It replaces the inconsistent Chromium menu for copy/paste. -->
+<div class="text-context-menu" id="textContextMenu" role="menu" style="display:none;">
+  <button type="button" class="text-context-item" data-text-action="copy" role="menuitem">
+    <svg class="ui-icon" aria-hidden="true"><use href="#ui-copy"/></svg><span>复制</span>
+  </button>
+  <button type="button" class="text-context-item" data-text-action="paste" role="menuitem">
+    <svg class="ui-icon" aria-hidden="true"><use href="#ui-paste"/></svg><span>粘贴</span>
+  </button>
+</div>
+
+<script src="vendor/marked.umd.js"></script>
+<script src="vendor/highlight.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script src="services/SafeMarkdown.js"></script>
+<script src="services/ApiClient.js"></script>
+<script src="components/PermissionDialog.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

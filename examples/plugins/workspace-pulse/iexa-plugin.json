@@ -1,0 +1,19 @@
+{
+  "apiVersion": 2,
+  "id": "workspace-pulse",
+  "name": "Workspace Pulse",
+  "version": "2.0.0",
+  "description": "真实扫描当前工作区顶层文件，在面板和聊天工具卡片中展示快照。",
+  "author": "IEXA",
+  "main": "index.cjs",
+  "contributions": { "panels": [{ "id": "overview", "title": "工作区概览", "entry": "ui/index.html" }] },
+  "tools": [{
+    "name": "inspect",
+    "description": "读取当前 IEXA 工作区顶层文件信息，不递归、不修改文件，返回表格卡片。",
+    "parameters": {
+      "limit": { "type": "integer", "description": "展示数量，1–50" },
+      "includeHidden": { "type": "boolean", "description": "包含点号开头的条目" }
+    },
+    "required": ["limit"]
+  }]
+}

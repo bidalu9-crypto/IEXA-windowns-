@@ -1,0 +1,1317 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-15",
+  "goal_status": "active",
+  "release_ready": false,
+  "baseline_frozen": false,
+  "target": {
+    "product": "Codex desktop",
+    "platform": "Windows",
+    "build": null,
+    "reference_date": "2026-09-15",
+    "exact_visual_reference_available": false
+  },
+  "inventory_note": "这是待核验的候选全集，不是官方已确认功能全集；确认遗漏必须增补，待核验项不得冒充已完成或被静默排除。",
+  "delivery_policy": "only_after_full_acceptance",
+  "phases": [
+    {
+      "id": "P0",
+      "title": "版本、功能、视觉与动效基线",
+      "status": "in_progress",
+      "depends_on": []
+    },
+    {
+      "id": "P1",
+      "title": "统一执行协议、会话与工具状态机",
+      "status": "in_progress",
+      "depends_on": [
+        "P0"
+      ],
+      "progress_note": "Independent execution-lifecycle groundwork: real approval/running/cancellation states and regression tests. Durable replay and recovery remain pending."
+    },
+    {
+      "id": "P2",
+      "title": "编码、审查、回滚、Git/worktree 闭环",
+      "status": "pending",
+      "depends_on": [
+        "P1"
+      ]
+    },
+    {
+      "id": "P3",
+      "title": "真实多代理调度、后台自动化与集成",
+      "status": "in_progress",
+      "depends_on": [
+        "P1",
+        "P2"
+      ],
+      "progress_note": "Real child runtimes/tools and durable activity view now integrated; worktree, DAG, merge and global budget remain pending."
+    },
+    {
+      "id": "P4",
+      "title": "全量桌面 UI、工具 UI、代理 UI 与动效对齐",
+      "status": "pending",
+      "depends_on": [
+        "P0",
+        "P1",
+        "P2",
+        "P3"
+      ]
+    },
+    {
+      "id": "P5",
+      "title": "全量验收、安装包与一次性交付",
+      "status": "pending",
+      "depends_on": [
+        "P4"
+      ]
+    }
+  ],
+  "known_dependencies": [
+    {
+      "id": "reference-build",
+      "status": "unresolved",
+      "detail": "当前仅发现 VS Code 扩展随附的 codex.exe，未识别 Codex 桌面端构建号；扩展目录版本不等于桌面端版本。"
+    },
+    {
+      "id": "official-docs",
+      "status": "unresolved",
+      "detail": "2026-09-15 官方域名搜索和页面读取均未返回有效正文；功能清单仍需核验。"
+    },
+    {
+      "id": "reference-motion",
+      "status": "unresolved",
+      "detail": "缺少目标版本真实界面录像/逐状态测量；现有 IEXA 截图是自身测试夹具，不是 Codex 对标基线。"
+    },
+    {
+      "id": "service-access",
+      "status": "not_audited",
+      "detail": "云端服务条目需确认实际接口、账号和运行条件，不以 mock 冒充集成。"
+    }
+  ],
+  "baseline_tests": {
+    "command": "npm test",
+    "exit_code": 0,
+    "passed": 15,
+    "failed": 0,
+    "log": ".iexa-artifacts/codex-parity/baseline-tests-2026-09-15.log",
+    "scope": "现有 IEXA 局部测试，非 Codex 全量验收"
+  },
+  "candidate_feature_count": 76,
+  "features": [
+    {
+      "id": "reference.desktop-build",
+      "domain": "版本与对标证据",
+      "description": "锁定桌面端平台、版本、构建号与发布时间",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reference.feature-inventory",
+      "domain": "版本与对标证据",
+      "description": "核验所有功能入口、设置、菜单和官方文档",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reference.reference-capture",
+      "domain": "版本与对标证据",
+      "description": "记录真实页面、工具状态与交互录像",
+      "reference_status": "partial_user_screenshot",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [
+        "User photograph received 2026-09-15; build, menus and motion still unverified"
+      ],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reference.cloud-dependencies",
+      "domain": "版本与对标证据",
+      "description": "核实官方账号、云端接口、服务依赖及接入条件",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "shell.navigation",
+      "domain": "桌面布局",
+      "description": "侧栏、项目/会话层级及导航行为",
+      "reference_status": "pending_verification",
+      "implementation_status": "existing_candidate",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "docs/WORKBENCH_UPGRADE_2026-09-15.md"
+      ],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "shell.window-layout",
+      "domain": "桌面布局",
+      "description": "顶部区域、面板伸缩、专注布局及尺寸约束",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "shell.themes",
+      "domain": "桌面布局",
+      "description": "浅色/深色、字体、颜色、圆角、阴影及 DPI",
+      "reference_status": "pending_verification",
+      "implementation_status": "existing_candidate",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "docs/WORKBENCH_UPGRADE_2026-09-15.md"
+      ],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "shell.settings",
+      "domain": "桌面布局",
+      "description": "所有设置入口、实际生效与持久化",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "shell.accessibility",
+      "domain": "桌面布局",
+      "description": "键盘导航、焦点、读屏、减少动态效果",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.navigation",
+      "domain": "全状态动效",
+      "description": "导航切换及页面进出",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.composer",
+      "domain": "全状态动效",
+      "description": "输入区、发送、停止、排队及附件变化",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.menus",
+      "domain": "全状态动效",
+      "description": "菜单、下拉、提示、对话框开合",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.tool-cards",
+      "domain": "全状态动效",
+      "description": "工具卡片展开收起和状态转换",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/renderer/services/ChatActivityView.js",
+        "src/renderer/workbench.css",
+        "docs/CHAT_ACTIVITY_2026-09-15.md"
+      ],
+      "test_evidence": [
+        "tests/chat-activity.test.js",
+        "tests/motion-preferences.test.js",
+        ".iexa-artifacts/chat-activity-20260915/visual-checks.json",
+        ".iexa-artifacts/chat-activity-20260915/motion/motion-after.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "remaining_gaps": [
+        "Reference build and exact animation timings not frozen",
+        "Full ordered transcript persistence/replay pending",
+        "No production-model end-to-end parity verification"
+      ]
+    },
+    {
+      "id": "motion.streaming",
+      "domain": "全状态动效",
+      "description": "流式文本、思考区、加载及完成状态",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/renderer/services/ChatActivityView.js",
+        "src/renderer/workbench.css",
+        "docs/CHAT_ACTIVITY_2026-09-15.md"
+      ],
+      "test_evidence": [
+        "tests/chat-activity.test.js",
+        "tests/motion-preferences.test.js",
+        ".iexa-artifacts/chat-activity-20260915/visual-checks.json",
+        ".iexa-artifacts/chat-activity-20260915/motion/motion-after.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "remaining_gaps": [
+        "Reference build and exact animation timings not frozen",
+        "Full ordered transcript persistence/replay pending",
+        "No production-model end-to-end parity verification"
+      ]
+    },
+    {
+      "id": "motion.panels",
+      "domain": "全状态动效",
+      "description": "侧栏/工作台切换、折叠、尺寸变化",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.agents",
+      "domain": "全状态动效",
+      "description": "代理创建、排队、运行、等待、取消、结束",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "motion.reduced-motion",
+      "domain": "全状态动效",
+      "description": "系统减少动态效果下的完整行为",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/renderer/services/ChatActivityView.js",
+        "src/renderer/workbench.css",
+        "docs/CHAT_ACTIVITY_2026-09-15.md"
+      ],
+      "test_evidence": [
+        "tests/chat-activity.test.js",
+        "tests/motion-preferences.test.js",
+        ".iexa-artifacts/chat-activity-20260915/visual-checks.json",
+        ".iexa-artifacts/chat-activity-20260915/motion/motion-after.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "remaining_gaps": [
+        "Reference build and exact animation timings not frozen",
+        "Full ordered transcript persistence/replay pending",
+        "No production-model end-to-end parity verification"
+      ]
+    },
+    {
+      "id": "conversation.sessions",
+      "domain": "会话与流式执行",
+      "description": "新建、切换、重命名、归档/删除的参照行为",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.recovery",
+      "domain": "会话与流式执行",
+      "description": "历史恢复、重启恢复及运行中状态重建",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.branching",
+      "domain": "会话与流式执行",
+      "description": "会话分支及上下文继承",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.steering",
+      "domain": "会话与流式执行",
+      "description": "补充指令、排队与执行中干预",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.stream-reconnect",
+      "domain": "会话与流式执行",
+      "description": "断线重连、重放去重及顺序一致性",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.cancellation",
+      "domain": "会话与流式执行",
+      "description": "取消传播、停止进程树及准确终态",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/ToolLifecycle.ts",
+        "src/main/runtime/ToolRuntime.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/security/PermissionManager.ts",
+        "src/main/api/RuntimeRoutes.ts"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/codex-parity/p1-tool-lifecycle/tests.log",
+        "tests/tool-lifecycle.test.js",
+        "tests/runtime-cancellation-route.test.js"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "conversation.attachments",
+      "domain": "会话与流式执行",
+      "description": "附件、图片输入、预览与生命周期",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "planning.plan-mode",
+      "domain": "计划与审批",
+      "description": "计划/执行模式以及真实执行边界",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "planning.structured-input",
+      "domain": "计划与审批",
+      "description": "结构化提问和等待用户输入状态",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "planning.approval",
+      "domain": "计划与审批",
+      "description": "权限审批、明确拒绝、过期及重复提交",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/ToolLifecycle.ts",
+        "src/main/runtime/ToolRuntime.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/security/PermissionManager.ts",
+        "src/main/api/RuntimeRoutes.ts"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/codex-parity/p1-tool-lifecycle/tests.log",
+        "tests/tool-lifecycle.test.js",
+        "tests/runtime-cancellation-route.test.js"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "planning.progress",
+      "domain": "计划与审批",
+      "description": "计划步骤、执行依据、进度与终态",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.contract",
+      "domain": "工具系统与工具 UI",
+      "description": "统一工具调用、参数增量、结果、错误协议",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/ToolLifecycle.ts",
+        "src/main/runtime/ToolRuntime.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/security/PermissionManager.ts",
+        "src/main/api/RuntimeRoutes.ts"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/codex-parity/p1-tool-lifecycle/tests.log",
+        "tests/tool-lifecycle.test.js",
+        "tests/runtime-cancellation-route.test.js"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.states",
+      "domain": "工具系统与工具 UI",
+      "description": "等待、参数生成、执行、成功、失败、取消、超时",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/ToolLifecycle.ts",
+        "src/main/runtime/ToolRuntime.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/security/PermissionManager.ts",
+        "src/main/api/RuntimeRoutes.ts"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/codex-parity/p1-tool-lifecycle/tests.log",
+        "tests/tool-lifecycle.test.js",
+        "tests/runtime-cancellation-route.test.js"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.shell",
+      "domain": "工具系统与工具 UI",
+      "description": "真实终端命令、标准输出/错误、退出码与耗时",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.files",
+      "domain": "工具系统与工具 UI",
+      "description": "读取/搜索/编辑/补丁摘要与展开详情",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.diff",
+      "domain": "工具系统与工具 UI",
+      "description": "逐文件 diff、统计、文件跳转及代码高亮",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/renderer/services/ChatActivityView.js",
+        "src/renderer/workbench.css",
+        "docs/CHAT_ACTIVITY_2026-09-15.md"
+      ],
+      "test_evidence": [
+        "tests/chat-activity.test.js",
+        "tests/motion-preferences.test.js",
+        ".iexa-artifacts/chat-activity-20260915/visual-checks.json",
+        ".iexa-artifacts/chat-activity-20260915/motion/motion-after.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "remaining_gaps": [
+        "Reference build and exact animation timings not frozen",
+        "Full ordered transcript persistence/replay pending",
+        "No production-model end-to-end parity verification"
+      ]
+    },
+    {
+      "id": "tools.web",
+      "domain": "工具系统与工具 UI",
+      "description": "搜索/网页读取的来源、失败类型与结果展示",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.media",
+      "domain": "工具系统与工具 UI",
+      "description": "图片/附件/工件的真实展示与下载",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.approval-ui",
+      "domain": "工具系统与工具 UI",
+      "description": "工具审批请求与允许/拒绝执行关联",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/ToolLifecycle.ts",
+        "src/main/runtime/ToolRuntime.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/security/PermissionManager.ts",
+        "src/main/api/RuntimeRoutes.ts"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/codex-parity/p1-tool-lifecycle/tests.log",
+        "tests/tool-lifecycle.test.js",
+        "tests/runtime-cancellation-route.test.js"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.retry-ui",
+      "domain": "工具系统与工具 UI",
+      "description": "重试次数、执行关联和错误恢复",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "tools.long-output",
+      "domain": "工具系统与工具 UI",
+      "description": "大输出、日志分页、复制、虚拟化与滚动稳定",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.project-discovery",
+      "domain": "编码执行与修改管理",
+      "description": "项目发现、文件检索与目录指导",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.scoped-instructions",
+      "domain": "编码执行与修改管理",
+      "description": "AGENTS 层级、override、来源与作用域",
+      "reference_status": "pending_verification",
+      "implementation_status": "existing_candidate",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "docs/WORKBENCH_UPGRADE_2026-09-15.md"
+      ],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.skills",
+      "domain": "编码执行与修改管理",
+      "description": "技能发现、加载、管理与使用证据",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.patches",
+      "domain": "编码执行与修改管理",
+      "description": "精确补丁、多文件变更、编码/换行保留",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.snapshots",
+      "domain": "编码执行与修改管理",
+      "description": "修改前快照与用户已有修改保护",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.review",
+      "domain": "编码执行与修改管理",
+      "description": "逐项审查、接受/撤销及变更一致性",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.rollback",
+      "domain": "编码执行与修改管理",
+      "description": "冲突感知回滚及数据保留",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "coding.tests-repair",
+      "domain": "编码执行与修改管理",
+      "description": "测试执行、失败诊断和有界修复",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "git.status",
+      "domain": "Git 与任务隔离",
+      "description": "状态、分支、日志与提交",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "git.worktrees",
+      "domain": "Git 与任务隔离",
+      "description": "任务独立 worktree 创建/恢复/回收",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "git.merge",
+      "domain": "Git 与任务隔离",
+      "description": "主线集成、冲突提示和合并验证",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "git.dirty-tree",
+      "domain": "Git 与任务隔离",
+      "description": "脏工作区保护及原有变更保留",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "multi-agent.lifecycle",
+      "domain": "多代理调度与界面",
+      "description": "真实 spawn/send/wait/close/resume 等生命周期能力对标",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Real spawn/send/wait/close/resume; 6 open agents/tree, depth 3; exact official parity still unverified."
+    },
+    {
+      "id": "multi-agent.isolation",
+      "domain": "多代理调度与界面",
+      "description": "独立上下文、工作目录、工具权限及凭据边界",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Independent runtime/history; same root model and inherited permissions. Shared workspace; no worktree or per-role model routing yet."
+    },
+    {
+      "id": "multi-agent.scheduler",
+      "domain": "多代理调度与界面",
+      "description": "依赖图、并发上限、队列、公平性与饥饿防护",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Open-agent limit and per-child serial inbox, real concurrent siblings; DAG/fairness/resource scheduling pending."
+    },
+    {
+      "id": "multi-agent.ownership",
+      "domain": "多代理调度与界面",
+      "description": "写入范围、同文件冲突检测及隔离策略",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "multi-agent.events",
+      "domain": "多代理调度与界面",
+      "description": "父子任务事件、日志、结果关联和聚合",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Stable parent/root IDs, revisions, real SSE and persisted child body/thinking/tool transcripts; parent consumes results via wait."
+    },
+    {
+      "id": "multi-agent.cancellation",
+      "domain": "多代理调度与界面",
+      "description": "父级取消传播、孤儿任务回收、超时",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Tested recursive close and parent cancellation awaiting child/approval cleanup; abnormal process-exit orphan audit pending."
+    },
+    {
+      "id": "multi-agent.recovery",
+      "domain": "多代理调度与界面",
+      "description": "进程重启和中断后的代理恢复语义",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Atomic snapshots, interrupted-on-restart, no automatic replay, explicit resume and history restore tested; durable executor WAL pending."
+    },
+    {
+      "id": "multi-agent.budget",
+      "domain": "多代理调度与界面",
+      "description": "代理级和任务级 token/费用/时间预算",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Existing per-runtime budgets, open-agent/depth/input bounds, child usage recording; global cost/token-tree policy pending."
+    },
+    {
+      "id": "multi-agent.dashboard",
+      "domain": "多代理调度与界面",
+      "description": "真实代理状态、输入输出、依赖关系和交互",
+      "reference_status": "pending_verification",
+      "implementation_status": "partially_implemented",
+      "verification_status": "partial_regression_passed",
+      "reference_evidence": [],
+      "implementation_evidence": [
+        "src/main/runtime/SubAgentManager.ts",
+        "src/main/runtime/AgentRuntime.ts",
+        "src/main/server.ts",
+        "src/renderer/services/SubAgentView.js",
+        "docs/MULTI_AGENT_2026-09-15.md"
+      ],
+      "test_evidence": [
+        ".iexa-artifacts/multi-agent-20260915/final-tests.log",
+        ".iexa-artifacts/multi-agent-20260915/http-checks.json",
+        ".iexa-artifacts/multi-agent-20260915/visual-checks.json",
+        ".iexa-artifacts/subagent-detail-fix-20260915/visual-checks.json",
+        ".iexa-artifacts/subagent-detail-fix-20260915/text-motion-checks.json"
+      ],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation",
+      "progress_note": "Active-only dock; separate conversation inspector with safe Markdown/shared tool UI and historical links. Actual active text shimmer stops at terminal; exact desktop reference pending."
+    },
+    {
+      "id": "multi-agent.integration",
+      "domain": "多代理调度与界面",
+      "description": "分支结果审查、合并与冲突处理",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "background.background-runs",
+      "domain": "后台任务与自动化",
+      "description": "前后台切换、任务持久化与运行状态",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "background.schedules",
+      "domain": "后台任务与自动化",
+      "description": "定时规则、时区、漏跑、重复触发及幂等",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "background.notifications",
+      "domain": "后台任务与自动化",
+      "description": "完成、失败及等待输入通知",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "background.audit",
+      "domain": "后台任务与自动化",
+      "description": "执行历史、结果入口与可追溯记录",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "integrations.providers",
+      "domain": "模型与拓展",
+      "description": "模型配置、能力协商和流式协议适配",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "integrations.mcp",
+      "domain": "模型与拓展",
+      "description": "MCP 发现、连接、认证、调用、重连和错误",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "integrations.plugins",
+      "domain": "模型与拓展",
+      "description": "插件生命周期和扩展界面",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "integrations.official-engine",
+      "domain": "模型与拓展",
+      "description": "可选官方引擎的真实协议集成及版本检测",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "integrations.hosted-services",
+      "domain": "模型与拓展",
+      "description": "参照版本存在的托管服务功能与真实服务验证",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.end-to-end",
+      "domain": "完整工程验收",
+      "description": "真实打开项目→计划→编辑→审查→测试→回滚闭环",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.fault-injection",
+      "domain": "完整工程验收",
+      "description": "网络中断、磁盘错误、重启、取消、并发故障注入",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.performance",
+      "domain": "完整工程验收",
+      "description": "大项目、长对话和多代理负载的内存/响应指标",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.security",
+      "domain": "完整工程验收",
+      "description": "路径、命令、IPC、插件及权限边界回归",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.visual-regression",
+      "domain": "完整工程验收",
+      "description": "静态及逐状态动效对照、所有弹层可操作",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.packaging",
+      "domain": "完整工程验收",
+      "description": "干净环境安装、启动、升级、卸载与回滚",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    },
+    {
+      "id": "reliability.release-audit",
+      "domain": "完整工程验收",
+      "description": "证据、未决项清零、安装包与校验和",
+      "reference_status": "pending_verification",
+      "implementation_status": "not_audited",
+      "verification_status": "not_run",
+      "reference_evidence": [],
+      "implementation_evidence": [],
+      "test_evidence": [],
+      "dependencies": [],
+      "required_for_release": "pending_reference_confirmation"
+    }
+  ],
+  "current_tests": {
+    "date": "2026-09-15",
+    "command": "npm test",
+    "passed": 95,
+    "failed": 0,
+    "exit_code": 0,
+    "evidence": ".iexa-artifacts/subagent-detail-fix-20260915/final-tests.log",
+    "scope": "Local feature regressions, not full desktop parity."
+  },
+  "user_visual_reference": {
+    "received": "2026-09-15",
+    "source": "User-supplied desktop photograph in this conversation",
+    "scope": [
+      "compact tool activity rows",
+      "collapsed reasoning summaries",
+      "inline file paths and change counts"
+    ],
+    "requested_difference": "IEXA waiting status must use text-only shimmer",
+    "build_verified": false,
+    "motion_reference_available": false
+  },
+  "execution_journal_note": "Unintegrated draft preserved under .iexa-artifacts/codex-parity/p1-execution-journal/drafts; interrupted by user-requested motion/chat UI fixes. Not production implementation."
+}

@@ -1,0 +1,1 @@
+body{font:16px system-ui;background:#151719;color:#eee;margin:0;display:grid;min-height:100vh;place-items:center}main{max-width:36rem;padding:2rem}input,button{font:inherit;display:block;padding:.8rem;margin:1rem 0;width:100%;box-sizing:border-box}button{cursor:pointer}#status{color:#f9b}

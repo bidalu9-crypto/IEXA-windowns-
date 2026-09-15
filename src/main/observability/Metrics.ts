@@ -1,0 +1,1 @@
+export class Metrics { private values = new Map<string, number>(); increment(name: string, value = 1): void { this.values.set(name, (this.values.get(name) || 0) + value); } snapshot(): Record<string, number> { return Object.fromEntries(this.values); } }

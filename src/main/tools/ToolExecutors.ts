@@ -1,0 +1,597 @@
+// =============================================================================
+// IEXA PC - Tool Executors
+// Shell, File, Memory, Browser operations
+// =============================================================================
+
+import { promises as fs } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
+import * as readline from 'readline';
+import * as path from 'path';
+import { Readable } from 'stream';
+import { ToolExecutionResult } from '../providers/types';
+import { ProcessManager, ShellKind } from './shell/ProcessManager';
+import { CommandPolicy } from './shell/CommandPolicy';
+import { MemoryRetriever } from '../memory/MemoryRetriever';
+import { PathSandbox, PathPolicy } from '../security/PathSandbox';
+import { NetworkPolicy } from '../security/NetworkPolicy';
+
+export type ToolPathPolicy = Omit<PathPolicy, 'workspaceDir' | 'allowMissing'>;
+
+const MEDIA_MIME: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime',
+  '.webm': 'video/webm', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
+};
+
+function decodeUtf16Be(buffer: Buffer): string {
+  const body = buffer.subarray(2);
+  for (let i = 0; i + 1 < body.length; i += 2) {
+    const a = body[i]; body[i] = body[i + 1]; body[i + 1] = a;
+  }
+  return body.toString('utf16le');
+}
+
+/** Build a ToolExecutionResult that surfaces a local media file to the UI. */
+export async function buildMediaDisplayResult(filePath: string, workspaceDir: string, policy: ToolPathPolicy = {}): Promise<ToolExecutionResult> {
+  try {
+    const absolute = new PathSandbox().resolveSync(filePath, { ...policy, workspaceDir }).path;
+    const stat = await fs.stat(absolute);
+    if (!stat.isFile()) {
+      return { output: `Display failed: not a file: ${absolute}`, success: false };
+    }
+    const ext = path.extname(absolute).toLowerCase();
+    const mimeType = MEDIA_MIME[ext];
+    if (!mimeType) {
+      return { output: `Display failed: unsupported media type (${ext || 'no extension'}) for ${absolute}`, success: false };
+    }
+    const kind = mimeType.startsWith('image/') ? 'image' : mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('audio/') ? 'audio' : 'file' as const;
+    // Load image bytes for immediate inline preview; audio/video stream via URL.
+    let imageData: Buffer | undefined;
+    let imageMimeType: string | undefined;
+    if (kind === 'image' && stat.size <= 10 * 1024 * 1024) {
+      new PathSandbox().resolveSync(absolute, { ...policy, workspaceDir });
+      imageData = await fs.readFile(absolute);
+      imageMimeType = mimeType;
+    }
+    return {
+      output: kind === 'image' ? `Displaying image: ${absolute}` : `Displaying ${kind}: ${absolute}`,
+      success: true,
+      imageData,
+      imageMimeType,
+      artifacts: [{ kind, path: absolute, mimeType, size: stat.size }],
+    };
+  } catch (err) {
+    return { output: `Display failed: ${(err as Error).message}`, success: false };
+  }
+}
+
+function changeSummary(filePath: string, before: string, after: string, absolutePath?: string): ToolExecutionResult['fileChange'] {
+  const limit = 120000;
+  if (before.length > limit) before = before.substring(0, limit) + '\n… (truncated)';
+  if (after.length > limit) after = after.substring(0, limit) + '\n… (truncated)';
+  const oldLines = before.split(/\r?\n/);
+  const newLines = after.split(/\r?\n/);
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
+  return {
+    path: filePath,
+    absolutePath,
+    before,
+    after,
+    added: Math.max(0, newLines.length - prefix - suffix),
+    removed: Math.max(0, oldLines.length - prefix - suffix),
+  };
+}
+
+// =============================================================================
+// Shell Executor
+// =============================================================================
+
+export class ShellExecutor {
+  private workspaceDir: string;
+  private readonly processes = new ProcessManager();
+  private readonly policy = new CommandPolicy();
+
+  constructor(workspaceDir: string) {
+    this.workspaceDir = workspaceDir;
+  }
+
+  async execute(command: string, timeoutSec: number = 900, signal: AbortSignal = new AbortController().signal, shell: ShellKind = 'auto'): Promise<ToolExecutionResult> {
+    this.policy.assertAllowed(command);
+    const effectiveTimeout = Math.min(Math.max(1, timeoutSec), 3600) * 1000;
+    return this.processes.run(command, this.workspaceDir, signal, { timeoutMs: effectiveTimeout, maxOutputBytes: 10 * 1024 * 1024, killGracePeriodMs: 3000 }, shell);
+  }
+
+
+
+}
+
+// =============================================================================
+// File Tools
+// =============================================================================
+
+export class FileTools {
+  constructor(private readonly pathPolicy: ToolPathPolicy | (() => ToolPathPolicy) = {}) {}
+  private static readonly DEFAULT_READ_CHARS = 15_000;
+  private static readonly MAX_READ_CHARS = 120_000;
+  private static readonly MAX_READ_LINES = 100_000;
+  private readonly writeLocks = new Map<string, Promise<void>>();
+
+  private async withWriteLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.writeLocks.get(filePath) || Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    this.writeLocks.set(filePath, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.writeLocks.get(filePath) === current) this.writeLocks.delete(filePath);
+    }
+  }
+
+  private async atomicWriteText(filePath: string, content: string, workspaceDir: string): Promise<void> {
+    const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+    let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+    let created = false;
+    try {
+      let mode: number | undefined;
+      try { mode = (await fs.stat(filePath)).mode; } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      this.resolvePath(filePath, workspaceDir, true);
+      this.resolvePath(tempPath, workspaceDir, true);
+      handle = await fs.open(tempPath, 'wx');
+      created = true;
+      await handle.writeFile(content, 'utf8');
+      if (mode !== undefined) await handle.chmod(mode);
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      this.resolvePath(filePath, workspaceDir, true);
+      this.resolvePath(tempPath, workspaceDir);
+      await fs.rename(tempPath, filePath);
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+      if (created) {
+        try { this.resolvePath(tempPath, workspaceDir, true); await fs.unlink(tempPath); } catch { /* Missing or changed scope: leave it untouched. */ }
+      }
+    }
+  }
+  private resolvePath(filePath: string, workspaceDir: string, allowMissing = false): string {
+    const policy = typeof this.pathPolicy === 'function' ? this.pathPolicy() : this.pathPolicy;
+    return new PathSandbox().resolveSync(filePath, { ...policy, workspaceDir, allowMissing }).path;
+  }
+
+  async readFile(
+    filePath: string,
+    workspaceDir: string,
+    options: {
+      offset?: number;
+      lines?: number;
+      maxLength?: number;
+      direction?: 'head' | 'tail';
+    } = {}
+  ): Promise<ToolExecutionResult> {
+    try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir);
+      const stat = await fs.stat(resolvedPath);
+      if (!stat.isFile()) {
+        return { output: `Error: not a file: ${filePath}`, success: false };
+      }
+
+      // Probe only the first 512 bytes. The content body is streamed below so
+      // a large source/log file does not need to fit in memory before paging.
+      this.resolvePath(resolvedPath, workspaceDir);
+      const handle = await fs.open(resolvedPath, 'r');
+      const probe = Buffer.alloc(512);
+      let bytesRead = 0;
+      try { ({ bytesRead } = await handle.read(probe, 0, probe.length, 0)); } finally { await handle.close(); }
+      const probeBytes = probe.subarray(0, bytesRead);
+      const utf16le = probeBytes.length >= 2 && probeBytes[0] === 0xff && probeBytes[1] === 0xfe;
+      const utf16be = probeBytes.length >= 2 && probeBytes[0] === 0xfe && probeBytes[1] === 0xff;
+      const isBinary = !utf16le && !utf16be && probeBytes.some((byte) => byte === 0);
+      if (isBinary) {
+        const ext = path.extname(resolvedPath).toLowerCase();
+        const imageMime: Record<string, string> = {
+          '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+        };
+        if (imageMime[ext]) {
+          return {
+            output: `Image file: ${filePath}\nSize: ${stat.size} bytes\nMime: ${imageMime[ext]}\nUse display_file to show it in chat.`,
+            success: true,
+          };
+        }
+        return {
+          output: `Error: file appears to be binary (${stat.size} bytes): ${filePath}`,
+          success: false,
+        };
+      }
+
+      const maxLen = Math.min(
+        Math.max(1, Math.floor(Number(options.maxLength) || FileTools.DEFAULT_READ_CHARS)),
+        FileTools.MAX_READ_CHARS,
+      );
+      const startLine = Math.max(1, Math.floor(Number(options.offset) || 1));
+      // `lines` is optional. Treat an omitted/zero value as "no explicit line
+      // limit" instead of coercing it to one line.
+      const requestedLines = Number.isFinite(Number(options.lines)) && Number(options.lines) > 0
+        ? Math.min(FileTools.MAX_READ_LINES, Math.floor(Number(options.lines)))
+        : 0;
+      const tailMode = options.direction === 'tail';
+      const lineLimit = requestedLines || (tailMode ? 50 : Number.MAX_SAFE_INTEGER);
+      const selectedLines: string[] = [];
+      let selectedChars = 0;
+      let totalLines = 0;
+      let truncated = false;
+      // readline can stream UTF-8 directly. UTF-16 files are uncommon but
+      // frequent on Windows when created by PowerShell, so decode those with
+      // a bounded read and strip the BOM before paging.
+      this.resolvePath(resolvedPath, workspaceDir);
+      const input = utf16le || utf16be
+        ? Readable.from([(utf16le ? readFileSync(resolvedPath).toString('utf16le') : decodeUtf16Be(readFileSync(resolvedPath))).replace(/^\uFEFF/, '')])
+        : createReadStream(resolvedPath, { encoding: 'utf8' });
+      const lineReader = readline.createInterface({ input, crlfDelay: Infinity });
+      try {
+        for await (const line of lineReader) {
+          totalLines++;
+          if (tailMode) {
+            selectedLines.push(line);
+            if (selectedLines.length > lineLimit) selectedLines.shift();
+            continue;
+          }
+          if (totalLines < startLine || selectedLines.length >= lineLimit) continue;
+          const separatorChars = selectedLines.length > 0 ? 1 : 0;
+          const remaining = maxLen - selectedChars - separatorChars;
+          if (remaining <= 0) { truncated = true; continue; }
+          if (line.length > remaining) {
+            selectedLines.push(line.slice(0, remaining));
+            selectedChars = maxLen;
+            truncated = true;
+          } else {
+            selectedLines.push(line);
+            selectedChars += separatorChars + line.length;
+          }
+        }
+      } finally {
+        lineReader.close();
+        input.destroy();
+      }
+
+      let content = selectedLines.join('\n');
+      if (content.length > maxLen) {
+        // Tail reads must preserve the newest bytes when a character cap is
+        // also supplied; slicing from the front would return the wrong part.
+        content = tailMode ? content.slice(-maxLen) : content.slice(0, maxLen);
+        truncated = true;
+      }
+      if (tailMode && selectedLines.length >= lineLimit && totalLines > lineLimit) truncated = true;
+
+      const header = `File: ${filePath}\nSize: ${stat.size} bytes\nLines: ${totalLines}\nModified: ${stat.mtime.toISOString()}\n`;
+      const trailer = truncated ? `\n\n[Truncated/paged at ${maxLen} chars]` : '';
+
+      return {
+        output: header + '---\n' + content + trailer,
+        success: true,
+      };
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        return { output: `Error: file not found: ${filePath}`, success: false };
+      }
+      return { output: `Error reading file: ${error.message}`, success: false };
+    }
+  }
+
+  async writeFile(
+    filePath: string,
+    content: string,
+    workspaceDir: string,
+    options: { append?: boolean; createDirs?: boolean } = {}
+  ): Promise<ToolExecutionResult> {
+    try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir, true);
+      return await this.withWriteLock(resolvedPath, async () => {
+        this.resolvePath(resolvedPath, workspaceDir, true);
+        if (options.createDirs) {
+          await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+        }
+
+        this.resolvePath(resolvedPath, workspaceDir, true);
+        let before = '';
+        let exists = true;
+        try {
+          before = await fs.readFile(resolvedPath, 'utf-8');
+        } catch (readError: unknown) {
+          const code = (readError as NodeJS.ErrnoException).code;
+          // Only a genuinely missing file is a new-file write. Permission,
+          // directory, and transient I/O failures must not be swallowed.
+          if (code !== 'ENOENT') throw readError;
+          exists = false;
+        }
+        const nextContent = options.append && exists ? before + content : content;
+        await this.atomicWriteText(resolvedPath, nextContent, workspaceDir);
+        const stat = await fs.stat(resolvedPath);
+        return {
+          output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
+          success: true,
+          fileChange: changeSummary(filePath, before, nextContent, resolvedPath),
+        };
+      });
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        return {
+          output: `Error: directory not found. Use create_dirs=true to create parent directories. Path: ${filePath}`,
+          success: false,
+        };
+      }
+      return { output: `Error writing file: ${error.message}`, success: false };
+    }
+  }
+
+  async editFile(
+    filePath: string,
+    oldString: string,
+    newString: string,
+    workspaceDir: string,
+    replaceAll: boolean = false
+  ): Promise<ToolExecutionResult> {
+    try {
+      const resolvedPath = this.resolvePath(filePath, workspaceDir);
+      if (!oldString) {
+        return { output: `Error: old_string must not be empty: ${filePath}`, success: false };
+      }
+      return await this.withWriteLock(resolvedPath, async () => {
+        this.resolvePath(resolvedPath, workspaceDir);
+        const content = await fs.readFile(resolvedPath, 'utf-8');
+
+      if (replaceAll) {
+        if (!content.includes(oldString)) {
+          return {
+            output: `Error: old_string not found in file: ${filePath}`,
+            success: false,
+          };
+        }
+        const newContent = content.split(oldString).join(newString);
+        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
+        const count = content.split(oldString).length - 1;
+        return {
+          output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
+          success: true,
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
+        };
+      } else {
+        const firstIndex = content.indexOf(oldString);
+        if (firstIndex === -1) {
+          return {
+            output: `Error: old_string not found in file: ${filePath}\nTip: Use file_read first to see the exact content.`,
+            success: false,
+          };
+        }
+        const secondIndex = content.indexOf(oldString, firstIndex + 1);
+        if (secondIndex !== -1) {
+          return {
+            output: `Error: old_string matches multiple locations in the file. Use replace_all=true or provide a more specific string with more surrounding context.`,
+            success: false,
+          };
+        }
+        const newContent = content.substring(0, firstIndex) + newString + content.substring(firstIndex + oldString.length);
+        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
+        return {
+          output: `File edited: ${filePath}\n1 occurrence replaced`,
+          success: true,
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
+        };
+      }
+      });
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        return { output: `Error: file not found: ${filePath}`, success: false };
+      }
+      return { output: `Error editing file: ${error.message}`, success: false };
+    }
+  }
+}
+
+// =============================================================================
+// Memory Tools
+// =============================================================================
+
+export class MemoryTools {
+  private memoryDir: string;
+  private readonly retriever: MemoryRetriever;
+
+  constructor(memoryDir: string) {
+    this.memoryDir = memoryDir;
+    this.retriever = new MemoryRetriever(memoryDir);
+  }
+
+  async initialize(): Promise<void> {
+    await fs.mkdir(this.memoryDir, { recursive: true });
+  }
+
+  async writeMemory(content: string): Promise<ToolExecutionResult> {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const filePath = path.join(this.memoryDir, `${today}.md`);
+      const timestamp = new Date().toISOString();
+      const entry = `\n### ${timestamp}\n${content}\n`;
+
+      await fs.mkdir(this.memoryDir, { recursive: true });
+
+      let existing = '';
+      try {
+        existing = await fs.readFile(filePath, 'utf-8');
+      } catch {
+        existing = `# Memory Log - ${today}\n`;
+      }
+
+      await fs.writeFile(filePath, existing + entry, 'utf-8');
+      return {
+        output: `Memory saved to ${today}.md`,
+        success: true,
+      };
+    } catch (err: unknown) {
+      const error = err as Error;
+      return { output: `Error writing memory: ${error.message}`, success: false };
+    }
+  }
+
+  async getMemory(keywords: string = '', limit: number = 20): Promise<ToolExecutionResult> {
+    try {
+      const results = await this.retriever.search(keywords, { limit });
+      if (results.length === 0) {
+        return {
+          output: keywords
+            ? `No memories found matching: ${keywords}`
+            : 'No memories found. Start by saving memories with memory_write.',
+          success: true,
+        };
+      }
+
+      return {
+        output: results.map((result) => `### ${result.file}\n${result.content}`).join('\n---\n'),
+        success: true,
+      };
+    } catch (err: unknown) {
+      const error = err as Error;
+      return { output: `Error reading memories: ${error.message}`, success: false };
+    }
+  }
+}
+
+// =============================================================================
+// Web Search Tool
+// =============================================================================
+
+export class WebSearch {
+  constructor(private readonly network = new NetworkPolicy()) {}
+  async search(query: string, limit = 8, recencyDays?: number, signal?: AbortSignal): Promise<ToolExecutionResult> {
+    const q = String(query || '').trim();
+    if (q.length < 2) return { output: '搜索词至少需要 2 个字符。', success: false };
+    limit = Math.min(12, Math.max(1, Number.isFinite(limit) ? Math.floor(limit) : 8));
+    const suffix = Number.isSafeInteger(recencyDays) && recencyDays! > 0 ? `&filters=ex1%3a%22ez${Math.min(3650, recencyDays!)}%22` : '';
+    const providers = [
+      `https://www.google.com/search?q=${encodeURIComponent(q)}&num=${limit}`,
+      `https://www.bing.com/search?format=rss&q=${encodeURIComponent(q)}${suffix}`,
+      `https://www.bing.com/search?q=${encodeURIComponent(q)}&count=${limit}${suffix}`,
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,
+    ];
+    const failures: string[] = [];
+    for (const endpoint of providers) {
+      try {
+        const response = await this.network.fetch(endpoint, {
+          signal, timeoutMs: 12000, maxBytes: 2 * 1024 * 1024,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36', 'Accept': 'text/html,application/xhtml+xml' },
+        });
+        if (response.status < 200 || response.status >= 300) { failures.push(`${new URL(endpoint).hostname}: HTTP ${response.status}`); continue; }
+        const html = response.body.toString('utf8');
+        const results = endpoint.includes('format=rss') ? this.parseBingRss(html, limit) : endpoint.includes('bing.com') ? this.parseBing(html, limit) : endpoint.includes('duckduckgo') ? this.parseDuck(html, limit) : this.parseGoogle(html, limit);
+        if (!results.length) { failures.push(`${new URL(endpoint).hostname}: 无可解析结果`); continue; }
+        const output = results.map((item, i) => `${i + 1}. ${item.title}\nURL: ${item.url}\n来源: ${item.domain}\n摘要: ${item.snippet}`).join('\n\n');
+        return { output: `搜索词：${q}\n\n${output}`, success: true, metadata: { query: q, provider: new URL(endpoint).hostname, results } };
+      } catch (error) { failures.push(`${new URL(endpoint).hostname}: ${(error as Error).message}`); }
+    }
+    return { output: `联网搜索失败：所有搜索源均未返回可解析结果。\n${failures.join('\n')}`, success: false, error: 'SEARCH_ALL_PROVIDERS_FAILED', metadata: { query: q, failures } };
+  }
+  private clean(value: string): string { return value.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim(); }
+  private parseLinks(html: string, selector: RegExp, limit: number): Array<{ title: string; url: string; domain: string; snippet: string }> {
+    const results = []; let match: RegExpExecArray | null;
+    while (results.length < limit && (match = selector.exec(html))) {
+      const url = this.clean(match[1]); if (!/^https?:\/\//i.test(url)) continue;
+      let title = this.clean(match[2]), snippet = this.clean(match[3] || '');
+      try { const parsed = new URL(url); results.push({ title: title.slice(0, 240) || parsed.hostname, url, domain: parsed.hostname, snippet: snippet.slice(0, 600) }); } catch {}
+    }
+    return results;
+  }
+  private parseBingRss(xml: string, limit: number) {
+    const results = []; let match: RegExpExecArray | null;
+    const re = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>(https?:\/\/[^<]+)<\/link>[\s\S]*?<description>([\s\S]*?)<\/description>[\s\S]*?<\/item>/gi;
+    while (results.length < limit && (match = re.exec(xml))) { const url = this.clean(match[2]); try { const parsed = new URL(url); results.push({ title: this.clean(match[1]).slice(0, 240), url, domain: parsed.hostname, snippet: this.clean(match[3]).slice(0, 600) }); } catch {} }
+    return results;
+  }
+  private parseBing(html: string, limit: number) { return this.parseLinks(html, /<li class="b_algo"[\s\S]*?<h2><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>[\s\S]*?<p>([\s\S]*?)<\/p>/gi, limit); }
+  private parseDuck(html: string, limit: number) { return this.parseLinks(html, /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi, limit); }
+  private parseGoogle(html: string, limit: number) { return this.parseLinks(html, /<a href="(https?:\/\/[^"&]+)"[^>]*>([\s\S]*?)<\/a>/gi, limit).filter(item => !/google\./i.test(item.domain)); }
+}
+
+// =============================================================================
+// Browser Fetch Tool
+// =============================================================================
+
+export class BrowserFetch {
+  constructor(private readonly network = new NetworkPolicy()) {}
+  async fetch(url: string, maxLength: number = 25000, signal?: AbortSignal): Promise<ToolExecutionResult> {
+    try {
+      const response = await this.network.fetch(url, { signal });
+      url = response.url;
+      if (response.status < 200 || response.status >= 300) {
+        const parsed = new URL(url);
+        const looksTruncated = response.status === 404 && /(?:post_|content_?)$/i.test(parsed.pathname);
+        const diagnostic = looksTruncated
+          ? '\n诊断：服务器已正常响应，但 URL 路径看起来是不完整的文章地址（末尾为 post_ / content_）。请重新搜索并使用包含完整数字 ID 的 URL，不要把截断的 URL 当作网络故障。'
+          : '';
+        return { output: `HTTP ${response.status} ${response.statusText} for ${url}${diagnostic}`, success: false };
+      }
+      const contentType = String(response.headers['content-type'] || '');
+      const text = response.body.toString('utf8');
+      maxLength = Number.isFinite(maxLength) ? Math.min(120000, Math.max(1, Math.floor(maxLength))) : 25000;
+
+      // Simple HTML to text conversion
+      let result: string;
+      if (contentType.includes('text/html') || contentType.includes('application/xhtml')) {
+        result = this.stripHtml(text);
+      } else {
+        result = text;
+      }
+
+      if (result.length > maxLength) {
+        result = result.substring(0, maxLength) + '\n\n[Content truncated...]';
+      }
+
+      return {
+        output: `URL: ${url}\nStatus: ${response.status}\nContent-Type: ${contentType}\n\n${result}`,
+        success: true,
+      };
+    } catch (err: unknown) {
+      const error = err as Error;
+      return { output: `Error fetching URL: ${error.message}`, success: false };
+    }
+  }
+
+  private stripHtml(html: string): string {
+    // Remove scripts and styles
+    let text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '');
+
+    // Convert block elements to newlines
+    text = text.replace(/<\/(div|p|h[1-6]|li|tr|article|section|header|footer|nav|main)>/gi, '\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    text = text.replace(/<\/?(div|p|h[1-6]|li|tr|article|section|header|footer|nav|main)[^>]*>/gi, '');
+
+    // Remove all remaining tags
+    text = text.replace(/<[^>]+>/g, '');
+
+    // Decode entities
+    text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+
+    // Clean up whitespace
+    text = text.replace(/\n{3,}/g, '\n\n').replace(/[ \t]+/g, ' ').trim();
+
+    return text;
+  }
+}

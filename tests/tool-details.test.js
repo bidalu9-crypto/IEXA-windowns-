@@ -1,0 +1,23 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs'),path=require('node:path');const {JSDOM}=require('jsdom');
+const source=fs.readFileSync(path.join(__dirname,'../src/renderer/services/ChatActivityView.js'),'utf8');
+function fixture(t){const dom=new JSDOM('<body></body>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window;w.eval(source);const b=w.document.createElement('div');b.className='tool-block';b.innerHTML='<div class="tool-header"><span class="tool-icon"></span><span class="tool-heading"><span class="tool-name"></span><span class="tool-meta"></span></span><span class="tool-status">完成</span><span class="tool-chevron"></span></div><div class="tool-body"><pre class="tool-args"></pre><pre class="tool-result"></pre></div>';w.document.body.appendChild(b);return {w,b,api:w.IexaChatActivity};}
+
+test('Shell details group command/output in one panel and hide raw JSON by default',t=>{
+ const {w,b,api}=fixture(t);b.querySelector('.tool-args').textContent=JSON.stringify({command:'npm test',timeout:60});b.querySelector('.tool-result').textContent='tests passed';api.updateTool(b,'shell_execute',{command:'npm test'},{success:true});
+ assert.equal(b.querySelectorAll('.tool-detail-panel').length,1);assert.equal(b.querySelector('.tool-detail-title').textContent,'Shell');assert.equal(b.querySelector('.tool-command').textContent,'$ npm test');assert.equal(b.querySelector('.tool-console-viewport .tool-result').textContent,'tests passed');assert.equal(b.querySelector('.tool-raw-input').hidden,true);assert.equal(b.querySelector('.tool-console-viewport .tool-args'),null);assert.equal(b.querySelector('.tool-name').textContent,'已运行命令');
+ const params=b.querySelector('.tool-toggle-params');params.click();assert.equal(b.querySelector('.tool-raw-input').hidden,false);assert.equal(params.getAttribute('aria-expanded'),'true');params.click();assert.equal(b.querySelector('.tool-raw-input').hidden,true);
+});
+test('repeated updates preserve output node, pagination controls and no duplicated panel',t=>{
+ const {w,b,api}=fixture(t),output=b.querySelector('.tool-result');output._fullText='full untruncated output';const pager=w.document.createElement('div');pager.className='text-pager';output.after(pager);
+ api.updateTool(b,'shell_execute',{command:'echo hello'});api.updateTool(b,'shell_execute',undefined,{success:true});assert.equal(b.querySelectorAll('.tool-detail-panel').length,1);assert.equal(b.querySelector('.tool-result'),output);assert.equal(output._fullText,'full untruncated output');assert.equal(pager.parentNode,b.querySelector('.tool-console-viewport'));
+});
+test('copy output uses full paged content and reports clipboard errors visibly',async t=>{
+ const {w,b,api}=fixture(t);const output=b.querySelector('.tool-result');output.textContent='page 1';output._fullText='page 1\npage 2';let copied='';w.writeClipboardText=async text=>{copied=text;};api.updateTool(b,'shell_execute',{command:'npm test'},{success:true});b.querySelector('.tool-copy-result').click();await new Promise(r=>setImmediate(r));assert.equal(copied,'page 1\npage 2');assert.equal(b.querySelector('.tool-detail-feedback').textContent,'已复制');
+ w.writeClipboardText=async()=>{throw new Error('denied');};b.querySelector('.tool-copy-result').click();await new Promise(r=>setImmediate(r));assert.match(b.querySelector('.tool-detail-feedback').textContent,/复制未完成/);
+});
+test('tool commands and outputs remain literal text, never executable markup',t=>{
+ const {w,b,api}=fixture(t);api.updateTool(b,'shell_execute',{command:'echo "<img src=x onerror=alert(1)>"'});assert.equal(b.querySelector('img'),null);assert.match(b.querySelector('.tool-command').textContent,/<img/);assert.equal(b.querySelector('.tool-copy-result').disabled,true);assert.equal(b.querySelector('.tool-output-placeholder').textContent,'等待输出…');api.updateTool(b,'shell_execute',undefined,{success:false});assert.equal(b.querySelector('.tool-output-placeholder').textContent,'无文本输出');
+});
+test('overflow fade follows actual scroll geometry and clears at bottom',t=>{
+ const {b,api}=fixture(t);api.updateTool(b,'shell_execute',{command:'npm test'});const viewport=b.querySelector('.tool-console-viewport');Object.defineProperties(viewport,{scrollHeight:{value:800,configurable:true},clientHeight:{value:200,configurable:true}});api.refreshDetail(b);assert.equal(viewport.dataset.overflow,'true');assert.equal(viewport.dataset.atBottom,'false');viewport.scrollTop=600;api.refreshDetail(b);assert.equal(viewport.dataset.atBottom,'true');Object.defineProperty(viewport,'scrollHeight',{value:100});api.refreshDetail(b);assert.equal(viewport.dataset.overflow,'false');
+});

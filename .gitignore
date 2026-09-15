@@ -1,0 +1,47 @@
+node_modules/
+dist/
+release/
+electron/
+build/
+workspace/
+attachments/
+.iexa-artifacts/
+.runtime/
+
+# Native desktop-agent build intermediates
+desktop-agent/bin/
+desktop-agent/obj/
+desktop-agent/publish-next/
+
+# Build output
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+
+# Electron / distribution artifacts
+*.zip
+convert-icon.js
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local SSH configuration and host fingerprints must never enter the repository.
+.ssh/
+
+# Debug logs
+debug.log
+*.log
+
+# Environment
+.env
+.env.*
+
+# Temp files
+*.tmp
+*.swp
+*~
