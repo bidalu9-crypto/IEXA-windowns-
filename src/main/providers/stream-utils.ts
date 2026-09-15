@@ -1,3 +1,5 @@
+import { modelRequestHeaders } from './RequestHeaders';
+
 export const STREAM_RETRY_DELAYS_MS = [2000, 5000, 10000];
 
 export function isAbortError(error: unknown): boolean {
@@ -31,17 +33,20 @@ export function isRetryableStatus(status: number): boolean {
 
 export async function fetchWithRetry(
   input: string | URL | Request,
-  init: RequestInit,
+  init: RequestInit & { userAgent?: string },
   attempts = STREAM_RETRY_DELAYS_MS.length + 1,
 ): Promise<Response> {
   const signal = init.signal === undefined && typeof Request !== 'undefined' && input instanceof Request ? input.signal : init.signal;
   throwIfAborted(signal);
   if (!Number.isSafeInteger(attempts) || attempts < 1) throw new RangeError('attempts must be a positive integer');
+  const inheritedHeaders = init.headers === undefined && typeof Request !== 'undefined' && input instanceof Request ? input.headers : init.headers;
+  const { userAgent, ...fetchInit } = init;
+  const requestInit = { ...fetchInit, headers: modelRequestHeaders(inheritedHeaders, userAgent) };
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     throwIfAborted(signal);
     try {
-      const response = await fetch(input, init);
+      const response = await fetch(input, requestInit);
       if (signal?.aborted) {
         void response.body?.cancel().catch(() => {});
         throwIfAborted(signal);

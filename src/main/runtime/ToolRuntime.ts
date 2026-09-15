@@ -44,7 +44,7 @@ export class ToolRuntime {
     this.budget = config.budget || new BudgetManager();
     this.shell = new ShellExecutor(config.workspaceDir);
     this.memory = new MemoryTools(config.memoryDir);
-    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true);
+    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true, path.join(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), 'desktop'));
     this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
   }
   async initialize(): Promise<void> { await this.memory.initialize(); }
@@ -90,7 +90,9 @@ export class ToolRuntime {
       const tool = this.registry.get(name)!;
       const authorizedTool = name === 'shell_execute'
         ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
-        : tool;
+        : name === 'desktop_control' && !['list_windows','observe','frame','session_state','find_element','read_focused','wait','wait_change'].includes(String(args.action || 'observe'))
+          ? { ...tool, requiresApproval: true }
+          : tool;
       const permissions = name === 'shell_execute'
         ? new PermissionManager(this.config.auditDir || path.join(this.config.workspaceDir, '.iexa-audit'), this.config.permissionResolver, this.permissionMode)
         : this.permissions;
@@ -122,7 +124,7 @@ export class ToolRuntime {
   getBudget(): ReturnType<BudgetManager['snapshot']> { return this.budget.snapshot(); }
   beginRun(allowedTools?: Iterable<string>): void {
     if (this.activeExecutions) throw new Error('Previous tool executions are still settling; wait before starting another run.');
-    this.executions.clear(); this.lifecycle = new ToolLifecycle();
+    this.executions.clear(); this.desktop.resetControl(); this.lifecycle = new ToolLifecycle();
     this.allowedTools = allowedTools ? new Set(allowedTools) : null;
     this.budget.reset(); this.loopDetector.reset();
   }
@@ -143,7 +145,10 @@ export class ToolRuntime {
     };
     for (const definition of makeAgentTools(this.config.memoryEnabled !== false)) {
       add(definition, async (args, context) => {
-        if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal);
+        if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal, {
+          owner: context.sessionId, operationId: `${this.lifecycle.runId}:${context.toolCallId}`,
+          onEvent: desktop => { try { context.onToolState?.(this.lifecycle.progress(context.sessionId, context.toolCallId, desktop)); } catch {} },
+        });
         if (definition.name === 'todo_write') return todo(args);
         if (definition.name === 'shell_execute') {
           const requestedShell = ['auto', 'cmd', 'powershell', 'pwsh'].includes(String(args.shell || 'auto'))

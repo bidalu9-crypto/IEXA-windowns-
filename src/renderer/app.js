@@ -659,7 +659,7 @@ async function saveSoul() {
 }
 
 async function restoreSoul() {
-  if (!window.confirm('恢复默认灵魂？当前身份和人格提示词将被替换。')) return;
+  if (!(await window.IexaDialogs.confirm('恢复默认灵魂？当前身份和人格提示词将被替换。'))) return;
   try {
     const response = await fetch(`${API_BASE}/api/soul/restore`, { method: 'POST' });
     const data = await response.json();
@@ -1123,7 +1123,7 @@ async function switchSession(id, updateList = true) {
 }
 
 async function deleteSession(id) {
-  if (!confirm('确定删除这个会话？')) return;
+  if (!(await window.IexaDialogs.confirm('确定删除这个会话？'))) return;
 
   try {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
@@ -1314,7 +1314,9 @@ function highlightMatch(text, query) {
 // Chat Input
 // =============================================================================
 
+const chatComposition = window.IexaComposerInput.bind(chatInput);
 chatInput.addEventListener('keydown', (e) => {
+  if (chatComposition.isComposing(e)) return;
   if (e.key === 'Enter' && !e.shiftKey) {
     const menu = document.getElementById('slashMenu');
     if (menu && menu.style.display !== 'none' && menu.querySelector('.slash-item')) {
@@ -1333,6 +1335,7 @@ chatInput.addEventListener('input', () => {
 });
 
 chatInput.addEventListener('keydown', (e) => {
+  if (chatComposition.isComposing(e)) return;
   const menu = document.getElementById('slashMenu');
   if (menu && menu.style.display !== 'none' && menu.querySelector('.slash-item')) {
     if (e.key === 'Escape') {
@@ -2093,7 +2096,7 @@ function handleSSEEvent(raw, turnToken) {
         break;
       }
       case 'tool_result':
-        handleToolResult(data.id, data.output, data.success, data.todos, data.fileChange, data.imageData, data.imageMimeType, data.artifacts, data.executionStatus, data.durationMs, data.pluginUI);
+        handleToolResult(data.id, data.output, data.success, data.todos, data.fileChange, data.imageData, data.imageMimeType, data.artifacts, data.executionStatus, data.durationMs, data.pluginUI, data.metadata);
         break;
       case 'context':
         handleContextStatus(data);
@@ -2169,8 +2172,11 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
 
   // SSE events are already batched. Only rebuild when the source changed so
   // terminal events can enhance the existing DOM without a visible reflow.
-  if (contentEl._renderedMarkdownSource !== source) {
-    contentEl.innerHTML = renderSafeMarkdown(source);
+  if (contentEl._renderedMarkdownSource !== source || (finalRender && !contentEl._renderedMarkdownFinal)) {
+    // Avoid rerunning syntax highlighting over all growing code blocks per SSE delta.
+    // Finalization adds highlighting exactly once, even when the text is unchanged.
+    contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
+    contentEl._renderedMarkdownFinal = finalRender;
     contentEl._renderedMarkdownSource = source;
     normalizeRenderedAssets(contentEl);
   }
@@ -2667,7 +2673,8 @@ function showEmbeddedDesktopLive() {
     const status = desktopLivePanel.querySelector('[data-live-status]');
     try {
       const response = await fetch('/api/desktop-live/cancel', { method: 'POST' });
-      status.textContent = response.ok ? '已请求停止并释放鼠标和按键' : '停止请求失败，请手动切换目标窗口';
+      const result = await response.json();
+      status.textContent = result.paused ? (result.settled ? '已停止操控；恢复后请重新发起任务' : '已请求停止，等待当前动作结束；先前动作可能已生效') : '停止请求失败，请检查桌面服务';
     } catch { status.textContent = '连接中断，请手动切换目标窗口'; }
   };
 }
@@ -2750,7 +2757,11 @@ async function pollDesktopLive() {
   try {
     if (document.visibilityState !== 'visible') return;
     const response = await fetch('/api/desktop-live/frame', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
-    if (!response.ok) throw new Error('桌面服务未启动或暂不可用');
+    if (!response.ok) {
+      let detail = '桌面服务未启动或暂不可用';
+      try { const payload = await response.json(); if (typeof payload.error === 'string') detail = payload.error; } catch {}
+      throw new Error(detail);
+    }
     const blob = await response.blob();
     if (!desktopLiveEnabled) return;
     const image = desktopLivePanel.querySelector('img');
@@ -2759,12 +2770,13 @@ async function pollDesktopLive() {
     image.src = desktopLiveUrl;
     image.hidden = false;
     if (previous) URL.revokeObjectURL(previous);
-    desktopLivePanel.querySelector('[data-live-status]').textContent = `实时采集 · ${Math.round(performance.now() - started)} ms · ${new Date().toLocaleTimeString()}`;
+    const capturedAt = Number(response.headers.get('x-captured-at'));
+    desktopLivePanel.querySelector('[data-live-status]').textContent = `最近观察快照 · ${capturedAt > 0 ? new Date(capturedAt).toLocaleTimeString() : '时间未知'} · 不主动截取后台窗口`;
   } catch (error) {
     if (desktopLiveEnabled) desktopLivePanel.querySelector('[data-live-status]').textContent = error.message;
   } finally {
     desktopLivePolling = false;
-    if (desktopLiveEnabled) desktopLiveTimer = setTimeout(pollDesktopLive, Math.max(100, 250 - (performance.now() - started)));
+    if (desktopLiveEnabled) desktopLiveTimer = setTimeout(pollDesktopLive, Math.max(500, 800 - (performance.now() - started)));
   }
 }
 
@@ -2956,11 +2968,11 @@ function setPagedText(element, text, options) {
   element._pager.next.disabled = element._page === pages - 1;
 }
 
-function handleToolResult(id, output, success, todos, fileChange, imageData, imageMimeType, artifacts, executionStatus, durationMs, pluginUI) {
+function handleToolResult(id, output, success, todos, fileChange, imageData, imageMimeType, artifacts, executionStatus, durationMs, pluginUI, metadata) {
   const info = currentToolBlocks[id];
   if (!info) return;
 
-  window.IexaToolLifecycleView.applyResult(info.block, { success, executionStatus }, setToolStepStatus);
+  window.IexaToolLifecycleView.applyResult(info.block, { success, executionStatus, metadata }, setToolStepStatus);
   window.IexaChatActivity.updateTool(info.block, info.name, undefined, { success, fileChange, pluginUI });
 
   if (Array.isArray(todos) && success && currentAssistantMsg) {
@@ -3125,7 +3137,7 @@ async function copyArtifactImage(src, button) {
     setTimeout(() => button.classList.remove('is-copied'), 1200);
   } catch (error) {
     console.warn('copy artifact image failed', error);
-    alert('当前系统不支持直接复制图片，请使用保存按钮。');
+    (await window.IexaDialogs.alert('当前系统不支持直接复制图片，请使用保存按钮。'));
   }
 }
 
@@ -4161,7 +4173,7 @@ async function copyUserMessage(content, button) {
 async function resetConversationToMessage(messageEl) {
   const messageIndex = Number(messageEl && messageEl.dataset.messageIndex);
   if (!Number.isInteger(messageIndex) || messageIndex < 0 || !currentSessionId) return;
-  if (!confirm('重置到此处将移除这条消息之后的对话，是否继续？')) return;
+  if (!(await window.IexaDialogs.confirm('重置到此处将移除这条消息之后的对话，是否继续？'))) return;
 
   // A reset is a hard branch point: stop the live request and drop queued prompts.
   suppressQueueDrain = true;
@@ -4369,6 +4381,8 @@ async function fetchProfiles() {
   const resp = await fetch(`${API_BASE}/api/profiles`);
   const data = await resp.json();
   profilesCache = data.profiles || [];
+  const uaInput = document.getElementById('profileEditorUserAgent');
+  if (uaInput && data.defaultUserAgent) uaInput.placeholder = data.defaultUserAgent;
   activeProfileId = data.activeProfileId || '';
   if (data.thinkingLevel) {
     currentThinkingLevel = normalizeThinkingLevel(data.thinkingLevel);
@@ -4816,7 +4830,7 @@ async function activateProfile(id) {
 }
 
 async function deleteProfile(id) {
-  if (!confirm('确定删除这个模型配置？')) return;
+  if (!(await window.IexaDialogs.confirm('确定删除这个模型配置？'))) return;
   await fetch(`${API_BASE}/api/profiles/${id}`, { method: 'DELETE' });
   renderProfileList();
   loadVisionProfileSetting();
@@ -4834,6 +4848,7 @@ function showProfileEditor(profile) {
   document.getElementById('profileEditorApiKey').value = '';
   document.getElementById('profileEditorApiKey').placeholder = profile ? '已保存，留空即可继续使用' : 'sk-...';
   document.getElementById('profileEditorBaseURL').value = profile ? (profile.baseURL || '') : '';
+  document.getElementById('profileEditorUserAgent').value = profile?.userAgent || '';
   document.getElementById('profileEditorFastMode').checked = !!(profile && profile.fastModeSupported);
   document.getElementById('profileEditorApiMode').value = profile?.apiMode === 'responses' ? 'responses' : 'chat_completions';
   document.getElementById('profileEditorModelSelect').style.display = 'none';
@@ -4901,7 +4916,7 @@ async function fetchModels() {
     const resp = await fetch(`${API_BASE}/api/profiles/fetch-models`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL, apiKey, profileId }),
+      body: JSON.stringify({ baseURL, apiKey, profileId, userAgent: document.getElementById('profileEditorUserAgent').value }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -4946,20 +4961,26 @@ async function saveProfile() {
     model: profileModel,
     apiKey: document.getElementById('profileEditorApiKey').value.trim(),
     baseURL: document.getElementById('profileEditorBaseURL').value.trim(),
+    userAgent: document.getElementById('profileEditorUserAgent').value,
     contextWindow: contextWindow,
     fastModeSupported: !!document.getElementById('profileEditorFastMode').checked,
     apiMode: document.getElementById('profileEditorApiMode').value === 'responses' ? 'responses' : 'chat_completions',
   };
 
   if (!profile.name) profile.name = profile.model || '未命名';
-  if (!profile.model) { alert('请输入模型 ID。'); return; }
+  if (!profile.model) { (await window.IexaDialogs.alert('请输入模型 ID。')); return; }
 
-  await fetch(`${API_BASE}/api/profiles`, {
+  const response = await fetch(`${API_BASE}/api/profiles`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(profile),
   });
 
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    await window.IexaDialogs.alert(error.error || '模型配置保存失败');
+    return;
+  }
   hideProfileEditor();
   renderProfileList();
   loadVisionProfileSetting();
@@ -5177,7 +5198,7 @@ function initMobileBridge() {
   });
   document.getElementById('mobileBridgePairBtn')?.addEventListener('click', createMobilePairCode);
   document.getElementById('mobileBridgeRevokeAll')?.addEventListener('click', async () => {
-    if (!confirm('移除全部已配对设备？这些手机需要重新扫码才能连接。')) return;
+    if (!(await window.IexaDialogs.confirm('移除全部已配对设备？这些手机需要重新扫码才能连接。'))) return;
     await fetch(`${API_BASE}/api/mobile-bridge/devices`, { method: 'DELETE' });
     await loadMobileBridge();
   });
@@ -5656,13 +5677,13 @@ function renderGitStatus(data) {
     <div id="gitDiffHost"></div>
   `;
   panel.querySelectorAll('.git-file').forEach((row) => {
-    row.addEventListener('click', (event) => {
+    row.addEventListener('click', async (event) => {
       const action = event.target.closest('[data-git-action]');
       const target = row.dataset.path;
       if (!target) return;
       if (action) {
         event.stopPropagation();
-        if (action.dataset.gitAction === 'restore' && !confirm(`确定回滚「${target}」的未暂存修改吗？`)) return;
+        if (action.dataset.gitAction === 'restore' && !(await window.IexaDialogs.confirm(`确定回滚「${target}」的未暂存修改吗？`))) return;
         runGitMutation(action.dataset.gitAction, target);
       } else {
         openGitDiff(target, row.dataset.staged === '1');
@@ -5673,10 +5694,10 @@ function renderGitStatus(data) {
     runGitOperation('switch', { branch: event.target.value });
   });
   panel.querySelectorAll('[data-git-operation]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       const operation = button.dataset.gitOperation;
       if (operation === 'create-branch') {
-        const branch = window.prompt('输入新分支名称：');
+        const branch = (await window.IexaDialogs.prompt('输入新分支名称：'));
         if (branch && branch.trim()) runGitOperation(operation, { branch: branch.trim() });
         return;
       }
@@ -6066,7 +6087,7 @@ async function loadMcpServers() {
 
 async function runMcpAction(id, action) {
   if (!id || !action) return;
-  if (action === 'remove' && !confirm('确定删除这个 MCP Server 配置吗？')) return;
+  if (action === 'remove' && !(await window.IexaDialogs.confirm('确定删除这个 MCP Server 配置吗？'))) return;
   try {
     const response = await fetch(`${API_BASE}/api/mcp/servers/${encodeURIComponent(id)}${action === 'remove' ? '' : `/${action}`}`, { method: action === 'remove' ? 'DELETE' : 'POST' });
     const data = await response.json();
@@ -6080,7 +6101,7 @@ async function runMcpAction(id, action) {
 
 async function callMcpTool(id, name) {
   if (!id || !name) return;
-  const raw = window.prompt(`调用 ${name}\n输入 JSON 参数（留空表示 {}）：`, '{}');
+  const raw = (await window.IexaDialogs.prompt(`调用 ${name}\n输入 JSON 参数（留空表示 {}）：`, '{}'));
   if (raw === null) return;
   let args;
   try { args = raw.trim() ? JSON.parse(raw) : {}; } catch { setMcpOutput('参数 JSON 无效。'); return; }
@@ -6213,7 +6234,7 @@ async function installPlugin() {
   try {
     let source = null;
     if (window.iexaDesktop?.pickPluginFolder) source = await window.iexaDesktop.pickPluginFolder();
-    else source = window.prompt('输入包含 iexa-plugin.json 的插件文件夹绝对路径：', '');
+    else source = (await window.IexaDialogs.prompt('输入包含 iexa-plugin.json 的插件文件夹绝对路径：', ''));
     if (!source) return;
     setPluginOutput('正在校验并安装插件…');
     const response = await fetch(`${API_BASE}/api/plugins/install`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: source }) });
@@ -6237,7 +6258,7 @@ async function setPluginEnabled(id, enabled) {
 
 async function runPluginAction(id, action) {
   pluginWorkspaceHost?.invalidated(id);
-  if (action === 'remove' && !confirm('确定卸载这个插件吗？插件数据目录将保留。')) return;
+  if (action === 'remove' && !(await window.IexaDialogs.confirm('确定卸载这个插件吗？插件数据目录将保留。'))) return;
   try {
     const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}${action === 'remove' ? '' : `/${action}`}`, { method: action === 'remove' ? 'DELETE' : 'POST' });
     const data = await response.json();
@@ -6477,7 +6498,7 @@ async function openProjectPicker() {
     }
   }
   // Fallback: prompt for path (browser / no preload)
-  const p = window.prompt('输入项目文件夹完整路径：');
+  const p = (await window.IexaDialogs.prompt('输入项目文件夹完整路径：'));
   if (p && p.trim()) await openProjectPath(p.trim());
 }
 
@@ -6675,7 +6696,7 @@ function initFilesPanel() {
 
       if (action === 'delete') {
         const label = type === 'dir' ? '目录' : '文件';
-        if (!confirm(`确定删除${label}「${name}」吗？\n此操作不可撤销！`)) return;
+        if (!(await window.IexaDialogs.confirm(`确定删除${label}「${name}」吗？\n此操作不可撤销！`))) return;
         try {
           const resp = await fetch(`${API_BASE}/api/fs/delete`, {
             method: 'POST',
@@ -6686,7 +6707,7 @@ function initFilesPanel() {
           if (!resp.ok) throw new Error(data.error || '删除失败');
           loadFilesList(filesCurrentPath);
         } catch (err) {
-          alert('删除失败：' + (err.message || err));
+          (await window.IexaDialogs.alert('删除失败：' + (err.message || err)));
         }
       } else if (action === 'copy') {
         try {
@@ -6799,7 +6820,7 @@ async function loadSkillsList() {
           } else if (act === 'view') {
             openSkillViewer(id);
           } else if (act === 'delete') {
-            if (!confirm('确定删除该 Skill？')) return;
+            if (!(await window.IexaDialogs.confirm('确定删除该 Skill？'))) return;
             await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, { method: 'DELETE' });
             loadSkillsList();
           }
@@ -6935,7 +6956,7 @@ async function openSkillsDirectory() {
       if (result && result.error) throw new Error(result.error);
     } else {
       // Browser fallback: show path
-      window.prompt('Skills 目录路径（请手动在资源管理器中打开）：', dir);
+      (await window.IexaDialogs.prompt('Skills 目录路径（请手动在资源管理器中打开）：', dir));
     }
     // Rescan after user may have edited files on disk
     setTimeout(() => loadSkillsList(), 800);

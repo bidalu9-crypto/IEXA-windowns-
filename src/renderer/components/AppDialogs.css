@@ -1,0 +1,7 @@
+.iexa-app-dialog{box-sizing:border-box;width:min(440px,calc(100vw - 40px));max-height:80vh;overflow:auto;margin:auto;padding:24px;border:1px solid var(--border-color,#484848);border-radius:14px;background:var(--bg-secondary,#242424);color:var(--text-primary,#ededed);box-shadow:0 16px 64px #0006;font:inherit}
+.iexa-app-dialog::backdrop{background:#0007}
+.iexa-app-dialog p{margin:0 0 20px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.iexa-app-dialog input{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid var(--border-color,#555);border-radius:8px;background:var(--bg-primary,#191919);color:inherit;font:inherit}
+.iexa-app-dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.iexa-app-dialog button{min-width:72px;padding:8px 16px;border:1px solid var(--border-color,#555);border-radius:8px;font:inherit;cursor:pointer;background:var(--bg-tertiary,#333);color:inherit}
+.iexa-app-dialog :focus-visible{outline:2px solid var(--accent,#8db8ff);outline-offset:3px}

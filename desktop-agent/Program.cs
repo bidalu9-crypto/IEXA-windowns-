@@ -24,6 +24,7 @@ internal static class Program
     static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = false };
     static readonly object InputLock = new();
     static readonly SemaphoreSlim ActionGate = new(1, 1);
+    static readonly SemaphoreSlim FrameGate = new(1, 1);
     static readonly MatureAutomation Automation = new();
     static readonly ConcurrentDictionary<string, SemanticElement> ElementCache = new();
     static int CancelRequested;
@@ -40,12 +41,18 @@ internal static class Program
     static int ActiveStep;
     static int TotalSteps;
     static int Paused;
+    sealed record CaptureEvidence(string Trust, long RenderSurface = 0, string? Diagnostic = null);
+    sealed record ObservedFrame(string Token, long Handle, Rectangle Bounds, CaptureEvidence Evidence, long CapturedAt, byte[] Png);
+    static ObservedFrame? LastObservedFrame;
+
     record SemanticElement(string Id, string Role, string Text, int Left, int Top, int Width, int Height, string Source, double Confidence, bool Enabled = true, AutomationSelector? Selector = null);
     record FrameState(byte[] Gray, int Width, int Height, string Hash, long CapturedAt);
 
     [STAThread]
-    static async Task Main()
+    static async Task Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--isolated-host") { IsolatedDesktopHost.Run(args[1]); return; }
+        IsolatedDesktopHost.Verify();
         AppDomain.CurrentDomain.ProcessExit += (_, _) => { InputLease.ReleaseActive(); Automation.Dispose(); };
         AppDomain.CurrentDomain.UnhandledException += (_, _) => InputLease.ReleaseActive();
         using var mutex = new Mutex(true, Port == 17891 ? "Local\\IexaDesktopAgent" : $"Local\\IexaDesktopAgent-{Port}", out var first);
@@ -53,11 +60,15 @@ internal static class Program
         using var listener = new HttpListener();
         listener.Prefixes.Add(Prefix);
         listener.Start();
+        HelperLifetime.Start();
         Console.WriteLine($"IEXA Desktop Agent listening at {Prefix}");
         while (true)
         {
             var context = await listener.GetContextAsync();
-            _ = Task.Run(() => Handle(context));
+            var applicationWork = context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath is "/execute" or "/session";
+            var lease = applicationWork ? HelperLifetime.TryEnter() : null;
+            if (applicationWork && lease == null) { await Reply(context, 503, new { ok = false, error = "Desktop helper is retiring; observe again. No input was dispatched." }); continue; }
+            _ = Task.Run(async () => { using (lease) await Handle(context); });
         }
     }
 
@@ -80,22 +91,35 @@ internal static class Program
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/health")
             {
-                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", version = 5, protocolVersion = 5, instanceNonce = InstanceNonce, automationEngine = "FlaUI 5", pid = Environment.ProcessId, executablePath = Environment.ProcessPath, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", version = 6, protocolVersion = 6, cachedPreview = true, lifecycle = HelperLifetime.State(), instanceNonce = InstanceNonce, automationEngine = "FlaUI 5", isolatedDesktop = IsolatedDesktopHost.State(), pid = Environment.ProcessId, executablePath = Environment.ProcessPath, uptimeMs = Environment.TickCount64, action = ActiveAction, step = ActiveStep, total = TotalSteps, paused = Volatile.Read(ref Paused) != 0, window = BoundWindow.ToInt64() });
                 return;
             }
+            if (context.Request.Url?.AbsolutePath is not ("/shutdown" or "/cancel")) IsolatedDesktopHost.Verify();
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/frame")
             {
-                await ReplyFrame(context); return;
+                // At most one frame can wait briefly for the action response to
+                // finish. A slow capture/action never builds an unbounded preview queue.
+                if (Volatile.Read(ref Paused) != 0) { await Reply(context, 423, new { ok = false, error = "Desktop capture is paused.", paused = true }); return; }
+                if (!await FrameGate.WaitAsync(0)) { await Reply(context, 429, new { ok = false, error = "Frame request already pending." }); return; }
+                var entered = false;
+                try {
+                    entered = await ActionGate.WaitAsync(150);
+                    if (!entered) { await Reply(context, 429, new { ok = false, error = "Desktop action busy; preview queue deadline exceeded." }); return; }
+                    if (Volatile.Read(ref Paused) != 0) { await Reply(context, 423, new { ok = false, error = "Desktop capture is paused.", paused = true }); return; }
+                    await ReplyFrame(context);
+                }
+                finally { if (entered) ActionGate.Release(); FrameGate.Release(); }
+                return;
             }
             if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/capabilities")
             {
-                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", protocolVersion = 5, instanceNonce = InstanceNonce, transport = "persistent-local-http", actions = new[] { "list_windows", "launch", "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, automationEngine = "FlaUI 5", primaryBackend = "UIA3", fallbackBackend = "UIA2", stableSelectors = true, patternActions = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true, applicationLaunch = true, pidTargeting = true });
+                await Reply(context, 200, new { ok = true, product = "IEXA Desktop Agent", protocolVersion = 6, instanceNonce = InstanceNonce, transport = "persistent-local-http", actions = new[] { "list_windows", "launch", "observe", "frame", "activate", "minimize", "move", "click", "drag", "click_element", "type", "type_element", "find_element", "read_focused", "key", "hotkey", "scroll", "wait", "wait_change", "batch" }, uiAutomation = true, automationEngine = "FlaUI 5", primaryBackend = "UIA3", observationFrameTokens = true, backgroundProviderFocusMayChange = true, backgroundInput = false, backgroundCapture = true, semanticInvoke = true, semanticValue = true, fallbackBackend = "UIA2", stableSelectors = true, patternActions = true, localOcr = true, semanticElements = true, frameDiff = true, screenFrames = true, humanPointer = true, unicodeInput = true, managedInputLease = true, closeHotkeyGuard = true, applicationLaunch = true, pidTargeting = true });
                 return;
             }
             if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/shutdown")
             {
                 await Reply(context, 200, new { ok = true, shuttingDown = true });
-                _ = Task.Run(() => { Thread.Sleep(80); Environment.Exit(0); });
+                _ = Task.Run(() => { Thread.Sleep(80); HelperLifetime.Exit(); });
                 return;
             }
             // Cancellation must bypass the serialized action gate. A long
@@ -130,6 +154,7 @@ internal static class Program
                 ActiveAction = action;
                 ActiveStep = 0;
                 TotalSteps = 0;
+                ValidateBackgroundRequest(req, action);
                 object data = action switch
                 {
                     "list_windows" => ListWindows(req),
@@ -174,8 +199,29 @@ internal static class Program
     {
         var fullScreen = context.Request.QueryString["full"] == "1";
         var requestedWindow = fullScreen ? IntPtr.Zero : BoundWindow;
-        var requestedWindowUsable = requestedWindow != IntPtr.Zero && !IsIconic(requestedWindow);
-        using var bitmap = CaptureForeground(requestedWindowUsable ? requestedWindow : IntPtr.Zero, out var bounds);
+        if (!fullScreen && (requestedWindow == IntPtr.Zero || !IsWindow(requestedWindow) || IsIconic(requestedWindow)))
+            throw new InvalidOperationException("Bound-window frame unavailable; no virtual-screen fallback. Observe a valid window again.");
+        var token = context.Request.QueryString["observationToken"];
+        var cachedOnly = context.Request.QueryString["cached"] == "1";
+        ObservedFrame? observed = null;
+        if (cachedOnly) {
+            // UI preview consumes already captured pixels, never PrintWindow. It
+            // is a timestamped observation, not a claim about the live display.
+            observed = LastObservedFrame;
+            if (fullScreen || observed == null || observed.Handle != requestedWindow.ToInt64())
+                throw new InvalidOperationException("No cached observation for the bound window; preview did not trigger capture.");
+        }
+        if (!string.IsNullOrEmpty(token))
+        {
+            observed = LastObservedFrame;
+            if (fullScreen || observed == null || token != ObservationToken || token != observed.Token || observed.Handle != requestedWindow.ToInt64())
+                throw new InvalidOperationException("Frame observation token is stale; observe again. No replacement screenshot was returned.");
+            if (!GetWindowRect(requestedWindow, out var rect) || Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom) != observed.Bounds)
+                throw new InvalidOperationException("Frame geometry changed since observation; observe again.");
+        }
+        Rectangle bounds;
+        CaptureEvidence capture;
+        using var bitmap = observed != null ? DecodeObservedFrame(observed, out bounds, out capture) : CaptureForeground(requestedWindow, out bounds, out capture);
         var jpeg = context.Request.QueryString["format"] == "jpeg";
         var maxWidth = int.TryParse(context.Request.QueryString["width"], out var requestedWidth) ? Math.Clamp(requestedWidth, 320, 1920) : bounds.Width;
         var width = Math.Min(bounds.Width, maxWidth);
@@ -183,9 +229,20 @@ internal static class Program
         using var stream = new MemoryStream(); scaled.Save(stream, jpeg ? System.Drawing.Imaging.ImageFormat.Jpeg : System.Drawing.Imaging.ImageFormat.Png);
         var data = stream.ToArray(); context.Response.StatusCode = 200; context.Response.ContentType = jpeg ? "image/jpeg" : "image/png"; context.Response.ContentLength64 = data.Length;
         context.Response.Headers["Cache-Control"] = "no-store";
-        context.Response.Headers["X-Captured-At"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-        context.Response.Headers["X-IEXA-Capture-Scope"] = requestedWindowUsable ? "bound-window" : "virtual-screen-fallback";
+        context.Response.Headers["X-Captured-At"] = (observed?.CapturedAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToString();
+        context.Response.Headers["X-IEXA-Capture-Scope"] = fullScreen ? "virtual-screen-explicit" : "bound-window";
+        context.Response.Headers["X-IEXA-Capture-Trust"] = capture.Trust;
+        context.Response.Headers["X-IEXA-Frame-Mode"] = cachedOnly ? "cached-observation" : "capture";
+        if (observed != null) context.Response.Headers["X-IEXA-Observation-Token"] = observed.Token;
         await context.Response.OutputStream.WriteAsync(data); context.Response.Close();
+    }
+
+    static Bitmap DecodeObservedFrame(ObservedFrame frame, out Rectangle bounds, out CaptureEvidence capture)
+    {
+        bounds = frame.Bounds; capture = frame.Evidence;
+        using var stream = new MemoryStream(frame.Png);
+        using var source = new Bitmap(stream);
+        return new Bitmap(source);
     }
 
     static async Task<object> Observe(JsonObject req)
@@ -198,9 +255,12 @@ internal static class Program
         var requested = ResolveRequestedWindow(req, false);
         var fg = requested != IntPtr.Zero ? requested : GetForegroundWindow();
         if (fg == IntPtr.Zero || !IsWindow(fg)) throw new InvalidOperationException("No valid target window.");
+        IsolatedDesktopHost.VerifyWindow(fg);
         var cursor = new POINT(); GetCursorPos(out cursor);
         var screens = Screen.AllScreens.Select(s => new { name = s.DeviceName, primary = s.Primary, bounds = Rect(s.Bounds), workingArea = Rect(s.WorkingArea) }).ToArray();
         var windows = EnumWindowsSnapshot().Take(80).ToArray();
+        var relatedWindows = new List<object>();
+        EnumWindows((window, _) => { if (window != fg && IsWindowVisible(window) && GetWindow(window, 4) == fg) relatedWindows.Add(WindowInfo(window)); return true; }, IntPtr.Zero);
         var semantic = new List<SemanticElement>();
         AutomationObservation? automationObservation = null;
         if (includeElements && fg != IntPtr.Zero)
@@ -210,33 +270,157 @@ internal static class Program
                 e.Id, e.Role, e.Text, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width, e.Bounds.Height,
                 e.Selector.Backend, 1, e.Enabled, e.Selector)));
         }
-        using var bitmap = CaptureForeground(fg, out var captureBounds);
+        if (includeElements && IsolatedDesktopHost.IsVerified())
+            semantic.AddRange(Win32MenuAutomation.Observe(fg, ObservationEpoch + 1, Math.Min(16, limit / 3)).Select(e => new SemanticElement(e.Id,e.Role,e.Text,0,0,0,0,"win32-menu",1,e.Enabled,e.Selector)));
+        using var bitmap = CaptureForeground(fg, out var captureBounds, out var capture);
         ThrowIfCancelled();
         var previous = LastFrame;
         var current = MakeFrameState(bitmap);
         var change = FrameDifference(previous, current);
         LastFrame = current;
         if (includeOcr && bitmap.Width > 1) semantic.AddRange(await OcrElements(bitmap, captureBounds));
+        if (capture.Trust != "foreground") semantic.RemoveAll(element => string.Equals(element.Source, "ocr", StringComparison.OrdinalIgnoreCase));
         ThrowIfCancelled();
-        if (includeRegions && bitmap.Width > 1) semantic.AddRange(DetectRegions(bitmap, captureBounds, semantic));
+        if (includeRegions && capture.Trust == "foreground" && bitmap.Width > 1) semantic.AddRange(DetectRegions(bitmap, captureBounds, semantic));
         var merged = MergeElements(semantic).Take(limit).ToArray();
         BoundWindow = fg; BoundBounds = captureBounds; ObservationEpoch++;
         ObservationToken = MakeObservationToken(fg, captureBounds, current.Hash, ObservationEpoch);
         ElementCache.Clear(); foreach (var element in merged) ElementCache[element.Id] = element;
-        return new { mode = "structured-local-perception-v2", perceptionVersion = 3, session = SessionState(), foreground = WindowInfo(fg), cursor = new { x = cursor.X, y = cursor.Y }, screens, windows, frame = new { hash = current.Hash, width = bitmap.Width, height = bitmap.Height, changedRatio = change, capturedAt = current.CapturedAt }, automation = automationObservation == null ? null : new { engine = "FlaUI 5", backend = automationObservation.Backend, fallbackUsed = automationObservation.FallbackUsed, diagnostics = automationObservation.Diagnostics }, ocr = new { status = LastOcrStatus, language = LastOcrLanguage, count = LastOcrCount }, elements = merged.Select(PublicElement).ToArray() };
+        using (var png = new MemoryStream())
+        {
+            bitmap.Save(png, System.Drawing.Imaging.ImageFormat.Png);
+            LastObservedFrame = new ObservedFrame(ObservationToken, fg.ToInt64(), captureBounds, capture, current.CapturedAt, png.ToArray());
+        }
+        return new { mode = "structured-local-perception-v2", perceptionVersion = 3, session = SessionState(), foreground = WindowInfo(fg), cursor = new { x = cursor.X, y = cursor.Y }, screens, windows, relatedWindows, frame = new { hash = current.Hash, width = bitmap.Width, height = bitmap.Height, changedRatio = change, capturedAt = current.CapturedAt, foreground = capture.Trust == "foreground", trust = capture.Trust, renderedHandle = capture.RenderSurface, diagnostic = capture.Diagnostic }, renderSurface = RenderSurfaceInfo(fg), automation = automationObservation == null ? null : new { engine = "FlaUI 5", backend = automationObservation.Backend, fallbackUsed = automationObservation.FallbackUsed, diagnostics = automationObservation.Diagnostics }, ocr = new { status = LastOcrStatus, language = LastOcrLanguage, count = LastOcrCount }, elements = merged.Select(PublicElement).ToArray() };
     }
 
-    static Bitmap CaptureForeground(IntPtr h, out Rectangle bounds)
+    static Bitmap CaptureForeground(IntPtr h, out Rectangle bounds) => CaptureForeground(h, out bounds, out _);
+
+    static Bitmap CaptureForeground(IntPtr h, out Rectangle bounds, out CaptureEvidence evidence)
     {
-        if (h != IntPtr.Zero && GetWindowRect(h, out var wr)) bounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
-        else bounds = Screen.AllScreens.Select(s => s.Bounds).Aggregate(Rectangle.Union);
-        var virtualBounds = SystemInformation.VirtualScreen;
-        bounds = Rectangle.Intersect(bounds, virtualBounds);
-        if (bounds.Width < 2 || bounds.Height < 2) bounds = virtualBounds;
+        IsolatedDesktopHost.VerifyWindow(h);
+        evidence = new CaptureEvidence("background-unverified");
+        if (h != IntPtr.Zero)
+        {
+            if (!IsWindow(h) || IsIconic(h) || !GetWindowRect(h, out var wr))
+                throw new InvalidOperationException("Target window has no usable frame. No screen fallback is permitted.");
+            bounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
+        }
+        else bounds = SystemInformation.VirtualScreen;
+        if (bounds.Width < 2 || bounds.Height < 2 || (long)bounds.Width * bounds.Height > 40_000_000)
+            throw new InvalidOperationException("Target frame geometry is invalid or exceeds capture limit.");
+        // Keep window-relative pixels intact; clipping to the virtual screen corrupts
+        // offscreen/negative-origin PrintWindow coordinates.
         var bitmap = new Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bitmap.Size, CopyPixelOperation.SourceCopy);
-        return bitmap;
+        try
+        {
+            if (h != IntPtr.Zero && GetForegroundWindow() != h)
+            {
+                // Never ask an existing user application to synchronously paint for us.
+                // The PrintWindow path below is confined to our owned isolated desktop.
+                if (!IsolatedDesktopHost.IsVerified()) {
+                    try {
+                        if (!IsWindowVisible(h)) throw new InvalidOperationException("Target window is hidden; no activation or synchronous paint fallback was attempted.");
+                        using var captured = CompositorCapture.Capture(h, ThrowIfCancelled);
+                        if (!GetWindowRect(h, out var current) || Rectangle.FromLTRB(current.Left,current.Top,current.Right,current.Bottom) != bounds)
+                            throw new InvalidOperationException("Window moved during capture.");
+                        using (var graphics = Graphics.FromImage(bitmap)) {
+                            graphics.Clear(Color.Black);
+                            graphics.DrawImageUnscaled(captured.Pixels, captured.Bounds.Left - bounds.Left, captured.Bounds.Top - bounds.Top);
+                        }
+                        evidence = new CaptureEvidence("background-compositor", h.ToInt64());
+                    } catch (OperationCanceledException) { throw; }
+                    catch (Exception error) {
+                        using var clear = Graphics.FromImage(bitmap); clear.Clear(Color.Black);
+                        evidence = new CaptureEvidence("background-unverified", h.ToInt64(), error.Message);
+                    }
+                    return bitmap;
+                }
+                bool rendered;
+                using (var graphics = Graphics.FromImage(bitmap))
+                {
+                    var hdc = graphics.GetHdc();
+                    try { rendered = PrintWindow(h, hdc, 2); }
+                    finally { graphics.ReleaseHdc(hdc); }
+                }
+                // GDI+ pixel reads are legal only after releasing the HDC.
+                if (rendered && HasVisualSignal(bitmap))
+                    evidence = new CaptureEvidence("background-window-rendered", h.ToInt64());
+                else
+                {
+                    foreach (var child in RenderSurfaceCandidates(h).OrderByDescending(x => x.Area))
+                    {
+                        if (child.Area > 40_000_000) continue;
+                        using var childBitmap = new Bitmap(child.Bounds.Width, child.Bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                        using (var graphics = Graphics.FromImage(childBitmap))
+                        {
+                            var hdc = graphics.GetHdc();
+                            try { rendered = PrintWindow(child.Handle, hdc, 2); }
+                            finally { graphics.ReleaseHdc(hdc); }
+                        }
+                        if (!rendered || !HasVisualSignal(childBitmap)) continue;
+                        using (var compose = Graphics.FromImage(bitmap))
+                        {
+                            compose.Clear(Color.Black);
+                            compose.DrawImageUnscaled(childBitmap, child.Bounds.Left - bounds.Left, child.Bounds.Top - bounds.Top);
+                        }
+                        evidence = new CaptureEvidence("background-window-rendered", child.Handle.ToInt64());
+                        break;
+                    }
+                }
+                if (evidence.Trust == "background-unverified")
+                    using (var clear = Graphics.FromImage(bitmap)) clear.Clear(Color.Black);
+                return bitmap;
+            }
+            using (var graphics = Graphics.FromImage(bitmap))
+                graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bitmap.Size, CopyPixelOperation.SourceCopy);
+            if (h != IntPtr.Zero && GetForegroundWindow() != h)
+            {
+                using var clear = Graphics.FromImage(bitmap);
+                clear.Clear(Color.Black);
+            }
+            else evidence = new CaptureEvidence(h == IntPtr.Zero ? "virtual-screen-explicit" : "foreground", h.ToInt64());
+            return bitmap;
+        }
+        catch { bitmap.Dispose(); throw; }
+    }
+
+    sealed record RenderSurfaceCandidate(IntPtr Handle, Rectangle Bounds, string ClassName)
+    {
+        public long Area => (long)Math.Max(0, Bounds.Width) * Math.Max(0, Bounds.Height);
+    }
+    static IReadOnlyList<RenderSurfaceCandidate> RenderSurfaceCandidates(IntPtr root)
+    {
+        var result = new List<RenderSurfaceCandidate>();
+        EnumChildWindows(root, (h, _) =>
+        {
+            if (!IsWindow(h) || !GetWindowRect(h, out var wr)) return true;
+            var bounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
+            if (bounds.Width > 20 && bounds.Height > 20) result.Add(new RenderSurfaceCandidate(h, bounds, GetClassName(h)));
+            return true;
+        }, IntPtr.Zero);
+        return result;
+    }
+    static object[] RenderSurfaceInfo(IntPtr root) => RenderSurfaceCandidates(root).Take(16).Select(x => new { handle = x.Handle.ToInt64(), className = x.ClassName, bounds = Rect(x.Bounds), area = x.Area }).ToArray();
+    static string GetClassName(IntPtr h)
+    {
+        var b = new StringBuilder(256); _ = GetClassNameNative(h, b, b.Capacity); return b.ToString();
+    }
+
+    static bool HasVisualSignal(Bitmap bitmap)
+    {
+        // Conservative black/blank-frame detector. It is deliberately used only
+        // to downgrade trust, never to claim that a frame is semantically valid.
+        var samples = 0; var lit = 0; long sum = 0; long sumSquared = 0;
+        for (var y = 0; y < bitmap.Height; y += Math.Max(1, bitmap.Height / 32))
+            for (var x = 0; x < bitmap.Width; x += Math.Max(1, bitmap.Width / 32))
+            {
+                var c = bitmap.GetPixel(x, y); var luminance = (c.R * 30 + c.G * 59 + c.B * 11) / 100;
+                samples++; if (luminance > 8) lit++; sum += luminance; sumSquared += (long)luminance * luminance;
+            }
+        if (samples == 0 || lit < Math.Max(4, samples / 100)) return false;
+        var mean = (double)sum / samples; var variance = (double)sumSquared / samples - mean * mean;
+        return mean > 8 || variance > 20;
     }
 
     static FrameState MakeFrameState(Bitmap bitmap)
@@ -368,26 +552,48 @@ internal static class Program
         return new { count = matches.Length, elements = matches.Select(PublicElement).ToArray() };
     }
 
+    static void ValidateBackgroundRequest(JsonObject req, string action)
+    {
+        if (IsolatedDesktopHost.Requested)
+        {
+            IsolatedDesktopHost.Verify();
+            if (req["autoActivate"]?.GetValue<bool>() == true || req["forcePointer"]?.GetValue<bool>() == true || action is not ("list_windows" or "launch" or "observe" or "bind_window" or "session_state" or "find_element" or "click_element" or "type_element" or "wait" or "wait_change"))
+                throw new InvalidOperationException("Isolated desktop allows semantic operations only; physical input and activation are disabled.");
+            req["background"] = true;
+            return;
+        }
+        if (!(req["background"]?.GetValue<bool>() ?? false)) return;
+        if (req["autoActivate"]?.GetValue<bool>() == true || req["forcePointer"]?.GetValue<bool>() == true)
+            throw new InvalidOperationException("Background mode forbids autoActivate and forcePointer.");
+        if (action is not ("list_windows" or "observe" or "bind_window" or "session_state" or "find_element" or "click_element" or "type_element"))
+            throw new InvalidOperationException("Background mode only allows bound observation and semantic Invoke/Value, never physical input or activation.");
+    }
+
     static object ClickElement(JsonObject req)
     {
         ThrowIfCancelled();
-        var element = ResolveElement(req); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
+        var element = ResolveElement(req); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
         AutomationActionResult? automation = null;
         var forcePointer = req["forcePointer"]?.GetValue<bool>() ?? false;
+        if (background && (element.Selector == null || forcePointer))
+            throw new InvalidOperationException("Background click requires a native UIA selector; physical fallback is disabled.");
         if (element.Selector != null && !forcePointer)
         {
-            automation = Automation.Click(element.Selector, ThrowIfCancelled);
+            automation = Automation.Click(element.Selector, ThrowIfCancelled, background, IsolatedDesktopHost.IsVerified());
             if (automation.Success)
             {
                 method = automation.Method;
             }
             else if (!automation.RequiresInputFallback)
                 throw new InvalidOperationException($"UI Automation click failed at {automation.ErrorStage}: {automation.Error}");
+            else if (background)
+                throw new InvalidOperationException("Background click requires a UI Automation action pattern; physical pointer fallback is disabled.");
             else
                 element = RelocateBounds(element, automation.Selector);
         }
         if (method == "pointer")
         {
+            if (background) throw new InvalidOperationException("Background pointer injection is disabled.");
             lock (InputLock)
             {
                 using var input = new InputLease();
@@ -396,29 +602,40 @@ internal static class Program
             }
         }
         Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 100, 0, 2000));
-        var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground); var stillBound = foreground == BoundWindow; var after = stillBound ? CaptureBoundFrame() : before;
-        var changed = stillBound ? FrameDifference(before, after) : 1;
-        var effectObserved = !stillBound || changed >= 0.0005;
+        var foreground = GetForegroundWindow();
+        if (!background) FollowForegroundWindow(foreground);
+        var stillBound = background ? IsWindow(BoundWindow) : foreground == BoundWindow;
+        var after = stillBound && !background ? CaptureBoundFrame() : before;
+        var changed = stillBound && !background ? FrameDifference(before, after) : 0;
+        var effectObserved = background ? automation?.Success == true : !stillBound || changed >= 0.0005;
+        if (background && foreground != previousForeground)
+        {
+            ElementCache.Clear(); ObservationToken = "";
+            throw new InvalidOperationException("Background UI Automation changed foreground; input may have executed. No focus restoration or replay is attempted.");
+        }
         ElementCache.Clear(); ObservationToken = "";
-        return new { element = PublicElement(element), method, automation, effectObserved, foregroundVerified = stillBound, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
+        return new { element = PublicElement(element), method, automation, effectObserved, foregroundVerified = !background && stillBound, backgroundApplied = background, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
     }
 
     static object TypeElement(JsonObject req)
     {
         ThrowIfCancelled();
-        var element = ResolveElement(req); var text = Required(req, "text"); var replace = req["replace"]?.GetValue<bool>() ?? true; var method = "keyboard"; var before = CaptureBoundFrame();
+        var element = ResolveElement(req); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var text = Required(req, "text"); var replace = req["replace"]?.GetValue<bool>() ?? true; var method = "keyboard"; var before = CaptureBoundFrame();
         AutomationActionResult? automation = null;
         if (element.Selector != null)
         {
-            automation = Automation.Type(element.Selector, text, replace, ThrowIfCancelled);
+            automation = Automation.Type(element.Selector, text, replace, ThrowIfCancelled, background);
             if (automation.Success) method = automation.Method;
             else if (!automation.RequiresInputFallback)
                 throw new InvalidOperationException($"UI Automation typing failed at {automation.ErrorStage}: {automation.Error}");
+            else if (background)
+                throw new InvalidOperationException("Background typing requires a UI Automation value pattern; keyboard fallback is disabled.");
             else
                 element = RelocateBounds(element, automation.Selector);
         }
         if (method == "keyboard")
         {
+            if (background) throw new InvalidOperationException("Background typing cannot use physical keyboard injection.");
             lock (InputLock)
             {
                 using var input = new InputLease();
@@ -427,9 +644,16 @@ internal static class Program
                 foreach (var rune in text.EnumerateRunes()) { ThrowIfCancelled(); foreach (var c in rune.ToString()) input.Unicode(c); }
             }
         }
-        Thread.Sleep(100); if (GetForegroundWindow() != BoundWindow) throw new InvalidOperationException("Target window lost foreground during element typing.");
-        var after = CaptureBoundFrame(); var focused = ReadFocused(); ElementCache.Clear(); ObservationToken = "";
-        return new { chars = text.Length, method, automation, element = PublicElement(element), focused, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
+        Thread.Sleep(100);
+        var currentForeground = GetForegroundWindow();
+        if (!background && currentForeground != BoundWindow) throw new InvalidOperationException("Target window lost foreground during element typing.");
+        if (background && currentForeground != previousForeground)
+        {
+            ElementCache.Clear(); ObservationToken = "";
+            throw new InvalidOperationException("Background UI Automation changed foreground; input may have executed. No focus restoration or replay is attempted.");
+        }
+        var after = background ? before : CaptureBoundFrame(); var focused = background ? null : ReadFocused(); ElementCache.Clear(); ObservationToken = "";
+        return new { chars = text.Length, method, automation, element = PublicElement(element), focused, foregroundVerified = !background && currentForeground == BoundWindow, backgroundApplied = background, changedRatio = background ? 0 : FrameDifference(before, after), beforeHash = before.Hash, afterHash = background ? before.Hash : after.Hash };
     }
 
     static SemanticElement RelocateBounds(SemanticElement element, AutomationSelector selector) => element with
@@ -444,11 +668,18 @@ internal static class Program
 
     static SemanticElement ResolveElement(JsonObject req)
     {
-        EnsureBoundForeground(req);
+        EnsureBoundForeground(req, allowBackground: true);
+        IsolatedDesktopHost.VerifyWindow(BoundWindow);
         var id = Required(req, "elementId");
         if (!ElementCache.TryGetValue(id, out var element)) throw new InvalidOperationException($"Element not found or stale: {id}. Call observe again.");
         var expectedRole = req["role"]?.GetValue<string>() ?? "";
         if (!string.IsNullOrEmpty(expectedRole) && !element.Role.Contains(expectedRole, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException($"Element role mismatch: expected {expectedRole}, got {element.Role}");
+        if (element.Selector?.Backend == "win32-menu")
+        {
+            if (!IsolatedDesktopHost.IsVerified() || element.Selector.Hwnd != BoundWindow.ToInt64() || element.Selector.Generation != ObservationEpoch || req["action"]?.GetValue<string>() != "click_element")
+                throw new InvalidOperationException("Native menu command is not bound to this isolated window/action snapshot.");
+            return element;
+        }
         var center = new Point(element.Left + element.Width / 2, element.Top + element.Height / 2);
         if (!BoundBounds.Contains(center)) throw new InvalidOperationException("Cached element is outside the bound window.");
         return element;
@@ -522,9 +753,14 @@ internal static class Program
         {
             FileName = fileName,
             Arguments = launchArguments,
-            UseShellExecute = true,
+            UseShellExecute = !IsolatedDesktopHost.Requested,
             WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
         };
+        if (IsolatedDesktopHost.Requested)
+        {
+            if (!fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || fileName.Contains("://") || expectedProcess.Equals("explorer", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Isolated launch requires a direct executable, not a shell association or Explorer redirection.");
+        }
         Process? started;
         try { started = Process.Start(info); }
         catch (Exception ex) { throw new InvalidOperationException($"Application launch failed for '{app}': {ex.Message}", ex); }
@@ -553,7 +789,8 @@ internal static class Program
                     && (WindowMatchesRequest(foreground, title, process, pid) || !before.Contains(foreground.ToInt64())))
                     h = foreground;
             }
-            if (h == IntPtr.Zero) h = FindNewWindow(before);
+            if (h == IntPtr.Zero && !IsolatedDesktopHost.Requested) h = FindNewWindow(before);
+            if (h != IntPtr.Zero && IsolatedDesktopHost.Requested) { GetWindowThreadProcessId(h, out var candidatePid); if (candidatePid != started.Id) h = IntPtr.Zero; }
             if (h != IntPtr.Zero && IsWindow(h)) break;
             await Task.Delay(80);
         } while (clock.ElapsedMilliseconds < timeout);
@@ -561,14 +798,13 @@ internal static class Program
             throw new InvalidOperationException($"Application started (pid {started.Id}) but no controllable top-level window appeared within {timeout} ms. Call list_windows to inspect running windows.");
         var logicalTitle = GetWindowText(h);
         GetWindowThreadProcessId(h, out var logicalPid);
-        ForceForeground(h); await Task.Delay(120);
-        h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
-        if (GetForegroundWindow() != h)
+        if (!IsolatedDesktopHost.Requested) { ForceForeground(h); await Task.Delay(120); h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid); }
+        if (!IsolatedDesktopHost.Requested && GetForegroundWindow() != h)
         {
             ForceForeground(h); await Task.Delay(120);
-            h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
         }
-        if (GetForegroundWindow() != h) throw new InvalidOperationException($"Application launched but foreground verification failed for handle {h.ToInt64()}.");
+        if (!IsolatedDesktopHost.Requested && GetForegroundWindow() != h) throw new InvalidOperationException($"Application launched but foreground verification failed for handle {h.ToInt64()}.");
         // WinUI/UWP windows often expose only their frame for several hundred
         // milliseconds. Returning at that point makes the first observe look
         // empty even though controls appear moments later.
@@ -580,7 +816,7 @@ internal static class Program
         do
         {
             ThrowIfCancelled();
-            h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
             try
             {
                 var readiness = Automation.Observe(h, 12, 0, ThrowIfCancelled);
@@ -669,17 +905,19 @@ internal static class Program
     static object BindWindow(JsonObject req)
     {
         var h = ResolveRequestedWindow(req, true);
-        if (req["activate"]?.GetValue<bool>() ?? true) ForceForeground(h);
-        if (GetForegroundWindow() != h) throw new InvalidOperationException($"Target is not foreground: {h.ToInt64()}.");
+        var background = req["background"]?.GetValue<bool>() ?? false;
+        if (!background && (req["activate"]?.GetValue<bool>() ?? true)) ForceForeground(h);
+        if (!background && GetForegroundWindow() != h) throw new InvalidOperationException($"Target is not foreground: {h.ToInt64()}.");
         BindToWindow(h);
         return SessionState();
     }
 
     static void BindToWindow(IntPtr h)
     {
+        IsolatedDesktopHost.VerifyWindow(h);
         if (!IsWindow(h) || !GetWindowRect(h, out var wr)) throw new InvalidOperationException("Target window is invalid.");
         BoundWindow = h; BoundBounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
-        ObservationEpoch = 0; ObservationToken = ""; ElementCache.Clear(); LastFrame = null;
+        ObservationEpoch = 0; ObservationToken = ""; ElementCache.Clear(); LastFrame = null; LastObservedFrame = null;
     }
 
     static object SessionState()
@@ -711,6 +949,7 @@ internal static class Program
 
     static void ForceForeground(IntPtr h)
     {
+        if (IsolatedDesktopHost.Requested) throw new InvalidOperationException("Isolated workspace never activates the input desktop.");
         ShowWindow(h, 9); var fg = GetForegroundWindow();
         var currentThread = GetCurrentThreadId(); var targetThread = GetWindowThreadProcessId(h, out _); var fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, out _);
         try { if (fgThread != 0 && fgThread != currentThread) AttachThreadInput(currentThread, fgThread, true); if (targetThread != currentThread) AttachThreadInput(currentThread, targetThread, true); BringWindowToTop(h); SetForegroundWindow(h); SetFocus(h); }
@@ -814,7 +1053,7 @@ internal static class Program
         return new { key, count, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
     }
 
-    static void EnsureBoundForeground(JsonObject req)
+    static void EnsureBoundForeground(JsonObject req, bool allowBackground = false)
     {
         if (BoundWindow == IntPtr.Zero || !IsWindow(BoundWindow)) throw new InvalidOperationException("No bound window. Call activate or bind_window first.");
         if (!GetWindowRect(BoundWindow, out var wr)) throw new InvalidOperationException("Bound window geometry is unavailable.");
@@ -826,8 +1065,11 @@ internal static class Program
         }
         if (GetForegroundWindow() != BoundWindow)
         {
-            if (req["autoActivate"]?.GetValue<bool>() ?? false) { ForceForeground(BoundWindow); Thread.Sleep(80); }
-            if (GetForegroundWindow() != BoundWindow) throw new InvalidOperationException("Bound window is not foreground.");
+            if (!allowBackground || !(req["background"]?.GetValue<bool>() ?? false))
+            {
+                if (req["autoActivate"]?.GetValue<bool>() ?? false) { ForceForeground(BoundWindow); Thread.Sleep(80); }
+                if (GetForegroundWindow() != BoundWindow) throw new InvalidOperationException("Bound window is not foreground.");
+            }
         }
         var token = req["observationToken"]?.GetValue<string>();
         if (!string.IsNullOrEmpty(token) && token != ObservationToken) throw new InvalidOperationException("Observation token is stale. Observe again.");
@@ -885,6 +1127,12 @@ internal static class Program
     {
         var actions = req["actions"]?.AsArray() ?? throw new InvalidOperationException("actions is required");
         if (actions.Count > 24) throw new InvalidOperationException("Batch is limited to 24 actions. Observe between batches.");
+        // Validate the entire request before any earlier step can mutate state.
+        foreach (var node in actions)
+        {
+            var step = node?.AsObject() ?? throw new InvalidOperationException("Invalid batch action");
+            ValidateBackgroundRequest(step, Required(step, "action"));
+        }
         TotalSteps = actions.Count;
         var results = new List<object>(); var sw = Stopwatch.StartNew();
         foreach (var node in actions)
@@ -1013,6 +1261,7 @@ internal static class Program
 
         public InputLease()
         {
+            if (IsolatedDesktopHost.Requested) throw new InvalidOperationException("Physical input leases are disabled in an isolated workspace.");
             lock (ActiveLock)
             {
                 Active?.ReleaseAllCore();
@@ -1159,9 +1408,12 @@ internal static class Program
 
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc cb, IntPtr lp);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+    [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window,uint command);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
@@ -1171,6 +1423,7 @@ internal static class Program
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder b, int max);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetClassNameW")] static extern int GetClassNameNative(IntPtr h, StringBuilder b, int max);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT rect);
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);

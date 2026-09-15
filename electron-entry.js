@@ -589,6 +589,9 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   console.log('[IEXA] Shutting down...');
+  // Release owned native helpers before async HTTP shutdown (open sockets may delay close).
+  try { require('./dist/main/tools/desktop/DesktopHelperLifetime').closeDesktopHelpers(); }
+  catch (error) { console.error('[IEXA] Desktop helper shutdown:', error.message); }
   isQuitting = true;
   if (tray) {
     tray.destroy();

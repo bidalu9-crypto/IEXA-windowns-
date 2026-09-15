@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- This headless helper has no WinForms Application.Run/Initialize startup.
+         Manifest DPI awareness must cover UIA and all HTTP/capture worker threads. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWindowsForms>true</UseWindowsForms>
@@ -12,12 +16,24 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
+    <None Include="third-party/WindowsCapture-*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Include="Program.cs" />
+    <Compile Include="HelperLifetime.cs" />
     <Compile Include="MatureAutomation.cs" />
+    <Compile Include="IsolatedDesktopHost.cs" />
+    <Compile Include="Win32MenuAutomation.cs" />
+    <Compile Include="CompositorCapture.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FlaUI.Core" Version="5.0.0" />
     <PackageReference Include="FlaUI.UIA2" Version="5.0.0" />
     <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
   </ItemGroup>
+  <Target Name="WriteIsolatedDesktopCapability" AfterTargets="Build">
+    <GetFileHash Files="$(TargetPath)" Algorithm="SHA256"><Output TaskParameter="Items" ItemName="IsolationAssemblyHash" /></GetFileHash>
+    <WriteLinesToFile File="$(TargetDir)isolated-desktop-capability.json" Lines="{&quot;version&quot;:1,&quot;sha256&quot;:&quot;%(IsolationAssemblyHash.FileHash)&quot;}" Overwrite="true" Encoding="UTF-8" />
+  </Target>
+  <Target Name="PublishIsolatedDesktopCapability" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)isolated-desktop-capability.json" DestinationFolder="$(PublishDir)" />
+  </Target>
 </Project>

@@ -1,0 +1,19 @@
+{
+  "repository": "microsoft/Windows.UI.Composition-Win32-Samples",
+  "commit": "ee50e2ea137dcef7b82ba504eff7435e5ebf5294",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "27ebda9d51f0a56b7e281ccd8230a27236dcb51c05f64b07869ecf6e965d68b0"
+    },
+    {
+      "path": "dotnet/WPF/ScreenCapture/Composition.WindowsRuntimeHelpers/CaptureHelper.cs",
+      "sha256": "84554626dc3b300005b8c4c2950e2d463ff9e644078c86f6d019a1c63224bd9a"
+    },
+    {
+      "path": "dotnet/WPF/ScreenCapture/Composition.WindowsRuntimeHelpers/Direct3D11Helper.cs",
+      "sha256": "218f5edfc6e86c17e350a912aeb8fe79e0edec7799161998a4f03df5c04fe26c"
+    }
+  ],
+  "adaptation": "CompositorCapture.cs: HWND activation factory and D3D11 interop; no SharpDX dependency"
+}

@@ -93,6 +93,8 @@ export interface ToolExecutionResult {
   toolTitle?: string;
   imageData?: Buffer;
   imageMimeType?: string;
+  /** Ordered tool images; legacy imageData/imageMimeType preview the first only. */
+  images?: Array<{ data: Buffer; mimeType: string }>;
   pageURL?: string;
   timedOut?: boolean;
   /** Structured artifact metadata for Codex-style UI rendering. */
@@ -122,6 +124,8 @@ export interface ToolExecutionResult {
 export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'openrouter' | 'xai' | 'deepseek' | 'custom';
 
 export interface ProviderConfig {
+  /** Per-profile model API User-Agent; empty uses the Codex-compatible default. */
+  userAgent?: string;
   type: ProviderType;
   name: string;
   apiKey: string;

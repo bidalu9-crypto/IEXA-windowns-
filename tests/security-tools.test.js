@@ -167,36 +167,61 @@ test('risk shell requires per-command approval even after allow_session or a leg
   const approvals = []; let executed = 0;
   const { runtime, context } = runtimeFixture(t, { permissionResolver: async (request) => { approvals.push(request); return approvals.length === 1 ? 'allow_session' : 'deny'; } });
   runtime.shell.execute = async () => { executed++; return { output: 'fixture', success: true }; };
-  assert.equal((await runtime.execute('shell_execute', { command: 'echo first' }, context)).success, true);
+  assert.equal((await runtime.execute('shell_execute', { command: 'echo first' }, { ...context, toolCallId: 'first' })).success, true);
   runtime.grantPermission(context.sessionId, 'shell_execute');
-  await assert.rejects(runtime.execute('shell_execute', { command: 'echo second' }, context), code('PERMISSION_DENIED'));
+  const denied = await runtime.execute('shell_execute', { command: 'echo second' }, { ...context, toolCallId: 'second' });
+  assert.equal(denied.success, false); assert.equal(denied.executionStatus, 'denied');
   assert.equal(approvals.length, 2); assert.equal(executed, 1);
   assert.equal(approvals[0].tool.risk, 'high'); assert.equal(approvals[0].tool.requiresApproval, true);
+  assert.equal(approvals[1].args.command, 'echo second');
+  assert.ok(runtime.getToolExecutions().some(e => e.id === 'second' && e.status === 'denied'));
 });
 
 test('risk shell denies without a resolver; explicit full mode and subsequent downgrade take effect', async (t) => {
   const { runtime, context } = runtimeFixture(t);
   let executed = 0;
   runtime.shell.execute = async () => { executed++; return { output: 'fixture', success: true }; };
-  await assert.rejects(runtime.execute('shell_execute', { command: 'echo denied' }, context), code('PERMISSION_DENIED'));
+  const first = await runtime.execute('shell_execute', { command: 'echo denied' }, { ...context, toolCallId: 'risk-before' });
+  assert.equal(first.success, false); assert.equal(first.executionStatus, 'denied'); assert.equal(executed, 0);
   runtime.setPermissionMode('full');
-  assert.equal((await runtime.execute('shell_execute', { command: 'echo explicit' }, context)).success, true);
+  assert.equal((await runtime.execute('shell_execute', { command: 'echo explicit' }, { ...context, toolCallId: 'explicit-full' })).success, true);
   runtime.setPermissionMode('risk');
-  await assert.rejects(runtime.execute('shell_execute', { command: 'echo denied-again' }, context), code('PERMISSION_DENIED'));
+  const last = await runtime.execute('shell_execute', { command: 'echo denied-again' }, { ...context, toolCallId: 'risk-after' });
+  assert.equal(last.success, false); assert.equal(last.executionStatus, 'denied');
   assert.equal(executed, 1);
 });
 
 test('runtime paths default to workspace; mode updates reach runtime and direct file execution', async (t) => {
   const { runtime, context, outside, workspace } = runtimeFixture(t);
   const args = { path: path.join(outside, 'secret.txt'), permissionMode: 'full' };
-  assert.equal((await runtime.execute('file_read', args, context)).success, false);
+  assert.equal((await runtime.execute('file_read', args, { ...context, toolCallId: 'scoped-read' })).success, false);
   runtime.setPermissionMode('full');
-  assert.equal((await runtime.execute('file_read', args, context)).success, true);
-  assert.equal((await runtime.execute('file_write', { path: path.join(outside, 'full.txt'), content: 'explicit' }, context)).success, true);
+  assert.equal((await runtime.execute('file_read', args, { ...context, toolCallId: 'full-read' })).success, true);
+  assert.equal((await runtime.execute('file_write', { path: path.join(outside, 'full.txt'), content: 'explicit' }, { ...context, toolCallId: 'full-write' })).success, true);
+  assert.equal(fs.readFileSync(path.join(outside, 'full.txt'), 'utf8'), 'explicit');
   runtime.setPermissionMode('risk');
-  assert.equal((await runtime.execute('file_read', args, context)).success, false);
-  assert.equal((await runtime.execute('file_write', { path: '.iexa-config/config.json', content: '{}', create_dirs: true }, context)).success, false);
+  assert.equal((await runtime.execute('file_read', args, { ...context, toolCallId: 'downgraded-read' })).success, false);
+  assert.equal((await runtime.execute('file_write', { path: '.iexa-config/config.json', content: '{}', create_dirs: true }, { ...context, toolCallId: 'internal-write' })).success, false);
   assert.equal(fs.existsSync(path.join(workspace, '.iexa-config')), false);
+});
+
+test('permission changes never re-execute a cached call ID or permit its reuse with different arguments', async (t) => {
+  const { runtime, context } = runtimeFixture(t); let executed = 0;
+  runtime.shell.execute = async () => { executed++; return { success: true, output: 'once' }; };
+  const args = { command: 'echo stable' };
+  const denied = await runtime.execute('shell_execute', args, context);
+  assert.equal(denied.executionStatus, 'denied');
+  runtime.setPermissionMode('full');
+  assert.strictEqual(await runtime.execute('shell_execute', args, context), denied);
+  const conflict = await runtime.execute('shell_execute', { command: 'echo changed' }, context);
+  assert.equal(conflict.success, false); assert.equal(conflict.executionStatus, 'failed'); assert.match(conflict.output, /reused with different arguments/);
+  assert.equal(executed, 0);
+  const next = { ...context, toolCallId: 'fresh-full-call' };
+  const result = await runtime.execute('shell_execute', args, next); assert.equal(result.success, true);
+  runtime.setPermissionMode('risk');
+  assert.strictEqual(await runtime.execute('shell_execute', args, next), result);
+  const newDenied = await runtime.execute('shell_execute', args, { ...context, toolCallId: 'fresh-risk-call' });
+  assert.equal(newDenied.executionStatus, 'denied'); assert.equal(executed, 1);
 });
 
 // A fake HTTPS transport exercises the production request options, pin callback,

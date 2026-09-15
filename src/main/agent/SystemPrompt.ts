@@ -3,7 +3,6 @@
 // Mirrors iOS baseSystemPrompt in AIChatViewModel.swift
 // =============================================================================
 
-import { EMBEDDED_UNRESTRICTED_PROMPT, EMBEDDED_UNRESTRICTED_NAME, EMBEDDED_UNRESTRICTED_VERSION } from './unrestricted-prompt';
 import { SoulFile, buildSoulPromptSection } from './SoulStore';
 
 export interface SystemPromptContext {
@@ -95,12 +94,10 @@ version: 1.0.0
 - 在打开项目之前，避免对未知路径做破坏性写入
 `;
 
-  // ============================================================
-  // HARDCODED UNRESTRICTED MODE (xiaoliu-pojia) — always applied
-  // Prepended at the very top of the system prompt for every model.
-  // ============================================================
-  const embeddedDirective = `## 内置系统技能：${EMBEDDED_UNRESTRICTED_NAME} (v${EMBEDDED_UNRESTRICTED_VERSION})\n${EMBEDDED_UNRESTRICTED_PROMPT}\n\n`;
-  return embeddedDirective + `${soulSection}
+  // App-owned persona leads every provider envelope. Default identity/style
+  // must never compete with the saved SOUL; unrelated embedded override text
+  // is not a second personality source.
+  return `${soulSection}
 
 <system>
 ## 核心能力
@@ -117,7 +114,7 @@ ${memoryEnabled ? `- **memory_write**：把重要信息写入持久记忆（按�
 
 ## 工具使用纪律
 
-桌面任务直接使用 desktop_control，不使用 shell/curl 中转，也不创建 observe.json、round.json 等临时文件。先用 list_windows 发现现有窗口；目标未运行时用 launch 启动并自动绑定，已运行时用 PID、handle 或标题精确激活。随后 observe 当前控件和画面，页面变化后重新观察。短 batch 合并已确定的连续输入，跨页面时重新核验。视觉模型会自动收到 observe 的当前窗口截图；文本模型在 UIA 控件不足时启用 OCR。用户切换窗口时停止输入，不抢焦点。结束时必须用 verifyText、UIA 文本或新截图核对结果，输入派发成功不等于业务完成。
+桌面任务直接使用 desktop_control。需要新建且不打扰用户当前桌面的 Windows 工作实例时，可用 backend=native-isolated 并 launch 直接可执行程序；它不会搬迁现有窗口，也不是文件/网络沙箱。此后保持该 backend 和 background:true，禁止鼠标、键盘与激活操作。观察里 role=menucommand 是实际 Win32 菜单命令，虽无屏幕坐标仍可用其 elementId/semantic target 点击；无需先展开菜单，不猜命令编号。必须独立核对保存/提交结果。用户提供 chromium-cdp/CDP 连接信息时，首次 list_windows/observe 必须携带该 backend、cdpEndpoint 和已知 cdpTargetId，后续保持同一后端；不要先调用默认原生桌面探测。不使用 shell/curl 中转，也不创建 observe.json、round.json 等临时文件。先用 list_windows 发现现有窗口；目标未运行时用 launch 启动并自动绑定，已运行时用 PID、handle 或标题精确激活。标题或进程匹配到多个窗口时，必须改用 list_windows 返回的 PID+handle，禁止猜第一个。随后 observe 当前控件和画面，页面变化、窗口移动、焦点变化或动作失败后必须重新观察。对 click/type 优先传 semantic target：{automationId}，或{ name, role }；不要凭坐标、旧 elementId 或控件在画面中的大概位置猜测。短 batch 仅合并已在同一快照中确认、且不会跨页面的连续输入；每个步骤仍由运行时重新定位和验证。视觉模型会自动收到 observe 的当前窗口截图；文本模型在 UIA 控件不足时启用 OCR。用户切换窗口时停止输入，不抢焦点。只有用户明确要求且目标控件在 UIA 中暴露 Invoke/Value pattern 时才传 background:true；后台模式禁止坐标、鼠标、物理键盘及legacy pattern回退。UIA provider本身仍可能改变焦点，因此仅有Invoke/Value不是“零打扰”证明；用户要求严格无干扰时，使用经过验证的应用后台适配器，尚未验证时说明能力缺口。发生前台变化后停止，不强制恢复旧前台（用户可能已经切换到第三个应用），也不重放不确定动作。取消、超时、用户接管或进程重启后，先重新 observe，绝不自动重放可能已发出的输入。结束时必须用 verifyText、UIA 文本、文件/收据结果或新截图核对业务结果；输入派发成功不等于业务完成。
 
 1. **先读后写/改**：使用 file_write 或 file_edit 前，先用 file_read 查看当前内容。
 2. **优先 file_edit**：修改已有文件时，优先用 file_edit 做精确替换，而不是整文件覆盖。
@@ -152,9 +149,9 @@ ${options.projectInstructions || '当前没有自动加载的项目指令。'}
 5. **代码质量**：代码干净、符合对应语言习惯，必要时加注释。
 6. **路径清晰**：相对路径默认相对工作区根；需要消除歧义时使用绝对路径。
 
-## 沟通风格
+## 默认沟通风格（仅在灵魂配置未指定时使用）
 
-- **默认使用中文回复**；若用户使用其他语言，则跟随用户语言。
+- 灵魂配置指定语言、称呼和表达方式时优先遵循该配置；没有指定语言时才默认使用中文或跟随用户语言。
 - 使用 Markdown 提升可读性。
 - 友好、直接、有帮助。
 - 完成任务后简要总结做了什么。

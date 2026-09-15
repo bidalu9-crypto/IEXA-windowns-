@@ -11,12 +11,14 @@ export class GeminiProvider {
   readonly name: string = 'gemini';
   readonly model: string;
   private apiKey: string;
+  private userAgent?: string;
   private thinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   readonly defaultMaxTokens: number = 64000;
 
   constructor(config: ProviderConfig) {
     this.model = config.model;
     this.apiKey = config.apiKey;
+    this.userAgent = config.userAgent;
     this.thinkingLevel = config.thinkingLevel || 'medium';
   }
 
@@ -70,6 +72,7 @@ export class GeminiProvider {
 
     const response = await fetchWithRetry(url, {
       method: 'POST',
+      userAgent: this.userAgent,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal,

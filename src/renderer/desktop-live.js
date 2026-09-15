@@ -49,12 +49,13 @@
       frame.hidden = false;
       placeholder.hidden = true;
       if (previous) URL.revokeObjectURL(previous);
-      status.textContent = `${Math.round(performance.now() - started)} ms · ${new Date().toLocaleTimeString()}`;
+      const capturedAt = Number(response.headers.get('x-captured-at'));
+      status.textContent = `最近观察快照 · ${capturedAt > 0 ? new Date(capturedAt).toLocaleTimeString() : '时间未知'}`;
     } catch (error) {
       if (enabled) status.textContent = error?.message || '桌面服务连接失败';
     } finally {
       polling = false;
-      if (enabled) timer = setTimeout(poll, Math.max(100, 250 - (performance.now() - started)));
+      if (enabled) timer = setTimeout(poll, Math.max(500, 800 - (performance.now() - started)));
     }
   }
 
@@ -68,8 +69,10 @@
 
   document.querySelector('[data-live-stop]').addEventListener('click', async () => {
     try {
-      await request('/api/desktop-live/cancel', { method: 'POST' });
-      status.textContent = '已停止并释放输入';
+      const response = await request('/api/desktop-live/cancel', { method: 'POST' });
+      const state = await response.json();
+      enabled = false; clearTimeout(timer); toggle.textContent = '继续预览';
+      status.textContent = state.settled ? '操作已暂停，采集已停止' : '已请求暂停，等待当前动作结束';
     } catch (error) { status.textContent = error?.message || '停止请求失败'; }
   });
 

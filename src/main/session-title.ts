@@ -6,6 +6,7 @@ import { ProviderFactory, LLMProvider } from './providers/ProviderFactory';
 import { AgentMessage, ProviderType } from './providers/types';
 
 export interface TitleProfile {
+  userAgent?: string;
   provider: string;
   model: string;
   apiKey: string;
@@ -150,6 +151,7 @@ export async function callModelForTitle(
       name: profile.provider,
       model: profile.model,
       apiKey: profile.apiKey,
+      userAgent: profile.userAgent,
       baseURL: profile.baseURL || undefined,
     });
   } catch (err) {

@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 export type ToolExecutionStatus = 'queued' | 'awaiting_approval' | 'running' | 'cancelling' |
   'completed' | 'failed' | 'denied' | 'cancelled' | 'timed_out';
 export interface ToolLifecycleEvent {
+  desktop?: import('../tools/desktop/DesktopControlSession').DesktopEvent;
   version: 1;
   runId: string;
   sequence: number;
@@ -42,6 +43,13 @@ export class ToolLifecycle {
       startedAt, durationMs: TERMINAL_TOOL_STATES.has(status) && startedAt !== undefined ? Math.max(0, timestamp - startedAt) : undefined };
     this.states.set(key, event);
     return { ...event };
+  }
+  progress(sessionId: string, id: string, desktop: NonNullable<ToolLifecycleEvent['desktop']>): ToolLifecycleEvent {
+    const key = JSON.stringify([sessionId, id]);
+    const previous = this.states.get(key);
+    if (!previous || !['running', 'cancelling'].includes(previous.status)) throw new Error('Desktop progress requires an active tool.');
+    const event = { ...previous, desktop, sequence: ++this.sequence, timestamp: Date.now() };
+    this.states.set(key, event); return { ...event };
   }
   snapshot(): ToolLifecycleEvent[] { return [...this.states.values()].map(event => ({ ...event })); }
 }

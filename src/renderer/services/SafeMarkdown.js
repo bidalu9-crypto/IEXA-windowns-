@@ -10,19 +10,24 @@
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
   // A private parser prevents unrelated marked.use() calls from changing this boundary.
-  const parser = new marked.Marked({ gfm: true, breaks: false, async: false });
-  parser.use({ renderer: {
-    code({ text, lang }) {
-      text = String(text || '');
-      const language = String(lang || '').trim().split(/\s+/)[0];
-      let html = escape(text);
-      if (text.length <= 16000 && language && hljs.getLanguage(language)) {
-        try { html = hljs.highlight(text, { language, ignoreIllegals: true }).value; }
-        catch { /* Unknown or malformed code remains escaped text. */ }
-      }
-      return `<pre><code${language ? ` class="language-${escape(language)}"` : ''}>${html}</code></pre>`;
-    },
-  } });
+  function createParser(highlight) {
+    const parser = new marked.Marked({ gfm: true, breaks: false, async: false });
+    parser.use({ renderer: {
+      code({ text, lang }) {
+        text = String(text || '');
+        const language = String(lang || '').trim().split(/\s+/)[0];
+        let html = escape(text);
+        if (highlight && text.length <= 16000 && language && hljs.getLanguage(language)) {
+          try { html = hljs.highlight(text, { language, ignoreIllegals: true }).value; }
+          catch { /* Unknown or malformed code remains escaped text. */ }
+        }
+        return `<pre><code${language ? ` class="language-${escape(language)}"` : ''}>${html}</code></pre>`;
+      },
+    } });
+    return parser;
+  }
+  const parser = createParser(true);
+  const streamingParser = createParser(false);
   const policy = {
     USE_PROFILES: { html: true }, // SVG/MathML are not application UI here.
     FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option',
@@ -34,9 +39,10 @@
     SANITIZE_NAMED_PROPS: true,
     RETURN_TRUSTED_TYPE: false,
   };
-  function renderSafeMarkdown(source) {
+  function renderSafeMarkdown(source, options) {
     // Never fall back to unsanitized HTML if either parser or sanitizer fails.
-    return DOMPurify.sanitize(parser.parse(String(source ?? '')), policy);
+    const selected = options?.highlight === false ? streamingParser : parser;
+    return DOMPurify.sanitize(selected.parse(String(source ?? '')), policy);
   }
   root.SafeMarkdown = Object.freeze({ renderSafeMarkdown });
 })(window);

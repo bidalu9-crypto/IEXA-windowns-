@@ -32,7 +32,17 @@ const MAX_REHYDRATED_HISTORY_TOKENS = 24000;
 const MAX_REHYDRATED_TEXT_CHARS = 6000;
 const MAX_REHYDRATED_TOOL_RESULTS_PER_TURN = 16;
 
-function compactToolResultForContext(output: string): string {
+export function compactToolResultForContext(output: string, toolName?: string): string {
+  if (toolName === 'desktop_control') {
+    // Desktop selectors and observation tokens are capabilities, not generic log
+    // lines. Do not cut arbitrary head/middle/tail fragments through them.
+    const max = 16000;
+    if (output.length <= max) return output;
+    const note = '\n[Desktop observation truncated at a complete line; controls may be omitted. Re-observe with a narrower scope, never guess missing selectors.]';
+    const end = output.lastIndexOf('\n', max - note.length);
+    if (end < 0) return '[Desktop output exceeds context limit; request compact observation instead of raw JSON. No partial selector was retained.]';
+    return output.slice(0, end) + note;
+  }
   if (output.length <= TOOL_RESULT_COMPACT_AT) return output;
   const marker = `[... tool output compacted: ${output.length.toLocaleString()} chars total ...]`;
   const available = Math.max(240, MAX_TOOL_RESULT_CHARS - marker.length - 24);
@@ -239,7 +249,7 @@ export class AgentLoop {
               type: 'toolResult' as const,
               id: tc.id,
               name: tc.name,
-              content: compactToolResultForContext(String(tc.result?.output || '')),
+              content: compactToolResultForContext(String(tc.result?.output || ''), tc.name),
               isError: tc.result?.success === false,
             })),
           });
@@ -533,7 +543,7 @@ export class AgentLoop {
               type: 'toolResult',
               id: tc.id,
               name: tc.name,
-              content: tc.name === 'project_instructions' ? result.output : compactToolResultForContext(result.output).substring(0, MAX_TOOL_RESULT_CHARS),
+              content: tc.name === 'project_instructions' ? result.output : compactToolResultForContext(result.output, tc.name),
               isError: !result.success,
               imageData: result.imageData,
               imageMimeType: result.imageMimeType,
@@ -541,8 +551,10 @@ export class AgentLoop {
             // Provider adapters serialize images as model-visible user input.
             // Keeping pixels only as toolResult metadata made desktop frames
             // visible in the IEXA UI but invisible to the model itself.
-            if (result.imageData && result.imageMimeType) {
-              toolResults.push({ type: 'imageData', data: result.imageData, mimeType: result.imageMimeType });
+            const images = result.images?.length ? result.images
+              : result.imageData && result.imageMimeType ? [{ data: result.imageData, mimeType: result.imageMimeType }] : [];
+            for (const image of images) {
+              toolResults.push({ type: 'imageData', data: image.data, mimeType: image.mimeType });
             }
           }
           toolIndex += batch.length;
@@ -614,7 +626,7 @@ export class AgentLoop {
     try { return await this.config.toolRuntime.execute(name, args, { signal, sessionId: this.config.sessionId, toolCallId: id, workspaceDir: this.config.workspaceDir,
       onToolState: event => {
         this.callbacks?.onToolState?.(event);
-        if (event.status === 'running') this.callbacks?.onToolExecutionStart?.(id, name, args);
+        if (event.status === 'running' && !event.desktop) this.callbacks?.onToolExecutionStart?.(id, name, args);
       },
     }); }
     catch (error: unknown) { return { output: (error as Error).message || 'Tool execution failed.', success: false }; }

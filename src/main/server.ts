@@ -1,3 +1,7 @@
+import { modelRequestHeaders, normalizeCustomUserAgent, CODEX_COMPAT_USER_AGENT } from './providers/RequestHeaders';
+import { closeDesktopHelpers } from './tools/desktop/DesktopHelperLifetime';
+import { desktopControlScheduler } from './tools/desktop/DesktopControlScheduler';
+import { controlNativeIsolatedWorkspaces } from './tools/desktop/NativeIsolatedWorkspace';
 import { SubAgentManager } from './runtime/SubAgentManager';
 // =============================================================================
 // IEXA PC - HTTP Server (multi-model profiles)
@@ -41,6 +45,8 @@ import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { GitService } from './git/GitService';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
+import { normalizeMcpToolResult } from './mcp/McpToolResult';
+import { readDesktopPreview } from './tools/desktop/DesktopPreview';
 import { VisionFallback } from './vision/VisionFallback';
 import { imageDimensions } from './vision/ImageMetadata';
 import { PluginManager } from './plugins/PluginManager';
@@ -220,6 +226,7 @@ function setProjectRoot(root: string | null): {
 
 // ---- Profile Types ----
 interface ModelProfile {
+  userAgent?: string;
   id: string;
   name: string;
   provider: string;
@@ -264,6 +271,7 @@ function loadSettings(): AppSettings {
             model: raw.model || 'claude-sonnet-4-20250514',
             apiKey: raw.apiKey || '',
             baseURL: raw.baseURL || '',
+            userAgent: normalizeCustomUserAgent(raw.userAgent),
           }],
           activeProfileId: 'default',
         };
@@ -429,7 +437,7 @@ interface ChatMessage {
   thinking?: string;
   transcript?: TranscriptEvents;
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
-  toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; executionStatus?: import('./runtime/ToolLifecycle').ToolExecutionStatus; durationMs?: number; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
+  toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; executionStatus?: import('./runtime/ToolLifecycle').ToolExecutionStatus; durationMs?: number; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
   /** Files changed successfully in this assistant turn, independent of final prose. */
   deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
   usage?: { inputTokens: number; outputTokens: number };
@@ -821,6 +829,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     name: profile.provider,
     model: profile.model,
     apiKey: profile.apiKey,
+    userAgent: profile.userAgent,
     baseURL: profile.baseURL || undefined,
     thinkingLevel: clampThinkingLevel(getThinkingLevel(), profile.provider, profile.model),
     fastMode: useFastMode,
@@ -923,7 +932,7 @@ async function saveSessionMessages(
   existingMessages: ChatMessage[],
   userMsg: ChatMessage,
   assistantText: string,
-  toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
+  toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
   usage: { inputTokens: number; outputTokens: number } | undefined,
   thinking = '',
   thinkingLevel = getThinkingLevel(),
@@ -1222,6 +1231,7 @@ async function generateSessionTitleIfNeeded(opts: {
       provider: profile.provider,
       model: profile.model,
       apiKey: profile.apiKey,
+      userAgent: profile.userAgent,
       baseURL: profile.baseURL || undefined,
     },
     summary,
@@ -1398,9 +1408,22 @@ function createServer(auth: LocalApiAuth): http.Server {
       const timeout = setTimeout(() => abort.abort(), 2500);
       res.on('close', () => abort.abort());
       try {
-        const target = operation === 'frame' ? 'frame?full=0&format=jpeg&width=960' : operation === 'status' ? 'health' : operation === 'cancel' ? 'pause' : 'resume';
-        const upstream = await fetch(`http://127.0.0.1:17891/${target}`, { method: req.method, signal: abort.signal });
-        res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store', 'X-Captured-At': upstream.headers.get('x-captured-at') || '' });
+        if (operation === 'cancel' || operation === 'resume') {
+          if (operation === 'cancel') desktopControlScheduler.pause();
+          const nativeOperation = operation === 'cancel' ? 'pause' : 'resume';
+          const [isolated, primary] = await Promise.all([
+            controlNativeIsolatedWorkspaces(nativeOperation, abort.signal),
+            fetch(`http://127.0.0.1:17891/${nativeOperation}`, {method:'POST',signal:abort.signal}).then(async response => ({reachable:true,ok:response.ok,body:await response.json()})).catch(() => ({reachable:false,ok:false})),
+          ]);
+          const ok = isolated.every(item => item.ok) && (!primary.reachable || primary.ok);
+          if (operation === 'resume' && ok) desktopControlScheduler.resume();
+          const control = desktopControlScheduler.snapshot();
+          jsonReply(res, ok ? 200 : 503, {ok,paused:control.paused,settled:!control.active,isolated,primary});return;
+        }
+        const upstream = operation === 'frame'
+          ? await readDesktopPreview('http://127.0.0.1:17891', abort.signal)
+          : await fetch('http://127.0.0.1:17891/health', { signal: abort.signal });
+        res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store', 'X-Captured-At': upstream.headers.get('x-captured-at') || '', 'X-IEXA-Frame-Mode': upstream.headers.get('x-iexa-frame-mode') || '' });
         res.end(Buffer.from(await upstream.arrayBuffer()));
       } catch {
         if (!res.headersSent) jsonReply(res, 503, { error: 'Desktop agent is not ready.' });
@@ -1900,7 +1923,7 @@ ${recentMemories}
               const parsed = JSON.parse(raw);
               if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('arguments_json 必须是 JSON 对象。');
               const result = await mcpManager.callTool(binding.serverId, binding.toolName, parsed as Record<string, unknown>);
-              return { output: typeof result === 'string' ? result : JSON.stringify(result, null, 2), success: true };
+              return normalizeMcpToolResult(result);
             } catch (error) {
               return { output: `MCP 工具调用失败：${(error as Error).message}`, success: false };
             }
@@ -2176,7 +2199,7 @@ ${recentMemories}
               artifactRegistry.set(artifactId, { path: absolute, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               return { ...artifact, path: absolute, url: `/api/artifacts/${artifactId}` };
             });
-            if (entry) entry.result = { output: r.output, success: r.success, executionStatus: r.executionStatus, durationMs: r.durationMs, todos: r.todos, pluginUI: r.pluginUI, fileChange: r.fileChange, artifacts };
+            if (entry) entry.result = { metadata: r.metadata?.desktop ? { desktop: r.metadata.desktop } : undefined, output: r.output, success: r.success, executionStatus: r.executionStatus, durationMs: r.durationMs, todos: r.todos, pluginUI: r.pluginUI, fileChange: r.fileChange, artifacts };
             const job = updateJob(sessionId, id, (item) => {
               item.status = r.executionStatus || (r.success ? 'completed' : 'failed'); item.success = r.success; item.finishedAt = Date.now();
               item.outputPreview = String(r.output || '').replace(/\s+/g, ' ').slice(0, 320);
@@ -2186,6 +2209,7 @@ ${recentMemories}
               id, output: r.output.length > 24000 && artifacts.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))
                 ? r.output.slice(0, 16000) + '\n\n[完整输出见附件 / Full output in attachment]' : r.output, success: r.success, executionStatus: r.executionStatus, durationMs: r.durationMs,
               todos: r.todos,
+              metadata: r.metadata?.desktop ? { desktop: r.metadata.desktop } : undefined,
               pluginUI: r.pluginUI,
               fileChange: r.fileChange,
               artifacts,
@@ -2273,7 +2297,7 @@ ${recentMemories}
     if (url.pathname === '/api/profiles/fetch-models' && req.method === 'POST') {
       const body = await readBody(req);
       try {
-        const { baseURL, apiKey, profileId } = JSON.parse(body);
+        const { baseURL, apiKey, profileId, userAgent } = JSON.parse(body);
         const existingProfile = typeof profileId === 'string'
           ? loadSettings().profiles.find((profile) => profile.id === profileId)
           : undefined;
@@ -2292,7 +2316,7 @@ ${recentMemories}
         const endpoint = new URL(modelsUrl);
         const requestModule = endpoint.protocol === 'https:' ? https : http;
         requestModule.get(endpoint, {
-          headers: { 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' },
+          headers: Object.fromEntries(modelRequestHeaders({ 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' }, normalizeCustomUserAgent(userAgent === undefined ? existingProfile?.userAgent : userAgent))),
           timeout: 20000,
         }, (r: http.IncomingMessage) => {
           let data = '';
@@ -2335,6 +2359,7 @@ ${recentMemories}
         }));
         jsonReply(res, 200, {
           profiles: masked,
+          defaultUserAgent: CODEX_COMPAT_USER_AGENT,
           activeProfileId: s.activeProfileId,
           thinkingLevel: normalizeThinkingLevel(s.thinkingLevel),
           contextCompactionLimit: normalizeContextCompactionLimit(s.contextCompactionLimit) ?? null,
@@ -2346,6 +2371,7 @@ ${recentMemories}
         const body = await readBody(req);
         try {
           const profile: ModelProfile = JSON.parse(body);
+          if (profile.userAgent !== undefined) profile.userAgent = normalizeCustomUserAgent(profile.userAgent);
           if (!profile.id) profile.id = 'p_' + Date.now();
           if (!profile.name) profile.name = profile.model || '未命名';
           if (profile.contextWindow != null) {
@@ -2363,22 +2389,22 @@ ${recentMemories}
           if (idx >= 0) {
             // Editing a profile never requires exposing or resubmitting its saved key.
             if (!profile.apiKey?.trim()) profile.apiKey = s.profiles[idx].apiKey;
+            if (profile.userAgent === undefined) profile.userAgent = s.profiles[idx].userAgent;
             s.profiles[idx] = profile;
           }
           else s.profiles.push(profile);
           if (!s.activeProfileId) s.activeProfileId = profile.id;
           saveSettings(s);
-          // A profile owns the request envelope (Chat vs Responses) and Fast
-          // capability. Drop only idle agents bound to it so their next turn
-          // reconstructs the provider from the newly persisted contract.
+          // A profile owns its wire protocol, UA and Fast capability. Rebuild
+          // idle agents now; active agents pick up the saved contract next turn.
           const sessions = loadSessionStore().sessions;
           for (const session of sessions) {
-            if (session.modelBinding?.profileId === profile.id && !runningSessionIds.has(session.id)) {
-              agentCache.delete(session.id);
+            if (session.modelBinding?.profileId === profile.id) {
+              invalidateAgentForNextTurn(session.id);
             }
           }
           jsonReply(res, 200, { ok: true, profile: { ...profile, apiKey: maskKey(profile.apiKey) } });
-        } catch { jsonReply(res, 400, { error: '无效的 JSON' }); }
+        } catch (error) { jsonReply(res, 400, { error: (error as Error).message || '无效的 JSON' }); }
         return;
       }
 
@@ -2554,6 +2580,8 @@ ${recentMemories}
         jsonReply(res, 200, {
           provider: p?.provider || '',
           model: p?.model || '',
+          userAgent: p?.userAgent || '',
+          defaultUserAgent: CODEX_COMPAT_USER_AGENT,
           apiKey: maskKey(p?.apiKey || ''),
         });
         return;
@@ -2567,6 +2595,7 @@ ${recentMemories}
               id: 'default', name: d.model || '默认',
               provider: d.provider, model: d.model || '', apiKey: d.apiKey,
               baseURL: d.baseURL || '',
+              userAgent: normalizeCustomUserAgent(d.userAgent),
             };
             saveSettings({ profiles: [profile], activeProfileId: 'default' });
           }
@@ -3307,7 +3336,7 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
     const srv = createServer(auth);
     serverAuth.set(srv, auth);
     srv.once('error', reject);
-    srv.once('close', () => { void terminalManager.shutdown(); });
+    srv.once('close', () => { closeDesktopHelpers(); void terminalManager.shutdown(); });
     srv.listen(port, host, () => {
       const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
       if (!mobileBridge.isEnabled()) mobileBridge.setPort(0);

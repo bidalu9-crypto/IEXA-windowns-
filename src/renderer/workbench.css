@@ -495,3 +495,16 @@ html[data-motion="reduced"] .workbench-shell .waiting-indicator__label {
 
 .workbench-shell #voiceBtn.is-stopping { color:var(--text-secondary); opacity:.75; }
 .workbench-shell #voiceBtn.is-stopping .voice-level { opacity:0; }
+
+/* Desktop control phases share the same component in streaming and history. */
+.desktop-control-trace { margin: 8px 0 4px; padding: 0 0 0 12px; border-left: 1px solid color-mix(in srgb, currentColor 14%, transparent); font-size: 12px; color: var(--text-secondary, #94949b); }
+.desktop-control-phase { width: fit-content; max-width: 100%; cursor: pointer; padding: 4px 0; line-height: 1.6; }
+.desktop-control-events { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 5px; }
+.desktop-control-events li { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+.desktop-control-events time { opacity: .55; font-size: 11px; font-variant-numeric: tabular-nums; }
+.desktop-control-trace[data-active="true"] > summary { background: linear-gradient(105deg, #81818a 30%, #e9e9ee 48%, #81818a 66%); background-size: 240% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: desktop-phase-sweep 2.2s linear infinite; }
+.desktop-control-trace[data-phase="takeover"] > summary, .desktop-control-trace[data-phase="failed"] > summary { color: var(--warning-color, #bf923f); }
+@keyframes desktop-phase-sweep { from { background-position: 150% 0; } to { background-position: -80% 0; } }
+@media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; } }
+
+html[data-motion="reduced"] .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; }

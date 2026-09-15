@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Drawing;
 using System.Security.Cryptography;
@@ -24,7 +25,9 @@ internal sealed record AutomationSelector(
     int Top,
     int Width,
     int Height,
-    long Generation);
+    long Generation,
+    uint MenuCommandId = 0,
+    string MenuFingerprint = "");
 
 internal sealed record MatureElement(
     string Id,
@@ -87,8 +90,9 @@ internal sealed class MatureAutomation : IDisposable
             : new AutomationObservation("uia3", false, primary.ToArray(), diagnostics.ToArray());
     }
 
-    public AutomationActionResult Click(AutomationSelector selector, Action cancellationCheck)
+    public AutomationActionResult Click(AutomationSelector selector, Action cancellationCheck, bool background = false, bool isolatedDesktop = false)
     {
+        if (selector.Backend == "win32-menu") return Win32MenuAutomation.Click(selector, cancellationCheck);
         return WithLocatedElement(selector, "click", cancellationCheck, (element, backend, resolved) =>
         {
             if (IsExplicitlyDisabled(element))
@@ -99,6 +103,8 @@ internal sealed class MatureAutomation : IDisposable
                 invoke.Invoke();
                 return Success(resolved, backend, "uia_invoke");
             }
+            if (background && !isolatedDesktop)
+                return Failure(resolved, backend, "background-pattern", "Background click requires Invoke; other patterns and physical fallback are disabled.");
             if (element.Patterns.SelectionItem.TryGetPattern(out var selection))
             {
                 selection.Select();
@@ -114,6 +120,7 @@ internal sealed class MatureAutomation : IDisposable
                 expand.Expand();
                 return Success(resolved, backend, "uia_expand");
             }
+            if (background) return Failure(resolved, backend, "background-pattern", "Isolated click has no semantic Invoke/Select/Toggle/Expand pattern; legacy and pointer fallback stay disabled.");
             if (element.Patterns.LegacyIAccessible.TryGetPattern(out var legacy))
             {
                 legacy.DoDefaultAction();
@@ -124,7 +131,7 @@ internal sealed class MatureAutomation : IDisposable
         });
     }
 
-    public AutomationActionResult Type(AutomationSelector selector, string text, bool replace, Action cancellationCheck)
+    public AutomationActionResult Type(AutomationSelector selector, string text, bool replace, Action cancellationCheck, bool background = false)
     {
         return WithLocatedElement(selector, "type", cancellationCheck, (element, backend, resolved) =>
         {
@@ -137,6 +144,8 @@ internal sealed class MatureAutomation : IDisposable
                 value.SetValue(next);
                 return Success(resolved, backend, "uia_value");
             }
+            if (background)
+                return Failure(resolved, backend, "background-pattern", "Background typing requires Value; legacy and keyboard fallback are disabled.");
             if (element.Patterns.LegacyIAccessible.TryGetPattern(out var legacy))
             {
                 var previous = replace ? "" : legacy.Value.ValueOrDefault ?? "";
@@ -213,12 +222,18 @@ internal sealed class MatureAutomation : IDisposable
                 var resolved = CreateSelector(element, backend, new IntPtr(selector.Hwnd), selector.Generation);
                 try
                 {
+                    cancellationCheck();
                     var result = execute(element, backend, resolved);
                     if (result.Success || !result.RequiresInputFallback) return result;
                     inputFallback = result;
                     errors.Add($"[{backend}:{action}-pattern] {result.Error}");
                 }
-                catch (Exception ex) { errors.Add(Diagnostic(backend, action + "-pattern", ex)); }
+                catch (Exception ex)
+                {
+                    // Once a provider call was entered, a thrown result is uncertain.
+                    // Retrying on the other backend or physical input may double-submit.
+                    return Failure(resolved, backend, action + "-pattern", "Provider action may have executed; no fallback/replay: " + ex.Message);
+                }
             }
             catch (Exception ex) { errors.Add(Diagnostic(backend, action + "-locate", ex)); }
         }
@@ -303,6 +318,15 @@ internal sealed class MatureAutomation : IDisposable
         {
             cancellationCheck();
             var current = pending.Dequeue();
+            // UIA may include an owned modal window beneath its owner. Its controls
+            // are not capabilities of the owner's screenshot; observe that HWND explicitly.
+            try
+            {
+                object raw = current.Properties.NativeWindowHandle.ValueOrDefault;
+                var native = raw is IntPtr pointer ? pointer : new IntPtr(Convert.ToInt64(raw));
+                if (native != IntPtr.Zero && GetAncestor(native, 2) != hwnd) continue;
+            }
+            catch (Exception ex) { diagnostics.Add(Diagnostic(backend, "window-boundary", ex)); continue; }
             yield return current;
 
             AutomationElement? child;
@@ -376,6 +400,7 @@ internal sealed class MatureAutomation : IDisposable
         return "e_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw))).ToLowerInvariant()[..12];
     }
 
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window,uint flags);
     static string Role(AutomationElement element) => element.Properties.ControlType.ValueOrDefault.ToString().ToLowerInvariant();
     static bool IsExplicitlyDisabled(AutomationElement element) => element.Properties.IsEnabled.TryGetValue(out var enabled) && !enabled;
     static bool IsExplicitlyOffscreen(AutomationElement element) => element.Properties.IsOffscreen.TryGetValue(out var offscreen) && offscreen;

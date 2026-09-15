@@ -12,6 +12,7 @@ export class OpenAIProvider {
   readonly name: string;
   readonly model: string;
   private apiKey: string;
+  private userAgent?: string;
   private baseURL: string;
   private thinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   /** True only after server-side model/endpoint capability validation. */
@@ -23,6 +24,7 @@ export class OpenAIProvider {
     this.name = config.name || 'openai';
     this.model = config.model;
     this.apiKey = config.apiKey;
+    this.userAgent = config.userAgent;
     this.baseURL = config.baseURL || 'https://api.openai.com';
     this.thinkingLevel = config.thinkingLevel || 'medium';
     this.fastMode = config.fastMode === true;
@@ -81,6 +83,7 @@ export class OpenAIProvider {
 
     const response = await fetchWithRetry(`${apiURL}/chat/completions`, {
       method: 'POST',
+      userAgent: this.userAgent,
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
@@ -360,6 +363,7 @@ export class OpenAIProvider {
 
     const response = await fetchWithRetry(`${this.apiBaseURL()}/responses`, {
       method: 'POST',
+      userAgent: this.userAgent,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
       body: JSON.stringify(body),
       signal,

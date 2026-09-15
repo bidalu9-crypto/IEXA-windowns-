@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="vendor/github.min.css" id="hljs-theme-light">
 <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
 <script src="services/InitialAppearance.js"></script>
+<link rel="stylesheet" href="components/AppDialogs.css">
 </head>
 <body class="workbench-shell">
 <!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
@@ -436,6 +437,11 @@
               <input type="text" id="profileEditorBaseURL" placeholder="按服务商自动识别">
             </div>
             <div class="setting-group">
+              <label for="profileEditorUserAgent">自定义 User-Agent（可选）</label>
+              <input type="text" id="profileEditorUserAgent" maxlength="512" autocomplete="off" spellcheck="false" placeholder="留空使用 Codex 默认 UA">
+              <span class="setting-hint">留空使用 Codex 兼容 UA；仅影响此配置的模型请求和获取模型列表，不改网页搜索。限512个可打印ASCII字符，请勿填写密钥。</span>
+            </div>
+            <div class="setting-group">
               <label>请求接口</label>
               <select id="profileEditorApiMode">
                 <option value="chat_completions">Chat Completions (/v1/chat/completions)</option>
@@ -630,7 +636,7 @@ version: 1.0.0
         <div class="setting-group soul-personality-group">
           <div class="soul-editor-heading"><label for="soulBody">人格提示词</label><span id="soulTokenCount" class="soul-token-count">0 / 2,000 tokens</span></div>
           <textarea id="soulBody" rows="15" maxlength="24000" placeholder="描述你希望这个助手具备的人格、立场、沟通方式和工作习惯…"></textarea>
-          <span class="setting-hint">写入 <code>SOUL.md</code>。中文、日文、韩文按字符计数，其他文本按词计数；上限为 2,000 tokens。</span>
+          <span class="setting-hint">写入 <code>SOUL.md</code>，作为应用层首要身份与人格配置；保存后从下一轮对话生效，并通过模型的系统指令通道发送。中文、日文、韩文按字符计数，其他文本按词计数；上限为 2,000 tokens。</span>
         </div>
         <div class="soul-footer-actions">
           <button type="button" class="btn-secondary" id="soulRestoreBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>恢复默认</span></button>
@@ -811,6 +817,8 @@ version: 1.0.0
 <script src="services/ChatActivityView.js"></script>
 <script src="services/TranscriptView.js"></script>
 <script src="services/SubAgentView.js"></script>
+<script src="services/AppDialogs.js"></script>
+<script src="services/ComposerInput.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 </body>

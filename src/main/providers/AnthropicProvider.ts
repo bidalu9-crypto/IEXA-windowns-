@@ -11,6 +11,7 @@ export class AnthropicProvider {
   readonly name: string;
   readonly model: string;
   private apiKey: string;
+  private userAgent?: string;
   private baseURL: string;
   private thinkingLevel: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   readonly defaultMaxTokens: number = 64000;
@@ -19,6 +20,7 @@ export class AnthropicProvider {
     this.name = 'anthropic';
     this.model = config.model;
     this.apiKey = config.apiKey;
+    this.userAgent = config.userAgent;
     this.baseURL = config.baseURL || 'https://api.anthropic.com';
     this.thinkingLevel = config.thinkingLevel || 'medium';
   }
@@ -74,6 +76,7 @@ export class AnthropicProvider {
 
     const response = await fetchWithRetry(`${this.baseURL}/v1/messages`, {
       method: 'POST',
+      userAgent: this.userAgent,
       headers,
       body: JSON.stringify(body),
       signal,
