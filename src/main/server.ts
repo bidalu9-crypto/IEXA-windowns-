@@ -1,3 +1,5 @@
+import { ProjectScopeStore } from './context/ProjectScopeStore';
+import { PromptPreviewStore } from './observability/PromptPreviewStore';
 import { modelRequestHeaders, normalizeCustomUserAgent, CODEX_COMPAT_USER_AGENT } from './providers/RequestHeaders';
 import { closeDesktopHelpers } from './tools/desktop/DesktopHelperLifetime';
 import { desktopControlScheduler } from './tools/desktop/DesktopControlScheduler';
@@ -88,6 +90,8 @@ const pluginManager = new PluginManager(WORKSPACE_DIR);
 const mobileBridge = new MobileBridgeManager(WORKSPACE_DIR);
 const visionFallback = new VisionFallback();
 const soulStore = new SoulStore(MEMORY_DIR);
+const projectScopeStore = new ProjectScopeStore(path.join(WORKSPACE_DIR, '.iexa-project-scopes'));
+const promptPreviewStore = new PromptPreviewStore(() => loadSettings().profiles.map(profile => profile.apiKey));
 const sessionEventClients = new Map<http.ServerResponse, string>();
 
 interface AppearanceSettings {
@@ -546,7 +550,8 @@ function loadRecentMemories(maxFiles = 5, maxChars = MAX_AUTO_MEMORY_CHARS): str
   try {
     if (!fs.existsSync(MEMORY_DIR)) return '';
     const files = fs.readdirSync(MEMORY_DIR)
-      .filter((f) => f.endsWith('.md'))
+      // SOUL already leads the system envelope; never duplicate it as historical memory.
+      .filter((f) => f.endsWith('.md') && f.toLowerCase() !== 'soul.md')
       .sort()
       .reverse()
       .slice(0, maxFiles);
@@ -854,6 +859,8 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     systemSkillFragment: skillStore.systemPromptFragment(),
     skillsDir,
     soul: soulStore.load(),
+    projectScope: projectRoot ? projectScopeStore.load(projectRoot) : null,
+    onPromptRequest: request => promptPreviewStore.capture(request),
     onSkillRead: (resolvedPath: string) => {
       const sid = skillStore.skillIdFromPath(resolvedPath);
       if (sid) skillStore.recordUse(sid);
@@ -1770,6 +1777,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       }
 
       if (req.method === 'DELETE') {
+        promptPreviewStore.clear(sid);
         cancelSessionAgent(sid);
         const store = loadSessionStore();
         store.sessions = store.sessions.filter(s => s.id !== sid);
@@ -2722,6 +2730,35 @@ ${recentMemories}
         jsonReply(res, ok ? 200 : 404, ok ? { ok: true } : { error: '未找到' });
         return;
       }
+    }
+
+    if (url.pathname === '/api/project/scope') {
+      const root = getProjectRoot();
+      if (!root) { jsonReply(res, 409, { error: '请先打开项目文件夹' }); return; }
+      if (req.method === 'GET') {
+        jsonReply(res, 200, { projectRoot: root, scope: projectScopeStore.load(root) }); return;
+      }
+      if (req.method === 'PUT') {
+        try {
+          const data = JSON.parse(await readBody(req, 128 * 1024));
+          if (data.projectRoot !== root || getProjectRoot() !== root) { jsonReply(res, 409, { error: '项目已切换，请重新加载范围后保存' }); return; }
+          const scope = projectScopeStore.save(root, data.scope);
+          invalidateAllAgentsForNextTurn();
+          jsonReply(res, 200, { projectRoot: root, scope });
+        } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
+        return;
+      }
+    }
+
+    if (url.pathname === '/api/prompt-preview') {
+      res.setHeader('Cache-Control', 'no-store');
+      const sessionId = url.searchParams.get('sessionId') || '';
+      if (!sessionId || !loadSessionStore().sessions.some(session => session.id === sessionId)) {
+        jsonReply(res, 404, { error: '请先选择已有会话' }); return;
+      }
+      if (req.method === 'POST') { promptPreviewStore.arm(sessionId); jsonReply(res, 200, promptPreviewStore.read(sessionId)); return; }
+      if (req.method === 'DELETE') { promptPreviewStore.clear(sessionId); jsonReply(res, 200, { armed: false, preview: null }); return; }
+      if (req.method === 'GET') { jsonReply(res, 200, promptPreviewStore.read(sessionId)); return; }
     }
 
     if (url.pathname === '/api/project' && req.method === 'GET') {

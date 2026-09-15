@@ -10,8 +10,15 @@ test('saved persona leads the app envelope and no embedded competing override is
  const prompt=buildSystemPrompt({soul,projectInstructions:'project-reference-marker',skillFragment:'skill-reference-marker'});
  assert.ok(prompt.startsWith('# IEXA 应用层身份与人格契约'));assert.match(prompt,/你是 星岚/);assert.match(prompt,/简洁温和/);assert.match(prompt,/日本語/);assert.equal(prompt.split(soul.body).length-1,1);assert.ok(prompt.indexOf(soul.body)<prompt.indexOf('## 核心能力'));assert.doesNotMatch(prompt,/内置系统技能|用户当前请求与明确指示优先于/);assert.match(prompt,/默认沟通风格（仅在灵魂配置未指定时使用）/);
 });
-test('oversized hand-edited persona reports an error instead of silently switching identity',()=>{
- assert.throws(()=>buildSoulPromptSection({...soul,body:'中'.repeat(2001)}),/未静默丢弃人格/);
+test('long persona survives save, reload and full system prompt construction',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-long-soul-'));
+ t.after(()=>{assert.equal(path.dirname(dir),os.tmpdir());fs.rmSync(dir,{recursive:true,force:true});});
+ const body='正文 English 日本語 한글 🧠\n'.repeat(3000)+'END-OF-PERSONA';
+ assert.ok(body.length>24000);
+ const longSoul={...soul,body};new SoulStore(dir).save(longSoul);
+ const loaded=new SoulStore(dir).load();assert.deepEqual(loaded,longSoul);
+ assert.ok(buildSoulPromptSection(loaded).includes(body));
+ assert.ok(buildSystemPrompt({soul:loaded}).includes(body));
 });
 test('persona survives disk reload and later saves replace the next envelope',t=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-soul-test-'));t.after(()=>{assert.equal(path.dirname(dir),os.tmpdir());fs.rmSync(dir,{recursive:true,force:true});});const store=new SoulStore(dir);store.save(soul);assert.deepEqual(new SoulStore(dir).load(),soul);store.save({...soul,metadata:{...soul.metadata,name:'晴川'}});assert.match(buildSystemPrompt({soul:store.load()}),/你是 晴川/);

@@ -20,11 +20,10 @@ export interface SoulFile {
 
 export interface SoulLimitCheck {
   count: number;
-  limit: number;
+  /** null means no application-level personality body cap. */
+  limit: null;
   isOverLimit: boolean;
 }
-
-export const SOUL_BODY_TOKEN_LIMIT = 2000;
 
 export const DEFAULT_SOUL: SoulFile = {
   metadata: { name: 'IEXA', style: '', lang: 'auto' },
@@ -90,7 +89,7 @@ export function soulTokenCount(text: string): number {
 
 export function checkSoulBodyLimit(body: string): SoulLimitCheck {
   const count = soulTokenCount(String(body || '').trim());
-  return { count, limit: SOUL_BODY_TOKEN_LIMIT, isOverLimit: count > SOUL_BODY_TOKEN_LIMIT };
+  return { count, limit: null, isOverLimit: false };
 }
 
 function isCjk(char: string): boolean {
@@ -141,8 +140,6 @@ export class SoulStore {
 
   save(value: SoulFile): SoulFile {
     const file: SoulFile = { metadata: normalizeSoulMetadata(value.metadata), body: String(value.body || '').replace(/\r\n/g, '\n') };
-    const limit = checkSoulBodyLimit(file.body);
-    if (limit.isOverLimit) throw new Error(`人格提示词超出限制：${limit.count} / ${limit.limit} tokens。`);
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
     fs.writeFileSync(tempPath, serializeSoulMarkdown(file), 'utf8');
@@ -163,8 +160,6 @@ export function buildSoulPromptSection(file: SoulFile | undefined | null): strin
   const style = metadata.style ? `\n\n回复风格：${metadata.style}` : '';
   const lang = metadata.lang && metadata.lang !== 'auto' ? `\n首选回复语言：${metadata.lang}。` : '';
   const body = String(soul.body || '').trim();
-  const limit = checkSoulBodyLimit(body);
-  if (limit.isOverLimit) throw new Error(`SOUL.md 人格提示词超出限制：${limit.count} / ${limit.limit}；未静默丢弃人格，请在灵魂设置中调整。`);
   return `# IEXA 应用层身份与人格契约
 
 ${identity}${style}${lang}

@@ -18,6 +18,8 @@ import { LLMProvider } from '../providers/ProviderFactory';
 import { ToolRuntime } from '../runtime/ToolRuntime';
 import { buildSystemPrompt } from './SystemPrompt';
 import { ProjectInstructions } from './ProjectInstructions';
+import { ProjectScope } from '../context/ProjectScopeStore';
+import { PromptRequest } from '../observability/PromptPreviewStore';
 import { SoulFile } from './SoulStore';
 import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
 import { ContextManager } from '../context/ContextManager';
@@ -77,6 +79,8 @@ function clipHistoryText(text: string, limit: number): string {
 }
 
 export interface AgentLoopConfig {
+  projectScope?: ProjectScope | null;
+  onPromptRequest?: (request: PromptRequest) => void;
   sessionId: string;
   provider: LLMProvider;
   workspaceDir: string;
@@ -356,6 +360,7 @@ export class AgentLoop {
     }
     const baseSystemPrompt = buildSystemPrompt({
       projectInstructions,
+      projectScope: this.config.projectScope,
       memoryEnabled: this.config.memoryEnabled,
       workspaceDir: this.config.workspaceDir,
       hasProject: !!this.config.hasProject,
@@ -420,6 +425,8 @@ export class AgentLoop {
         let stopReason: AgentStopReason = 'endTurn';
         let usage: LLMUsage | undefined;
 
+        // Inspection is opt-in and must never change or break the actual request.
+        try { this.config.onPromptRequest?.({ sessionId: this.config.sessionId, provider: this.config.provider.name, model: this.config.provider.model, systemPrompt, messages, tools }); } catch { /* diagnostic capture is best effort */ }
         const stream = this.config.provider.streamMessage(
           messages,
           systemPrompt,

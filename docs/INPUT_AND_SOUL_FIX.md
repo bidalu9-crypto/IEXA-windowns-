@@ -11,7 +11,7 @@
 ## E2：人格指令
 
 - `src/main/agent/SystemPrompt.ts`：SOUL 身份/风格/语言放在应用系统消息开头；移除另一个无条件内置优先级覆盖段的注入，避免人格前面存在第二套冲突人格来源。保留工作区、工具、权限与工程执行规则。
-- `src/main/agent/SoulStore.ts`：身份与表达风格以已保存配置为首要来源；后续默认风格仅作补充。历史、网页、工具返回和项目文件不被当作人格配置变更。超长手工编辑文件明确报错，不再悄悄丢弃人格正文。
+- `src/main/agent/SoulStore.ts`：身份与表达风格以已保存配置为首要来源；后续默认风格仅作补充。历史、网页、工具返回和项目文件不被当作人格配置变更。正文不再做独立长度校验；长篇手工编辑文件仍完整构建人格提示词。
 - 已有 `server.ts` 保存/恢复后使缓存代理下一轮失效的逻辑保留；已有 `AgentLoop` 每个工具循环复用完整系统指令、`AgentRuntime` 子代理继承配置的路径保留。
 - 应用设置排序不是模型服务上层规则的替代，也不是行为百分百遵从的证明。本轮没有用用户密钥请求第三方模型，没有修改用户 SOUL.md。
 
@@ -19,7 +19,7 @@
 
 - `npm test`：327/327，退出0。包含10项新增自动化测试。
 - `tests/composer-dialogs.test.js`：异步弹窗、取消、队列、焦点/草稿/选区恢复、实际聊天键盘处理器的IME条件、18处调用均await、流式不高亮/最终仅高亮一次及清洗边界。
-- `tests/soul-priority.test.js`：人格排序、超限报错、磁盘重载、4种请求体 × 2轮：OpenAI Chat Completions `system`、Responses `instructions`、Anthropic `system`、Gemini `systemInstruction`。使用实际 Provider 序列化实现与本地 fetch 测试替身，无外网模型请求；不宣称真实模型回答验收。
+- `tests/soul-priority.test.js`：人格排序、长正文完整保存与提示词传递、磁盘重载、4种请求体 × 2轮：OpenAI Chat Completions `system`、Responses `instructions`、Anthropic `system`、Gemini `systemInstruction`。使用实际 Provider 序列化实现与本地 fetch 测试替身，无外网模型请求；不宣称真实模型回答验收。
 - `scripts/check-electron-composer.cjs`：项目自带 Electron，隐藏的独立 BrowserWindow，无真实应用配置加载、无鼠标键盘抢占：
   1. 30次 prompt/confirm/alert 开关，全部恢复焦点并通过 webContents.insertText 写入。
   2. 实际聊天处理器的合成IME事件不发送，结束后Enter只发送一次。
@@ -30,3 +30,9 @@
 `npm run build` 已更新本地 dist。重启项目的 IEXA Electron 实例加载新后端/页面；没有打包安装器或推送远端。
 
 源文件基线、SHA256、差异和哈希保护回滚脚本只存放在系统临时目录的 `iexa-input-soul-before-*`，未重新创建 E盘的 .local-backups 或 .local-references 目录。回滚默认试运行，显式 -Apply 才恢复；仅处理本轮列出的源码，后续修改会触发哈希保护。用户的桌面待办文件、配置、密钥与聊天记录保持原样。
+
+## SOUL 正文长度更新
+
+取消人格正文原有的 2,000-token 校验及编辑器 24,000 字符上限。编辑器仅显示估算计数，保存期间继续防止重复提交；API 的 `tokenLimit: null` 表示没有独立人格正文上限。通用请求体保护及模型上下文容量仍然保留。长正文磁盘重载、系统提示词、API 保存/读取和前端提交均有回归测试；测试使用临时工作区，不修改用户人格文件。
+
+本次验证：`npm test`（包含构建）338/338 通过，退出码 0；`git diff --check` 通过。验证日志位于系统临时目录 `iexa-soul-tests.log`。

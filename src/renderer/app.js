@@ -470,7 +470,7 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
 // SOUL.md — persistent assistant identity and personality
 // =============================================================================
 
-const SOUL_TOKEN_LIMIT = 2000;
+let soulSaving = false;
 let soulState = { metadata: { name: 'IEXA', style: '', lang: 'auto' }, body: '' };
 let soulSaveFeedbackTimer = null;
 
@@ -540,10 +540,10 @@ function updateSoulPreview() {
   const countEl = document.getElementById('soulTokenCount');
   const saveBtn = document.getElementById('soulSaveBtn');
   if (countEl) {
-    countEl.textContent = `${count.toLocaleString()} / ${SOUL_TOKEN_LIMIT.toLocaleString()} tokens`;
-    countEl.classList.toggle('is-over-limit', count > SOUL_TOKEN_LIMIT);
+    countEl.textContent = `约 ${count.toLocaleString()} tokens`;
+    countEl.classList.remove('is-over-limit');
   }
-  if (saveBtn) saveBtn.disabled = count > SOUL_TOKEN_LIMIT;
+  if (saveBtn) saveBtn.disabled = soulSaving;
 }
 
 /** Keep the personality editor compact for short prompts and grow it naturally
@@ -617,6 +617,7 @@ function populateSoulForm(data) {
 }
 
 async function loadSoul() {
+  void window.iexaPromptSettings?.loadScope();
   try {
     const response = await fetch(`${API_BASE}/api/soul`, { cache: 'no-store' });
     const data = await response.json();
@@ -631,11 +632,8 @@ async function loadSoul() {
 
 async function saveSoul() {
   const value = soulFormValue();
-  if (estimateSoulTokens(value.body) > SOUL_TOKEN_LIMIT) {
-    setSoulSaveFeedback('内容超出上限', 'error');
-    showSoulResult(`人格提示词超过 ${SOUL_TOKEN_LIMIT.toLocaleString()} tokens 上限。`, true);
-    return;
-  }
+  if (soulSaving) return;
+  soulSaving = true;
   const button = document.getElementById('soulSaveBtn');
   if (button) button.disabled = true;
   setSoulSaveFeedback('正在写入 SOUL.md', 'saving');
@@ -654,6 +652,7 @@ async function saveSoul() {
     setSoulSaveFeedback('保存失败', 'error');
     showSoulResult(error?.message || String(error), true);
   } finally {
+    soulSaving = false;
     updateSoulPreview();
   }
 }
@@ -672,6 +671,7 @@ async function restoreSoul() {
 }
 
 function initSoulUI() {
+  if (window.IexaPromptSettings && !window.iexaPromptSettings) window.iexaPromptSettings = new window.IexaPromptSettings({ apiBase: API_BASE, getSessionId: () => currentSessionId });
   ['soulName', 'soulStyle', 'soulLanguage', 'soulBody'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       if (id === 'soulBody') autoResizeSoulBody();

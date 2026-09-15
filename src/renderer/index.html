@@ -10,6 +10,15 @@
 <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
 <script src="services/InitialAppearance.js"></script>
 <link rel="stylesheet" href="components/AppDialogs.css">
+<style>
+.prompt-settings-panel { margin-top: 20px; }
+.prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
+.prompt-settings-panel textarea { box-sizing: border-box; display: block; width: 100%; resize: vertical; margin: 8px 0 14px; padding: 10px; color: inherit; background: transparent; border: 1px solid var(--border-color, #666); border-radius: 8px; font: inherit; }
+.prompt-settings-panel label { display: block; }
+.prompt-settings-panel .soul-footer-actions { flex-wrap: wrap; gap: 8px; }
+.prompt-preview-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; font-size: 12px; user-select: text; }
+#promptPreviewStatus { white-space: pre-wrap; }
+</style>
 </head>
 <body class="workbench-shell">
 <!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
@@ -634,15 +643,35 @@ version: 1.0.0
           <span class="setting-hint">简短的语气提示，会贯穿每次回复。</span>
         </div>
         <div class="setting-group soul-personality-group">
-          <div class="soul-editor-heading"><label for="soulBody">人格提示词</label><span id="soulTokenCount" class="soul-token-count">0 / 2,000 tokens</span></div>
-          <textarea id="soulBody" rows="15" maxlength="24000" placeholder="描述你希望这个助手具备的人格、立场、沟通方式和工作习惯…"></textarea>
-          <span class="setting-hint">写入 <code>SOUL.md</code>，作为应用层首要身份与人格配置；保存后从下一轮对话生效，并通过模型的系统指令通道发送。中文、日文、韩文按字符计数，其他文本按词计数；上限为 2,000 tokens。</span>
+          <div class="soul-editor-heading"><label for="soulBody">人格提示词</label><span id="soulTokenCount" class="soul-token-count">约 0 tokens</span></div>
+          <textarea id="soulBody" rows="15" placeholder="描述你希望这个助手具备的人格、立场、沟通方式和工作习惯…"></textarea>
+          <span class="setting-hint">写入 <code>SOUL.md</code>，作为应用层首要身份与人格配置；保存后从下一轮对话生效，并通过模型的系统指令通道发送。正文不设单独的字数上限；这里只显示估算 token 数，实际发送仍受模型上下文容量及通用请求体容量影响。</span>
         </div>
         <div class="soul-footer-actions">
           <button type="button" class="btn-secondary" id="soulRestoreBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg><span>恢复默认</span></button>
           <span id="soulFilePath" class="soul-file-path"></span>
         </div>
         <div class="sync-result" id="soulResult" style="display:none;" aria-live="polite"></div>
+        <details class="setting-group prompt-settings-panel">
+          <summary>项目测试范围</summary>
+          <p class="setting-hint">仅记录你明确填写的目标与允许操作，供后续对话复用；不会修改“完全访问”等运行时权限，也不自动覆盖其他目标。</p>
+          <p id="scopeProjectRoot" class="setting-hint"></p>
+          <label for="scopeTargets">测试目标（每行一项）</label>
+          <textarea id="scopeTargets" rows="3" placeholder="例如：本地测试服务 http://127.0.0.1:3000"></textarea>
+          <label for="scopeOperations">允许操作（每行一项）</label>
+          <textarea id="scopeOperations" rows="3" placeholder="例如：只读配置检查、测试账号的接口权限验证"></textarea>
+          <label for="scopeNotes">背景与限制</label>
+          <textarea id="scopeNotes" rows="3" maxlength="4000" placeholder="填写环境归属、排除项、时间范围等；不要填写密钥"></textarea>
+          <div class="soul-footer-actions"><button type="button" class="btn-primary" id="scopeSaveBtn" disabled>保存项目范围</button><button type="button" class="btn-secondary" id="scopeReloadBtn">重新加载</button></div>
+          <p id="scopeFeedback" class="setting-hint" role="status"></p>
+        </details>
+        <details class="setting-group prompt-settings-panel">
+          <summary>实际提示词诊断</summary>
+          <p class="setting-hint">手动启用后，仅采集当前会话下一次主模型调用前的应用输入。包含系统提示词、压缩后历史和工具定义，不含 HTTP 认证头。尽力脱敏仍可能留下私密正文，请先审查再分享。仅在内存保留，5 分钟内过期。</p>
+          <div class="soul-footer-actions"><button type="button" class="btn-secondary" id="promptArmBtn">启用下一次采集</button><button type="button" class="btn-secondary" id="promptRefreshBtn">读取预览</button><button type="button" class="btn-secondary" id="promptClearBtn">清除预览</button></div>
+          <p id="promptPreviewStatus" class="setting-hint" role="status"></p>
+          <pre id="promptPreviewText" class="prompt-preview-text" tabindex="0" aria-label="脱敏应用输入预览"></pre>
+        </details>
       </div>
     </div>
 
@@ -819,6 +848,7 @@ version: 1.0.0
 <script src="services/SubAgentView.js"></script>
 <script src="services/AppDialogs.js"></script>
 <script src="services/ComposerInput.js"></script>
+<script src="services/PromptSettings.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 </body>
