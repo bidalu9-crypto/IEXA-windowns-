@@ -1,3 +1,4 @@
+import { ProviderError } from './ProviderError';
 import { modelRequestHeaders } from './RequestHeaders';
 
 export const STREAM_RETRY_DELAYS_MS = [2000, 5000, 10000];
@@ -57,7 +58,7 @@ export async function fetchWithRetry(
       lastError = new Error(`HTTP ${response.status}`);
     } catch (error) {
       throwIfAborted(signal);
-      if (isAbortError(error) || attempt === attempts - 1) throw error;
+      if (!ProviderError.from(error).retryable || attempt === attempts - 1) throw error;
       lastError = error;
     }
     await abortableSleep(STREAM_RETRY_DELAYS_MS[Math.min(attempt, STREAM_RETRY_DELAYS_MS.length - 1)], signal);
@@ -74,10 +75,21 @@ export const STREAM_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 export async function readWithTimeout<T>(
   reader: ReadableStreamDefaultReader<T>,
   timeoutMs = STREAM_IDLE_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<{ done: boolean; value?: T }> {
+  throwIfAborted(signal);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
   try {
-    return await Promise.race([
+    const result = await Promise.race([
+      new Promise<never>((_, reject) => {
+        abort = () => {
+          reject(signal?.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+          void reader.cancel(signal?.reason).catch(() => {});
+        };
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+      }),
       reader.read(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
@@ -86,7 +98,51 @@ export async function readWithTimeout<T>(
         }, timeoutMs);
       }),
     ]);
+    throwIfAborted(signal);
+    return result;
   } finally {
+    if (abort) signal?.removeEventListener('abort', abort);
     if (timer) clearTimeout(timer);
+  }
+}
+
+/** SSE framing independent of byte boundaries; also accepts a plain JSON error body. */
+export async function* readSSEFrames(reader: ReadableStreamDefaultReader<Uint8Array>, signal?: AbortSignal): AsyncGenerator<{ data: string; event: string }> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let event = '';
+  let data: string[] = [];
+  let json = '';
+  const line = (text: string): { data: string; event: string } | undefined => {
+    if (!text) {
+      const frame = data.length ? { data: data.join('\n'), event } : undefined;
+      data = []; event = '';
+      return frame;
+    }
+    if (text.startsWith('event:')) event = text.slice(6).trim();
+    else if (text.startsWith('data:')) data.push(text.slice(5).replace(/^ /, ''));
+    else if (json || text.trimStart().startsWith('{')) json += text + '\n';
+    return undefined;
+  };
+  while (true) {
+    const { done, value } = await readWithTimeout(reader, STREAM_IDLE_TIMEOUT_MS, signal);
+    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    // Keep a trailing CR pending: it may be half of a split CRLF delimiter.
+    let match: RegExpExecArray | null;
+    while ((match = /\r\n|\n|\r(?!$)/.exec(buffer))) {
+      const frame = line(buffer.slice(0, match.index));
+      buffer = buffer.slice(match.index + match[0].length);
+      if (frame) { throwIfAborted(signal); yield frame; }
+    }
+    if (done) {
+      if (buffer) { const frame = line(buffer.replace(/\r$/, '')); if (frame) yield frame; }
+      const frame = line('');
+      if (frame) yield frame;
+      if (json.trim()) yield { data: json.trim(), event: '' };
+      return;
+    }
+    if (buffer.length + json.length + data.reduce((sum, text) => sum + text.length, 0) > 8 * 1024 * 1024) {
+      throw new ProviderError('INVALID_STREAM', 'Provider SSE frame exceeds size limit', false);
+    }
   }
 }

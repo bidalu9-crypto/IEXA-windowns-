@@ -1,3 +1,5 @@
+import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
+import { ProviderError } from './ProviderError';
 // =============================================================================
 // IEXA PC - OpenAI Provider
 // Mirrors iOS OpenAIProvider.swift + OpenAIAgentProvider.swift
@@ -5,7 +7,7 @@
 // =============================================================================
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
-import { fetchWithRetry, readWithTimeout } from './stream-utils';
+import { fetchWithRetry, readSSEFrames } from './stream-utils';
 import { isGlm53FlashModel, isGpt6AstraModel } from './ModelCapabilities';
 
 export class OpenAIProvider {
@@ -93,18 +95,16 @@ export class OpenAIProvider {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      if (this.fastMode && /service[_ ]?tier|priority|tier/i.test(errorText)) {
-        throw new Error(`Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`);
+      const errorText = await readDiagnosticResponse(response);
+      if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+        throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
       }
-      throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+      throw ProviderError.http(response.status, errorText, 'OpenAI');
     }
 
     const reader = response.body?.getReader();
     if (!reader) throw new Error('No response body');
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let currentToolId: string | null = null;
     let currentToolName: string | null = null;
     let currentToolArgs = '';
@@ -121,18 +121,8 @@ export class OpenAIProvider {
     const toolCalls: Map<number, { id: string; name: string; args: string; started: boolean; completed: boolean }> = new Map();
 
     try {
-      while (true) {
-        const { done, value } = await readWithTimeout(reader);
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
+      for await (const frame of readSSEFrames(reader, signal)) {
+          const data = frame.data;
           if (data === '[DONE]') {
             for (const [, entry] of toolCalls) {
               if (!entry.id || !entry.name || entry.completed) continue;
@@ -158,6 +148,7 @@ export class OpenAIProvider {
 
           try {
             const event = JSON.parse(data);
+            ProviderError.throwIfErrorFrame(event, frame.event);
 
             // OpenAI-compatible APIs commonly put cumulative usage in the final
             // SSE frame with an empty `choices` array. Process usage before
@@ -307,7 +298,6 @@ export class OpenAIProvider {
             if (e instanceof SyntaxError) continue;
             throw e;
           }
-        }
       }
       // Gracefully handle providers that close the stream without [DONE].
       for (const [, entry] of toolCalls) {
@@ -329,6 +319,7 @@ export class OpenAIProvider {
         yield { type: 'reasoningContent', content: reasoningContent };
       }
       if (pendingStopReason) yield { type: 'done', stopReason: pendingStopReason };
+      else throw new ProviderError('STREAM_TERMINATED', 'Provider stream terminated before completion', true);
     } finally {
       reader.releaseLock();
     }
@@ -369,17 +360,15 @@ export class OpenAIProvider {
       signal,
     });
     if (!response.ok) {
-      const errorText = await response.text();
-      if (this.fastMode && /service[_ ]?tier|priority|tier/i.test(errorText)) {
-        throw new Error(`Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`);
+      const errorText = await readDiagnosticResponse(response);
+      if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+        throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
       }
-      throw new Error(`OpenAI Responses API error ${response.status}: ${errorText}`);
+      throw ProviderError.http(response.status, errorText, 'OpenAI Responses');
     }
 
     const reader = response.body?.getReader();
     if (!reader) throw new Error('No response body');
-    const decoder = new TextDecoder();
-    let buffer = '';
     let startedText = false;
     let emittedDone = false;
     // A completed reasoning item repeats the entire summary after streaming
@@ -415,22 +404,13 @@ export class OpenAIProvider {
     };
 
     try {
-      while (true) {
-        const { done, value } = await readWithTimeout(reader);
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        let eventType = '';
-        for (const rawLine of lines) {
-          const line = rawLine.trim();
-          if (!line) continue;
-          if (line.startsWith('event:')) { eventType = line.slice(6).trim(); continue; }
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
+      for await (const frame of readSSEFrames(reader, signal)) {
+          const eventType = frame.event;
+          const payload = frame.data;
           if (!payload || payload === '[DONE]') continue;
           let event: Record<string, any>;
           try { event = JSON.parse(payload); } catch { continue; }
+          ProviderError.throwIfErrorFrame(event, eventType);
           const type = String(event.type || eventType || '');
 
           if (type === 'response.output_text.delta') {
@@ -509,25 +489,17 @@ export class OpenAIProvider {
             }
             continue;
           }
-          if (type === 'response.completed') {
+          if (type === 'response.completed' || (type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'max_output_tokens')) {
             const completed = (event.response || {}) as Record<string, any>;
             const usage = completed.usage || event.usage;
             if (usage) yield { type: 'usage', usage: { inputTokens: Number(usage.input_tokens || usage.prompt_tokens || 0), outputTokens: Number(usage.output_tokens || usage.completion_tokens || 0) } };
             for (const call of calls.values()) yield* finishCall(call);
             emittedDone = true;
-            yield { type: 'done', stopReason: calls.size ? 'toolUse' : 'endTurn' };
+            yield { type: 'done', stopReason: type === 'response.incomplete' ? 'maxTokens' : calls.size ? 'toolUse' : 'endTurn' };
             return;
           }
-          if (type === 'error' || type === 'response.failed') {
-            const err = event.error || event.response?.error || event;
-            throw new Error(String(err?.message || 'Responses stream failed'));
-          }
-        }
       }
-      if (!emittedDone) {
-        for (const call of calls.values()) yield* finishCall(call);
-        yield { type: 'done', stopReason: calls.size ? 'toolUse' : 'endTurn' };
-      }
+      if (!emittedDone) throw new ProviderError('STREAM_TERMINATED', 'Responses stream terminated before completion', true);
     } finally { reader.releaseLock(); }
   }
 

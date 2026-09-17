@@ -508,3 +508,42 @@ html[data-motion="reduced"] .workbench-shell .waiting-indicator__label {
 @media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; } }
 
 html[data-motion="reduced"] .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; }
+
+/* Focused chat polish: retain the workbench structure and all navigation. */
+.workbench-shell .shell-toolbar-button { min-width: 32px; min-height: 32px; border-radius: 8px; }
+.workbench-shell .ui-icon { width: 18px; height: 18px; flex-shrink: 0; stroke-width: 1.7; }
+.workbench-shell :is(button, input, textarea, select):focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+.workbench-shell .message.assistant .message-content { font-size: 14px; line-height: 1.75; }
+.workbench-shell .message.user:not(.is-queued) .message-content { font-size: 14px; line-height: 1.65; border-radius: 20px; padding: 12px 18px; }
+.message-fold-toggle { display: block; margin-top: 9px; padding: 2px 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 12px; }
+.message-fold-toggle:hover { text-decoration: underline; }
+.stream-reveal { animation: iexa-stream-reveal 240ms ease-out both; }
+@keyframes iexa-stream-reveal {
+  from { opacity: .1; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+.workbench-shell :is(.session-item-archive, .sessions-archive-manager) { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 4px; color: var(--text-muted); border: none; border-radius: 7px; background: transparent; cursor: pointer; }
+.workbench-shell .session-item-archive { opacity: 0; }
+.workbench-shell .session-item:hover .session-item-archive, .workbench-shell .session-item:focus-within .session-item-archive { opacity: 1; }
+.workbench-shell :is(.session-item-archive, .sessions-archive-manager):hover { background: var(--shell-hover); color: var(--text-primary); }
+.sessions-archive-manager { margin-left: auto; }
+.archive-manager { width: min(620px, calc(100vw - 32px)); max-height: 80vh; }
+.archive-manager h2 { margin: 0 0 18px; font-size: 18px; }
+.archive-manager-list { max-height: 55vh; overflow-y: auto; }
+.archive-manager-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.archive-manager-row button, .archive-close { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-primary); cursor: pointer; font: inherit; white-space: nowrap; }
+.archive-manager-row .archive-chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; border: 0; }
+.archive-manager-row button:hover, .archive-close:hover { background: var(--shell-hover); }
+.archive-close { display: block; margin: 18px 0 0 auto; }
+@media (min-width: 761px) {
+  body.left-panel-hidden .sidebar, body.left-panel-hidden .panel-resizer-sidebar,
+  body.right-panel-hidden .files-panel, body.right-panel-hidden .panel-resizer-files { display: none; }
+}
+@media (max-width: 760px) {
+  #leftPanelToggle, #rightPanelToggle { display: none; }
+  .workbench-shell .session-item-archive { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion="full"]) .stream-reveal { animation: none; }
+}
+html[data-motion="reduced"] .stream-reveal { animation: none; }

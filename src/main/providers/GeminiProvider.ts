@@ -1,3 +1,5 @@
+import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
+import { ProviderError } from './ProviderError';
 // =============================================================================
 // IEXA PC - Gemini Provider
 // Mirrors iOS GeminiProvider.swift + GeminiAgentProvider.swift
@@ -5,7 +7,7 @@
 // =============================================================================
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
-import { fetchWithRetry, readWithTimeout } from './stream-utils';
+import { fetchWithRetry, readSSEFrames } from './stream-utils';
 
 export class GeminiProvider {
   readonly name: string = 'gemini';
@@ -79,15 +81,13 @@ export class GeminiProvider {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+      const errorText = await readDiagnosticResponse(response);
+      throw ProviderError.http(response.status, errorText, 'Gemini');
     }
 
     const reader = response.body?.getReader();
     if (!reader) throw new Error('No response body');
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let startedText = false;
     let currentToolName = '';
     let currentToolArgs = '';
@@ -96,18 +96,8 @@ export class GeminiProvider {
     const emittedFunctionCalls = new Set<string>();
 
     try {
-      while (true) {
-        const { done, value } = await readWithTimeout(reader);
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
+      for await (const frame of readSSEFrames(reader, signal)) {
+          const data = frame.data;
           if (data === '[DONE]') {
             yield { type: 'done', stopReason: 'endTurn' as AgentStopReason };
             return;
@@ -115,6 +105,7 @@ export class GeminiProvider {
 
           try {
             const event = JSON.parse(data);
+            ProviderError.throwIfErrorFrame(event, frame.event);
             if (!event.candidates?.[0]) continue;
 
             const candidate = event.candidates[0];
@@ -180,8 +171,8 @@ export class GeminiProvider {
             if (e instanceof SyntaxError) continue;
             throw e;
           }
-        }
       }
+      throw new ProviderError('STREAM_TERMINATED', 'Provider stream terminated before completion', true);
     } finally {
       reader.releaseLock();
     }

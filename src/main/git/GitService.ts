@@ -1,3 +1,4 @@
+import { decodeDiagnostic } from '../encoding/DiagnosticDecoder';
 import { execFile } from 'child_process';
 import * as path from 'path';
 
@@ -192,13 +193,15 @@ export class GitService {
 
   private run(cwd: string, args: string[], maxBuffer = MAX_GIT_OUTPUT): Promise<{ stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
-      execFile('git', args, { cwd, windowsHide: true, timeout: 15_000, maxBuffer }, (error, stdout, stderr) => {
+      execFile('git', args, { cwd, windowsHide: true, timeout: 15_000, maxBuffer, encoding: 'buffer' }, (error, stdout, stderr) => {
+        const output = decodeDiagnostic(stdout);
+        const diagnostic = decodeDiagnostic(stderr);
         if (error) {
-          const detail = String(stderr || stdout || error.message).trim();
+          const detail = (diagnostic || output || error.message).trim();
           reject(new Error(detail || error.message));
           return;
         }
-        resolve({ stdout: String(stdout), stderr: String(stderr) });
+        resolve({ stdout: output, stderr: diagnostic });
       });
     });
   }

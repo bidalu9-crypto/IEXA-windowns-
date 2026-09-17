@@ -34,6 +34,7 @@ const rendererActions = Object.freeze({
   switchSession: (value) => switchSession(value),
   startRename: (value) => startRename(value),
   deleteSession: (value) => deleteSession(value),
+  archiveSession: (value) => setSessionArchived(value, true),
   toggleToolBody: (value) => toggleToolBody(value),
   removeAttachment: (value) => removeAttachment(value),
   activateProfile: (value) => activateProfile(value),
@@ -694,7 +695,7 @@ const searchClear = document.getElementById('searchClear');
 const searchResults = document.getElementById('searchResults');
 
 function sessionVersion(session) {
-  return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}`;
+  return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}:${session?.archived === true}`;
 }
 
 function rememberSessionVersions(sessions) {
@@ -710,8 +711,10 @@ async function loadSessionList() {
     rememberSessionVersions(sessionsCache);
     // If no active session, pick first or create one
     if (!currentSessionId && sessionsCache.length > 0) {
-      const activeId = data.activeSessionId || sessionsCache[0].id;
-      await switchSession(activeId, false);
+      const activeId = sessionsCache.find(s => s.id === data.activeSessionId && s.archived !== true)?.id
+        || sessionsCache.find(s => s.archived !== true)?.id;
+      if (activeId) await switchSession(activeId, false);
+      else await createSession();
     } else if (sessionsCache.length === 0 && !currentSessionId) {
       await createSession();
     }
@@ -754,7 +757,7 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     // window. Move to the newest remaining conversation instead of leaving a
     // composer attached to an id that no longer exists on disk.
     if (currentSessionId && !nextIds.has(currentSessionId)) {
-      const replacement = nextSessions[0]?.id || '';
+      const replacement = nextSessions.find(session => session.archived !== true)?.id || '';
       currentSessionId = '';
       visibleSessionId = '';
       if (replacement) await switchSession(replacement, false);
@@ -767,7 +770,8 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     }
     if (oldListVersion !== newListVersion) renderSessionList();
 
-    const shouldRefreshCurrent = currentSessionId && (
+    const archiveOnly = changeReason === 'archived' || changeReason === 'unarchived';
+    const shouldRefreshCurrent = !archiveOnly && currentSessionId && (
       forceCurrentRefresh ||
       changed.has(currentSessionId) ||
       (forceSessionId && forceSessionId === currentSessionId)
@@ -892,12 +896,13 @@ function startConversationSync() {
 }
 
 function renderSessionList() {
-  if (sessionsCache.length === 0) {
+  const visibleSessions = sessionsCache.filter(session => session.archived !== true);
+  if (visibleSessions.length === 0) {
     sessionsList.innerHTML = '<div class="sessions-empty">暂无会话</div>';
     return;
   }
 
-  sessionsList.innerHTML = sessionsCache.map(s => {
+  sessionsList.innerHTML = visibleSessions.map(s => {
     const active = s.id === currentSessionId ? ' active' : '';
     const timeStr = formatTime(s.updated);
     return `
@@ -906,10 +911,63 @@ function renderSessionList() {
           <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="点击重命名">${escapeHtml(s.title)}</span>
           <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
+        <button type="button" class="session-item-archive" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(s.id)}" title="存档会话" aria-label="存档会话">${uiIcon('archive')}</button>
         <button class="session-item-delete" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除">×</button>
       </div>
     `;
   }).join('');
+}
+
+async function setSessionArchived(sessionId, archived) {
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '存档操作失败');
+    const index = sessionsCache.findIndex(session => session.id === sessionId);
+    if (index >= 0) sessionsCache[index] = data.session;
+    renderSessionList();
+    return true;
+  } catch (error) { await window.IexaDialogs.alert(error.message || String(error)); return false; }
+}
+
+async function showArchiveManager() {
+  if (document.getElementById('archiveManagerDialog')) return;
+  const previous = document.activeElement;
+  const dialog = document.createElement('dialog');
+  dialog.id = 'archiveManagerDialog'; dialog.className = 'iexa-app-dialog archive-manager';
+  dialog.setAttribute('aria-label', '已存档的聊天');
+  const title = document.createElement('h2'); title.textContent = '已存档的聊天';
+  const list = document.createElement('div'); list.className = 'archive-manager-list';
+  const close = document.createElement('button'); close.type = 'button'; close.textContent = '关闭'; close.className = 'archive-close';
+  close.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => { dialog.remove(); if (previous?.isConnected) previous.focus(); }, { once: true });
+  const render = () => {
+    list.replaceChildren();
+    const archived = sessionsCache.filter(session => session.archived === true);
+    if (!archived.length) { const empty = document.createElement('p'); empty.textContent = '暂无已存档的聊天'; list.append(empty); }
+    for (const session of archived) {
+      const row = document.createElement('div'); row.className = 'archive-manager-row';
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'archive-chat-title'; open.textContent = session.title;
+      open.title = '查看会话';
+      open.addEventListener('click', () => { dialog.close(); switchSession(session.id); });
+      const restore = document.createElement('button'); restore.type = 'button'; restore.textContent = '取消存档';
+      restore.addEventListener('click', async () => {
+        restore.disabled = true;
+        await setSessionArchived(session.id, false);
+        if (dialog.isConnected) { render(); close.focus(); }
+      });
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+      remove.addEventListener('click', async () => { await deleteSession(session.id); if (dialog.isConnected) { render(); close.focus(); } });
+      row.append(open, restore, remove); list.append(row);
+    }
+  };
+  dialog.append(title, list, close); document.body.append(dialog);
+  render(); dialog.showModal(); close.focus();
+  // Refresh metadata while preserving the existing conversation / running stream.
+  await syncConversationMetadata();
+  if (dialog.isConnected) render();
 }
 
 function formatTime(ts) {
@@ -1829,11 +1887,13 @@ async function sendMessage() {
     ? ('（附件：' + attachments.map((a) => a.name).join('、') + '）')
     : '');
 
-  addMessage('user', displayText, attachments, { timestamp: Date.now() });
+  const sendOrigin = chatInput.getBoundingClientRect();
+  const sentMessage = addMessage('user', displayText, attachments, { timestamp: Date.now() });
 
   chatInput.value = '';
   chatInput.style.height = 'auto';
   clearAttachments();
+  window.IexaChatPresentation?.animateSend(sentMessage, sendOrigin);
 
   suppressQueueDrain = false;
   await runChatTurn(message || displayText, displayText, attachments, { fromQueue: false });
@@ -2003,6 +2063,8 @@ function flushStreamUpdates(sessionId) {
   const pending = pendingStreamUpdates.get(sessionId);
   if (!pending) return;
   clearTimeout(pending.timer);
+  clearTimeout(pending.fallback);
+  if (pending.frame) cancelAnimationFrame(pending.frame);
   pendingStreamUpdates.delete(sessionId);
   withSessionRuntime(sessionId, () => {
     if (pending.turnToken !== activeChatTurnToken) return;
@@ -2020,12 +2082,20 @@ function queueStreamUpdate(event, data, turnToken) {
   let pending = pendingStreamUpdates.get(sessionId);
   if (pending && pending.turnToken !== turnToken) {
     clearTimeout(pending.timer);
+    clearTimeout(pending.fallback);
+    if (pending.frame) cancelAnimationFrame(pending.frame);
     pendingStreamUpdates.delete(sessionId);
     pending = null;
   }
   if (!pending) {
     pending = { turnToken, events: [] };
-    pending.timer = setTimeout(() => flushStreamUpdates(sessionId), sessionId === visibleSessionId ? 80 : 400);
+    if (sessionId === visibleSessionId && document.visibilityState !== 'hidden') {
+      pending.timer = setTimeout(() => {
+        pending.frame = requestAnimationFrame(() => flushStreamUpdates(sessionId));
+      }, 32);
+      // Hidden tabs may suspend animation frames after the timer was scheduled.
+      pending.fallback = setTimeout(() => flushStreamUpdates(sessionId), 400);
+    } else pending.timer = setTimeout(() => flushStreamUpdates(sessionId), 400);
     pendingStreamUpdates.set(sessionId, pending);
   }
   if (event === 'text') pending.text = data.content; // cumulative baseline for text_delta transport
@@ -2175,7 +2245,9 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   if (contentEl._renderedMarkdownSource !== source || (finalRender && !contentEl._renderedMarkdownFinal)) {
     // Avoid rerunning syntax highlighting over all growing code blocks per SSE delta.
     // Finalization adds highlighting exactly once, even when the text is unchanged.
-    contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
+    if (!finalRender && window.IexaChatPresentation) {
+      window.IexaChatPresentation.renderStream(contentEl, renderSafeMarkdown(source, { highlight: false }));
+    } else contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
     contentEl._renderedMarkdownFinal = finalRender;
     contentEl._renderedMarkdownSource = source;
     normalizeRenderedAssets(contentEl);
@@ -2547,7 +2619,7 @@ function ensureAssistantMessage() {
 
 function showWaitingIndicator() {
   // A cancel request can race with late tool/stream events. Once stopping has
-  // started, the old turn must never recreate the "IEXA正在思考..." surface.
+  // started, the old turn must never recreate the "IEXA正在处理..." surface.
   const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
   if (runtime?.turnStopPending) return;
   const msg = ensureAssistantMessage();
@@ -3873,7 +3945,8 @@ function addMessage(role, content, attachments, opts) {
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
   if (role === 'user') {
-    contentDiv.textContent = content;
+    if (window.IexaChatPresentation) window.IexaChatPresentation.foldUser(contentDiv, content);
+    else contentDiv.textContent = content;
   } else {
     contentDiv.innerHTML = renderSafeMarkdown(content || '');
     normalizeRenderedAssets(contentDiv);
@@ -7563,6 +7636,8 @@ async function init() {
   initSidebarNavigationScroll();
   initMobileDrawers();
   initChatFocusMode();
+  window.IexaPanelVisibility?.init();
+  document.getElementById('archiveManagerBtn')?.addEventListener('click', showArchiveManager);
   initHtmlPreview();
   initMobileBridge();
   initTextContextMenu();

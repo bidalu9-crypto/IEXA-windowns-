@@ -106,6 +106,7 @@ export function sanitizeSyncContent(key: string, text: string): string {
     for (const item of data.sessions) {
       if (!isObject(item) || typeof item.title !== 'string' || item.title.length > 4096 ||
           ![item.created, item.updated, item.messageCount].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) throw invalid();
+      if (item.archived !== undefined && typeof item.archived !== 'boolean') throw invalid();
       assertRemoteBasename(item.id);
       if (ids.has(item.id)) throw invalid();
       ids.add(item.id);

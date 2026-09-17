@@ -483,6 +483,8 @@ interface Session {
   modelBinding?: SessionModelBinding;
   /** Per-conversation Codex Fast setting; sends service_tier: priority on eligible routes. */
   fastModeEnabled?: boolean;
+  /** Archive changes visibility only; messages and running jobs remain intact. */
+  archived?: boolean;
 }
 
 interface SessionStore {
@@ -1356,7 +1358,8 @@ function createServer(auth: LocalApiAuth): http.Server {
       auth.setCookie(res, req.socket.localPort!); jsonReply(res, 200, { ok: true }); return;
     }
     if (req.method === 'OPTIONS') throw new HttpError(405, '应用仅接受同源请求。');
-    if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE'].includes(req.method || '')) throw new HttpError(405, '请求方法无效。');
+    if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE'].includes(req.method || '') &&
+        !(req.method === 'PATCH' && /^\/api\/sessions\/[A-Za-z0-9_-]+$/.test(url.pathname))) throw new HttpError(405, '请求方法无效。');
     if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/desktop-live.html') && isLoopbackRequest(req) && !isTLS(req) && !desktopAuthenticated) {
       req.url = '/auth-login.html'; serveStatic(req, res); return;
     }
@@ -1648,9 +1651,32 @@ function createServer(auth: LocalApiAuth): http.Server {
 
     // GET /api/sessions/:id — load messages
     // PUT /api/sessions/:id — rename
+    // PATCH /api/sessions/:id — archive / restore
     // DELETE /api/sessions/:id — delete
     if (url.pathname.startsWith('/api/sessions/')) {
       const sid = url.pathname.split('/').pop() || '';
+
+      if (req.method === 'PATCH' && /^\/api\/sessions\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
+        const body = JSON.parse(await readBody(req, 4096));
+        if (!body || typeof body.archived !== 'boolean' || Object.keys(body).some(key => key !== 'archived')) {
+          jsonReply(res, 400, { error: '存档请求需要 archived 布尔值。' });
+          return;
+        }
+        // Load after reading the body so a concurrent stream's latest metadata
+        // is retained. Archive never rewrites messages or invalidates an agent.
+        const store = loadSessionStore();
+        const session = store.sessions.find(item => item.id === sid);
+        if (!session) { jsonReply(res, 404, { error: '会话未找到' }); return; }
+        if ((session.archived === true) !== body.archived) {
+          session.archived = body.archived;
+          saveSessionStore(store);
+          broadcastSessionEvent('session_changed', {
+            sessionId: sid, reason: body.archived ? 'archived' : 'unarchived', session,
+          });
+        }
+        jsonReply(res, 200, { ok: true, session, activeSessionId: store.activeSessionId });
+        return;
+      }
 
       if (req.method === 'GET') {
         const msgs = loadMessages(sid);
@@ -1782,7 +1808,7 @@ function createServer(auth: LocalApiAuth): http.Server {
         const store = loadSessionStore();
         store.sessions = store.sessions.filter(s => s.id !== sid);
         if (store.activeSessionId === sid) {
-          store.activeSessionId = store.sessions[0]?.id || '';
+          store.activeSessionId = store.sessions.find(session => session.archived !== true)?.id || '';
         }
         saveSessionStore(store);
         broadcastSessionEvent('session_changed', { sessionId: sid, reason: 'deleted' });

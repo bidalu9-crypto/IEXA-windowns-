@@ -1,3 +1,4 @@
+import { decodeDiagnostic } from '../../encoding/DiagnosticDecoder';
 import { spawn, ChildProcess } from 'child_process';
 import { promises as fs } from 'fs';
 import * as fsSync from 'fs';
@@ -315,11 +316,7 @@ function decodeOutput(value: Buffer): string {
   if (looksLikeUtf16(value)) {
     return repairMojibake(iconv.decode(value, value[0] === 0 ? 'utf16-be' : 'utf16le'));
   }
-  const utf8 = value.toString('utf8');
-  // cmd.exe follows the active Windows console code page (commonly CP936 on
-  // Chinese systems); UTF-8 subprocesses remain untouched when valid.
-  const decoded = process.platform === 'win32' && utf8.includes('\uFFFD') ? iconv.decode(value, 'cp936') : utf8;
-  return repairMojibake(decoded);
+  return repairMojibake(decodeDiagnostic(value));
 }
 
 /**

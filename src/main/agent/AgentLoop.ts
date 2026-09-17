@@ -21,7 +21,7 @@ import { ProjectInstructions } from './ProjectInstructions';
 import { ProjectScope } from '../context/ProjectScopeStore';
 import { PromptRequest } from '../observability/PromptPreviewStore';
 import { SoulFile } from './SoulStore';
-import { ContextCompactor, contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
+import { contextWindowForModel, estimateMessageTokens } from './ContextCompactor';
 import { ContextManager } from '../context/ContextManager';
 import { RetryManager } from '../runtime/RetryManager';
 import { ProviderError } from '../providers/ProviderError';
@@ -123,6 +123,7 @@ export class AgentLoop {
   private readonly retryManager = new RetryManager();
   /** Restored checkpoints must become model-visible once, not once per turn. */
   private restoredSummaryInjected = false;
+  private compactionController: AbortController | null = null;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -134,6 +135,7 @@ export class AgentLoop {
 
   cancel(): void {
     this.isCancelled = true;
+    this.compactionController?.abort();
   }
 
   private get isAborted(): boolean { return this.isCancelled || this.config.getAbortSignal()?.aborted === true; }
@@ -141,6 +143,9 @@ export class AgentLoop {
   reset(): void {
     this.agentHistory = [];
     this.isCancelled = false;
+    this.compactor = null;
+    this.pendingCompactorSummary = '';
+    this.restoredSummaryInjected = false;
   }
 
   /** Bounded textual reference: never forks unresolved tool calls or binary attachments. */
@@ -156,15 +161,15 @@ export class AgentLoop {
 
   /** Current Codex-style compaction summary (persisted across restarts). */
   getCompactorSummary(): string {
-    return this.compactor ? this.compactor.summary() : '';
+    return this.compactor ? this.compactor.summary() : this.pendingCompactorSummary;
   }
 
   /** Restore a persisted compaction summary after restart. */
   setCompactorSummary(summary: string | null | undefined): void {
-    this.pendingCompactorSummary = typeof summary === 'string' ? summary.trim() : '';
-    if (this.compactor && this.pendingCompactorSummary) {
-      this.compactor.restoreSummary(this.pendingCompactorSummary);
-    }
+    const restored = typeof summary === 'string' ? summary.trim() : '';
+    if (restored !== this.pendingCompactorSummary) this.restoredSummaryInjected = false;
+    this.pendingCompactorSummary = restored;
+    this.compactor?.restoreSummary(restored);
   }
 
   /**
@@ -186,6 +191,7 @@ export class AgentLoop {
     }>,
   ): void {
     this.agentHistory = [];
+    this.restoredSummaryInjected = false;
     const turns: typeof msgs[] = [];
     let currentTurn: typeof msgs = [];
     for (const message of msgs) {
@@ -290,6 +296,14 @@ export class AgentLoop {
   ): Promise<void> {
     this.callbacks = callbacks;
     this.isCancelled = false;
+    this.compactionController = new AbortController();
+    const externalSignal = this.config.getAbortSignal();
+    const signal = externalSignal
+      ? AbortSignal.any([externalSignal, this.compactionController.signal])
+      : this.compactionController.signal;
+    if (signal.aborted) { callbacks.onCancelled(); return; }
+    // Carry forward the newest checkpoint, not just the one loaded at startup.
+    if (this.compactor) this.pendingCompactorSummary = this.compactor.summary();
 
     // Build user message parts (text + optional images / file notes)
     const parts: AgentContentPart[] = [];
@@ -337,9 +351,7 @@ export class AgentLoop {
     // Prepend it once to the next user message, preserving valid role order.
     if (this.pendingCompactorSummary && !this.restoredSummaryInjected) {
       const checkpoint = `<context-summary>\n${this.pendingCompactorSummary}\n</context-summary>\n\nRestored context checkpoint; continue directly from the request below.\n\n`;
-      const firstText = parts.find((part): part is Extract<AgentContentPart, { type: 'text' }> => part.type === 'text');
-      if (firstText) firstText.text = checkpoint + firstText.text;
-      else parts.unshift({ type: 'text', text: checkpoint });
+      parts.unshift({ type: 'text', text: checkpoint });
       this.restoredSummaryInjected = true;
     }
 
@@ -391,25 +403,33 @@ export class AgentLoop {
     let turnCount = 0;
     let streamRetryAttempt = 0;
     let contextOverflowRetryAttempt = 0;
+    let retryingTurn = false;
     const retryDelays = [2000, 5000, 10000];
 
     const maxTurns = this.config.toolRuntime.getBudget().maxTurns;
-    while (turnCount < maxTurns && !this.isAborted) {
-      turnCount++;
-      try { this.config.toolRuntime.beginTurn(); callbacks.onTurnStart?.(turnCount); } catch (error: unknown) { callbacks.onError((error as Error).message); return; }
+    while ((turnCount < maxTurns || retryingTurn) && !this.isAborted) {
+      if (!retryingTurn) {
+        turnCount++;
+        try { this.config.toolRuntime.beginTurn(); callbacks.onTurnStart?.(turnCount); } catch (error: unknown) { callbacks.onError((error as Error).message); return; }
+      }
+      retryingTurn = false;
 
-      // Build messages for this turn
-      // iOS-style capacity guard: summarize old history before a request while
-      // retaining the last three user turns as verbatim live anchors.
+      // Compact completed transactions, retaining the latest user request and
+      // a protocol-valid live tail, then continue this same agent turn.
       try {
-        this.agentHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status));
+        this.agentHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status), signal);
+        this.pendingCompactorSummary = compactor.summary();
+        if (this.pendingCompactorSummary) this.restoredSummaryInjected = true;
+        if (this.isAborted) { callbacks.onCancelled(); return; }
       } catch (error: unknown) {
         const err = error as Error;
+        if (this.isAborted) { callbacks.onCancelled(); return; }
         if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
           const delayMs = retryDelays[streamRetryAttempt++];
           callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'context compaction interrupted');
-          await this.retryManager.sleep(delayMs, this.config.getAbortSignal());
+          await this.retryManager.sleep(delayMs, signal);
           if (this.isAborted) { callbacks.onCancelled(); return; }
+          retryingTurn = true;
           continue;
         }
         callbacks.onError(ProviderError.from(err).userMessage || 'Context compaction failed');
@@ -431,8 +451,8 @@ export class AgentLoop {
           messages,
           systemPrompt,
           tools,
-          this.config.maxTokens || 64000,
-          this.config.getAbortSignal(),
+          this.config.maxTokens || this.config.provider.defaultMaxTokens,
+          signal,
         );
 
         for await (const event of stream) {
@@ -479,7 +499,7 @@ export class AgentLoop {
             case 'usage':
               usage = event.usage;
               callbacks.onUsage(event.usage);
-              compactor.recordInputTokens(event.usage.inputTokens);
+              compactor.recordInputTokens(event.usage.inputTokens, messages);
               this.config.toolRuntime.recordInputTokens(event.usage.inputTokens);
               callbacks.onContext(compactor.status(this.agentHistory));
               break;
@@ -489,6 +509,7 @@ export class AgentLoop {
               break;
           }
         }
+        if (this.isAborted) { callbacks.onCancelled(); return; }
         // A complete provider turn succeeded; transient retry budget is reset.
         streamRetryAttempt = 0;
 
@@ -586,14 +607,19 @@ export class AgentLoop {
         if (this.isContextWindowExceededError(err) && contextOverflowRetryAttempt < 1 && !this.isCancelled) {
           const beforeHistory = this.agentHistory;
           try {
-            const compacted = await compactor.recover(beforeHistory, (status) => callbacks.onContext(status));
+            const compacted = await compactor.recover(beforeHistory, (status) => callbacks.onContext(status), signal);
+            if (this.isAborted) { callbacks.onCancelled(); return; }
             if (compacted !== beforeHistory) {
               this.agentHistory = compacted;
+              this.pendingCompactorSummary = compactor.summary();
+              this.restoredSummaryInjected = true;
               contextOverflowRetryAttempt++;
               callbacks.onRetry?.(contextOverflowRetryAttempt, 0, '上下文超限，已压缩历史后重试');
+              retryingTurn = true;
               continue;
             }
           } catch (compactionError: unknown) {
+            if (this.isAborted) { callbacks.onCancelled(); return; }
             callbacks.onError((compactionError as Error).message || '上下文超限后的压缩恢复失败');
             return;
           }
@@ -601,8 +627,9 @@ export class AgentLoop {
         if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
           const delayMs = retryDelays[streamRetryAttempt++];
           callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'stream interrupted');
-          await this.retryManager.sleep(delayMs, this.config.getAbortSignal());
+          await this.retryManager.sleep(delayMs, signal);
           if (this.isAborted) { callbacks.onCancelled(); return; }
+          retryingTurn = true;
           continue;
         }
         callbacks.onError(ProviderError.from(err).userMessage || 'Unknown error in agent loop');

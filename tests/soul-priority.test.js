@@ -25,7 +25,7 @@ test('persona survives disk reload and later saves replace the next envelope',t=
 });
 test('every provider wire format carries the same full persona in its system channel on repeated calls',async t=>{
  const original=global.fetch;t.after(()=>{global.fetch=original;});let captured;
- global.fetch=async(_url,options)=>{captured=JSON.parse(options.body);return new Response('',{headers:{'Content-Type':'text/event-stream'}});};
+ global.fetch=async(_url,options)=>{captured=JSON.parse(options.body);return new Response('data: '+JSON.stringify({type:'response.completed',response:{status:'completed'},choices:[{delta:{content:'fixture'},finish_reason:'stop'}],candidates:[{content:{parts:[{text:'fixture'}]},finishReason:'STOP'}]})+'\n\ndata: {"type":"message_stop"}\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});};
  const config={name:'fixture',model:'fixture-model',apiKey:'FIXTURE-NOT-A-KEY',thinkingLevel:'off'};
  const variants=[[new OpenAIProvider({...config,apiMode:'chat_completions'}),b=>b.messages[0].role==='system'&&b.messages[0].content],[new OpenAIProvider({...config,apiMode:'responses'}),b=>b.instructions],[new AnthropicProvider(config),b=>b.system[0].text],[new GeminiProvider(config),b=>b.systemInstruction.parts[0].text]];
  const prompt=buildSystemPrompt({soul});

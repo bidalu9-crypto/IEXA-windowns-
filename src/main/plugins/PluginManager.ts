@@ -1,3 +1,5 @@
+import { StringDecoder } from 'string_decoder';
+import { DiagnosticDecoder } from '../encoding/DiagnosticDecoder';
 import { JsonStore } from '../persistence/JsonStore';
 import { validatePluginCard } from './PluginPresentation';
 import { createChildEnvironment } from '../security/ChildEnvironment';
@@ -423,17 +425,21 @@ export class PluginManager {
         cwd: path.dirname(entry), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...createChildEnvironment(), ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' },
       });
+      const stdoutDecoder = new StringDecoder('utf8');
+      const stderrDecoder = new DiagnosticDecoder();
       let stdout = ''; let stdoutBytes = 0; let stderr = ''; let settled = false; let stopped: ToolExecutionResult | undefined;
       const finish = (result: ToolExecutionResult) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); stdout = ''; stderr = ''; resolve(result); };
       const stop = (result: ToolExecutionResult) => { if (settled || stopped) return; stopped = result; child.kill(); };
       const abort = () => stop({ output: '插件调用已取消。', success: false, cancelled: true });
       const timer = setTimeout(() => { stop({ output: '插件调用超过 30 秒，已终止。', success: false, timedOut: true }); }, 30_000);
-      child.stdout.on('data', (chunk: Buffer) => { if (settled || stopped) return; if (stdoutBytes + chunk.length > MAX_RESULT_BYTES) { stop({ output: '插件输出超过 8 MB 限制。', success: false }); } else { stdoutBytes += chunk.length; stdout += chunk.toString('utf8'); } });
-      child.stderr.on('data', (chunk: Buffer) => { if (settled || stopped) return; stderr = (stderr + chunk.subarray(-16_000).toString('utf8')).slice(-16_000); });
+      child.stdout.on('data', (chunk: Buffer) => { if (settled || stopped) return; if (stdoutBytes + chunk.length > MAX_RESULT_BYTES) { stop({ output: '插件输出超过 8 MB 限制。', success: false }); } else { stdoutBytes += chunk.length; stdout += stdoutDecoder.write(chunk); } });
+      child.stderr.on('data', (chunk: Buffer) => { if (settled || stopped) return; stderr = (stderr + stderrDecoder.write(chunk)).slice(-16_000); });
       child.on('error', (error) => finish({ output: `插件进程启动失败：${error.message}`, success: false }));
       child.on('close', (code) => {
         if (settled) return;
         if (stopped) { finish(stopped); return; }
+        stdout += stdoutDecoder.end();
+        stderr = (stderr + stderrDecoder.end()).slice(-16_000);
         try {
           const parsed = JSON.parse(stdout || '{}') as Partial<ToolExecutionResult>;
           const output = typeof parsed.output === 'string' ? parsed.output : parsed.output == null ? '' : JSON.stringify(parsed.output, null, 2);

@@ -24,7 +24,10 @@
 <!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
 <svg class="ui-icon-sprite" aria-hidden="true" focusable="false">
   <defs>
-    <symbol id="ui-chat" viewBox="0 0 24 24"><path d="M5 18.5 3.8 21l4-1.5A8.8 8.8 0 1 0 4 16.6"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
+    <symbol id="ui-archive" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM6 8v12h12V8M10 12h4"/></symbol>
+<symbol id="ui-panel-left" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+<symbol id="ui-panel-right" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+<symbol id="ui-chat" viewBox="0 0 24 24"><path d="M5 18.5 3.8 21l4-1.5A8.8 8.8 0 1 0 4 16.6"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></symbol>
     <symbol id="ui-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 0-3.6h-1.4a1.4 1.4 0 0 1 0-2.8H14a7 7 0 0 0 7-7 4.6 4.6 0 0 0-4.7-4.6Z"/><circle cx="7.7" cy="11" r=".8"/><circle cx="10" cy="7.5" r=".8"/><circle cx="14" cy="7" r=".8"/></symbol>
     <symbol id="ui-puzzle" viewBox="0 0 24 24"><path d="M8.7 4.5a2.5 2.5 0 1 1 4.8 1H17a2 2 0 0 1 2 2v3.2a2.5 2.5 0 1 0 0 4.8v1a2 2 0 0 1-2 2h-3.5a2.5 2.5 0 1 0-4.8 0H7a2 2 0 0 1-2-2V13a2.5 2.5 0 1 0 0-4.8V7a2 2 0 0 1 2-2h1.7Z"/></symbol>
     <symbol id="ui-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1 1.55V20.3h-3v-.1a1.7 1.7 0 0 0-1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.16 15a1.7 1.7 0 0 0-1.55-1H5.5v-3h.1a1.7 1.7 0 0 0 1.56-1 1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-1.55V4.7h3v.1a1.7 1.7 0 0 0 1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.44 10a1.7 1.7 0 0 0 1.55 1h.1v3H21a1.7 1.7 0 0 0-1.56 1Z"/></symbol>
@@ -120,6 +123,7 @@
     <div class="sidebar-sessions">
       <div class="sessions-header">
         <span class="sessions-title">最近会话</span>
+        <button type="button" class="sessions-archive-manager" id="archiveManagerBtn" title="管理已存档会话" aria-label="管理已存档会话"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
         <button class="sessions-new-btn" id="newSessionBtn" title="新建会话" aria-label="新建会话">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M13.5 4.5H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V10.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -148,6 +152,8 @@
     <header class="workbench-header">
       <div class="workbench-breadcrumb"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectCrumb">本地工作区</span><span class="breadcrumb-divider">/</span><strong id="shellViewTitle">对话</strong></div>
       <div class="workbench-header-actions">
+        <button type="button" class="shell-toolbar-button" id="leftPanelToggle" aria-label="隐藏左侧栏" aria-expanded="true" aria-controls="sidebar" title="隐藏左侧栏"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-left"/></svg></button>
+        <button type="button" class="shell-toolbar-button" id="rightPanelToggle" aria-label="隐藏右侧栏" aria-expanded="true" aria-controls="filesPanel" title="隐藏右侧栏"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-right"/></svg></button>
         <button type="button" class="shell-toolbar-button" id="shellOpenProject"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>打开项目</span></button>
         <button type="button" class="shell-toolbar-button" id="shellFocusBtn" aria-label="切换专注布局" aria-pressed="false" title="切换专注布局"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg></button>
       </div>
@@ -845,6 +851,8 @@ version: 1.0.0
 <script src="services/PluginWorkspace.js"></script>
 <script src="services/ChatActivityView.js"></script>
 <script src="services/TranscriptView.js"></script>
+<script src="services/ChatPresentation.js"></script>
+<script src="services/PanelVisibility.js"></script>
 <script src="services/SubAgentView.js"></script>
 <script src="services/AppDialogs.js"></script>
 <script src="services/ComposerInput.js"></script>

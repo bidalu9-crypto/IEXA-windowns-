@@ -1,3 +1,5 @@
+import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
+import { ProviderError } from './ProviderError';
 // =============================================================================
 // IEXA PC - Anthropic Provider
 // Mirrors iOS AnthropicAgentProvider.swift + AnthropicProvider.swift
@@ -5,7 +7,7 @@
 // =============================================================================
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
-import { fetchWithRetry, readWithTimeout } from './stream-utils';
+import { fetchWithRetry, readSSEFrames } from './stream-utils';
 
 export class AnthropicProvider {
   readonly name: string;
@@ -83,15 +85,13 @@ export class AnthropicProvider {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error ${response.status}: ${errorText}`);
+      const errorText = await readDiagnosticResponse(response);
+      throw ProviderError.http(response.status, errorText, 'Anthropic');
     }
 
     const reader = response.body?.getReader();
     if (!reader) throw new Error('No response body');
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let currentToolId: string | null = null;
     let currentToolName: string | null = null;
     let currentToolArgs = '';
@@ -101,18 +101,8 @@ export class AnthropicProvider {
     let emittedReasoningContent = false;
 
     try {
-      while (true) {
-        const { done, value } = await readWithTimeout(reader);
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const data = trimmed.slice(6);
+      for await (const frame of readSSEFrames(reader, signal)) {
+          const data = frame.data;
 
           if (data === '[DONE]') {
             yield { type: 'done', stopReason: 'endTurn' as AgentStopReason };
@@ -121,6 +111,7 @@ export class AnthropicProvider {
 
           try {
             const event = JSON.parse(data);
+            ProviderError.throwIfErrorFrame(event, frame.event);
 
             switch (event.type) {
               case 'message_start':
@@ -221,8 +212,8 @@ export class AnthropicProvider {
             if (e instanceof SyntaxError) continue; // Skip unparseable lines
             throw e;
           }
-        }
       }
+      throw new ProviderError('STREAM_TERMINATED', 'Provider stream terminated before completion', true);
     } finally {
       reader.releaseLock();
     }

@@ -7,7 +7,7 @@ function block(w){const b=w.document.createElement('div');b.className='tool-bloc
 function loadFunctions(w,names){const tree=ts.createSourceFile('app.js',app,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);for(const n of tree.statements)if(ts.isFunctionDeclaration(n)&&names.includes(n.name?.text))w.eval(n.getText(tree));}
 
 test('waiting status is text-only, live-announced and contains no orb/card children',t=>{
- const w=setup(t),n=w.IexaChatActivity.createWaiting();assert.equal(n.children.length,1);assert.equal(n.querySelectorAll('svg,.waiting-indicator__orb').length,0);assert.equal(n.getAttribute('role'),'status');assert.equal(n.textContent,'IEXA正在思考…');
+ const w=setup(t),n=w.IexaChatActivity.createWaiting();assert.equal(n.children.length,1);assert.equal(n.querySelectorAll('svg,.waiting-indicator__orb').length,0);assert.equal(n.getAttribute('role'),'status');assert.equal(n.textContent,'IEXA正在处理...');
 });
 test('tool row renders real path/counts safely without changing execution status',t=>{
  const w=setup(t),b=block(w);b.dataset.executionStatus='awaiting_approval';

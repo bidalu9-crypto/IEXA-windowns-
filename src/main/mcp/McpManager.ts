@@ -1,3 +1,5 @@
+import { StringDecoder } from 'string_decoder';
+import { DiagnosticDecoder } from '../encoding/DiagnosticDecoder';
 import { createChildEnvironment } from '../security/ChildEnvironment';
 import { ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
@@ -136,8 +138,10 @@ export class McpManager {
     const child = spawn(config.command, config.args || [], { windowsHide: true, stdio: 'pipe', env: createChildEnvironment() });
     const connection: StdioConnection = { child, buffer: '', nextId: 1, pending: new Map() };
     this.connections.set(config.id, connection);
-    child.stdout?.on('data', (chunk: Buffer) => this.consume(config.id, connection, chunk.toString('utf8')));
-    child.stderr?.on('data', (chunk: Buffer) => this.log(config.id, chunk.toString('utf8').trim()));
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new DiagnosticDecoder();
+    child.stdout?.on('data', (chunk: Buffer) => this.consume(config.id, connection, stdoutDecoder.write(chunk)));
+    child.stderr?.on('data', (chunk: Buffer) => { const text = stderrDecoder.write(chunk).trim(); if (text) this.log(config.id, text); });
     const failPending = (error: Error) => {
       for (const pending of connection.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
       connection.pending.clear(); connection.buffer = '';
@@ -145,6 +149,8 @@ export class McpManager {
     child.stdin?.on('error', (error) => { failPending(error); child.kill(); });
     child.on('error', (error) => { failPending(error); this.log(config.id, `进程错误：${error.message}`); });
     child.on('close', (code) => {
+      const tail = stdoutDecoder.end(); if (tail) this.consume(config.id, connection, tail);
+      const diagnostic = stderrDecoder.end().trim(); if (diagnostic) this.log(config.id, diagnostic);
       failPending(new Error(`MCP process closed: ${code ?? -1}`));
       if (this.connections.get(config.id) === connection) {
         this.connections.delete(config.id);
