@@ -4,12 +4,12 @@
 // =============================================================================
 
 import { promises as fs } from 'fs';
-import { createReadStream, readFileSync } from 'fs';
+import { createReadStream } from 'fs';
 import { createHash } from 'crypto';
 import { withFileLocks } from './FileWriteLocks';
 import * as readline from 'readline';
 import * as path from 'path';
-import { Readable } from 'stream';
+import * as iconv from 'iconv-lite';
 import { ToolExecutionResult } from '../providers/types';
 import { ProcessManager, ShellKind } from './shell/ProcessManager';
 import { CommandPolicy } from './shell/CommandPolicy';
@@ -29,12 +29,124 @@ const MEDIA_MIME: Record<string, string> = {
   '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
 };
 
-function decodeUtf16Be(buffer: Buffer): string {
-  const body = buffer.subarray(2);
-  for (let i = 0; i + 1 < body.length; i += 2) {
-    const a = body[i]; body[i] = body[i + 1]; body[i + 1] = a;
+type TextEncoding = 'utf8' | 'utf16le' | 'utf16be' | 'gb18030';
+interface TextFormat { encoding: TextEncoding; bom: Buffer; }
+
+const UTF8_FORMAT: TextFormat = { encoding: 'utf8', bom: Buffer.alloc(0) };
+
+function looksLikeText(value: string): boolean {
+  if (!value) return true;
+  let controls = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) || 0;
+    if (code === 0) return false;
+    if ((code < 32 && char !== '\n' && char !== '\r' && char !== '\t' && char !== '\f') || code === 127) controls++;
   }
-  return body.toString('utf16le');
+  return controls <= Math.floor(Array.from(value).length * 0.01);
+}
+
+function inspectTextFormat(bytes: Buffer): TextFormat | undefined {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return looksLikeText(iconv.decode(bytes.subarray(3), 'utf8'))
+      ? { encoding: 'utf8', bom: Buffer.from([0xef, 0xbb, 0xbf]) } : undefined;
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return looksLikeText(iconv.decode(bytes.subarray(2), 'utf16le'))
+      ? { encoding: 'utf16le', bom: Buffer.from([0xff, 0xfe]) } : undefined;
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return looksLikeText(iconv.decode(bytes.subarray(2), 'utf16be'))
+      ? { encoding: 'utf16be', bom: Buffer.from([0xfe, 0xff]) } : undefined;
+  }
+  if (bytes.some(byte => byte === 0)) return undefined;
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return looksLikeText(decoded) ? UTF8_FORMAT : undefined;
+  } catch {
+    const decoded = iconv.decode(bytes, 'gb18030');
+    return looksLikeText(decoded) && iconv.encode(decoded, 'gb18030').equals(bytes)
+      ? { encoding: 'gb18030', bom: Buffer.alloc(0) } : undefined;
+  }
+}
+
+async function validateEncodedText(filePath: string, format: TextFormat): Promise<boolean> {
+  const originalHash = createHash('sha256');
+  const roundTripHash = createHash('sha256');
+  if (format.bom.length) {
+    originalHash.update(format.bom);
+    roundTripHash.update(format.bom);
+  }
+  const raw = createReadStream(filePath, { start: format.bom.length });
+  const decoded = raw.pipe(iconv.decodeStream(format.encoding));
+  const encoded = decoded.pipe(iconv.encodeStream(format.encoding));
+  let characters = 0;
+  let controls = 0;
+  let hasNul = false;
+  decoded.on('data', chunk => {
+    for (const char of String(chunk)) {
+      characters++;
+      const code = char.codePointAt(0) || 0;
+      if (code === 0) hasNul = true;
+      if ((code < 32 && char !== '\n' && char !== '\r' && char !== '\t' && char !== '\f') || code === 127) controls++;
+    }
+  });
+  raw.on('data', chunk => originalHash.update(chunk as Buffer));
+  try {
+    for await (const chunk of encoded) roundTripHash.update(chunk as Buffer);
+    const textLike = !hasNul && controls <= Math.floor(characters * 0.01);
+    return textLike && originalHash.digest('hex') === roundTripHash.digest('hex');
+  } finally { raw.destroy(); }
+}
+
+async function inspectFileTextFormat(filePath: string, probe: Buffer): Promise<TextFormat | undefined> {
+  const bomFormat = (probe[0] === 0xef && probe[1] === 0xbb && probe[2] === 0xbf)
+    || (probe[0] === 0xff && probe[1] === 0xfe)
+    || (probe[0] === 0xfe && probe[1] === 0xff)
+    ? inspectTextFormat(probe) : undefined;
+  if (bomFormat) return await validateEncodedText(filePath, bomFormat) ? bomFormat : undefined;
+
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let validUtf8 = true;
+  for await (const chunk of createReadStream(filePath)) {
+    const bytes = chunk as Buffer;
+    if (bytes.some(byte => byte < 32 && byte !== 9 && byte !== 10 && byte !== 12 && byte !== 13)) return undefined;
+    if (validUtf8) {
+      try { decoder.decode(bytes, { stream: true }); } catch { validUtf8 = false; }
+    }
+  }
+  if (validUtf8) {
+    try { decoder.decode(); } catch { validUtf8 = false; }
+  }
+  if (validUtf8) return UTF8_FORMAT;
+  const gbFormat: TextFormat = { encoding: 'gb18030', bom: Buffer.alloc(0) };
+  return await validateEncodedText(filePath, gbFormat) ? gbFormat : undefined;
+}
+
+function decodeText(bytes: Buffer): { text: string; format: TextFormat } | undefined {
+  const format = inspectTextFormat(bytes);
+  if (!format) return undefined;
+  return { text: iconv.decode(bytes.subarray(format.bom.length), format.encoding), format };
+}
+
+function encodeText(text: string, format: TextFormat): Buffer {
+  const body = iconv.encode(text, format.encoding);
+  if (format.encoding === 'gb18030' && iconv.decode(body, format.encoding) !== text) {
+    const error = new Error('Text contains characters that cannot be represented in the existing GB18030 file.');
+    (error as NodeJS.ErrnoException).code = 'EILSEQ';
+    throw error;
+  }
+  return format.bom.length ? Buffer.concat([format.bom, body]) : body;
+}
+
+function safeSlice(value: string, maxCharacters: number, fromEnd = false): string {
+  const characters = Array.from(value);
+  return (fromEnd ? characters.slice(-maxCharacters) : characters.slice(0, maxCharacters)).join('');
+}
+
+function adaptLineEndings(value: string, content: string): string {
+  if (!value.includes('\n') && !value.includes('\r')) return value;
+  const eol = content.includes('\r\n') ? '\r\n' : content.includes('\r') && !content.includes('\n') ? '\r' : '\n';
+  return value.replace(/\r\n|\r|\n/g, eol);
 }
 
 /** Build a ToolExecutionResult that surfaces a local media file to the UI. */
@@ -72,9 +184,9 @@ export async function buildMediaDisplayResult(filePath: string, workspaceDir: st
 }
 
 const fileChanges = require(path.join(__dirname, '../../../src/renderer/services/FileChangeSummary.js'));
-function changeSummary(filePath: string, before: string, after: string, absolutePath: string, beforeBytes: Buffer, beforeExists = true): ToolExecutionResult['fileChange'] {
+function changeSummary(filePath: string, before: string, after: string, absolutePath: string, beforeBytes: Buffer, beforeExists = true, encodedAfter?: Buffer): ToolExecutionResult['fileChange'] {
   const limit = 120000;
-  const afterBytes = Buffer.from(after, 'utf8');
+  const afterBytes = encodedAfter || Buffer.from(after, 'utf8');
   const diff = fileChanges.diff(before, after);
   const rollback = beforeBytes.length <= 512 * 1024 && afterBytes.length <= 512 * 1024 ? {
     version: 1 as const, beforeExists, beforeBase64: beforeBytes.toString('base64'),
@@ -121,7 +233,7 @@ export class FileTools {
     return withFileLocks([filePath], operation);
   }
 
-  private async atomicWriteText(filePath: string, content: string, workspaceDir: string): Promise<void> {
+  private async atomicWriteBytes(filePath: string, content: Buffer, workspaceDir: string): Promise<void> {
     const tempPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
     let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
     let created = false;
@@ -134,7 +246,7 @@ export class FileTools {
       this.resolvePath(tempPath, workspaceDir, true);
       handle = await fs.open(tempPath, 'wx');
       created = true;
-      await handle.writeFile(content, 'utf8');
+      await handle.writeFile(content);
       if (mode !== undefined) await handle.chmod(mode);
       await handle.sync();
       await handle.close();
@@ -149,6 +261,12 @@ export class FileTools {
       }
     }
   }
+  private async atomicWriteText(filePath: string, content: string, workspaceDir: string, format: TextFormat = UTF8_FORMAT): Promise<Buffer> {
+    const bytes = encodeText(content, format);
+    await this.atomicWriteBytes(filePath, bytes, workspaceDir);
+    return bytes;
+  }
+
   private resolvePath(filePath: string, workspaceDir: string, allowMissing = false): string {
     const policy = typeof this.pathPolicy === 'function' ? this.pathPolicy() : this.pathPolicy;
     return new PathSandbox().resolveSync(filePath, { ...policy, workspaceDir, allowMissing }).path;
@@ -157,120 +275,80 @@ export class FileTools {
   async readFile(
     filePath: string,
     workspaceDir: string,
-    options: {
-      offset?: number;
-      lines?: number;
-      maxLength?: number;
-      direction?: 'head' | 'tail';
-    } = {}
+    options: { offset?: number; lines?: number; maxLength?: number; direction?: 'head' | 'tail' } = {}
   ): Promise<ToolExecutionResult> {
     try {
       const resolvedPath = this.resolvePath(filePath, workspaceDir);
       const stat = await fs.stat(resolvedPath);
-      if (!stat.isFile()) {
-        return { output: `Error: not a file: ${filePath}`, success: false };
-      }
+      if (!stat.isFile()) return { output: `Error: not a file: ${filePath}`, success: false };
 
-      // Probe only the first 512 bytes. The content body is streamed below so
-      // a large source/log file does not need to fit in memory before paging.
       this.resolvePath(resolvedPath, workspaceDir);
-      const handle = await fs.open(resolvedPath, 'r');
-      const probe = Buffer.alloc(512);
-      let bytesRead = 0;
-      try { ({ bytesRead } = await handle.read(probe, 0, probe.length, 0)); } finally { await handle.close(); }
-      const probeBytes = probe.subarray(0, bytesRead);
-      const utf16le = probeBytes.length >= 2 && probeBytes[0] === 0xff && probeBytes[1] === 0xfe;
-      const utf16be = probeBytes.length >= 2 && probeBytes[0] === 0xfe && probeBytes[1] === 0xff;
-      const isBinary = !utf16le && !utf16be && probeBytes.some((byte) => byte === 0);
-      if (isBinary) {
+      const probeHandle = await fs.open(resolvedPath, 'r');
+      const probe = Buffer.alloc(4096);
+      let probeLength = 0;
+      try { ({ bytesRead: probeLength } = await probeHandle.read(probe, 0, probe.length, 0)); }
+      finally { await probeHandle.close(); }
+      const format = await inspectFileTextFormat(resolvedPath, probe.subarray(0, probeLength));
+      if (!format) {
         const ext = path.extname(resolvedPath).toLowerCase();
         const imageMime: Record<string, string> = {
           '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
           '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
         };
-        if (imageMime[ext]) {
-          return {
-            output: `Image file: ${filePath}\nSize: ${stat.size} bytes\nMime: ${imageMime[ext]}\nUse display_file to show it in chat.`,
-            success: true,
-          };
-        }
-        return {
-          output: `Error: file appears to be binary (${stat.size} bytes): ${filePath}`,
-          success: false,
-        };
+        if (imageMime[ext]) return { output: `Image file: ${filePath}\nSize: ${stat.size} bytes\nMime: ${imageMime[ext]}\nUse display_file to show it in chat.`, success: true };
+        return { output: `Error: file appears to be binary (${stat.size} bytes): ${filePath}`, success: false };
       }
 
-      const maxLen = Math.min(
-        Math.max(1, Math.floor(Number(options.maxLength) || FileTools.DEFAULT_READ_CHARS)),
-        FileTools.MAX_READ_CHARS,
-      );
+      const maxLen = Math.min(Math.max(1, Math.floor(Number(options.maxLength) || FileTools.DEFAULT_READ_CHARS)), FileTools.MAX_READ_CHARS);
       const startLine = Math.max(1, Math.floor(Number(options.offset) || 1));
-      // `lines` is optional. Treat an omitted/zero value as "no explicit line
-      // limit" instead of coercing it to one line.
       const requestedLines = Number.isFinite(Number(options.lines)) && Number(options.lines) > 0
-        ? Math.min(FileTools.MAX_READ_LINES, Math.floor(Number(options.lines)))
-        : 0;
+        ? Math.min(FileTools.MAX_READ_LINES, Math.floor(Number(options.lines))) : 0;
       const tailMode = options.direction === 'tail';
       const lineLimit = requestedLines || (tailMode ? 50 : Number.MAX_SAFE_INTEGER);
       const selectedLines: string[] = [];
       let selectedChars = 0;
       let totalLines = 0;
-      let truncated = false;
-      // readline can stream UTF-8 directly. UTF-16 files are uncommon but
-      // frequent on Windows when created by PowerShell, so decode those with
-      // a bounded read and strip the BOM before paging.
+      let omittedByLineLimit = false;
+      let omittedByCharLimit = false;
+
       this.resolvePath(resolvedPath, workspaceDir);
-      const input = utf16le || utf16be
-        ? Readable.from([(utf16le ? readFileSync(resolvedPath).toString('utf16le') : decodeUtf16Be(readFileSync(resolvedPath))).replace(/^\uFEFF/, '')])
-        : createReadStream(resolvedPath, { encoding: 'utf8' });
+      const rawInput = createReadStream(resolvedPath, { start: format.bom.length });
+      const input = rawInput.pipe(iconv.decodeStream(format.encoding));
       const lineReader = readline.createInterface({ input, crlfDelay: Infinity });
       try {
         for await (const line of lineReader) {
           totalLines++;
           if (tailMode) {
             selectedLines.push(line);
-            if (selectedLines.length > lineLimit) selectedLines.shift();
+            if (selectedLines.length > lineLimit) { selectedLines.shift(); omittedByLineLimit = true; }
             continue;
           }
-          if (totalLines < startLine || selectedLines.length >= lineLimit) continue;
+          if (totalLines < startLine) continue;
+          if (selectedLines.length >= lineLimit) { omittedByLineLimit = true; continue; }
           const separatorChars = selectedLines.length > 0 ? 1 : 0;
           const remaining = maxLen - selectedChars - separatorChars;
-          if (remaining <= 0) { truncated = true; continue; }
-          if (line.length > remaining) {
-            selectedLines.push(line.slice(0, remaining));
+          if (remaining <= 0) { omittedByCharLimit = true; continue; }
+          const characters = Array.from(line);
+          if (characters.length > remaining) {
+            selectedLines.push(characters.slice(0, remaining).join(''));
             selectedChars = maxLen;
-            truncated = true;
+            omittedByCharLimit = true;
           } else {
             selectedLines.push(line);
-            selectedChars += separatorChars + line.length;
+            selectedChars += separatorChars + characters.length;
           }
         }
-      } finally {
-        lineReader.close();
-        input.destroy();
-      }
+      } finally { lineReader.close(); rawInput.destroy(); }
 
       let content = selectedLines.join('\n');
-      if (content.length > maxLen) {
-        // Tail reads must preserve the newest bytes when a character cap is
-        // also supplied; slicing from the front would return the wrong part.
-        content = tailMode ? content.slice(-maxLen) : content.slice(0, maxLen);
-        truncated = true;
-      }
-      if (tailMode && selectedLines.length >= lineLimit && totalLines > lineLimit) truncated = true;
-
+      if (tailMode && Array.from(content).length > maxLen) { content = safeSlice(content, maxLen, true); omittedByCharLimit = true; }
+      const truncated = omittedByLineLimit || omittedByCharLimit || (!tailMode && startLine > 1 && totalLines >= startLine);
       const header = `File: ${filePath}\nSize: ${stat.size} bytes\nLines: ${totalLines}\nModified: ${stat.mtime.toISOString()}\n`;
       const trailer = truncated ? `\n\n[Truncated/paged at ${maxLen} chars]` : '';
-
-      return {
-        output: header + '---\n' + content + trailer,
-        success: true,
-      };
+      return { output: header + '---\n' + content + trailer, success: true };
     } catch (err: unknown) {
       const error = err as NodeJS.ErrnoException;
-      if (error.code === 'ENOENT') {
-        return { output: `Error: file not found: ${filePath}`, success: false };
-      }
+      if (error.code === 'ENOENT') return { output: `Error: file not found: ${filePath}`, success: false };
       return { output: `Error reading file: ${error.message}`, success: false };
     }
   }
@@ -303,13 +381,17 @@ export class FileTools {
           if (code !== 'ENOENT') throw readError;
           exists = false;
         }
+        const decoded = exists ? decodeText(beforeBytes) : undefined;
+        if (exists && !decoded) return { output: `Error: refusing to overwrite binary file: ${filePath}`, success: false };
+        before = decoded?.text || '';
         const nextContent = options.append && exists ? before + content : content;
-        await this.atomicWriteText(resolvedPath, nextContent, workspaceDir);
+        const format = decoded?.format || UTF8_FORMAT;
+        const afterBytes = await this.atomicWriteText(resolvedPath, nextContent, workspaceDir, format);
         const stat = await fs.stat(resolvedPath);
         return {
           output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
           success: true,
-          fileChange: changeSummary(filePath, before, nextContent, resolvedPath, beforeBytes, exists),
+          fileChange: changeSummary(filePath, before, nextContent, resolvedPath, beforeBytes, exists, afterBytes),
         };
       });
     } catch (err: unknown) {
@@ -339,44 +421,48 @@ export class FileTools {
       return await this.withWriteLock(resolvedPath, async () => {
         this.resolvePath(resolvedPath, workspaceDir);
         const beforeBytes = await fs.readFile(resolvedPath);
-        const content = beforeBytes.toString('utf8');
+        const decoded = decodeText(beforeBytes);
+        if (!decoded) return { output: `Error: file appears to be binary: ${filePath}`, success: false };
+        const content = decoded.text;
+        const exactOldString = content.includes(oldString) ? oldString : adaptLineEndings(oldString, content);
+        const exactNewString = adaptLineEndings(newString, exactOldString);
 
       if (replaceAll) {
-        if (!content.includes(oldString)) {
+        if (!content.includes(exactOldString)) {
           return {
             output: `Error: old_string not found in file: ${filePath}`,
             success: false,
           };
         }
-        const newContent = content.split(oldString).join(newString);
-        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
-        const count = content.split(oldString).length - 1;
+        const newContent = content.split(exactOldString).join(exactNewString);
+        const afterBytes = await this.atomicWriteText(resolvedPath, newContent, workspaceDir, decoded.format);
+        const count = content.split(exactOldString).length - 1;
         return {
           output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes, true, afterBytes),
         };
       } else {
-        const firstIndex = content.indexOf(oldString);
+        const firstIndex = content.indexOf(exactOldString);
         if (firstIndex === -1) {
           return {
             output: `Error: old_string not found in file: ${filePath}\nTip: Use file_read first to see the exact content.`,
             success: false,
           };
         }
-        const secondIndex = content.indexOf(oldString, firstIndex + 1);
+        const secondIndex = content.indexOf(exactOldString, firstIndex + 1);
         if (secondIndex !== -1) {
           return {
             output: `Error: old_string matches multiple locations in the file. Use replace_all=true or provide a more specific string with more surrounding context.`,
             success: false,
           };
         }
-        const newContent = content.substring(0, firstIndex) + newString + content.substring(firstIndex + oldString.length);
-        await this.atomicWriteText(resolvedPath, newContent, workspaceDir);
+        const newContent = content.substring(0, firstIndex) + exactNewString + content.substring(firstIndex + exactOldString.length);
+        const afterBytes = await this.atomicWriteText(resolvedPath, newContent, workspaceDir, decoded.format);
         return {
           output: `File edited: ${filePath}\n1 occurrence replaced`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes, true, afterBytes),
         };
       }
       });
