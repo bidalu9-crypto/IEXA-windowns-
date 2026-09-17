@@ -8,6 +8,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const net = require('net');
+const { installWindowCorners } = require('./resources/window-corners.cjs');
 
 // The backend listens on IPv4 0.0.0.0 for the optional phone bridge. Keep
 // Electron's own control path on an explicit IPv4 loopback address because
@@ -394,6 +395,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+
+  // Round the native outer frame on Windows 10; keep native DWM corners on 11.
+  installWindowCorners(mainWindow, { getScaleFactor: () => screen.getDisplayMatching(mainWindow.getBounds()).scaleFactor });
 
   // Remove default menu
   mainWindow.setMenuBarVisibility(false);
