@@ -12,6 +12,7 @@ import { SubAgentManager } from './runtime/SubAgentManager';
 import * as http from 'http';
 import * as https from 'https';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { URL } from 'url';
@@ -137,9 +138,10 @@ interface McpAgentBinding { name: string; serverId: string; toolName: string; de
 
 function activeMcpAgentBindings(): McpAgentBinding[] {
   return mcpManager.list().filter((server) => server.status === 'connected').flatMap((server) => server.tools.map((tool) => {
-    const safeTool = tool.name.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40) || 'tool';
+    const safeTool = tool.name.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 30) || 'tool';
+    const identity = crypto.createHash('sha256').update(`${server.id}\0${tool.name}`).digest('hex').slice(0, 12);
     return {
-      name: `mcp_${server.id.replace(/-/g, '').slice(0, 10)}_${safeTool}`.slice(0, 64),
+      name: `mcp_${server.id.replace(/-/g, '').slice(0, 10)}_${safeTool}_${identity}`.slice(0, 64),
       serverId: server.id,
       toolName: tool.name,
       description: `MCP ${server.name} · ${tool.description || tool.name}`,
@@ -217,8 +219,6 @@ function setProjectRoot(root: string | null): {
   if (root == null || root === '') {
     projectState.root = null;
     saveProjectState(projectState);
-    // Drop agents so next turn picks up new cwd + system prompt
-    invalidateAllAgentsForNextTurn();
     return { ok: true, project: projectInfo() };
   }
   let abs = path.resolve(root);
@@ -229,7 +229,6 @@ function setProjectRoot(root: string | null): {
   projectState.root = abs;
   projectState.recent = [abs, ...projectState.recent.filter((p) => p !== abs)].slice(0, 12);
   saveProjectState(projectState);
-  invalidateAllAgentsForNextTurn();
   return { ok: true, project: projectInfo() };
 }
 
@@ -491,6 +490,12 @@ interface Session {
   fastModeEnabled?: boolean;
   /** Archive changes visibility only; messages and running jobs remain intact. */
   archived?: boolean;
+  /** Project snapshot keeps each conversation bound to its own tool workspace. */
+  projectRoot?: string;
+  projectName?: string;
+  /** Pinned conversations sort first inside their project group. */
+  pinned?: boolean;
+  pinnedAt?: number;
 }
 
 interface SessionStore {
@@ -503,13 +508,56 @@ const messageStore = new SessionManager<ChatMessage[]>(SESSIONS_DIR);
 // ---- Session I/O ----
 function loadSessionStore(): SessionStore {
   try {
-    if (fs.existsSync(SESSIONS_FILE) || fs.existsSync(`${SESSIONS_FILE}.bak`)) return new JsonStore<SessionStore>(SESSIONS_FILE, () => ({ sessions: [], activeSessionId: '' })).loadSync();
+    if (fs.existsSync(SESSIONS_FILE) || fs.existsSync(`${SESSIONS_FILE}.bak`)) {
+      const store = new JsonStore<SessionStore>(SESSIONS_FILE, () => ({ sessions: [], activeSessionId: '' })).loadSync();
+      let changed = false;
+      const fallbackRoot = getProjectRoot();
+      for (const session of store.sessions) {
+        const before = `${session.projectRoot ?? '<missing>'}\0${session.projectName ?? ''}\0${session.pinned ?? '<missing>'}`;
+        normalizeSessionProject(session, fallbackRoot);
+        changed ||= before !== `${session.projectRoot ?? '<missing>'}\0${session.projectName ?? ''}\0${session.pinned ?? '<missing>'}`;
+      }
+      if (changed) saveSessionStore(store);
+      return store;
+    }
   } catch { /* ignore */ }
   return { sessions: [], activeSessionId: '' };
 }
 
 function saveSessionStore(s: SessionStore): void {
   new JsonStore<SessionStore>(SESSIONS_FILE, () => s).saveSync(s);
+}
+
+function normalizeSessionProject(session: Session, fallbackRoot: string | null = getProjectRoot()): Session {
+  if (session.projectRoot === undefined) {
+    if (fallbackRoot) { session.projectRoot = fallbackRoot; session.projectName = path.basename(fallbackRoot); }
+    else { session.projectRoot = ''; session.projectName = '无项目'; }
+  } else if (session.projectRoot) {
+    try {
+      const root = fs.realpathSync.native(session.projectRoot);
+      if (fs.statSync(root).isDirectory()) { session.projectRoot = root; session.projectName = path.basename(root); }
+    } catch { session.projectName ||= path.basename(session.projectRoot); }
+  } else session.projectName = '无项目';
+  if (session.pinned !== true) { session.pinned = false; delete session.pinnedAt; }
+  return session;
+}
+
+function sessionProjectRoot(sessionId: string): string | null {
+  const session = loadSessionStore().sessions.find(item => item.id === sessionId);
+  const root = session ? normalizeSessionProject(session).projectRoot : '';
+  if (!root) return null;
+  try { return fs.statSync(root).isDirectory() ? fs.realpathSync.native(root) : null; } catch { return null; }
+}
+
+function bindSessionProject(sessionId: string, root: string | null): Session | null {
+  const store = loadSessionStore();
+  const session = store.sessions.find(item => item.id === sessionId);
+  if (!session) return null;
+  const normalized = root ? fs.realpathSync.native(root) : '';
+  session.projectRoot = normalized;
+  session.projectName = normalized ? path.basename(normalized) : '无项目';
+  saveSessionStore(store);
+  return session;
 }
 
 function loadMessages(sessionId: string): ChatMessage[] {
@@ -849,8 +897,9 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     apiMode: profile.apiMode === 'responses' ? 'responses' : 'chat_completions',
   });
 
-  // Tools run in the opened project (OpenCode-style); fall back to app workspace
-  const projectRoot = getProjectRoot();
+  // Tools run in this conversation's bound project. The global project only
+  // selects the default for new conversations and never retargets background work.
+  const projectRoot = sessionProjectRoot(sessionId);
   const toolCwd = projectRoot || WORKSPACE_DIR;
   skillStore.reload();
   const skillsDir = skillStore.getSkillsDir();
@@ -1031,7 +1080,12 @@ function applyPreviewIsolation(res: http.ServerResponse, extension: string): voi
   }
 }
 function scopedArtifact(file: string): string | null {
-  const roots = [WORKSPACE_DIR, getProjectRoot()].filter((value): value is string => Boolean(value));
+  const sessionRoots = loadSessionStore().sessions.map(session => {
+    const root = normalizeSessionProject(session).projectRoot;
+    if (!root) return null;
+    try { return fs.statSync(root).isDirectory() ? fs.realpathSync.native(root) : null; } catch { return null; }
+  }).filter((value): value is string => Boolean(value));
+  const roots = [...new Set([WORKSPACE_DIR, getProjectRoot(), ...sessionRoots].filter((value): value is string => Boolean(value)))];
   try { const safe = resolveScopedPath(file, roots); if (!isPrivateFile(safe)) return safe; } catch {}
   // Only application-generated text artifacts may use the otherwise-private artifact directory.
   if (!/^artifact_[A-Za-z0-9_-]+\.txt$/.test(path.basename(file))) return null;
@@ -1600,15 +1654,20 @@ function createServer(auth: LocalApiAuth): http.Server {
       if (req.method === 'POST') {
         const store = loadSessionStore();
         const initialProfile = activeProfile();
+        const projectRoot = getProjectRoot();
+        const now = Date.now();
         const session: Session = {
-          id: 'sess_' + Date.now(),
+          id: 'sess_' + now,
           title: '新会话',
           titleSource: 'default',
           titleGenAttempts: 0,
-          created: Date.now(),
-          updated: Date.now(),
+          created: now,
+          updated: now,
           messageCount: 0,
           modelBinding: initialProfile ? modelBindingForProfile(initialProfile) : undefined,
+          projectRoot: projectRoot || '',
+          projectName: projectRoot ? path.basename(projectRoot) : '无项目',
+          pinned: false,
         };
         store.sessions.push(session);
         store.activeSessionId = session.id;
@@ -1688,22 +1747,26 @@ function createServer(auth: LocalApiAuth): http.Server {
 
       if (req.method === 'PATCH' && /^\/api\/sessions\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
         const body = JSON.parse(await readBody(req, 4096));
-        if (!body || typeof body.archived !== 'boolean' || Object.keys(body).some(key => key !== 'archived')) {
-          jsonReply(res, 400, { error: '存档请求需要 archived 布尔值。' });
+        const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+        const field = keys.length === 1 ? keys[0] : '';
+        if (!['archived', 'pinned'].includes(field) || typeof body[field] !== 'boolean') {
+          jsonReply(res, 400, { error: '会话更新需要 archived 或 pinned 布尔值。' });
           return;
         }
         // Load after reading the body so a concurrent stream's latest metadata
-        // is retained. Archive never rewrites messages or invalidates an agent.
+        // is retained. Metadata changes never rewrite messages or invalidate an agent.
         const store = loadSessionStore();
         const session = store.sessions.find(item => item.id === sid);
         if (!session) { jsonReply(res, 404, { error: '会话未找到' }); return; }
-        if ((session.archived === true) !== body.archived) {
-          session.archived = body.archived;
-          saveSessionStore(store);
-          broadcastSessionEvent('session_changed', {
-            sessionId: sid, reason: body.archived ? 'archived' : 'unarchived', session,
-          });
+        const enabled = body[field] === true;
+        if (field === 'archived' && (session.archived === true) !== enabled) session.archived = enabled;
+        if (field === 'pinned' && (session.pinned === true) !== enabled) {
+          session.pinned = enabled;
+          if (enabled) session.pinnedAt = Date.now(); else delete session.pinnedAt;
         }
+        saveSessionStore(store);
+        const reason = field === 'archived' ? (enabled ? 'archived' : 'unarchived') : (enabled ? 'pinned' : 'unpinned');
+        broadcastSessionEvent('session_changed', { sessionId: sid, reason, session });
         jsonReply(res, 200, { ok: true, session, activeSessionId: store.activeSessionId });
         return;
       }
@@ -1724,6 +1787,7 @@ function createServer(auth: LocalApiAuth): http.Server {
           }
         }
         const session = loadSessionStore().sessions.find((item) => item.id === sid);
+        if (!session) { jsonReply(res, 404, { error: '会话未找到' }); return; }
         jsonReply(res, 200, { messages: msgs, session });
         return;
       }
@@ -1772,6 +1836,22 @@ function createServer(auth: LocalApiAuth): http.Server {
           saveSessionStore(store);
           jsonReply(res, 200, { ok: true, enabled: session.fastModeEnabled, session });
         } catch { jsonReply(res, 400, { error: '无效的 Fast 模式请求。' }); }
+        return;
+      }
+
+      // Activate a cached conversation without retransmitting its message history.
+      // This keeps the file workbench and the persistent active-session pointer
+      // aligned even when the renderer already owns that conversation's DOM.
+      if (req.method === 'POST' && url.pathname.endsWith('/activate')) {
+        const sessionId = url.pathname.split('/').slice(-2, -1)[0] || '';
+        const store = loadSessionStore();
+        const session = store.sessions.find(item => item.id === sessionId);
+        if (!session) { jsonReply(res, 404, { error: '会话未找到' }); return; }
+        store.activeSessionId = sessionId;
+        saveSessionStore(store);
+        const boundRoot = sessionProjectRoot(sessionId);
+        if ((boundRoot || '') !== (getProjectRoot() || '')) setProjectRoot(boundRoot);
+        jsonReply(res, 200, { ok: true, session, project: projectInfo() });
         return;
       }
 
@@ -1981,12 +2061,12 @@ ${recentMemories}
             parameters: { arguments_json: { type: 'string', description: 'JSON object arguments for this MCP tool.' } },
             required: ['arguments_json'],
             propertyOrdering: ['arguments_json'],
-          }, async (args) => {
+          }, async (args, context) => {
             try {
               const raw = String(args.arguments_json || '{}');
               const parsed = JSON.parse(raw);
               if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('arguments_json 必须是 JSON 对象。');
-              const result = await mcpManager.callTool(binding.serverId, binding.toolName, parsed as Record<string, unknown>);
+              const result = await mcpManager.callTool(binding.serverId, binding.toolName, parsed as Record<string, unknown>, context.signal);
               return normalizeMcpToolResult(result);
             } catch (error) {
               return { output: `MCP 工具调用失败：${(error as Error).message}`, success: false };
@@ -3421,11 +3501,11 @@ export function getServerCredentials(server: http.Server): { token: string; logi
   return { token: auth.token, loginCode: auth.createBootstrap(), cookieName: `iexa_desktop_session_${(server.address() as { port: number }).port}` };
 }
 
-export function startServer(port: number = PORT, autoOpen: boolean = true, host: string = '127.0.0.1'): Promise<http.Server> {
+export function startServer(port: number = PORT, autoOpen: boolean = true, host: string = '127.0.0.1', options: { trustLoopback?: boolean } = {}): Promise<http.Server> {
   return new Promise((resolve, reject) => {
     if (!['127.0.0.1', '::1', 'localhost'].includes(host)) { reject(new Error('Desktop listener must use loopback; use the HTTPS mobile bridge for LAN.')); return; }
     backfillSessionContexts();
-    const auth = new LocalApiAuth();
+    const auth = new LocalApiAuth(options.trustLoopback === true);
     const srv = createServer(auth);
     serverAuth.set(srv, auth);
     srv.once('error', reject);
@@ -3435,15 +3515,15 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
       if (!mobileBridge.isEnabled()) mobileBridge.setPort(0);
       console.log(`[IEXA] Server running at http://${host}:${actualPort}`);
       if (autoOpen) {
-        const loginCode = auth.createBootstrap();
-        const loginUrl = `http://127.0.0.1:${actualPort}/#login=${loginCode}`;
-        console.log(`[IEXA] One-use login code (5 minutes): ${loginCode}`);
+        const launchUrl = options.trustLoopback === true
+          ? `http://127.0.0.1:${actualPort}/`
+          : `http://127.0.0.1:${actualPort}/#login=${auth.createBootstrap()}`;
         const { exec } = require('child_process');
         const cmd = process.platform === 'win32'
-          ? `start "" "${loginUrl}"`
+          ? `start "" "${launchUrl}"`
           : process.platform === 'darwin'
-            ? `open '${loginUrl}'`
-            : `xdg-open '${loginUrl}'`;
+            ? `open '${launchUrl}'`
+            : `xdg-open '${launchUrl}'`;
         exec(cmd);
       }
       resolve(srv);
@@ -3475,7 +3555,7 @@ function monitorStandaloneParent(server: http.Server): void {
 
 const isDirectRun = require.main === module;
 if (isDirectRun) {
-  startServer(PORT, true).then((server) => {
+  startServer(PORT, true, '127.0.0.1', { trustLoopback: true }).then((server) => {
     monitorStandaloneParent(server);
     console.log(`\n========================================`);
     console.log(`  IEXA-WIN Client`);

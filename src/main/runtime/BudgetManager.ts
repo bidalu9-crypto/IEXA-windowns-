@@ -11,24 +11,28 @@ export class BudgetManager {
     // turns. Keep finite guardrails, but make the defaults large enough that
     // normal project work is not cut off prematurely; callers can still pass
     // tighter per-run budgets explicitly.
-    this.limits = {
+    const limits = {
       maxTurns: budget.maxTurns ?? 2_000,
       maxToolCalls: budget.maxToolCalls ?? 5_000,
       maxRuntimeMs: budget.maxRuntimeMs ?? 24 * 60 * 60_000,
       maxInputTokens: budget.maxInputTokens ?? 10_000_000,
     };
+    for (const [name, value] of Object.entries(limits)) {
+      if (!Number.isSafeInteger(value) || value <= 0) throw new IexaError('BUDGET_CONFIG', 'CONFIG', `${name} must be a positive safe integer.`);
+    }
+    this.limits = limits;
     // The default value is retained for observability/backwards compatibility,
     // but cumulative prompt usage is not a useful hard stop: each request is
     // already bounded by the model context window and compaction policy.
-    this.enforceInputTokenBudget = Number.isFinite(budget.maxInputTokens);
+    this.enforceInputTokenBudget = budget.maxInputTokens !== undefined;
     this.state = this.createState();
   }
   reset(): void { this.state = this.createState(); }
   beginTurn(): void { this.ensureRuntime(); if (++this.state.turns > this.state.maxTurns) throw new IexaError('BUDGET_TURNS', 'RUNTIME', '已达到本次任务的最大执行轮数。'); }
   recordTool(): void { this.ensureRuntime(); if (++this.state.toolCalls > this.state.maxToolCalls) throw new IexaError('BUDGET_TOOLS', 'RUNTIME', '已达到本次任务的最大工具调用数。'); }
   recordInputTokens(tokens: number): void {
-    const amount = Math.max(0, tokens || 0);
-    this.state.inputTokens += amount;
+    if (!Number.isSafeInteger(tokens) || tokens < 0) throw new IexaError('BUDGET_INPUT', 'CONFIG', 'Input token count must be a nonnegative safe integer.');
+    this.state.inputTokens += tokens;
     if (this.enforceInputTokenBudget && this.state.inputTokens > this.state.maxInputTokens) {
       throw new IexaError('BUDGET_TOKENS', 'RUNTIME', '已达到本次任务的上下文预算。');
     }

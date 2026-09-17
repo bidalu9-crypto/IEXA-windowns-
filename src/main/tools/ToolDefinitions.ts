@@ -126,7 +126,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
           enumValues: ['auto', 'cmd', 'powershell', 'pwsh'],
         },
         timeout: {
-          type: 'integer',
+          type: 'integer', minimum: 1, maximum: 3600,
           description:
             'Timeout in seconds (default: 900, max: 3600). Use a larger value for long-running commands like package installs.',
         },
@@ -149,15 +149,15 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
           description: 'Absolute or relative path to read (e.g. C:\\Users\\...\\file.txt or /home/user/file.txt)',
         },
         offset: {
-          type: 'integer',
+          type: 'integer', minimum: 1,
           description: '1-based line number to start reading from (default: 1).',
         },
         lines: {
-          type: 'integer',
+          type: 'integer', minimum: 1, maximum: 10000,
           description: 'Maximum number of lines to return (default: all lines up to max_length).',
         },
         max_length: {
-          type: 'integer',
+          type: 'integer', minimum: 1, maximum: 200000,
           description: 'Maximum character length of returned content (default: 15000).',
         },
         direction: {
@@ -237,8 +237,8 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
       parameters: {
         tool_title: { type: 'string', description: 'Concise search purpose.' },
         query: { type: 'string', description: 'Natural-language web search query.' },
-        limit: { type: 'integer', description: 'Maximum results, default 8, maximum 12.' },
-        recency_days: { type: 'integer', description: 'Optional freshness window in days.' },
+        limit: { type: 'integer', minimum: 1, maximum: 12, description: 'Maximum results, default 8, maximum 12.' },
+        recency_days: { type: 'integer', minimum: 1, maximum: 3650, description: 'Optional freshness window in days.' },
       }, required: ['tool_title', 'query'], propertyOrdering: ['tool_title', 'query', 'limit', 'recency_days'],
     },
     {
@@ -255,7 +255,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
           description: 'The URL to fetch content from. HTTP is upgraded to HTTPS.',
         },
         max_length: {
-          type: 'integer',
+          type: 'integer', minimum: 1, maximum: 120000,
           description: 'Maximum character length of returned content (default: 25000).',
         },
       },
@@ -318,8 +318,8 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
             "Space-separated keywords for matching (e.g. 'python preference'). Leave empty to return recent memories.",
         },
         limit: {
-          type: 'integer',
-          description: 'Maximum number of results to return (default: 20).',
+          type: 'integer', minimum: 1, maximum: 50,
+          description: 'Maximum number of results to return (default: 20, max: 50).',
         },
       },
       required: ['tool_title'],

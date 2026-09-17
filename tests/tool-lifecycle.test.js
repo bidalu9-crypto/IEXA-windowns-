@@ -78,7 +78,7 @@ test('sync exceptions release abort listeners and return failed state',async()=>
  assert.equal(r.success,false);assert.match(r.output,/sync failure/);assert.equal(getEventListeners(controller.signal,'abort').length,0);
 });
 test('duplicate call IDs with canonical-equivalent arguments execute exactly once',async t=>{
- const {runtime}=await fixture(t);let count=0;const hold=deferred();runtime.registry.register(tool(async()=>{count++;await hold.promise;return {output:'ok',success:true};}));
+ const {runtime}=await fixture(t);let count=0;const hold=deferred();runtime.registry.register(tool(async()=>{count++;await hold.promise;return {output:'ok',success:true};},{parameters:{a:{type:'integer',description:''},b:{type:'integer',description:''}}}));
  const events=[];const a=runtime.execute('fixture_tool',{a:1,b:2},context(undefined,events));const b=runtime.execute('fixture_tool',{b:2,a:1},context());await tick();assert.equal(count,1);
  const conflict=await runtime.execute('fixture_tool',{a:99},context());assert.equal(conflict.success,false);assert.match(conflict.output,/reused/);hold.resolve();
  assert.deepEqual(await a,await b);assert.equal(count,1);assert.deepEqual(status(events),['queued','running','completed']);

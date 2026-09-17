@@ -61,6 +61,15 @@ test('pre-cancelled isolated workspace startup has no directory, process or exec
  assert.equal(lookedUp,false);assert.equal(host.diagnostics().directory,undefined);host.close();
 });
 
+test('cancelled in-progress isolated startup cleans the attempt without poisoning retries',async()=>{
+ const host=new NativeIsolatedWorkspace(process.cwd());const abort=new AbortController();
+ host.start=async signal=>new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('Isolated workspace creation cancelled.')),{once:true}));
+ const first=host.ensureStarted(abort.signal);abort.abort();await assert.rejects(first,/cancelled/);
+ assert.equal(host.diagnostics().failed,false);assert.equal(host.diagnostics().closed,false);assert.equal(host.diagnostics().directory,undefined);
+ const ready={desktopName:'fixture',pid:1,hostPid:2,port:3,jobBound:true};host.start=async()=>{host.ready=ready;return ready;};
+ assert.deepEqual(await host.ensureStarted(),ready);host.close();
+});
+
 test('operator takeover aborts the active lease, rejects queued/future work, and resume never replays it',async()=>{
  const q=new DesktopControlScheduler();let began,finish;const started=new Promise(r=>began=r),cleanup=new Promise(r=>finish=r);let ranSecond=false,aborted=false;
  const first=q.run('one','first',undefined,async lease=>{began();await new Promise(r=>lease.signal.addEventListener('abort',r,{once:true}));aborted=true;await cleanup;});

@@ -10,11 +10,34 @@ export type DesktopPhase = 'queued' | 'observe' | 'resolve' | 'action_start' | '
 export interface DesktopEvent { version: 1; operationId: string; sequence: number; phase: DesktopPhase; timestamp: number; action: string; verified?: boolean; step?: number; totalSteps?: number; dispatchedActions?: number; completedSteps?: number; inputMayHaveExecuted?: boolean; }
 export interface DesktopContext { owner: string; operationId?: string; onEvent?: (event: DesktopEvent) => void; }
 interface Snapshot { observationToken: string; capturedAt: number; handle: number; elements: DesktopElement[]; frameHash?: string; captureTrust?: string; }
-interface OwnerState { snapshot?: Snapshot; needsObservation: boolean; backendContext?: { backend?: unknown; cdpEndpoint?: unknown; cdpTargetId?: unknown }; recovered?: DesktopRecoveryState; }
+interface PointerFallbackGrant { observationToken: string; handle: number; elementId: string; }
+interface OwnerState { snapshot?: Snapshot; needsObservation: boolean; backendContext?: { backend?: unknown; cdpEndpoint?: unknown; cdpTargetId?: unknown }; recovered?: DesktopRecoveryState; pointerFallback?: PointerFallbackGrant; }
 type Transport = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolExecutionResult>;
 const inputActions = new Set(['move', 'click', 'drag', 'click_element', 'type', 'type_element', 'key', 'hotkey', 'scroll']);
 const bindingActions = new Set(['launch', 'activate', 'bind_window']);
 const passiveActions = new Set(['list_windows', 'observe', 'frame', 'session_state', 'find_element', 'read_focused', 'wait', 'wait_change']);
+
+function hasCoordinatePair(step: Record<string, unknown>, prefix = ''): boolean {
+  const x = prefix ? `to${prefix}X` : 'x'; const y = prefix ? `to${prefix}Y` : 'y';
+  const relativeX = prefix ? `toRelative${prefix}X` : 'relativeX'; const relativeY = prefix ? `toRelative${prefix}Y` : 'relativeY';
+  return (step[x] !== undefined && step[y] !== undefined) || (step[relativeX] !== undefined && step[relativeY] !== undefined);
+}
+
+function validateBatchStep(step: Record<string, unknown>, inheritedBackground: boolean): void {
+  const action = String(step.action || '');
+  if (!inputActions.has(action)) throw new Error('Managed batches accept input actions only; observe/bind separately.');
+  if (step.autoActivate === true) throw new Error('Use explicit activate; autoActivate is disabled in managed control.');
+  const background = inheritedBackground || step.background === true;
+  if (background && step.forcePointer === true) throw new Error('Background mode forbids physical pointer fallback.');
+  if (background && !['click_element', 'type_element', 'click', 'type'].includes(action)) throw new Error('Background mode supports semantic UIA click/type only.');
+  if (['move', 'drag'].includes(action) && !hasCoordinatePair(step)) throw new Error(`${action} requires a complete coordinate pair.`);
+  if (action === 'drag' && !((step.toX !== undefined && step.toY !== undefined) || (step.toRelativeX !== undefined && step.toRelativeY !== undefined))) throw new Error('drag requires a complete destination coordinate pair.');
+  if (['click_element', 'type_element'].includes(action) && !step.target && !step.elementId) throw new Error(`${action} requires target or elementId.`);
+  if (['type', 'type_element'].includes(action) && typeof step.text !== 'string') throw new Error(`${action} requires text.`);
+  if (action === 'key' && typeof step.key !== 'string') throw new Error('key requires key.');
+  if (action === 'hotkey' && (!Array.isArray(step.keys) || !step.keys.length || step.keys.some(key => typeof key !== 'string'))) throw new Error('hotkey requires a nonempty string keys array.');
+  if (background && !step.target && !step.elementId) throw new Error('Background input requires a semantic target.');
+}
 
 /** Control plane. Snapshots are process-local capabilities, never replayed from disk.
  * Journal stores phases only: no typed text, screenshots, element names or secrets. */
@@ -85,6 +108,7 @@ export class DesktopControlSession {
           if (options.handle && Number(data.session?.handle) !== Number(options.handle)) throw new Error('Observed window changed during capture. No input dispatched; observe your target again.');
           if (!data.session?.observationToken || !Number(data.session.handle)) throw new Error('Observation is missing a bound window or token.');
           owner.snapshot = { observationToken: data.session.observationToken, capturedAt: Date.now(), handle: Number(data.session.handle), elements: (data.elements || []).filter((element: DesktopElement) => data.frame?.trust === 'foreground' || element.source !== 'ocr'), frameHash: data.frame?.hash, captureTrust: data.frame?.trust || 'unknown' };
+          owner.pointerFallback = undefined;
           owner.needsObservation = false;
           return response;
         };
@@ -142,6 +166,13 @@ export class DesktopControlSession {
             } else if (step.elementId) resolveDesktopTarget({ elementId: String(step.elementId), ...(step.role ? { role: String(step.role) } : {}) }, owner.snapshot!.elements);
             step.observationToken = owner.snapshot!.observationToken; step.autoActivate = false; step.allowGeometryChange = false; step.background = background;
             delete step.target;
+            if (step.forcePointer === true) {
+              const grant = owner.pointerFallback;
+              if (!grant || grant.handle !== owner.snapshot!.handle || grant.observationToken !== owner.snapshot!.observationToken || grant.elementId !== String(step.elementId || '')) {
+                throw new Error('forcePointer requires a prior UIA click with effectObserved=false for this exact element and observation.');
+              }
+              owner.pointerFallback = undefined;
+            } else owner.pointerFallback = undefined;
             if (background) {
               if (!['click_element', 'type_element'].includes(String(step.action)) || !step.elementId)
                 throw new Error('Background input requires a resolved semantic UIA element, not physical coordinates.');
@@ -157,6 +188,10 @@ export class DesktopControlSession {
             // A native same-process dialog transition is accepted only when explicitly verified by native action.
             if (!background && Number(current.handle) !== owner.snapshot!.handle && response.data.foregroundVerified !== true) throw new Error('Desktop owner changed after action. Observe again.');
             const after = await observe({ handle: Number(current.handle), includeOcr: !!step.verifyText });
+            owner.pointerFallback = undefined;
+            if (name === 'click' && String(step.action) === 'click_element' && step.forcePointer !== true && response.data?.method !== 'pointer' && response.data?.automation && response.data?.effectObserved === false && response.data?.foregroundVerified === true && step.elementId) {
+              owner.pointerFallback = { observationToken: owner.snapshot!.observationToken, handle: owner.snapshot!.handle, elementId: String(step.elementId) };
+            }
             verificationMethod = 'post_action_observation';
             verified = false;
             if (step.verifyText) {
@@ -184,8 +219,12 @@ export class DesktopControlSession {
         };
         if (action === 'batch') {
           if (!Array.isArray(args.actions) || !args.actions.length || args.actions.length > 24) throw new Error('Batch requires 1–24 actions.');
-          // Validate the entire batch BEFORE any side effects.
-          for (const step of args.actions) if (!step || typeof step !== 'object' || !inputActions.has(String(step.action))) throw new Error('Managed batches accept input actions only; observe/bind separately.');
+          // Validate the entire batch BEFORE any side effects. Transport-specific
+          // resolution still happens per step against a fresh observation.
+          for (const step of args.actions) {
+            if (!step || typeof step !== 'object' || Array.isArray(step)) throw new Error('Managed batch actions must be objects.');
+            validateBatchStep(step as Record<string, unknown>, args.background === true);
+          }
           const results: unknown[] = [];
           for (const [index, step] of (args.actions as Record<string, unknown>[]).entries()) {
             stepIndex = index + 1;
@@ -204,6 +243,7 @@ export class DesktopControlSession {
       return { ...result, durationMs: Date.now() - started, metadata: { ...result.metadata, desktop: { operationId, phase, verified, verificationMethod, events, completedSteps, dispatchedActions, recovered: owner.recovered, observationToken: owner.snapshot?.observationToken, recovery: 'observe_before_input' } } };
     } catch (error) {
       owner.needsObservation = true;
+      owner.pointerFallback = undefined;
       const message = (error as Error).message; const failedAt = phase;
       const cancelled = !!signal?.aborted || leaseAborted;
       const takeover = /takeover|foreground|paused by|owner changed/i.test(message);

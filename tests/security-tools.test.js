@@ -197,7 +197,9 @@ test('risk shell denies without a resolver; explicit full mode and subsequent do
 
 test('runtime paths default to workspace; mode updates reach runtime and direct file execution', async (t) => {
   const { runtime, context, outside, workspace } = runtimeFixture(t);
-  const args = { path: path.join(outside, 'secret.txt'), permissionMode: 'full' };
+  const args = { path: path.join(outside, 'secret.txt') };
+  const spoofed = await runtime.execute('file_read', { ...args, permissionMode: 'full' }, { ...context, toolCallId: 'spoofed-mode' });
+  assert.equal(spoofed.success, false); assert.match(spoofed.output, /Unknown argument: permissionMode/);
   assert.equal((await runtime.execute('file_read', args, { ...context, toolCallId: 'scoped-read' })).success, false);
   runtime.setPermissionMode('full');
   assert.equal((await runtime.execute('file_read', args, { ...context, toolCallId: 'full-read' })).success, true);
@@ -376,6 +378,37 @@ test('public mapped IPv6 normalizes its pinned family and IP literals skip DNS e
   const literal = networkFixture([{}]);
   await literal.policy.fetch('https://[2606:4700:4700::1111]/');
   assert.equal(literal.dns.length, 0); assert.equal(literal.calls[0].options.servername, '');
+});
+
+test('verified DNS addresses fail over without a second lookup', async () => {
+  const attempts = []; let dnsCalls = 0;
+  const policy = new NetworkPolicy({
+    lookup: async () => { dnsCalls++; return [
+      { address: '2606:4700:4700::1111', family: 6 },
+      { address: '1.1.1.1', family: 4 },
+    ]; },
+    request: (url, options, callback) => {
+      const request = new EventEmitter(); request.destroyed = false;
+      request.destroy = () => { request.destroyed = true; };
+      request.end = () => options.lookup(url.hostname, {}, (_error, address, family) => {
+        attempts.push({ address, family });
+        if (family === 6) {
+          const failure = new Error('IPv6 fixture unreachable'); failure.code = 'ENETUNREACH';
+          queueMicrotask(() => request.emit('error', failure)); return;
+        }
+        const response = new PassThrough(); response.statusCode = 200; response.statusMessage = 'OK'; response.headers = { 'content-type': 'text/plain' };
+        callback(response); response.end('fallback-ok');
+      });
+      return request;
+    },
+  });
+  const response = await policy.fetch('https://fixture.test/');
+  assert.equal(response.body.toString(), 'fallback-ok');
+  assert.equal(dnsCalls, 1);
+  assert.deepEqual(attempts, [
+    { address: '2606:4700:4700:0:0:0:0:1111', family: 6 },
+    { address: '1.1.1.1', family: 4 },
+  ]);
 });
 
 test('DNS failures and malformed resolver addresses fail closed before transport', async () => {

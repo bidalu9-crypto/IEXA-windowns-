@@ -68,7 +68,7 @@ async function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise
 export class NetworkPolicy {
   constructor(private readonly hooks: NetworkHooks = {}) {}
 
-  private async verify(input: string, signal?: AbortSignal): Promise<{ url: URL; address: Address }> {
+  private async verify(input: string, signal?: AbortSignal): Promise<{ url: URL; addresses: Address[] }> {
     let url: URL;
     try {
       // Only bare hosts get a default scheme. Never silently upgrade HTTP or reinterpret another scheme.
@@ -91,8 +91,9 @@ export class NetworkPolicy {
       }
     }
     if (!records.length || records.some((record) => !isPublicIp(record.address))) throw error('SSRF_PRIVATE', 'Target resolves to a nonpublic address.');
-    const address = normalizeIp(records[0].address);
-    return { url, address: { address, family: net.isIP(address) } };
+    const addresses = records.map((record) => { const address = normalizeIp(record.address); return { address, family: net.isIP(address) }; })
+      .filter((record, index, all) => all.findIndex((candidate) => candidate.address === record.address && candidate.family === record.family) === index);
+    return { url, addresses };
   }
 
   /** Compatibility validation only. Use fetch() to bind validation to transport. */
@@ -112,7 +113,16 @@ export class NetworkPolicy {
       for (let hop = 0; ; hop++) {
         if (controller.signal.aborted) throw abortReason(controller.signal);
         const target = await this.verify(next, controller.signal);
-        const response = await this.request(target.url, target.address, maxBytes, controller.signal, options.headers);
+        let response: NetworkResponse | undefined;
+        let lastError: unknown;
+        for (const address of target.addresses) {
+          try { response = await this.request(target.url, address, maxBytes, controller.signal, options.headers); break; }
+          catch (cause) {
+            lastError = cause;
+            if (controller.signal.aborted || !this.isRetryableAddressError(cause)) throw cause;
+          }
+        }
+        if (!response) throw lastError instanceof Error ? lastError : error('NETWORK_CONNECT', 'All verified target addresses failed.');
         if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.location) {
           if (hop >= maxRedirects) throw error('REDIRECT_LIMIT', 'Too many redirects.');
           next = new URL(response.headers.location, target.url).toString();
@@ -124,6 +134,11 @@ export class NetworkPolicy {
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', parentAbort);
     }
+  }
+
+  private isRetryableAddressError(cause: unknown): boolean {
+    const code = String((cause as NodeJS.ErrnoException)?.code || '');
+    return ['ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code);
   }
 
   private request(url: URL, pinned: Address, maxBytes: number, signal: AbortSignal, headers: Record<string, string> = {}): Promise<NetworkResponse> {

@@ -360,6 +360,17 @@ body {
   padding: 16px 0;
 }
 
+.session-project-group { display: grid; gap: 3px; margin-bottom: 8px; }
+.session-project-heading {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px 3px;
+  color: var(--text-muted); font-size: calc(0.68rem * var(--ui-font-scale, 1)); font-weight: 650;
+  letter-spacing: .02em;
+}
+.session-project-heading .ui-icon { width: 13px; height: 13px; flex: 0 0 13px; }
+.session-project-heading span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-project-heading b { margin-left: auto; min-width: 18px; text-align: center; font-size: .62rem; font-weight: 600; }
+.session-project-items { display: grid; gap: 2px; }
+
 .session-item {
   display: flex;
   align-items: center;
@@ -418,7 +429,8 @@ body {
   50% { opacity: .42; transform: scale(.76); }
 }
 
-.session-item-delete {
+.session-item-delete,
+.session-item-pin {
   background: none;
   border: none;
   color: var(--text-muted);
@@ -430,14 +442,15 @@ body {
   transition: color 0.15s;
 }
 
-.session-item:hover .session-item-delete,
-.session-item.active .session-item-delete {
+.session-item:hover :is(.session-item-delete, .session-item-pin),
+.session-item.active :is(.session-item-delete, .session-item-pin),
+.session-item.pinned .session-item-pin {
   visibility: visible;
 }
 
-.session-item-delete:hover {
-  color: var(--error);
-}
+.session-item.pinned .session-item-pin { color: var(--accent); }
+.session-item-delete:hover { color: var(--error); }
+.session-item-pin:hover { color: var(--accent); }
 
 .session-item-rename-input {
   flex: 1;

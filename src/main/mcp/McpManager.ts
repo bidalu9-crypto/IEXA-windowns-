@@ -25,6 +25,28 @@ export interface McpServerInfo extends McpServerConfig { status: 'disconnected' 
 
 interface StdioConnection { child: ChildProcess; buffer: string; nextId: number; pending: Map<number, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: NodeJS.Timeout }>; }
 
+function validateMcpArguments(value: unknown, schema: unknown, location = 'arguments', depth = 0, state = { nodes: 0 }): void {
+  state.nodes++;
+  if (depth > 12 || state.nodes > 20_000) throw new Error(`MCP input schema complexity exceeded at ${location}.`);
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return;
+  const rule = schema as Record<string, unknown>;
+  if (Array.isArray(rule.enum) && !rule.enum.some(candidate => Object.is(candidate, value))) throw new Error(`MCP argument ${location} is not in the allowed enum.`);
+  const types = Array.isArray(rule.type) ? rule.type : rule.type ? [rule.type] : [];
+  if (types.length && !types.some(type => type === 'null' ? value === null
+    : type === 'object' ? !!value && typeof value === 'object' && !Array.isArray(value)
+    : type === 'array' ? Array.isArray(value)
+    : type === 'integer' ? Number.isSafeInteger(value)
+    : type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+    : type === typeof value)) throw new Error(`MCP argument ${location} has an invalid type.`);
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>; const properties = rule.properties && typeof rule.properties === 'object' && !Array.isArray(rule.properties) ? rule.properties as Record<string, unknown> : {};
+    for (const required of Array.isArray(rule.required) ? rule.required : []) if (typeof required === 'string' && (!Object.prototype.hasOwnProperty.call(record, required) || record[required] === null || record[required] === undefined)) throw new Error(`Missing required MCP argument: ${location}.${required}`);
+    if (rule.additionalProperties === false) for (const key of Object.keys(record)) if (!Object.prototype.hasOwnProperty.call(properties, key)) throw new Error(`Unknown MCP argument: ${location}.${key}`);
+    for (const [key, child] of Object.entries(record)) if (Object.prototype.hasOwnProperty.call(properties, key)) validateMcpArguments(child, properties[key], `${location}.${key}`, depth + 1, state);
+  }
+  if (Array.isArray(value) && rule.items) value.forEach((item, index) => validateMcpArguments(item, rule.items, `${location}[${index}]`, depth + 1, state));
+}
+
 /** Minimal MCP client supporting stdio JSON-RPC and JSON-over-HTTP servers. */
 export class McpManager {
   private readonly configs = new Map<string, McpServerConfig>();
@@ -96,11 +118,14 @@ export class McpManager {
     return this.info(config);
   }
 
-  async callTool(id: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+  async callTool(id: string, name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const config = this.getConfig(id);
     if (this.info(config).status !== 'connected') await this.connect(id);
+    const tool = this.info(config).tools.find(candidate => candidate.name === name);
+    if (!tool) throw new Error(`MCP tool is not published by this server: ${name}`);
+    validateMcpArguments(args, tool.inputSchema || { type: 'object' });
     this.log(id, `调用工具：${name}`);
-    return this.request(config, 'tools/call', { name, arguments: args });
+    return this.request(config, 'tools/call', { name, arguments: args }, signal);
   }
 
   async readResource(id: string, uri: string): Promise<unknown> {
@@ -110,19 +135,25 @@ export class McpManager {
     return this.request(config, 'resources/read', { uri });
   }
 
-  private async request(config: McpServerConfig, method: string, params: Record<string, unknown>): Promise<unknown> {
-    if (config.transport === 'http') return this.httpRequest(config, method, params, false);
+  private async request(config: McpServerConfig, method: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('MCP request cancelled.');
+    if (config.transport === 'http') return this.httpRequest(config, method, params, false, signal);
     let connection = this.connections.get(config.id);
     if (!connection) connection = this.openStdio(config);
     if (connection.pending.size >= 128) throw new Error('MCP pending request limit reached');
     const id = connection.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { connection?.pending.delete(id); reject(new Error(`MCP 请求超时：${method}`)); }, 20_000);
-      connection!.pending.set(id, { resolve, reject, timer });
+      const cleanup = () => signal?.removeEventListener('abort', abort);
+      const finishResolve = (value: unknown) => { cleanup(); resolve(value); };
+      const finishReject = (reason: Error) => { cleanup(); reject(reason); };
+      const timer = setTimeout(() => { connection?.pending.delete(id); finishReject(new Error(`MCP 请求超时：${method}`)); }, 20_000);
+      const abort = () => { clearTimeout(timer); connection?.pending.delete(id); finishReject(signal?.reason instanceof Error ? signal.reason : new Error('MCP request cancelled.')); };
+      signal?.addEventListener('abort', abort, { once: true });
+      connection!.pending.set(id, { resolve: finishResolve, reject: finishReject, timer });
       try {
         if (!connection!.child.stdin?.writable) throw new Error('MCP stdin is closed');
         connection!.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
-      } catch (error) { clearTimeout(timer); connection!.pending.delete(id); reject(error); }
+      } catch (error) { clearTimeout(timer); connection!.pending.delete(id); finishReject(error as Error); }
     });
   }
 
@@ -190,16 +221,24 @@ export class McpManager {
     }
   }
 
-  private httpRequest(config: McpServerConfig, method: string, params: Record<string, unknown>, notification: boolean): Promise<unknown> {
+  private httpRequest(config: McpServerConfig, method: string, params: Record<string, unknown>, notification: boolean, signal?: AbortSignal): Promise<unknown> {
     if (!config.url) return Promise.reject(new Error('HTTP MCP Server 缺少 URL。'));
+    if (signal?.aborted) return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('MCP request cancelled.'));
     return new Promise((resolve, reject) => {
       const url = new URL(config.url!);
       const payload = JSON.stringify(notification ? { jsonrpc: '2.0', method, params } : { jsonrpc: '2.0', id: 1, method, params });
       const client = url.protocol === 'https:' ? https : http;
       const request = client.request(url, { method: 'POST', headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (response) => {
-        let body = '';
-        response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
+        let body = ''; let bodyBytes = 0; let oversized = false;
+        response.setEncoding('utf8'); response.on('data', (chunk) => {
+          if (oversized) return;
+          bodyBytes += Buffer.byteLength(chunk);
+          if (bodyBytes > 8 * 1024 * 1024) { oversized = true; response.destroy(new Error('MCP HTTP response exceeds 8 MB')); return; }
+          body += chunk;
+        });
+        response.on('error', reject);
         response.on('end', () => {
+          if (oversized) return;
           if (response.statusCode && response.statusCode >= 400) { reject(new Error(`HTTP ${response.statusCode}: ${body.slice(0, 300)}`)); return; }
           if (notification || !body.trim()) { resolve({}); return; }
           try {
@@ -208,8 +247,11 @@ export class McpManager {
           } catch { reject(new Error('HTTP MCP 返回了非 JSON 响应。')); }
         });
       });
+      const cleanup = () => signal?.removeEventListener('abort', abort);
+      const abort = () => request.destroy(signal?.reason instanceof Error ? signal.reason : new Error('MCP request cancelled.'));
+      signal?.addEventListener('abort', abort, { once: true });
       request.setTimeout(20_000, () => request.destroy(new Error(`MCP 请求超时：${method}`)));
-      request.on('error', reject); request.end(payload);
+      request.on('error', (error) => { cleanup(); reject(error); }); request.on('close', cleanup); request.end(payload);
     });
   }
 

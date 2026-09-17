@@ -35,6 +35,7 @@ const rendererActions = Object.freeze({
   startRename: (value) => startRename(value),
   deleteSession: (value) => deleteSession(value),
   archiveSession: (value) => setSessionArchived(value, true),
+  toggleSessionPin: (value) => toggleSessionPin(value),
   toggleToolBody: (value) => toggleToolBody(value),
   removeAttachment: (value) => removeAttachment(value),
   activateProfile: (value) => activateProfile(value),
@@ -177,6 +178,8 @@ let pendingCurrentSessionSync = false;
 // chat. Without this fence a slower earlier switch can repaint the new surface.
 let sessionViewEpoch = 0;
 let sessionCreateRequest = 0;
+let activatedSessionId = '';
+let sessionActivationQueue = Promise.resolve();
 
 // DOM Elements
 // The visible chat surface belongs only to the selected conversation. Other
@@ -700,7 +703,7 @@ const searchClear = document.getElementById('searchClear');
 const searchResults = document.getElementById('searchResults');
 
 function sessionVersion(session) {
-  return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}:${session?.archived === true}`;
+  return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}:${session?.archived === true}:${session?.pinned === true}:${Number(session?.pinnedAt) || 0}:${session?.projectRoot || ''}`;
 }
 
 function rememberSessionVersions(sessions) {
@@ -910,20 +913,58 @@ function renderSessionList() {
     return;
   }
 
-  sessionsList.innerHTML = visibleSessions.map(s => {
+  const groups = new Map();
+  for (const session of visibleSessions) {
+    const root = session.projectRoot || '';
+    const key = root.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { root, name: session.projectName || (root ? root.split(/[\\/]/).pop() : '无项目'), sessions: [] });
+    groups.get(key).sessions.push(session);
+  }
+  const currentKey = String(projectRoot || '').toLowerCase();
+  const orderedGroups = [...groups.values()].sort((a, b) => {
+    const aCurrent = a.root.toLowerCase() === currentKey ? 1 : 0;
+    const bCurrent = b.root.toLowerCase() === currentKey ? 1 : 0;
+    return bCurrent - aCurrent || String(a.name).localeCompare(String(b.name), 'zh-CN');
+  });
+  const renderItem = (s) => {
     const active = s.id === currentSessionId ? ' active' : '';
+    const pinned = s.pinned === true ? ' pinned' : '';
     const timeStr = formatTime(s.updated);
+    const pinLabel = s.pinned === true ? '取消置顶' : '置顶会话';
     return `
-      <div class="session-item${active}" data-id="${escapeHtml(s.id)}">
+      <div class="session-item${active}${pinned}" data-id="${escapeHtml(s.id)}">
         <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
           <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="点击重命名">${escapeHtml(s.title)}</span>
           <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
+        <button type="button" class="session-item-pin ui-icon-button" data-ui-action="toggleSessionPin" data-ui-arg="${escapeHtml(s.id)}" title="${pinLabel}" aria-label="${pinLabel}">${uiIcon('pin')}</button>
         <button type="button" class="session-item-archive ui-icon-button" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(s.id)}" title="存档会话" aria-label="存档会话">${uiIcon('archive')}</button>
         <button type="button" class="session-item-delete ui-icon-button" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除会话" aria-label="删除会话">${uiIcon('trash')}</button>
-      </div>
-    `;
+      </div>`;
+  };
+  sessionsList.innerHTML = orderedGroups.map(group => {
+    const sorted = [...group.sessions].sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || (Number(b.pinnedAt) || 0) - (Number(a.pinnedAt) || 0) || Number(b.updated) - Number(a.updated));
+    return `<section class="session-project-group" data-project-root="${escapeHtml(group.root)}">
+      <div class="session-project-heading" title="${escapeHtml(group.root || '未绑定项目')}">${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || '无项目')}</span><b>${sorted.length}</b></div>
+      <div class="session-project-items">${sorted.map(renderItem).join('')}</div>
+    </section>`;
   }).join('');
+}
+
+async function toggleSessionPin(sessionId) {
+  const session = sessionsCache.find(item => item.id === sessionId);
+  if (!session) return false;
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: session.pinned !== true }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '置顶操作失败');
+    const index = sessionsCache.findIndex(item => item.id === sessionId);
+    if (index >= 0) sessionsCache[index] = data.session;
+    renderSessionList();
+    return true;
+  } catch (error) { await window.IexaDialogs.alert(error.message || String(error)); return false; }
 }
 
 async function setSessionArchived(sessionId, archived) {
@@ -1018,6 +1059,7 @@ async function createSession() {
       snapshotActiveSessionRuntime(true);
       currentSessionId = data.session.id;
       visibleSessionId = currentSessionId;
+      activatedSessionId = currentSessionId;
       syncSubAgentView();
       sessionRuntimes.set(currentSessionId, { fragment: document.createDocumentFragment(), historyReady: true, isProcessing: false, currentToolBlocks: {}, promptQueue: [] });
       mountSessionRuntime(currentSessionId);
@@ -1031,6 +1073,28 @@ async function createSession() {
   } catch (err) {
     console.error('Failed to create session:', err);
   }
+}
+
+function applySessionProject(project) {
+  if (!project) return;
+  projectRoot = project.root || null;
+  projectName = project.name || null;
+  projectRecent = project.recent || projectRecent;
+  filesCurrentPath = '.'; filesLastSig = ''; gitStatusSignature = ''; gitLoadEpoch++;
+  if (projectRoot) loadFilesList('.', false); else showFilesEmpty(projectRecent);
+}
+
+function activateCachedSession(id) {
+  const run = async () => {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '切换会话失败');
+    if (visibleSessionId === id) { activatedSessionId = id; applySessionProject(data.project); }
+    return data;
+  };
+  const queued = sessionActivationQueue.then(run, run);
+  sessionActivationQueue = queued.catch(() => {});
+  return queued;
 }
 
 async function switchSession(id, updateList = true) {
@@ -1053,6 +1117,7 @@ async function switchSession(id, updateList = true) {
     scrollHistoryToLatest(id);
     syncActiveSessionUI();
     refreshModelSelector().catch(() => {});
+    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
   } else {
     chatMessages = visibleChatMessages;
     applySessionRuntime(id);
@@ -1069,9 +1134,11 @@ async function switchSession(id, updateList = true) {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`);
     if (!resp.ok) throw new Error(`History HTTP ${resp.status}`);
     const data = await resp.json();
+    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
     // A newer click selected another session while this request was in flight.
     // Do not append stale history into the current visible chat.
     if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) return;
+    applySessionProject(data.project);
     clearChat();
     targetRuntime.fragment.replaceChildren();
     targetRuntime.historyReady = true;
@@ -1200,17 +1267,7 @@ async function switchSession(id, updateList = true) {
   // The composer always describes the selected conversation's pinned route.
   refreshModelSelector().catch(() => {});
 
-  if (updateList) {
-    // Update active in store
-    try {
-      await fetch(`${API_BASE}/api/profiles`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activeSessionId: id }),
-      });
-    } catch { /* ignore - sessions store handles this separately */ }
-    renderSessionList();
-  }
+  if (updateList) renderSessionList();
 }
 
 async function deleteSession(id) {
@@ -6611,6 +6668,7 @@ async function loadProjectState() {
     } else {
       showFilesEmpty(projectRecent);
     }
+    renderSessionList();
   } catch {
     showFilesEmpty([]);
   }
@@ -6635,6 +6693,11 @@ async function openProjectPath(rootPath) {
     filesLastSig = '';
     closeFilePreview();
     await loadFilesList('.', false);
+    const projectSession = sessionsCache
+      .filter(session => session.archived !== true && String(session.projectRoot || '').toLowerCase() === String(projectRoot || '').toLowerCase())
+      .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
+    if (projectSession) await switchSession(projectSession.id);
+    else await createSession();
     if (workbenchView === 'git') loadGitWorkbench();
   } catch (err) {
     addError('打开项目失败：' + (err.message || err));
@@ -6669,6 +6732,10 @@ async function closeProject() {
   gitLoadEpoch++;
   switchWorkbenchView('files');
   await loadProjectState();
+  const unbound = sessionsCache
+    .filter(session => session.archived !== true && !session.projectRoot)
+    .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
+  if (unbound) await switchSession(unbound.id); else await createSession();
 }
 
 async function loadFilesList(relPath, silent) {
@@ -6900,7 +6967,6 @@ function initFilesPanel() {
     });
   }
 
-  loadProjectState();
   if (filesPollTimer) clearInterval(filesPollTimer);
   filesPollTimer = setInterval(() => {
     if (projectRoot) loadFilesList(filesCurrentPath, true);
@@ -7724,6 +7790,7 @@ async function init() {
   initMobileBridge();
   initTextContextMenu();
   initFilesPanel();
+  await loadProjectState();
   initTerminalPanel();
   initMcpPanel();
   initPluginPanel();

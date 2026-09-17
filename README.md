@@ -10,8 +10,9 @@
 
 本次修复说明见 [优化修复交付记录](docs/REMEDIATION_2026-09-13.md)，构建细节见 [可重复构建说明](docs/RENDERER_BUILD_REPRODUCIBILITY.md)。
 
-- 本地 API 使用受保护会话；浏览器启动链接含五分钟一次性登录码，Electron 自动建立 HttpOnly 会话。直接访问接口不再默认获得权限。
+- `start.bat` / `npm start` 仅监听本机回环地址并直接打开工作台，不再要求输入一次性登录码；Electron 仍自动建立 HttpOnly 会话，程序化 API 与测试服务器仍使用显式 Bearer/Cookie 身份。
 - 默认 HTTP 仅监听回环地址。手机桥接单独开启 HTTPS；首次连接需在手机端信任工作区导出的 `iexa-bridge-certificate.crt`，或用 `IEXA_TLS_CERT` / `IEXA_TLS_KEY` 指定受信任证书。
+- 每个项目可以拥有多个独立对话；对话持久绑定项目工作目录并支持项目内置顶，后台并发任务不会因切换项目而改变工具工作目录。
 - 工作区与选定项目是文件权限边界；任意 Shell 在 risk 模式下每次审批。明确启用 full 模式才开放工具全路径访问。
 - 模型密钥/WebDAV 密码迁移为 OS 加密的本地 vault；普通同步只同步允许的偏好设置，不再复制密钥、端点或权限配置。
 - Markdown 依赖随包提供，主动文件预览使用隔离策略；界面无需 CDN 脚本。

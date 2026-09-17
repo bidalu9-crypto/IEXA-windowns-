@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from 'fs';
 import * as path from 'path';
-import { IexaError, redactSecrets } from '../errors/IexaError';
+import { IexaError, redactSecretValues } from '../errors/IexaError';
 import { ToolDefinition, ToolRisk } from '../runtime/ToolRegistry';
 
 export interface PermissionRequest { sessionId: string; tool: ToolDefinition; args: Record<string, unknown>; signal?: AbortSignal; toolCallId?: string; runId?: string; onAwaitingApproval?: () => void; }
@@ -112,7 +112,7 @@ export class PermissionManager {
   private audit(request: PermissionRequest, decision: PermissionDecision): void {
     try {
       mkdirSync(this.auditDir, { recursive: true });
-      const args = JSON.parse(redactSecrets(JSON.stringify(request.args || {})));
+      const args = redactSecretValues(request.args || {}) as Record<string, unknown>;
       appendFileSync(path.join(this.auditDir, 'security-audit.jsonl'), JSON.stringify({ timestamp: Date.now(), sessionId: request.sessionId, tool: request.tool.name, risk: request.tool.risk, decision, path: typeof args.path === 'string' ? args.path : undefined, command: typeof args.command === 'string' ? args.command : undefined, args }) + '\n', 'utf8');
     } catch { /* Audit failures must not change the tool decision. */ }
   }

@@ -71,6 +71,7 @@ test('real browser: pending history, parallel streams and navigation keep sessio
   assert.equal(await evaluate("visibleChatMessages.textContent.includes('B delta 11')"),true);
   assert.equal(await evaluate("visibleChatMessages.textContent.includes('C background')"),false);
   await evaluate("void switchSession('A',false)");
+  await wait("visibleSessionId==='A' && isProcessing===true");
   assert.equal(await evaluate('isProcessing'),true);
   // A pending create must neither detach the current DOM nor steal a later selection.
   await evaluate(`window.fetch=(url,opts)=>String(url).endsWith('/api/sessions')&&opts?.method==='POST'?new Promise(resolve=>window.__resolveCreate=()=>resolve({json:async()=>({session:{id:'NEW'}})})):window.__realFetch(url,opts);void createSession()`);

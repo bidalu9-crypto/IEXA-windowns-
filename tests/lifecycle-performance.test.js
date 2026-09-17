@@ -387,6 +387,47 @@ test('terminal: prompt exit clears grace timers and failed spawn does not consum
   assert.equal(calls, 2); assert.deepEqual(failing.list(), []);
 });
 
+test('MCP: published input schema rejects malformed calls before transport', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-mcp-schema-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { McpManager } = require('../dist/main/mcp/McpManager'); const manager = new McpManager(path.join(root, 'mcp.json'));
+  const config = { id: 'fixture', name: 'fixture', transport: 'http', url: 'http://127.0.0.1:1', enabled: true };
+  manager.configs.set(config.id, config); manager.state.set(config.id, { status: 'connected', tools: [{ name: 'send', inputSchema: { type: 'object', properties: { count: { type: 'integer' }, mode: { type: 'string', enum: ['one'] } }, required: ['count'], additionalProperties: false } }], resources: [], logs: [] });
+  let requests = 0; manager.request = async () => { requests++; return {}; };
+  await assert.rejects(manager.callTool('fixture', 'send', { count: '1' }), /invalid type/);
+  await assert.rejects(manager.callTool('fixture', 'send', {}), /Missing required/);
+  await assert.rejects(manager.callTool('fixture', 'send', { count: 1, extra: true }), /Unknown MCP argument/);
+  await assert.rejects(manager.callTool('fixture', 'send', { count: 1, mode: 'two' }), /allowed enum/);
+  assert.equal(requests, 0);
+  await manager.callTool('fixture', 'send', { count: 1, mode: 'one' }); assert.equal(requests, 1);
+});
+
+test('MCP: stdio cancellation removes pending request immediately', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-mcp-cancel-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const { McpManager } = require('../dist/main/mcp/McpManager'); const manager = new McpManager(path.join(root, 'mcp.json'));
+  const writes = []; const child = { stdin: { writable: true, write: value => { writes.push(value); return true; } } };
+  const config = { id: 'fixture', name: 'fixture', transport: 'stdio', command: 'fixture', enabled: true };
+  manager.connections.set(config.id, { child, buffer: '', nextId: 1, pending: new Map() });
+  const controller = new AbortController(); const pending = manager.request(config, 'tools/call', {}, controller.signal);
+  assert.equal(manager.connections.get(config.id).pending.size, 1); controller.abort(new Error('cancel fixture'));
+  await assert.rejects(pending, /cancel fixture/); assert.equal(manager.connections.get(config.id).pending.size, 0); assert.equal(writes.length, 1);
+});
+
+test('MCP: HTTP response size is bounded before JSON parsing', async (t) => {
+  let response;
+  const request = new EventEmitter(); request.setTimeout = () => request; request.end = () => {
+    response = new EventEmitter(); response.statusCode = 200; response.setEncoding = () => {};
+    response.destroy = error => queueMicrotask(() => request.emit('error', error));
+    request.callback(response);
+    queueMicrotask(() => response.emit('data', 'x'.repeat(8 * 1024 * 1024 + 1)));
+  };
+  const transport = { request(_url, _options, callback) { request.callback = callback; return request; } };
+  const { McpManager } = loader({ http: transport, https: transport, child_process: { spawn() { throw new Error('No subprocess expected'); } } })('mcp/McpManager');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-mcp-http-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const manager = new McpManager(path.join(root, 'mcp.json'));
+  const config = { id: 'fixture', name: 'fixture', transport: 'http', url: 'http://127.0.0.1:1', enabled: true };
+  await assert.rejects(manager.httpRequest(config, 'tools/call', {}, false), /exceeds 8 MB/);
+});
+
 test('MCP: pending quota and synchronous stdin failure leave no dangling timers', async (t) => {
   const root = temporary(t); const child = childStub();
   const { McpManager } = loader({ child_process: { spawn: () => child } })('mcp/McpManager');

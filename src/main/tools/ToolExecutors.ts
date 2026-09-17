@@ -19,6 +19,13 @@ import { NetworkPolicy } from '../security/NetworkPolicy';
 
 export type ToolPathPolicy = Omit<PathPolicy, 'workspaceDir' | 'allowMissing'>;
 
+const normalizedPath = (value: string): string => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+const samePath = (left: string, right: string): boolean => normalizedPath(left) === normalizedPath(right);
+const isWithinRoot = (root: string, candidate: string): boolean => {
+  const relative = path.relative(normalizedPath(root), normalizedPath(candidate));
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+};
+
 const MEDIA_MIME: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
@@ -425,7 +432,9 @@ export class FileTools {
         if (!decoded) return { output: `Error: file appears to be binary: ${filePath}`, success: false };
         const content = decoded.text;
         const exactOldString = content.includes(oldString) ? oldString : adaptLineEndings(oldString, content);
-        const exactNewString = adaptLineEndings(newString, exactOldString);
+        // A multi-line anchor preserves its local style in mixed-EOL files;
+        // a single-line anchor inherits the surrounding file's line endings.
+        const exactNewString = adaptLineEndings(newString, /[\r\n]/.test(exactOldString) ? exactOldString : content);
 
       if (replaceAll) {
         if (!content.includes(exactOldString)) {
@@ -481,47 +490,83 @@ export class FileTools {
 // =============================================================================
 
 export class MemoryTools {
-  private memoryDir: string;
+  private readonly memoryDir: string;
   private readonly retriever: MemoryRetriever;
+  private writeQueue: Promise<void> = Promise.resolve();
+  private canonicalRoot?: string;
 
   constructor(memoryDir: string) {
-    this.memoryDir = memoryDir;
-    this.retriever = new MemoryRetriever(memoryDir);
+    this.memoryDir = path.resolve(memoryDir);
+    this.retriever = new MemoryRetriever(this.memoryDir);
+  }
+
+  private async verifyRoot(): Promise<string> {
+    await fs.mkdir(this.memoryDir, { recursive: true });
+    const stat = await fs.lstat(this.memoryDir);
+    if (stat.isSymbolicLink()) throw new Error('Memory directory must not be a symbolic link or junction.');
+    const real = await fs.realpath(this.memoryDir);
+    if (this.canonicalRoot && !samePath(real, this.canonicalRoot)) throw new Error('Memory directory identity changed after initialization.');
+    this.canonicalRoot ||= real;
+    return real;
+  }
+
+  private async verifyMemoryFiles(root: string): Promise<void> {
+    for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+      if (!entry.name.endsWith('.md')) continue;
+      const candidate = path.join(root, entry.name);
+      const stat = await fs.lstat(candidate);
+      if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Memory file must be a regular file: ${entry.name}`);
+      const real = await fs.realpath(candidate);
+      if (!isWithinRoot(root, real)) throw new Error(`Memory file resolved outside the memory directory: ${entry.name}`);
+    }
+  }
+
+  private withWriteLock<T>(action: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(action, action);
+    this.writeQueue = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   async initialize(): Promise<void> {
-    await fs.mkdir(this.memoryDir, { recursive: true });
+    const root = await this.verifyRoot();
+    await this.verifyMemoryFiles(root);
   }
 
   async writeMemory(content: string): Promise<ToolExecutionResult> {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const filePath = path.join(this.memoryDir, `${today}.md`);
-      const timestamp = new Date().toISOString();
-      const entry = `\n### ${timestamp}\n${content}\n`;
-
-      await fs.mkdir(this.memoryDir, { recursive: true });
-
-      let existing = '';
+    return this.withWriteLock(async () => {
       try {
-        existing = await fs.readFile(filePath, 'utf-8');
-      } catch {
-        existing = `# Memory Log - ${today}\n`;
+        const root = await this.verifyRoot();
+        await this.verifyMemoryFiles(root);
+        const today = new Date().toISOString().split('T')[0];
+        const filePath = path.join(root, `${today}.md`);
+        const timestamp = new Date().toISOString();
+        const entry = `\n### ${timestamp}\n${content}\n`;
+        let exists = false;
+        try {
+          const stat = await fs.lstat(filePath);
+          if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Memory log must be a regular file.');
+          exists = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+        if (!exists) await fs.writeFile(filePath, `# Memory Log - ${today}\n`, { encoding: 'utf8', flag: 'wx' });
+        const rootAfterCreate = await this.verifyRoot();
+        if (!samePath(rootAfterCreate, root)) throw new Error('Memory directory changed during write.');
+        const stat = await fs.lstat(filePath);
+        if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Memory log must be a regular file.');
+        await fs.appendFile(filePath, entry, { encoding: 'utf8', flag: 'a' });
+        return { output: `Memory saved to ${today}.md`, success: true };
+      } catch (err: unknown) {
+        const error = err as Error;
+        return { output: `Error writing memory: ${error.message}`, success: false };
       }
-
-      await fs.writeFile(filePath, existing + entry, 'utf-8');
-      return {
-        output: `Memory saved to ${today}.md`,
-        success: true,
-      };
-    } catch (err: unknown) {
-      const error = err as Error;
-      return { output: `Error writing memory: ${error.message}`, success: false };
-    }
+    });
   }
 
   async getMemory(keywords: string = '', limit: number = 20): Promise<ToolExecutionResult> {
     try {
+      const root = await this.verifyRoot();
+      await this.verifyMemoryFiles(root);
       const results = await this.retriever.search(keywords, { limit });
       if (results.length === 0) {
         return {
@@ -583,14 +628,14 @@ export class WebSearch {
     while (results.length < limit && (match = selector.exec(html))) {
       const url = this.clean(match[1]); if (!/^https?:\/\//i.test(url)) continue;
       let title = this.clean(match[2]), snippet = this.clean(match[3] || '');
-      try { const parsed = new URL(url); results.push({ title: title.slice(0, 240) || parsed.hostname, url, domain: parsed.hostname, snippet: snippet.slice(0, 600) }); } catch {}
+      try { const parsed = new URL(url); if (parsed.username || parsed.password || !['http:', 'https:'].includes(parsed.protocol)) continue; results.push({ title: title.slice(0, 240) || parsed.hostname, url: parsed.toString(), domain: parsed.hostname, snippet: snippet.slice(0, 600) }); } catch {}
     }
     return results;
   }
   private parseBingRss(xml: string, limit: number) {
     const results = []; let match: RegExpExecArray | null;
     const re = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>[\s\S]*?<link>(https?:\/\/[^<]+)<\/link>[\s\S]*?<description>([\s\S]*?)<\/description>[\s\S]*?<\/item>/gi;
-    while (results.length < limit && (match = re.exec(xml))) { const url = this.clean(match[2]); try { const parsed = new URL(url); results.push({ title: this.clean(match[1]).slice(0, 240), url, domain: parsed.hostname, snippet: this.clean(match[3]).slice(0, 600) }); } catch {} }
+    while (results.length < limit && (match = re.exec(xml))) { const url = this.clean(match[2]); try { const parsed = new URL(url); if (parsed.username || parsed.password || !['http:', 'https:'].includes(parsed.protocol)) continue; results.push({ title: this.clean(match[1]).slice(0, 240), url: parsed.toString(), domain: parsed.hostname, snippet: this.clean(match[3]).slice(0, 600) }); } catch {} }
     return results;
   }
   private parseBing(html: string, limit: number) { return this.parseLinks(html, /<li class="b_algo"[\s\S]*?<h2><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>[\s\S]*?<p>([\s\S]*?)<\/p>/gi, limit); }

@@ -78,4 +78,9 @@ test('sync preserves archive metadata and accepts legacy indexes while rejecting
   assert.equal(JSON.parse(sanitizeSyncContent('sessions_index', content(session))).sessions[0].archived, undefined);
   for (const archived of [true, false]) assert.equal(JSON.parse(sanitizeSyncContent('sessions_index', content({ ...session, archived }))).sessions[0].archived, archived);
   for (const archived of ['false', 1, null, {}]) assert.throws(() => sanitizeSyncContent('sessions_index', content({ ...session, archived })));
+  const grouped = { ...session, pinned: true, pinnedAt: 9, projectRoot: 'C:\\fixture', projectName: 'fixture' };
+  assert.deepEqual(JSON.parse(sanitizeSyncContent('sessions_index', content(grouped))).sessions[0], grouped);
+  for (const invalid of [{ pinned: 'true' }, { pinnedAt: -1 }, { pinnedAt: '9' }, { projectRoot: 'bad\nroot' }, { projectName: null }]) {
+    assert.throws(() => sanitizeSyncContent('sessions_index', content({ ...session, ...invalid })));
+  }
 });

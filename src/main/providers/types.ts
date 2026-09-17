@@ -18,6 +18,8 @@ export interface AgentToolParam {
   type: 'string' | 'integer' | 'boolean' | 'array' | 'object';
   description: string;
   enumValues?: string[];
+  minimum?: number;
+  maximum?: number;
   items?: AgentToolParam;
   properties?: Record<string, AgentToolParam>;
   required?: string[];
@@ -28,6 +30,8 @@ export function toolParamSchema(param: AgentToolParam): Record<string, unknown> 
     type: param.type,
     description: param.description,
     ...(param.enumValues ? { enum: param.enumValues } : {}),
+    ...(param.minimum !== undefined ? { minimum: param.minimum } : {}),
+    ...(param.maximum !== undefined ? { maximum: param.maximum } : {}),
     ...(param.items ? { items: toolParamSchema(param.items) } : {}),
     ...(param.properties ? { properties: Object.fromEntries(Object.entries(param.properties).map(([key, value]) => [key, toolParamSchema(value)])) } : {}),
     ...(param.required ? { required: param.required } : {}),

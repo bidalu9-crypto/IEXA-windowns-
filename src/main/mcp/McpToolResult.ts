@@ -2,6 +2,8 @@ import type { ToolExecutionResult } from '../providers/types';
 
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_IMAGES = 8;
+const MAX_TEXT_BYTES = 1024 * 1024;
+const MAX_STRUCTURED_BYTES = 1024 * 1024;
 type JsonObject = Record<string, unknown>;
 function object(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -18,14 +20,19 @@ export function normalizeMcpToolResult(value: unknown): ToolExecutionResult {
   const text: string[] = [];
   const problems: string[] = [];
   const images: NonNullable<ToolExecutionResult['images']> = [];
-  let retainedBytes = 0;
+  let retainedBytes = 0; let textBytes = 0;
+  const appendText = (value: string, label: string): void => {
+    const bytes = Buffer.byteLength(value);
+    if (textBytes + bytes > MAX_TEXT_BYTES) { problems.push(`${label} exceeds the 1 MB text limit`); return; }
+    textBytes += bytes; text.push(value);
+  };
   if (value.isError !== undefined && typeof value.isError !== 'boolean') problems.push('isError must be a boolean');
   if (value.content !== undefined && !Array.isArray(value.content)) problems.push('content must be an array');
   for (const item of Array.isArray(value.content) ? value.content : []) {
     if (!object(item)) { problems.push('invalid content block'); continue; }
     switch (item.type) {
       case 'text':
-        if (typeof item.text === 'string') text.push(item.text);
+        if (typeof item.text === 'string') appendText(item.text, 'text content');
         else problems.push('text block has no text');
         break;
       case 'image': {
@@ -68,8 +75,13 @@ export function normalizeMcpToolResult(value: unknown): ToolExecutionResult {
     }
   }
   if (value.structuredContent !== undefined) {
-    if (object(value.structuredContent)) text.push(`[MCP structured result]\n${JSON.stringify(value.structuredContent, null, 2)}`);
-    else problems.push('structuredContent must be an object');
+    if (object(value.structuredContent)) {
+      try {
+        const structured = JSON.stringify(value.structuredContent, null, 2);
+        if (Buffer.byteLength(structured) > MAX_STRUCTURED_BYTES) problems.push('structuredContent exceeds the 1 MB limit');
+        else appendText(`[MCP structured result]\n${structured}`, 'structuredContent');
+      } catch { problems.push('structuredContent is not JSON serializable'); }
+    } else problems.push('structuredContent must be an object');
   }
   // A failed invocation may still include the screenshot needed to diagnose it.
   if (value.isError === true) text.unshift('[MCP tool reported an error; action effects are not inferred from this status.]');

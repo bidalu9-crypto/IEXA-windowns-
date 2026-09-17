@@ -34,6 +34,16 @@ test('MCP image validation rejects external URLs, invalid base64, misleading MIM
 test('MCP multiple images have a bounded count and omitted data is explicit failure', () => {
   const r = normalize({content:Array(9).fill(image)}); assert.equal(r.images.length,8);assert.equal(r.success,false);assert.match(r.output,/more than 8/);
 });
+test('MCP text and structured results are bounded and circular data fails explicitly', () => {
+  const hugeText = normalize({ content: [{ type: 'text', text: 'x'.repeat(1024 * 1024 + 1) }] });
+  assert.equal(hugeText.success, false); assert.match(hugeText.output, /1 MB text limit/); assert.ok(hugeText.output.length < 2000);
+  const hugeStructured = normalize({ structuredContent: { value: 'x'.repeat(1024 * 1024 + 1) } });
+  assert.equal(hugeStructured.success, false); assert.match(hugeStructured.output, /1 MB limit/); assert.ok(hugeStructured.output.length < 2000);
+  const circular = {}; circular.self = circular;
+  const circularResult = normalize({ structuredContent: circular });
+  assert.equal(circularResult.success, false); assert.match(circularResult.output, /not JSON serializable/);
+});
+
 test('MCP resource links stay references; unknown/binary blocks are not silently thrown away', () => {
   const r=normalize({content:[{type:'resource',resource:{uri:'test://note',text:'note'}},{type:'resource_link',name:'doc',uri:'https://example.invalid/doc'}]});
   assert.equal(r.success,true);assert.match(r.output,/note/);assert.match(r.output,/example.invalid/);

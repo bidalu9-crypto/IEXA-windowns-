@@ -77,11 +77,18 @@ test('real server chat uses saved scope; next turn refreshes cached agent and ca
   const lastCall = calls.filter(call => call.stream).at(-1);
   assert.equal(JSON.parse(preview.text).systemPrompt, lastCall.messages[0].content.replaceAll('FIXTURE-PRIVATE-KEY', '[REDACTED]'));
   await api(route, 'DELETE'); assert.equal((await api(route)).preview, null);
-  // Changing the project never inherits the prior project's range.
+  // Changing the global project only changes the default for new conversations.
+  // This existing conversation stays bound to project A and keeps its own scope.
   await api('/api/project', 'POST', { root: b });
   await api(route, 'POST'); await chat(session.id);
   const nextPrompt = JSON.parse((await api(route)).preview.text).systemPrompt;
-  assert.doesNotMatch(nextPrompt, /<project-test-scope>/);
+  assert.match(nextPrompt, /UPDATED_SCOPE_MARKER/);
+  const { session: projectBSession } = await api('/api/sessions', 'POST', {});
+  const projectBRoute = '/api/prompt-preview?sessionId=' + projectBSession.id;
+  await api(projectBRoute, 'POST'); await chat(projectBSession.id);
+  const projectBPrompt = JSON.parse((await api(projectBRoute)).preview.text).systemPrompt;
+  assert.doesNotMatch(projectBPrompt, /<project-test-scope>/);
+  await api(projectBRoute, 'DELETE');
   await api(route, 'DELETE');
 });
 test('actual settings UI persists explicit scope, keeps failed drafts and renders preview as text', async t => {

@@ -54,9 +54,25 @@ export class ToolRuntime {
   isParallelSafe(name: string): boolean { return this.registry.get(name)?.parallelSafe === true; }
   definitions(): AgentToolDefinition[] { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
   async execute(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    // Validate before fingerprinting/caching so malformed optional values cannot
+    // collapse to the same JSON fingerprint as an omitted, valid argument.
+    try { this.registry.validate(name, args); }
+    catch (error) { return { output: (error as Error).message || 'Invalid tool arguments.', success: false, executionStatus: 'failed' }; }
     // Retransmission of the same call ID must not execute a write/command twice.
-    const fingerprint = JSON.stringify([name, args], (_key, value) => value && typeof value === 'object' && !Array.isArray(value)
-      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value);
+    // Clone separately from the canonical fingerprint: JSON round-tripping used to
+    // silently turn NaN/Infinity into null before schema validation.
+    let snapshot: Record<string, unknown>;
+    let fingerprint: string;
+    try {
+      snapshot = structuredClone(args);
+      fingerprint = JSON.stringify([name, snapshot], (_key, value) => {
+        if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Tool arguments must contain only finite numbers.');
+        return value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value;
+      });
+    } catch (error) {
+      return { output: `Invalid tool arguments: ${(error as Error).message}`, success: false, executionStatus: 'failed' };
+    }
     const key = JSON.stringify([context.sessionId, context.toolCallId]);
     const existing = this.executions.get(key);
     if (existing) {
@@ -65,7 +81,6 @@ export class ToolRuntime {
     }
     if (this.executions.size >= 4096) return { output: 'Tool execution ledger limit reached.', success: false, executionStatus: 'failed' };
     this.activeExecutions++;
-    const snapshot = JSON.parse(fingerprint)[1] as Record<string, unknown>;
     const result = Promise.resolve().then(() => this.executeOnce(name, snapshot, context)).finally(() => { this.activeExecutions--; });
     this.executions.set(key, { fingerprint, result });
     return result;
@@ -86,7 +101,7 @@ export class ToolRuntime {
     try {
       if (context.signal.aborted) throw new Error('Tool cancelled before execution.');
       if (this.allowedTools && !this.allowedTools.has(name)) throw new Error(`Tool ${name} is not available for this client permission level.`);
-      this.registry.validate(name, args); this.loopDetector.record(name, args);
+      this.loopDetector.record(name, args);
       const tool = this.registry.get(name)!;
       const authorizedTool = name === 'shell_execute'
         ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }

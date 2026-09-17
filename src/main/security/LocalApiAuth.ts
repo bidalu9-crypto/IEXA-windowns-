@@ -24,6 +24,7 @@ export class LocalApiAuth {
   readonly token = crypto.randomBytes(32).toString('base64url');
   private bootstrap = new Map<string, number>();
   private attempts = new Map<string, { count: number; at: number }>();
+  constructor(private readonly trustLoopback = false) {}
   validateRequest(req: http.IncomingMessage, opaqueAssetRead = false): void {
     const host = String(req.headers.host || '');
     let url: URL;
@@ -39,6 +40,7 @@ export class LocalApiAuth {
   }
   authenticated(req: http.IncomingMessage): boolean {
     if (!isLoopback(req) || isTLS(req)) return false;
+    if (this.trustLoopback) return true;
     const bearer = String(req.headers.authorization || '');
     return equal(readCookie(req, `${DESKTOP_COOKIE}_${req.socket.localPort}`), this.token) || equal(bearer, `Bearer ${this.token}`);
   }

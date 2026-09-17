@@ -82,6 +82,14 @@ test('auth: startup begins anonymous; creating a bootstrap does not authenticate
   assert.equal(auth.authenticated(req), false, 'bootstrap consumption alone does not inject a request identity');
 });
 
+test('auth: explicit trustLoopback only authenticates real loopback non-TLS requests', () => {
+  const trusted = new LocalApiAuth(true);
+  assert.equal(trusted.authenticated(request()), true);
+  assert.equal(trusted.authenticated(request({ socket: { remoteAddress: '::1' } })), true);
+  assert.equal(trusted.authenticated(request({ socket: { remoteAddress: '192.168.1.42' } })), false);
+  assert.equal(trusted.authenticated(request({ socket: { encrypted: true } })), false);
+});
+
 test('auth: desktop credential and bootstrap are rejected on TLS, including loopback TLS', () => {
   const auth = new LocalApiAuth(); const bootstrap = auth.createBootstrap();
   for (const remoteAddress of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '192.168.1.42']) {

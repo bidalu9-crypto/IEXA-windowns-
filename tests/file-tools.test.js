@@ -51,6 +51,17 @@ test('file_edit accepts displayed LF text for CRLF files and preserves file line
   assert.equal(fs.readFileSync(mixed, 'utf8'), 'a\r\nx\ny');
 });
 
+test('file_edit uses the file EOL when a single-line anchor inserts multiple lines', async (t) => {
+  const { root, tools } = fixture(t);
+  const target = path.join(root, 'crlf-anchor.txt');
+  fs.writeFileSync(target, 'top\r\nTARGET\r\nbottom\r\n');
+  const result = await tools.editFile('crlf-anchor.txt', 'TARGET', 'new\nvalue', root);
+  assert.equal(result.success, true, result.output);
+  const content = fs.readFileSync(target, 'utf8');
+  assert.equal(content, 'top\r\nnew\r\nvalue\r\nbottom\r\n');
+  assert.equal(/(^|[^\r])\n/.test(content), false);
+});
+
 test('append and edit preserve UTF-16/GB18030 encodings and produce byte-exact undo hashes', async (t) => {
   const { root, tools } = fixture(t);
   const utf16Path = path.join(root, 'utf16.txt');

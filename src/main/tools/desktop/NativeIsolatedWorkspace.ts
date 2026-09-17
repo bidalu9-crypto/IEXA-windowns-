@@ -28,7 +28,12 @@ export class NativeIsolatedWorkspace {
       if (this.child?.exitCode !== null || this.child?.signalCode !== null) throw new Error('Isolated worker host exited; previous app state may be lost.');
       return this.ready;
     }
-    this.pending ??= this.start(signal).catch(error => { this.failed = true; this.close(); throw error; });
+    this.pending ??= this.start(signal).catch(error => {
+      const cancelled = signal?.aborted === true;
+      this.cleanupAttempt();
+      if (!cancelled) this.failed = true;
+      throw error;
+    }).finally(() => { this.pending = undefined; });
     return this.pending;
   }
   private executable(): string {
@@ -86,6 +91,14 @@ export class NativeIsolatedWorkspace {
       await new Promise(resolve=>setTimeout(resolve,100));
     }
     throw new Error(`Isolated worker did not become ready. See ${this.directory}`);
+  }
+  private cleanupAttempt(): void {
+    liveWorkspaces.delete(this);
+    const directory = this.directory; const child = this.child;
+    try { if (directory) fs.writeFileSync(path.join(directory, 'stop'), ''); } catch {}
+    if (child && child.exitCode === null && child.signalCode === null) child.kill();
+    this.child = undefined; this.ready = undefined; this.directory = undefined;
+    if (directory) { try { fs.rmSync(directory, { recursive: true, force: true }); } catch {} }
   }
   async operatorControl(operation: 'pause' | 'resume', signal?: AbortSignal) {
     const info=this.ready;

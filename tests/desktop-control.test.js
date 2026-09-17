@@ -64,6 +64,26 @@ test('input requires owner snapshot and semantic click has full ordered post-ver
  assert.equal(f.calls.find(c => c.action === 'click_element').elementId, 'save');
  assert.equal(JSON.parse(result.output).data.postObservation.observationToken, 't2');
 });
+test('forcePointer requires one matching UIA no-effect result and fresh observation', async () => {
+ const f = fixture({ transport: async args => args.action === 'click_element'
+  ? { output: JSON.stringify({ ok: true, action: args.action, data: { method: 'InvokePattern', automation: { success: true }, effectObserved: false, foregroundVerified: true } }), success: true }
+  : undefined });
+ await f.run({ action: 'observe' });
+ const rejected = await f.run({ action: 'click', target: { name: 'Save' }, forcePointer: true });
+ assert.equal(rejected.success, false); assert.match(rejected.output, /prior UIA click/);
+ assert.equal(f.calls.filter(call => call.action === 'click_element').length, 0);
+ await f.run({ action: 'observe' });
+ const semantic = await f.run({ action: 'click', target: { name: 'Save' } });
+ assert.equal(semantic.success, true, semantic.output);
+ const forced = await f.run({ action: 'click', target: { name: 'Save' }, forcePointer: true });
+ assert.equal(forced.success, true, forced.output);
+ const clicks = f.calls.filter(call => call.action === 'click_element');
+ assert.equal(clicks.length, 2); assert.notEqual(clicks[0].forcePointer, true); assert.equal(clicks[1].forcePointer, true);
+ const replay = await f.run({ action: 'click', target: { name: 'Save' }, forcePointer: true });
+ assert.equal(replay.success, false); assert.match(replay.output, /prior UIA click/);
+ assert.equal(f.calls.filter(call => call.action === 'click_element').length, 2);
+});
+
 test('focus takeover, owner handoff and stale tokens never issue input', async () => {
  const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
  const takeover = await f.run({ action: 'type', text: 'secret' }); assert.equal(takeover.metadata.desktop.userTakeover, true);
@@ -84,6 +104,18 @@ test('post-action observation is not falsely labeled business success; mismatch 
 test('managed batch validates all action types before dispatch and resolves each step freshly', async () => {
  const f = fixture(); await f.run({ action: 'observe' });
  const bad = await f.run({ action: 'batch', actions: [{ action: 'click' }, { action: 'launch' }] }); assert.equal(bad.success, false); assert.equal(f.calls.some(c => c.action === 'click'), false);
+ const malformed = [
+  { action: 'click_element' },
+  { action: 'type' },
+  { action: 'hotkey', keys: [] },
+  { action: 'drag', relativeX: 1, relativeY: 1 },
+ ];
+ for (const invalid of malformed) {
+  const before = f.calls.length;
+  const result = await f.run({ action: 'batch', actions: [{ action: 'click', target: { name: 'Save' } }, invalid] });
+  assert.equal(result.success, false); assert.equal(f.calls.length, before, `${invalid.action} validation dispatched transport`);
+  assert.equal(result.metadata.desktop.dispatchedActions, 0);
+ }
  await f.run({ action: 'observe' });
  const good = await f.run({ action: 'batch', actions: [{ action: 'click', target: { name: 'Save' } }, { action: 'click', target: { name: 'Save' } }], verifyText: 'Save' });
  assert.equal(good.success, true); assert.equal(good.metadata.desktop.verified, true);

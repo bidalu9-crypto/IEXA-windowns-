@@ -107,6 +107,10 @@ export function sanitizeSyncContent(key: string, text: string): string {
       if (!isObject(item) || typeof item.title !== 'string' || item.title.length > 4096 ||
           ![item.created, item.updated, item.messageCount].every(n => typeof n === 'number' && Number.isFinite(n) && n >= 0)) throw invalid();
       if (item.archived !== undefined && typeof item.archived !== 'boolean') throw invalid();
+      if (item.pinned !== undefined && typeof item.pinned !== 'boolean') throw invalid();
+      if (item.pinnedAt !== undefined && (typeof item.pinnedAt !== 'number' || !Number.isFinite(item.pinnedAt) || item.pinnedAt < 0)) throw invalid();
+      if (item.projectRoot !== undefined && (typeof item.projectRoot !== 'string' || item.projectRoot.length > 32767 || /[\0\r\n]/.test(item.projectRoot))) throw invalid();
+      if (item.projectName !== undefined && (typeof item.projectName !== 'string' || item.projectName.length > 512 || /[\0\r\n]/.test(item.projectName))) throw invalid();
       assertRemoteBasename(item.id);
       if (ids.has(item.id)) throw invalid();
       ids.add(item.id);
