@@ -176,6 +176,7 @@ let pendingCurrentSessionSync = false;
 // Ignore late /api/sessions/:id responses after the user has selected another
 // chat. Without this fence a slower earlier switch can repaint the new surface.
 let sessionViewEpoch = 0;
+let sessionCreateRequest = 0;
 
 // DOM Elements
 // The visible chat surface belongs only to the selected conversation. Other
@@ -205,7 +206,7 @@ const LIVE_TURN_DOM_OWNERSHIP_MS = 5000;
 function runtimeForSession(sessionId) {
   let runtime = sessionRuntimes.get(sessionId);
   if (!runtime) {
-    runtime = { fragment: document.createDocumentFragment() };
+    runtime = { fragment: document.createDocumentFragment(), historyReady: false };
     sessionRuntimes.set(sessionId, runtime);
   }
   return runtime;
@@ -213,6 +214,7 @@ function runtimeForSession(sessionId) {
 
 function protectLiveTurnDom(sessionId = currentSessionId) {
   if (!sessionId) return;
+  runtimeForSession(sessionId).historyReady = true;
   runtimeForSession(sessionId).liveTurnDomOwnedUntil = Date.now() + LIVE_TURN_DOM_OWNERSHIP_MS;
 }
 
@@ -393,15 +395,18 @@ function restoreVisibleSessionRuntime(sessionId) {
 function withSessionRuntime(sessionId, work) {
   if (!sessionId || sessionId === currentSessionId) return work();
   const previousVisibleSessionId = currentSessionId;
+  const previousSurface = chatMessages;
   snapshotActiveSessionRuntime();
   currentSessionId = sessionId;
   const runtime = runtimeForSession(sessionId);
-  chatMessages = runtime.fragment;
+  chatMessages = sessionId === visibleSessionId ? visibleChatMessages : runtime.fragment;
   applySessionRuntime(sessionId);
   try { return work(); }
   finally {
     snapshotActiveSessionRuntime();
-    restoreVisibleSessionRuntime(previousVisibleSessionId);
+    currentSessionId = previousVisibleSessionId;
+    chatMessages = previousSurface;
+    applySessionRuntime(previousVisibleSessionId);
     // The visible session's controls were never touched while the background
     // fragment updated. Avoid rebuilding the composer/sidebar for every SSE
     // delta, which steals focus and makes concurrent chats visibly jump.
@@ -833,7 +838,10 @@ function applyMirroredStreamEvent(payload) {
   if (event === 'turn_started') {
     beginMirroredTurn(sessionId);
     const level = normalizeThinkingLevel(payload.data?.thinkingLevel || currentThinkingLevel);
-    if (currentAssistantMsg) currentAssistantMsg.dataset.thinkingLevel = level;
+    if (currentAssistantMsg) {
+      currentAssistantMsg.dataset.thinkingLevel = level;
+      if (typeof payload.data?.transcriptTurnId === 'string') currentAssistantMsg.dataset.transcriptTurnId = payload.data.transcriptTurnId;
+    }
     return;
   }
   const runtime = sessionRuntimes.get(sessionId);
@@ -911,8 +919,8 @@ function renderSessionList() {
           <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="点击重命名">${escapeHtml(s.title)}</span>
           <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
-        <button type="button" class="session-item-archive" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(s.id)}" title="存档会话" aria-label="存档会话">${uiIcon('archive')}</button>
-        <button class="session-item-delete" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除">×</button>
+        <button type="button" class="session-item-archive ui-icon-button" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(s.id)}" title="存档会话" aria-label="存档会话">${uiIcon('archive')}</button>
+        <button type="button" class="session-item-delete ui-icon-button" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除会话" aria-label="删除会话">${uiIcon('trash')}</button>
       </div>
     `;
   }).join('');
@@ -1000,14 +1008,18 @@ function formatMessageTimestamp(ts) {
 async function createSession() {
   try {
     // A new session must not cancel a different session running in background.
-    snapshotActiveSessionRuntime(true);
+    const createEpoch = sessionViewEpoch;
+    const createRequest = ++sessionCreateRequest;
     const resp = await fetch(`${API_BASE}/api/sessions`, { method: 'POST' });
     const data = await resp.json();
     if (data.session) {
+      if (createEpoch !== sessionViewEpoch || createRequest !== sessionCreateRequest) { await loadSessionList(); return; }
+      ++sessionViewEpoch;
+      snapshotActiveSessionRuntime(true);
       currentSessionId = data.session.id;
       visibleSessionId = currentSessionId;
       syncSubAgentView();
-      sessionRuntimes.set(currentSessionId, { fragment: document.createDocumentFragment(), isProcessing: false, currentToolBlocks: {}, promptQueue: [] });
+      sessionRuntimes.set(currentSessionId, { fragment: document.createDocumentFragment(), historyReady: true, isProcessing: false, currentToolBlocks: {}, promptQueue: [] });
       mountSessionRuntime(currentSessionId);
       clearChat();
       showWelcome();
@@ -1022,7 +1034,7 @@ async function createSession() {
 }
 
 async function switchSession(id, updateList = true) {
-  if (!id || id === currentSessionId) return;
+  if (!id || (id === visibleSessionId && sessionRuntimes.get(id)?.historyReady)) return;
   const viewEpoch = ++sessionViewEpoch;
   // Switching only changes the visible surface. Background SSE streams continue.
   snapshotActiveSessionRuntime(true);
@@ -1035,22 +1047,34 @@ async function switchSession(id, updateList = true) {
   currentSessionId = id;
   visibleSessionId = id;
   syncSubAgentView();
-  if (sessionRuntimes.has(id)) {
+  const targetRuntime = runtimeForSession(id);
+  if (targetRuntime.historyReady || targetRuntime.isProcessing) {
     mountSessionRuntime(id);
     scrollHistoryToLatest(id);
     syncActiveSessionUI();
     refreshModelSelector().catch(() => {});
   } else {
+    chatMessages = visibleChatMessages;
+    applySessionRuntime(id);
     clearChat();
+    const loading = document.createElement('div');
+    loading.className = 'history-loading';
+    loading.setAttribute('role', 'status');
+    loading.textContent = '正在加载对话…';
+    chatMessages.appendChild(loading);
     setProcessing(false);
 
   // Load messages
   try {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`);
+    if (!resp.ok) throw new Error(`History HTTP ${resp.status}`);
     const data = await resp.json();
     // A newer click selected another session while this request was in flight.
     // Do not append stale history into the current visible chat.
-    if (viewEpoch !== sessionViewEpoch || currentSessionId !== id) return;
+    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) return;
+    clearChat();
+    targetRuntime.fragment.replaceChildren();
+    targetRuntime.historyReady = true;
     const msgs = data.messages || [];
 
     // Refresh this session's pinned model metadata from the server.
@@ -1143,7 +1167,10 @@ async function switchSession(id, updateList = true) {
           restoreTranscriptOrder(el, msg);
           const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
           if (todoPlan) renderTodoPlan(el, todoPlan);
-          if (msg.deliverables) renderDeliverables(el, msg.deliverables);
+          el.dataset.transcriptTurnId = msg.transcript?.turnId || '';
+          el._fileUndoPaths = msg.fileUndo?.paths || [];
+          const recordedChanges = (msg.toolCalls || []).filter(call => call.result?.success && call.result.fileChange).map(call => call.result.fileChange);
+          if (recordedChanges.length || msg.deliverables) renderDeliverables(el, recordedChanges.length ? recordedChanges : msg.deliverables);
           // Render usage if present
           if (msg.usage) {
             const usageEl = document.createElement('div');
@@ -1158,7 +1185,13 @@ async function switchSession(id, updateList = true) {
     }
   } catch (err) {
     console.error('Failed to load messages:', err);
-    showWelcome();
+    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) return;
+    chatMessages.replaceChildren();
+    const retry = document.createElement('button');
+    retry.className = 'history-loading';
+    retry.textContent = '对话加载失败，点击重试';
+    retry.addEventListener('click', () => switchSession(id));
+    chatMessages.appendChild(retry);
   }
   snapshotActiveSessionRuntime();
   scrollHistoryToLatest(id);
@@ -1272,7 +1305,7 @@ function startRename(sessionId) {
 }
 
 function clearChat() {
-  chatMessages.innerHTML = '';
+  chatMessages.replaceChildren();
   isNearChatBottom = true;
   updateScrollToBottomButton();
   currentAssistantMsg = null;
@@ -1283,7 +1316,8 @@ function clearChat() {
 }
 
 function showWelcome() {
-  chatMessages.innerHTML = `
+  const template = document.createElement('template');
+  template.innerHTML = `
     <div class="welcome">
       <div class="welcome-icon">${uiIcon('brain')}</div>
       <h2>今天想构建什么？</h2>
@@ -1295,6 +1329,7 @@ function showWelcome() {
       </div>
     </div>
   `;
+  chatMessages.replaceChildren(template.content);
 }
 
 // Event: New session button
@@ -1646,7 +1681,7 @@ function renderAttachPreview() {
       <div class="attach-chip" data-id="${a.id}">
         ${thumb}
         <span class="attach-chip-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
-        <button type="button" class="attach-chip-remove" data-ui-action="removeAttachment" data-ui-arg="${escapeHtml(a.id)}" title="移除">×</button>
+        <button type="button" class="attach-chip-remove" data-ui-action="removeAttachment" data-ui-arg="${escapeHtml(a.id)}" title="移除附件" aria-label="移除附件">${uiIcon('close')}</button>
       </div>
     `;
   }).join('');
@@ -3260,49 +3295,85 @@ function latestTodoPlanFromCalls(calls) {
 }
 function renderDeliverables(messageEl, files) {
   if (!messageEl || !Array.isArray(files)) return;
-  const unique = files.filter((file, index) => file?.path && files.findIndex((item) => (item?.absolutePath || item?.path) === (file.absolutePath || file.path)) === index);
+  const unique = window.IexaFileChanges.group(files);
   let panel = messageEl.querySelector('.turn-deliverables');
-  if (!unique.length) { if (panel) panel.remove(); return; }
+  if (!unique.length) { panel?.remove(); return; }
   if (!panel) {
     panel = document.createElement('section');
     panel.className = 'turn-deliverables';
     const footer = assistantFooterAnchor(messageEl);
     if (footer) messageEl.insertBefore(panel, footer); else messageEl.appendChild(panel);
   }
-  panel.innerHTML = '';
+  const sessionId = messageEl.dataset.liveSessionId || currentSessionId;
+  const turnId = messageEl.dataset.transcriptTurnId;
+  panel.replaceChildren();
+  panel.setAttribute('aria-label', '本轮文件修改');
+  const totals = unique.reduce((sum, file) => ({added: sum.added + (Number(file.added) || 0), removed: sum.removed + (Number(file.removed) || 0)}), {added:0, removed:0});
+  const counts = file => `<span class="diff-add">+${Number(file.added) || 0}</span><span class="diff-del">−${Number(file.removed) || 0}</span>`;
   const heading = document.createElement('div');
   heading.className = 'turn-deliverables-heading';
-  heading.innerHTML = `${uiIcon('file')}<span>本轮交付</span><b>${unique.length} 个文件</b>`;
+  heading.innerHTML = `${uiIcon('file')}<strong>已编辑 ${unique.length} 个文件</strong><span class="turn-change-counts">${counts(totals)}</span>`;
   const filesEl = document.createElement('div');
   filesEl.className = 'turn-deliverable-files';
   for (const file of unique) {
-    const path = String(file.path || '');
-    const absolutePath = typeof file.absolutePath === 'string' ? file.absolutePath : '';
-    const chip = document.createElement('div');
-    chip.className = 'turn-deliverable-chip';
-    chip.title = path;
-    chip.innerHTML = `${uiIcon('file')}<span class="turn-deliverable-name">${escapeHtml(path)}</span>`;
-    const preview = document.createElement('button');
-    preview.type = 'button';
-    preview.className = 'turn-deliverable-action';
-    preview.title = '查看文件';
-    preview.setAttribute('aria-label', `查看文件：${path}`);
-    preview.innerHTML = uiIcon('search');
-    preview.addEventListener('click', () => openDeliverablePreview(path, absolutePath));
-    chip.appendChild(preview);
-    if (absolutePath && window.iexaDesktop && typeof window.iexaDesktop.revealPath === 'function') {
-      const reveal = document.createElement('button');
-      reveal.type = 'button';
-      reveal.className = 'turn-deliverable-action';
-      reveal.title = '在资源管理器中显示';
-      reveal.setAttribute('aria-label', `在资源管理器中显示：${path}`);
-      reveal.innerHTML = uiIcon('folder');
-      reveal.addEventListener('click', () => window.iexaDesktop.revealPath(absolutePath));
-      chip.appendChild(reveal);
-    }
-    filesEl.appendChild(chip);
+    const row = document.createElement('button');
+    row.type = 'button'; row.className = 'turn-change-file'; row.title = file.path;
+    row.innerHTML = `${uiIcon('file')}<span class="turn-deliverable-name">${escapeHtml(file.path)}</span><span class="turn-change-counts">${counts(file)}</span>`;
+    row.setAttribute('aria-label', `审查文件：${file.path}`);
+    row.addEventListener('click', () => showReview(file));
+    filesEl.appendChild(row);
   }
-  panel.append(heading, filesEl);
+  const actions = document.createElement('div'); actions.className = 'turn-change-actions';
+  const status = document.createElement('span'); status.className = 'turn-change-status'; status.setAttribute('role','status');
+  const undo = document.createElement('button'); undo.type = 'button'; undo.className = 'turn-change-undo'; undo.textContent = '撤销';
+  const review = document.createElement('button'); review.type = 'button'; review.className = 'turn-change-review'; review.textContent = '审查'; review.setAttribute('aria-expanded','false');
+  const details = document.createElement('div'); details.className = 'turn-change-details'; details.hidden = true;
+  const undone = new Set(messageEl._fileUndoPaths || []);
+  const allUndone = unique.every(file => undone.has(file.absolutePath));
+  const unavailable = !turnId ? '旧记录缺少本轮标识' : files.some(file => !file.rollback) ? (files.find(file=>file.undoUnavailable)?.undoUnavailable || '旧记录没有完整撤销快照') : '';
+  undo.disabled = allUndone || !!unavailable;
+  undo.title = allUndone ? '本轮修改已撤销' : unavailable || '恢复本轮修改前的文件；后续修改会触发冲突保护';
+  if (allUndone) { undo.textContent = '已撤销'; status.textContent = '文件已恢复'; }
+  else if (unavailable) status.textContent = unavailable;
+  else if (unique.some(file => file.previewTruncated)) status.textContent = '大文件显示截取预览；统计为各次修改累计';
+  else if (unique.some(file => file.exact === false)) status.textContent = '大范围差异按块替换统计';
+  function showReview(selected) {
+    details.replaceChildren();
+    for (const file of selected ? [selected] : unique) {
+      const section = document.createElement('section');
+      const title = document.createElement('strong'); title.textContent = file.path; section.appendChild(title);
+      if (typeof file.before !== 'string' || typeof file.after !== 'string') {
+        const note = document.createElement('p'); note.textContent = '此旧记录未保存差异内容'; section.appendChild(note);
+      } else {
+        const diff = window.IexaFileChanges.diff(file.before, file.after);
+        const visible = new Set();
+        diff.ops.forEach((op,i)=>{if(op.type!=='context')for(let j=Math.max(0,i-3);j<=Math.min(diff.ops.length-1,i+3);j++)visible.add(j);});
+        const lines = []; let previous = -1;
+        for (const i of visible) { if(i>previous+1)lines.push({type:'context',text:'…'}); lines.push(diff.ops[i]); previous=i; }
+        if (!lines.length) { const note=document.createElement('p');note.textContent='内容无净变化';section.appendChild(note); }
+        else if (lines.length > 2000) { const pre=document.createElement('pre');section.appendChild(pre);setPagedText(pre,lines.map(op=>(op.type==='added'?'+':op.type==='removed'?'-':' ')+op.text).join('\n')); }
+        else for (const op of lines) { const line=document.createElement('div');line.className=`diff-line diff-${op.type}`;line.textContent=(op.type==='added'?'+':op.type==='removed'?'−':' ')+op.text;section.appendChild(line); }
+        if (file.previewTruncated) { const note=document.createElement('p');note.textContent='差异预览已截取，完整文件请在项目中打开。';section.appendChild(note); }
+      }
+      details.appendChild(section);
+    }
+    details.hidden = false; review.setAttribute('aria-expanded','true');
+  }
+  review.addEventListener('click', () => { if(details.hidden)showReview();else {details.hidden=true;review.setAttribute('aria-expanded','false');} });
+  undo.addEventListener('click', async () => {
+    if (sessionRuntimes.get(sessionId)?.isProcessing) {status.textContent='请等待该会话任务结束后撤销';return;}
+    if (!(await window.IexaDialogs.confirm('撤销本轮文件修改？新建文件将删除，已有文件将恢复到本轮修改前。'))) return;
+    undo.disabled = true; status.textContent = '正在校验并撤销…';
+    try {
+      const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/undo`, {method:'POST'});
+      const data = await response.json();
+      if (data.restoredPaths) messageEl._fileUndoPaths = data.restoredPaths;
+      if (!response.ok) throw new Error(data.error || '撤销未完成');
+      undo.textContent = '已撤销'; status.textContent = '文件已恢复'; undo.title = '本轮修改已撤销';
+    } catch (error) { status.textContent = error.message; undo.disabled=false; }
+  });
+  actions.append(status,undo,review);
+  panel.append(heading,filesEl,actions,details);
 }
 
 async function openDeliverablePreview(path, absolutePath) {
@@ -3558,7 +3629,6 @@ function handleDone(stopReason, turnToken) {
   finishActiveThinkingBlock();
 
   if (currentAssistantMsg) {
-    renderDeliverables(currentAssistantMsg, collectLiveDeliverables());
     finalizeAssistantMessage(currentAssistantMsg);
     if (stopReason === 'maxTokens') {
       const notice = document.createElement('div');
@@ -3966,7 +4036,8 @@ function addMessage(role, content, attachments, opts) {
       btn.className = 'queued-withdraw';
       btn.title = '撤销排队';
       btn.setAttribute('aria-label', '撤销排队');
-      btn.textContent = '×';
+      btn.innerHTML = uiIcon('close');
+      btn.setAttribute('aria-label', '移除排队消息');
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         withdrawQueuedMessage(queueId);
@@ -4019,9 +4090,9 @@ function addMessage(role, content, attachments, opts) {
     const timeText = formatMessageTimestamp(timestamp);
     actions.innerHTML = `
       ${timeText ? `<time class="user-message-time" datetime="${new Date(timestamp).toISOString()}" title="发送时间：${new Date(timestamp).toLocaleString()}">${timeText}</time>` : ''}
-      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">↻</button>
+      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">${uiIcon('retry')}</button>
       <button type="button" class="user-message-action" data-action="copy" title="复制消息" aria-label="复制消息">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="8" width="10" height="11" rx="2"/><path d="M15 8V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></svg>
+        ${uiIcon('copy')}
       </button>`;
     actions.querySelector('[data-action="copy"]').addEventListener('click', function () {
       copyUserMessage(content, this);
@@ -4068,6 +4139,7 @@ function appendAssistantMessageActions(messageEl) {
 function finalizeAssistantMessage(messageEl) {
   if (!messageEl) return;
   flushStreamUpdates(currentSessionId);
+  if (messageEl === currentAssistantMsg) renderDeliverables(messageEl, collectLiveDeliverables());
   const followLatest = shouldFollowLatestMessage();
   messageEl.querySelectorAll('.streaming-markdown, .streaming-plain-text').forEach((contentEl) => {
     const source = typeof contentEl._markdownSource === 'string'
@@ -4139,8 +4211,9 @@ function precedingUserMessage(messageEl) {
 }
 
 async function reloadSessionView(sessionId) {
-  if (!sessionId) return;
+  if (!sessionId || sessionId !== visibleSessionId) return;
   const runtime = sessionRuntimes.get(sessionId);
+  if (runtime?.isProcessing) return;
   if (runtime?.currentTaskTimer) window.clearInterval(runtime.currentTaskTimer);
   sessionRuntimes.delete(sessionId);
   currentSessionId = '';
@@ -4419,7 +4492,8 @@ function setProcessing(processing) {
   }
   if (!processing && pendingCurrentSessionSync && currentSessionId === visibleSessionId) {
     pendingCurrentSessionSync = false;
-    window.setTimeout(() => syncConversationMetadata(true, currentSessionId), 0);
+    const completedSessionId = currentSessionId;
+    window.setTimeout(() => { if (visibleSessionId === completedSessionId) syncConversationMetadata(true, completedSessionId); }, 0);
   }
 }
 
@@ -5875,7 +5949,7 @@ async function openGitDiff(target, staged) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || '读取 Diff 失败');
     const title = `${data.staged ? '已暂存' : '未暂存'} · ${data.path || target}`;
-    host.innerHTML = `<div class="git-diff-head"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><button type="button" class="git-diff-close" aria-label="关闭 Diff">×</button></div><pre class="git-diff"></pre>`;
+    host.innerHTML = `<div class="git-diff-head"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><button type="button" class="git-diff-close ui-icon-button" aria-label="关闭 Diff">${uiIcon('close')}</button></div><pre class="git-diff"></pre>`;
     const diff = host.querySelector('.git-diff');
     if (diff) diff.textContent = data.content || '没有可显示的差异。';
     if (data.truncated && diff) diff.textContent += '\n\n… Diff 已截断（最大 512 KB）';
@@ -6408,15 +6482,12 @@ async function searchWorkspaceText(query) {
 function fileIcon(entry) {
   const name = String(entry.name || '').toLowerCase();
   const ext = name.includes('.') ? name.split('.').pop() : '';
-  const icon = (kind, label, badge = '') => `
-    <span class="file-type-icon file-type-icon-${kind} ${entry.type === 'dir' ? 'is-folder' : 'is-file'}" role="img" aria-label="${label}" title="${label}">
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path class="file-type-icon-folder" d="M2.8 6.7c0-1 .8-1.8 1.8-1.8h5l1.8 2h8.1c1 0 1.8.8 1.8 1.8v8.6c0 1-.8 1.8-1.8 1.8H4.6c-1 0-1.8-.8-1.8-1.8V6.7Z"/>
-        <path class="file-type-icon-document" d="M6 2.8h7.4l4.6 4.6v13.8H6c-1 0-1.8-.8-1.8-1.8V4.6C4.2 3.6 5 2.8 6 2.8Z"/>
-        <path class="file-type-icon-fold" d="M13.2 2.8v4.7h4.8"/>
-      </svg>
-      ${badge ? `<span class="file-type-icon-badge">${badge}</span>` : ''}
-    </span>`;
+  const icon = (kind, label) => {
+    const codeKinds = new Set(['javascript', 'typescript', 'react', 'python', 'html', 'css', 'sass', 'json', 'yaml', 'xml', 'config', 'c', 'cpp', 'java', 'go', 'rust', 'php', 'ruby']);
+    const symbol = entry.type === 'dir' ? 'folder' : codeKinds.has(kind) ? 'code'
+      : ['shell', 'terminal', 'powershell'].includes(kind) ? 'terminal' : kind === 'archive' ? 'box' : 'file';
+    return `<span class="file-type-icon file-type-icon-${kind} ${entry.type === 'dir' ? 'is-folder' : 'is-file'}" role="img" aria-label="${label}" title="${label}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#ui-${symbol}"/></svg></span>`;
+  };
 
   if (entry.type === 'dir') {
     const folders = {
@@ -6644,7 +6715,7 @@ async function loadFilesList(relPath, silent) {
     if (showUp) {
       const parent = filesCurrentPath.split('/').slice(0, -1).join('/') || '.';
       html += `<button type="button" class="files-item" data-nav="${escapeHtml(parent)}">
-        <span class="files-item-icon">⬆</span>
+        <span class="files-item-icon">${uiIcon('arrow-up')}</span>
         <span class="files-item-name">..</span>
       </button>`;
     }

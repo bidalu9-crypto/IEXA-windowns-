@@ -5,6 +5,8 @@
 
 import { promises as fs } from 'fs';
 import { createReadStream, readFileSync } from 'fs';
+import { createHash } from 'crypto';
+import { withFileLocks } from './FileWriteLocks';
 import * as readline from 'readline';
 import * as path from 'path';
 import { Readable } from 'stream';
@@ -69,25 +71,18 @@ export async function buildMediaDisplayResult(filePath: string, workspaceDir: st
   }
 }
 
-function changeSummary(filePath: string, before: string, after: string, absolutePath?: string): ToolExecutionResult['fileChange'] {
+const fileChanges = require(path.join(__dirname, '../../../src/renderer/services/FileChangeSummary.js'));
+function changeSummary(filePath: string, before: string, after: string, absolutePath: string, beforeBytes: Buffer, beforeExists = true): ToolExecutionResult['fileChange'] {
   const limit = 120000;
-  if (before.length > limit) before = before.substring(0, limit) + '\n… (truncated)';
-  if (after.length > limit) after = after.substring(0, limit) + '\n… (truncated)';
-  const oldLines = before.split(/\r?\n/);
-  const newLines = after.split(/\r?\n/);
-  let prefix = 0;
-  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix++;
-  let suffix = 0;
-  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix &&
-    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]) suffix++;
-  return {
-    path: filePath,
-    absolutePath,
-    before,
-    after,
-    added: Math.max(0, newLines.length - prefix - suffix),
-    removed: Math.max(0, oldLines.length - prefix - suffix),
-  };
+  const afterBytes = Buffer.from(after, 'utf8');
+  const diff = fileChanges.diff(before, after);
+  const rollback = beforeBytes.length <= 512 * 1024 && afterBytes.length <= 512 * 1024 ? {
+    version: 1 as const, beforeExists, beforeBase64: beforeBytes.toString('base64'),
+    afterSha256: createHash('sha256').update(afterBytes).digest('hex'),
+  } : undefined;
+  return { path: filePath, absolutePath, before: before.slice(0, limit), after: after.slice(0, limit),
+    added: diff.added, removed: diff.removed, previewTruncated: before.length > limit || after.length > limit,
+    rollback, undoUnavailable: rollback ? undefined : '文件超过 512 KiB 撤销快照上限' };
 }
 
 // =============================================================================
@@ -122,20 +117,8 @@ export class FileTools {
   private static readonly DEFAULT_READ_CHARS = 15_000;
   private static readonly MAX_READ_CHARS = 120_000;
   private static readonly MAX_READ_LINES = 100_000;
-  private readonly writeLocks = new Map<string, Promise<void>>();
-
-  private async withWriteLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.writeLocks.get(filePath) || Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
-    this.writeLocks.set(filePath, current);
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-      if (this.writeLocks.get(filePath) === current) this.writeLocks.delete(filePath);
-    }
+  private withWriteLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+    return withFileLocks([filePath], operation);
   }
 
   private async atomicWriteText(filePath: string, content: string, workspaceDir: string): Promise<void> {
@@ -308,9 +291,11 @@ export class FileTools {
 
         this.resolvePath(resolvedPath, workspaceDir, true);
         let before = '';
+        let beforeBytes = Buffer.alloc(0);
         let exists = true;
         try {
-          before = await fs.readFile(resolvedPath, 'utf-8');
+          beforeBytes = await fs.readFile(resolvedPath);
+          before = beforeBytes.toString('utf8');
         } catch (readError: unknown) {
           const code = (readError as NodeJS.ErrnoException).code;
           // Only a genuinely missing file is a new-file write. Permission,
@@ -324,7 +309,7 @@ export class FileTools {
         return {
           output: `File ${options.append ? 'appended' : 'written'}: ${filePath}\nSize: ${stat.size} bytes`,
           success: true,
-          fileChange: changeSummary(filePath, before, nextContent, resolvedPath),
+          fileChange: changeSummary(filePath, before, nextContent, resolvedPath, beforeBytes, exists),
         };
       });
     } catch (err: unknown) {
@@ -353,7 +338,8 @@ export class FileTools {
       }
       return await this.withWriteLock(resolvedPath, async () => {
         this.resolvePath(resolvedPath, workspaceDir);
-        const content = await fs.readFile(resolvedPath, 'utf-8');
+        const beforeBytes = await fs.readFile(resolvedPath);
+        const content = beforeBytes.toString('utf8');
 
       if (replaceAll) {
         if (!content.includes(oldString)) {
@@ -368,7 +354,7 @@ export class FileTools {
         return {
           output: `File edited: ${filePath}\nReplaced ${count} occurrence(s)`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes),
         };
       } else {
         const firstIndex = content.indexOf(oldString);
@@ -390,7 +376,7 @@ export class FileTools {
         return {
           output: `File edited: ${filePath}\n1 occurrence replaced`,
           success: true,
-          fileChange: changeSummary(filePath, content, newContent, resolvedPath),
+          fileChange: changeSummary(filePath, content, newContent, resolvedPath, beforeBytes),
         };
       }
       });

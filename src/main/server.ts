@@ -41,6 +41,7 @@ import { searchProjectText } from './search/ProjectSearch';
 import { UploadRoutes } from './api/UploadRoutes';
 import { MobileTlsListener } from './mobile/MobileTlsListener';
 import { resolveScopedPath } from './security/PathSandbox';
+import { groupFileChanges, undoFileChanges, undoUnavailable } from './session/FileChangeUndo';
 import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
@@ -442,6 +443,7 @@ interface ChatMessage {
   transcript?: TranscriptEvents;
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; executionStatus?: import('./runtime/ToolLifecycle').ToolExecutionStatus; durationMs?: number; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
+  fileUndo?: { paths: string[]; timestamp: number };
   /** Files changed successfully in this assistant turn, independent of final prose. */
   deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
   usage?: { inputTokens: number; outputTokens: number };
@@ -947,15 +949,10 @@ async function saveSessionMessages(
   thinkingLevel = getThinkingLevel(),
   transcript?: TranscriptEvents,
 ): Promise<void> {
-  const deliverables = toolCalls
-    .filter((call) => call.result?.success && call.result.fileChange?.path)
-    .map((call) => ({
-      path: call.result!.fileChange!.path,
-      absolutePath: call.result!.fileChange!.absolutePath,
-      added: call.result!.fileChange!.added,
-      removed: call.result!.fileChange!.removed,
-    }))
-    .filter((file, index, files) => files.findIndex((item) => (item.absolutePath || item.path) === (file.absolutePath || file.path)) === index);
+  const deliverables = groupFileChanges(toolCalls
+    .filter(call => call.result?.success && call.result.fileChange?.path)
+    .map(call => call.result!.fileChange!))
+    .map(file => ({ path: file.path, absolutePath: file.absolutePath, added: file.added, removed: file.removed }));
   const assistantMsg: ChatMessage = {
     role: 'assistant',
     content: assistantText,
@@ -1647,6 +1644,35 @@ function createServer(auth: LocalApiAuth): http.Server {
         return;
       }
       jsonReply(res, 405, { error: 'Unsupported sub-agent operation' }); return;
+    }
+
+    // A stable turn ID selects server-owned records; request bodies never supply rollback bytes/paths.
+    const fileUndoRoute = url.pathname.match(/^\/api\/sessions\/([A-Za-z0-9_-]+)\/turns\/([A-Za-z0-9_-]+)\/undo$/);
+    if (fileUndoRoute && req.method === 'POST') {
+      if (mobileDevice && mobileDevice.capability !== 'full') { jsonReply(res, 403, { error: '当前设备权限仅允许查看修改' }); return; }
+      const [, sessionId, turnId] = fileUndoRoute;
+      if (runningSessionIds.has(sessionId)) { jsonReply(res, 409, { error: '请等待该会话任务结束后撤销' }); return; }
+      runningSessionIds.add(sessionId);
+      try {
+        const messages = loadMessages(sessionId);
+        const message = messages.find(item => item.role === 'assistant' && item.transcript?.turnId === turnId);
+        if (!message) { jsonReply(res, 404, { error: '文件修改记录未找到' }); return; }
+        const changes = (message.toolCalls || []).filter(call => call.result?.success && call.result.fileChange).map(call => call.result!.fileChange!);
+        const reason = undoUnavailable(changes);
+        if (reason) { jsonReply(res, 409, { error: reason }); return; }
+        message.fileUndo ||= { paths: [], timestamp: Date.now() };
+        const roots = [WORKSPACE_DIR, getProjectRoot()].filter((value): value is string => !!value);
+        try {
+          await undoFileChanges(changes, roots, message.fileUndo.paths, async file => {
+            message.fileUndo!.paths.push(file); message.fileUndo!.timestamp = Date.now();
+            await saveMessages(sessionId, messages);
+          });
+        } catch (error) {
+          jsonReply(res, 409, { error: (error as Error).message, restoredPaths: message.fileUndo.paths }); return;
+        }
+        jsonReply(res, 200, { ok: true, restoredPaths: message.fileUndo.paths });
+      } finally { runningSessionIds.delete(sessionId); }
+      return;
     }
 
     // GET /api/sessions/:id — load messages

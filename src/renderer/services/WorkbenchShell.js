@@ -5,6 +5,7 @@
   const forward = (from, to) => $(from)?.addEventListener('click', () => $(to)?.click());
   forward('shellNewThread', 'newSessionBtn');
   forward('shellProjectBtn', 'filesOpenBtn');
+  forward('shellAddProject', 'filesOpenBtn');
   forward('shellOpenProject', 'filesOpenBtn');
   forward('shellFocusBtn', 'chatFocusToggle');
   function syncView() {
@@ -23,6 +24,8 @@
     $('shellProjectName').textContent = open ? title : '打开项目文件夹';
     $('shellProjectCrumb').textContent = open ? title : '本地工作区';
     $('shellProjectBtn').title = open ? `${title} · 切换项目文件夹` : '打开项目文件夹';
+    $('shellProjectBtn').setAttribute('aria-label', open ? `切换项目文件夹：${title}` : '打开项目文件夹');
+    if ($('filesPanelTitle')) $('filesPanelTitle').title = open ? title : '项目';
   }
   const observer = new MutationObserver(syncView);
   document.querySelectorAll('.nav-btn').forEach((el) => observer.observe(el, { attributes: true, attributeFilter: ['class'] }));

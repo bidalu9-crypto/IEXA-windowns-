@@ -547,3 +547,131 @@ html[data-motion="reduced"] .desktop-control-trace[data-active="true"] > summary
   html:not([data-motion="full"]) .stream-reveal { animation: none; }
 }
 html[data-motion="reduced"] .stream-reveal { animation: none; }
+
+/* Shared workbench controls. Geometry belongs to the button, never a font glyph.
+   Keep semantic status/progress colors and animations outside this selector. */
+.workbench-shell {
+  --control-size: 32px;
+  --control-icon-size: 18px;
+  --control-radius: 8px;
+  --control-stroke: 1.75;
+}
+.workbench-shell .ui-icon-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 var(--control-size);
+  width: var(--control-size);
+  min-width: var(--control-size);
+  height: var(--control-size);
+  min-height: var(--control-size);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.workbench-shell .ui-icon-button > svg {
+  display: block;
+  flex: 0 0 var(--control-icon-size);
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--control-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.workbench-shell .ui-icon-button:hover:not(:disabled) { background: var(--shell-hover); color: var(--text-primary); border-color: transparent; }
+.workbench-shell .ui-icon-button:active:not(:disabled) { background: var(--bg-tertiary); }
+.workbench-shell .ui-icon-button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; background: var(--shell-hover); }
+.workbench-shell .ui-icon-button:disabled { opacity: .4; cursor: default; }
+.workbench-shell .ui-icon-button[hidden] { display: none; }
+.workbench-shell .ui-icon-button:is(:hover, :active, :focus-visible) > svg { transform: none; filter: none; }
+.workbench-shell :is(.shell-toolbar-button, .shell-project-button, .nav-btn):is(:hover, :active, :focus-visible) > .ui-icon { transform: none; filter: none; }
+.workbench-shell .sidebar-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding-right: 2px; }
+.workbench-shell .sidebar-section-header .sidebar-section-label { font-size: 12px; }
+.workbench-shell .shell-project-button { min-height: 40px; margin-top: 2px; gap: 10px; border-radius: 9px; font-size: 13px; }
+.workbench-shell .shell-project-button .project-row-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--text-muted); }
+.workbench-shell .sessions-header { min-height: 32px; gap: 2px; padding-right: 2px; }
+.workbench-shell .sessions-title { font-size: 12px; margin-right: auto; }
+.workbench-shell .sessions-archive-manager { margin-left: 0; }
+.workbench-shell .session-item { gap: 2px; padding: 6px 6px 6px 10px; min-height: 48px; }
+.workbench-shell .session-item-info { min-width: 0; }
+.workbench-shell .session-item-delete { visibility: visible; opacity: 0; }
+.workbench-shell .session-item:is(:hover, :focus-within) :is(.session-item-delete, .session-item-archive) { opacity: 1; }
+.workbench-shell .session-item-delete:is(:hover, :focus-visible) { color: var(--error); }
+.workbench-shell .files-panel-header { padding: 14px 16px 0; }
+.workbench-shell .files-panel-title { min-height: 32px; margin-bottom: 8px; gap: 8px; font-size: 13px; }
+.workbench-shell #filesPanelTitle { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.workbench-shell .files-panel-actions { flex: 0 0 auto; gap: 2px; }
+.workbench-shell .files-path { font-size: 11px; line-height: 1.6; color: var(--text-muted); }
+.workbench-shell .files-crumb { gap: 3px; margin: 4px -4px 8px; }
+.workbench-shell .files-crumb button { min-height: 28px; padding: 4px; border-radius: 6px; color: var(--text-secondary); font-size: 12px; }
+.workbench-shell .files-crumb button:hover { color: var(--text-primary); background: var(--shell-hover); }
+.workbench-shell .files-list { padding: 6px 8px; }
+.workbench-shell .files-item { gap: 10px; min-height: 36px; padding: 7px 8px; border-radius: 7px; font-size: 12px; }
+.workbench-shell .files-item-icon { width: 18px; height: 18px; flex: 0 0 18px; }
+.workbench-shell .file-type-icon { color: var(--text-secondary); }
+.workbench-shell .file-type-icon .ui-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: var(--control-stroke); }
+.workbench-shell .files-item:hover .ui-icon { transform: none; filter: none; }
+.workbench-shell .files-item-meta { color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.workbench-shell #attachBtn { border-radius: 50%; }
+.workbench-shell #attachBtn::before, .workbench-shell #attachBtn::after { content: none; }
+.workbench-shell .model-bar .ui-icon-button { --control-size: 28px; --control-icon-size: 16px; }
+.workbench-shell .search-clear { --control-size: 26px; --control-icon-size: 16px; }
+.workbench-shell .search-input { min-height: 34px; padding: 7px 32px 7px 10px; font-size: 12px; }
+.workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove, .queued-remove-btn) > .ui-icon { width: 16px; height: 16px; display: block; stroke-width: var(--control-stroke); }
+.workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove):is(:hover, :active) > .ui-icon { transform: none; filter: none; }
+@media (hover: none) { .workbench-shell .session-item :is(.session-item-delete, .session-item-archive) { opacity: 1; } }
+@media (max-width: 760px) { .workbench-shell .ui-icon-button { --control-size: 36px; } }
+/* Form controls use the same neutral surfaces; semantic permission/status hues
+   and existing native checkbox, select and range behavior stay intact. */
+.workbench-shell .button-with-icon { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; }
+.workbench-shell .button-with-icon .ui-icon { width: 16px; height: 16px; stroke-width: var(--control-stroke); }
+.workbench-shell .button-with-icon:is(:hover, :active) > .ui-icon { transform: none; filter: none; }
+.workbench-shell .setting-group :is(input:not([type="checkbox"]):not([type="range"]):not([type="hidden"]), select, textarea) {
+  box-sizing: border-box; min-height: 40px; padding: 9px 12px; border: 1px solid var(--border-strong); border-radius: 9px;
+  background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 13px; box-shadow: none;
+}
+.workbench-shell .setting-group :is(input, select, textarea):focus { border-color: var(--text-secondary); box-shadow: none; }
+.workbench-shell .setting-group :is(input, select, textarea):disabled { opacity: .55; }
+.workbench-shell .setting-switch input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--text-primary); }
+.workbench-shell .setting-hint { line-height: 1.6; color: var(--text-muted); }
+.workbench-shell .btn-secondary { color: var(--text-primary); background: var(--bg-input); border: 1px solid var(--border-strong); box-shadow: none; border-radius: 8px; }
+.workbench-shell .btn-secondary:hover { background: var(--shell-hover); border-color: var(--border-strong); }
+.workbench-shell .profile-editor { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 12px 44px #00000024; }
+.workbench-shell .model-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 8px; }
+.workbench-shell .model-picker-row input { min-width: 0; }
+.workbench-shell .model-picker-row .btn-secondary { min-height: 40px; padding: 8px 12px; white-space: nowrap; }
+
+/* A single turn-level change card: quiet hierarchy, real file rows and actions. */
+.turn-deliverables { margin:16px 0 8px; padding:0; border:1px solid var(--border-color,rgba(128,128,128,.24)); border-radius:12px; overflow:hidden; background:var(--bg-secondary); max-width:100%; }
+.turn-deliverables-heading { display:flex; align-items:center; gap:9px; padding:14px 16px 10px; color:var(--text-primary); font-size:13px; }
+.turn-deliverables-heading > svg,.turn-change-file > svg { width:16px; height:16px; flex:none; color:var(--text-secondary); }
+.turn-deliverables-heading strong { font-weight:600; }
+.turn-change-counts { display:inline-flex; gap:8px; margin-left:auto; white-space:nowrap; font:12px/1.5 var(--font-mono,monospace); }
+.turn-deliverable-files { display:flex; flex-direction:column; gap:0; padding:0 8px 6px; }
+.turn-change-file { display:flex; align-items:center; gap:9px; width:100%; min-width:0; min-height:34px; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--text-primary); text-align:left; cursor:pointer; }
+.turn-change-file:hover { background:var(--bg-hover,rgba(128,128,128,.10)); }
+.turn-change-file .turn-deliverable-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:12px/1.5 var(--font-mono,monospace); }
+.turn-change-actions { display:flex; align-items:center; gap:8px; padding:10px 16px; border-top:1px solid var(--border-color,rgba(128,128,128,.20)); }
+.turn-change-actions button { flex:none; padding:5px 12px; min-height:30px; border:1px solid var(--border-color,rgba(128,128,128,.24)); border-radius:7px; background:transparent; color:var(--text-primary); font-size:12px; cursor:pointer; }
+.turn-change-actions button:hover:not(:disabled) { background:var(--bg-hover,rgba(128,128,128,.10)); }
+.turn-change-actions button:disabled { opacity:.5; cursor:default; }
+.turn-change-file:focus-visible,.turn-change-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.turn-change-status { flex:1; min-width:0; font-size:11px; line-height:1.5; color:var(--text-secondary); overflow-wrap:anywhere; }
+.turn-change-details { padding:12px 16px; border-top:1px solid var(--border-color,rgba(128,128,128,.20)); max-height:420px; overflow:auto; }
+.turn-change-details[hidden] { display:none; }
+.turn-change-details section + section { margin-top:16px; }
+.turn-change-details strong { display:block; margin-bottom:8px; font-size:12px; overflow-wrap:anywhere; }
+.turn-change-details .diff-line { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 var(--font-mono,monospace); }
+.turn-change-details .diff-context { color:var(--text-secondary); }
+.history-loading { display:block; margin:32px auto; padding:12px 18px; color:var(--text-secondary); background:transparent; border:0; font:inherit; }
+@media(max-width:600px) { .turn-deliverables-heading,.turn-change-actions { padding-left:12px; padding-right:12px; } .turn-change-actions button { min-height:36px; } }

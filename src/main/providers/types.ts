@@ -107,6 +107,10 @@ export interface ToolExecutionResult {
     after: string;
     added: number;
     removed: number;
+    previewTruncated?: boolean;
+    undoUnavailable?: string;
+    /** Bounded byte-exact snapshot, persisted with the trusted tool result. */
+    rollback?: { version: 1; beforeExists: boolean; beforeBase64: string; afterSha256: string };
   };
   /** Structured task-plan snapshot emitted by todo_write. */
   todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>;

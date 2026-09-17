@@ -132,11 +132,15 @@ test('file writes recheck the scope after waiting for the write lock', async (t)
   const tools = new FileTools();
   const parent = path.join(workspace, 'parent'); fs.mkdirSync(parent);
   let release;
-  tools.writeLocks.set(path.join(parent, 'new.txt'), new Promise((resolve) => { release = resolve; }));
+  const { withFileLocks } = require('../dist/main/tools/FileWriteLocks');
+  let locked; const acquired = new Promise(resolve => { locked = resolve; });
+  const holding = withFileLocks([path.join(parent, 'new.txt')], () => new Promise(resolve => { release = resolve; locked(); }));
+  await acquired;
   const writing = tools.writeFile('parent/new.txt', 'blocked', workspace);
   fs.rmdirSync(parent);
   fs.symlinkSync(outside, parent, process.platform === 'win32' ? 'junction' : 'dir');
   release();
+  await holding;
   assert.equal((await writing).success, false);
   assert.equal(fs.existsSync(path.join(outside, 'new.txt')), false);
 });

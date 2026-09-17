@@ -155,7 +155,7 @@ test('actual server save retains desktop phases through new SessionManager reade
  const f=fixture();await f.run({action:'observe'});const result=await f.run({action:'click',target:{name:'Save'},verifyText:'Save'});
  const source=fs.readFileSync(path.join(__dirname,'../src/main/server.ts'),'utf8'),tree=ts.createSourceFile('server.ts',source,ts.ScriptTarget.Latest,true);
  const fn=tree.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='saveSessionMessages');
- const store=new SessionManager(root);const context={saveMessages:(id,messages)=>store.save(id,messages),agentCache:new Map(),saveSessionContext:()=>{},loadSessionStore:()=>({sessions:[]}),saveSessionStore:()=>{},normalizeThinkingLevel:x=>x,getThinkingLevel:()=> 'medium'};
+ const store=new SessionManager(root);const context={groupFileChanges:require('../dist/main/session/FileChangeUndo').groupFileChanges,saveMessages:(id,messages)=>store.save(id,messages),agentCache:new Map(),saveSessionContext:()=>{},loadSessionStore:()=>({sessions:[]}),saveSessionStore:()=>{},normalizeThinkingLevel:x=>x,getThinkingLevel:()=> 'medium'};
  vm.runInNewContext(ts.transpileModule(fn.getText(tree),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
  await context.saveSessionMessages('s',[],{role:'user',content:'run',timestamp:1},'done',[{id:'desktop',name:'desktop_control',args:{action:'click'},result}],undefined);
  const saved=new SessionManager(root).loadSync('s');assert.deepEqual(saved[1].toolCalls[0].result.metadata.desktop,JSON.parse(JSON.stringify(result.metadata.desktop)));

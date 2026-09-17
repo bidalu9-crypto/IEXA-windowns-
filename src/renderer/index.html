@@ -24,6 +24,10 @@
 <!-- Reusable monochrome SVG UI icon set (no emoji font dependency) -->
 <svg class="ui-icon-sprite" aria-hidden="true" focusable="false">
   <defs>
+    <symbol id="ui-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="ui-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="ui-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="ui-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
     <symbol id="ui-archive" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM6 8v12h12V8M10 12h4"/></symbol>
 <symbol id="ui-panel-left" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
 <symbol id="ui-panel-right" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
@@ -117,14 +121,17 @@
       </details>
     </nav>
     <div class="sidebar-project">
-      <span class="sidebar-section-label">项目</span>
-      <button type="button" class="shell-project-button" id="shellProjectBtn" title="打开项目文件夹"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectName">打开项目文件夹</span><span aria-hidden="true">+</span></button>
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-label">项目</span>
+        <button type="button" class="ui-icon-button" id="shellAddProject" title="打开项目文件夹" aria-label="打开项目文件夹"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+      </div>
+      <button type="button" class="shell-project-button" id="shellProjectBtn" title="打开项目文件夹"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectName">打开项目文件夹</span><svg class="ui-icon project-row-chevron" aria-hidden="true"><use href="#ui-chevron-right"/></svg></button>
     </div>
     <div class="sidebar-sessions">
       <div class="sessions-header">
         <span class="sessions-title">最近会话</span>
-        <button type="button" class="sessions-archive-manager" id="archiveManagerBtn" title="管理已存档会话" aria-label="管理已存档会话"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
-        <button class="sessions-new-btn" id="newSessionBtn" title="新建会话" aria-label="新建会话">
+        <button type="button" class="sessions-archive-manager ui-icon-button" id="archiveManagerBtn" title="管理已存档会话" aria-label="管理已存档会话"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
+        <button class="sessions-new-btn ui-icon-button" id="newSessionBtn" title="新建会话" aria-label="新建会话">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M13.5 4.5H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V10.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="m14 5.5 4.5 4.5M13 11l6.3-6.3a1.6 1.6 0 1 0-2.3-2.3L10.7 8.7 10 11.7l3-.7Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -133,7 +140,7 @@
       </div>
       <div class="search-box">
         <input type="text" id="searchInput" class="search-input" placeholder="搜索会话" aria-label="搜索会话">
-        <button class="search-clear" id="searchClear" title="清除" style="display:none;">×</button>
+        <button type="button" class="search-clear ui-icon-button" id="searchClear" title="清除搜索" style="display:none;" aria-label="清除搜索"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
       </div>
       <div class="search-results" id="searchResults" style="display:none;"></div>
       <div class="sessions-list" id="sessionsList">
@@ -197,7 +204,7 @@
                 </button>
                 <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
               </div>
-              <button type="button" class="model-bar-refresh" data-ui-action="refreshModelSelector" title="刷新模型列表" aria-label="刷新模型列表">↻</button>
+              <button type="button" class="model-bar-refresh ui-icon-button" data-ui-action="refreshModelSelector" title="刷新模型列表" aria-label="刷新模型列表"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg></button>
               <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
                 <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="dialog" aria-expanded="false" data-level="medium">
@@ -260,7 +267,7 @@
             </div>
             <div class="attach-preview" id="attachPreview" style="display:none;"></div>
             <div class="chat-input-wrapper">
-              <button type="button" id="attachBtn" class="attach-btn" title="添加附件" aria-label="添加附件"></button>
+              <button type="button" id="attachBtn" class="attach-btn ui-icon-button" title="添加附件" aria-label="添加附件"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg></button>
               <input type="file" id="attachInput" multiple hidden
                 accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
               <textarea id="chatInput" placeholder="描述任务，使用 / 查看命令" rows="1"></textarea>
@@ -292,9 +299,9 @@
             <div class="files-panel-title">
               <span id="filesPanelTitle">项目</span>
               <div class="files-panel-actions">
-                <button type="button" class="files-icon-btn" id="filesOpenBtn" title="打开项目">+</button>
-                <button type="button" class="files-icon-btn" id="filesRefreshBtn" title="刷新" style="display:none;">↻</button>
-                <button type="button" class="files-icon-btn" id="filesCloseProjectBtn" title="关闭项目" style="display:none;">×</button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesOpenBtn" title="打开项目文件夹" aria-label="打开项目文件夹"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesRefreshBtn" title="刷新项目文件" style="display:none;" aria-label="刷新项目文件"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-refresh"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesCloseProjectBtn" title="关闭项目" style="display:none;" aria-label="关闭项目"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
               </div>
             </div>
             <div class="files-path" id="filesPath" style="display:none;"></div>
@@ -348,7 +355,7 @@
           <div class="files-preview" id="filesPreview" style="display:none;">
             <div class="files-preview-header">
               <span class="files-preview-name" id="filesPreviewName"></span>
-              <button type="button" class="files-icon-btn" id="filesPreviewClose" title="关闭预览">×</button>
+              <button type="button" class="files-icon-btn ui-icon-button" id="filesPreviewClose" title="关闭预览" aria-label="关闭预览"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
             </div>
             <pre class="files-preview-body" id="filesPreviewBody"></pre>
           </div>
@@ -401,7 +408,7 @@
       <div class="settings-container">
         <div class="settings-header">
           <h2>AI 模型</h2>
-          <button class="btn-primary btn-sm" data-ui-action="showProfileEditor">+ 添加模型</button>
+          <button type="button" class="btn-primary btn-sm button-with-icon" data-ui-action="showProfileEditor"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg><span>添加模型</span></button>
         </div>
         <div class="setting-group vision-fallback-setting">
           <label for="visionProfileSelect">视觉输入模型</label>
@@ -418,11 +425,11 @@
             <h3 id="profileEditorTitle">添加模型</h3>
             <input type="hidden" id="profileEditorId">
             <div class="setting-group">
-              <label>显示名称</label>
+              <label for="profileEditorName">显示名称</label>
               <input type="text" id="profileEditorName" placeholder="例如：代码用 Claude、写作用 GPT">
             </div>
             <div class="setting-group">
-              <label>服务商</label>
+              <label for="profileEditorProvider">服务商</label>
               <select id="profileEditorProvider">
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="openai">OpenAI (GPT)</option>
@@ -434,7 +441,7 @@
               </select>
             </div>
             <div class="setting-group">
-              <label>模型 ID</label>
+              <label for="profileEditorModel">模型 ID</label>
               <div class="model-picker-row">
                 <input type="text" id="profileEditorModel" placeholder="claude-sonnet-4-20250514">
                 <button type="button" class="btn-secondary btn-sm" id="fetchModelsBtn" data-ui-action="fetchModels">获取模型</button>
@@ -443,12 +450,12 @@
               <span class="setting-hint" id="fetchModelsHint"></span>
             </div>
             <div class="setting-group">
-              <label>API 密钥</label>
+              <label for="profileEditorApiKey">API 密钥</label>
               <input type="password" id="profileEditorApiKey" placeholder="sk-...">
               <span class="setting-hint">留空则保留现有密钥</span>
             </div>
             <div class="setting-group">
-              <label>接口地址（可选，自定义端点用）</label>
+              <label for="profileEditorBaseURL">接口地址（可选，自定义端点用）</label>
               <input type="text" id="profileEditorBaseURL" placeholder="按服务商自动识别">
             </div>
             <div class="setting-group">
@@ -457,7 +464,7 @@
               <span class="setting-hint">留空使用 Codex 兼容 UA；仅影响此配置的模型请求和获取模型列表，不改网页搜索。限512个可打印ASCII字符，请勿填写密钥。</span>
             </div>
             <div class="setting-group">
-              <label>请求接口</label>
+              <label for="profileEditorApiMode">请求接口</label>
               <select id="profileEditorApiMode">
                 <option value="chat_completions">Chat Completions (/v1/chat/completions)</option>
                 <option value="responses">Responses API (/v1/responses)</option>
@@ -567,7 +574,7 @@
           <h2>Skills</h2>
           <div class="skills-header-actions">
             <div class="skill-add-wrap" id="skillAddWrap">
-              <button type="button" class="btn-primary btn-sm skill-add-btn" id="skillAddBtn" title="添加 Skill">+</button>
+              <button type="button" class="btn-primary btn-sm skill-add-btn ui-icon-button" id="skillAddBtn" title="添加 Skill" aria-label="添加 Skill"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
               <div class="skill-add-menu" id="skillAddMenu" style="display:none;">
                 <button type="button" class="skill-add-item" id="skillImportFileBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span>导入文件（SKILL.md）</span></button>
                 <button type="button" class="skill-add-item" id="skillImportBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-edit"/></svg><span>创建 Skill（粘贴）</span></button>
@@ -821,7 +828,7 @@ version: 1.0.0
   <div class="image-preview-dialog">
     <div class="image-preview-header">
       <span class="image-preview-title" id="imagePreviewTitle"></span>
-      <button type="button" class="image-preview-close" id="imagePreviewClose" title="关闭预览" aria-label="关闭预览">×</button>
+      <button type="button" class="image-preview-close ui-icon-button" id="imagePreviewClose" title="关闭预览" aria-label="关闭预览"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
     </div>
     <div class="image-preview-body">
       <img id="imagePreviewImage" alt="">
@@ -852,6 +859,7 @@ version: 1.0.0
 <script src="services/ChatActivityView.js"></script>
 <script src="services/TranscriptView.js"></script>
 <script src="services/ChatPresentation.js"></script>
+<script src="services/FileChangeSummary.js"></script>
 <script src="services/PanelVisibility.js"></script>
 <script src="services/SubAgentView.js"></script>
 <script src="services/AppDialogs.js"></script>

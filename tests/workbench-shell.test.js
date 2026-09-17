@@ -18,7 +18,7 @@ test('unique IDs, sprite references and original navigation destinations', t => 
 });
 test('new controls forward exactly once to existing handlers', t => {
   const w = fixture(t); const d = w.document;
-  for (const [from, to] of [['shellNewThread','newSessionBtn'],['shellProjectBtn','filesOpenBtn'],['shellOpenProject','filesOpenBtn'],['shellFocusBtn','chatFocusToggle']]) {
+  for (const [from, to] of [['shellNewThread','newSessionBtn'],['shellProjectBtn','filesOpenBtn'],['shellAddProject','filesOpenBtn'],['shellOpenProject','filesOpenBtn'],['shellFocusBtn','chatFocusToggle']]) {
     let count = 0; const onClick = () => count++; d.getElementById(to).addEventListener('click', onClick);
     d.getElementById(from).click(); assert.equal(count, 1); d.getElementById(to).removeEventListener('click', onClick);
   }
