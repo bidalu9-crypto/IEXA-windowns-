@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {EventEmitter}=require('node:events');
 const {roundedWindowRects,installWindowCorners}=require('../resources/window-corners.cjs');
 function fake(){const win=new EventEmitter();win.size=[1200,800];win.maximized=false;win.fullscreen=false;win.destroyed=false;win.calls=[];win.getSize=()=>win.size;win.isMaximized=()=>win.maximized;win.isFullScreen=()=>win.fullscreen;win.isDestroyed=()=>win.destroyed;win.setShape=shape=>win.calls.push(shape);return win;}
-const windows10={platform:'win32',release:'10.0.19045'};
+const windows10={platform:'win32',release:'10.0.19045',frameless:true};
 function contains(rects,x,y){return rects.some(r=>x>=r.x&&y>=r.y&&x<r.x+r.width&&y<r.y+r.height);}
 test('12 DIP outer corners clip all four tips, preserving centre and native resize edges',()=>{
  const rects=roundedWindowRects(1200,800);for(const [x,y] of [[0,0],[1199,0],[0,799],[1199,799]])assert.equal(contains(rects,x,y),false);
@@ -26,12 +26,16 @@ test('Windows 11, macOS and Linux keep native window decoration untouched',()=>{
 test('shape failures retain a usable rectangular frame instead of breaking launch',()=>{
  const win=fake(),errors=[];win.setShape=shape=>{if(shape.length)throw Error('fixture driver failure');win.calls.push(shape);};installWindowCorners(win,{...windows10,onError:(...args)=>errors.push(args)});assert.deepEqual(win.calls,[[]]);assert.equal(errors.length,1);
 });
-test('corner helper ships in both package formats and entry retains native frame',()=>{
+test('corner helper ships in both package formats and entry deliberately removes native caption',()=>{
  const fs=require('node:fs'),path=require('node:path');const root=path.join(__dirname,'..');const entry=fs.readFileSync(path.join(root,'electron-entry.js'),'utf8');assert.match(entry,/installWindowCorners\(mainWindow,/);assert.match(entry,/require\('\.\/resources\/window-corners\.cjs'\)/);
- const body=entry.slice(entry.indexOf('function createWindow()'),entry.indexOf('// Remove default menu'));assert.doesNotMatch(body,/frame:\s*false|transparent:\s*true/);
+ const body=entry.slice(entry.indexOf('function createWindow()'),entry.indexOf('// Remove default menu'));assert.match(body,/mainWindowChromeOptions\(\)/);assert.doesNotMatch(body,/transparent:\s*true/);assert.deepEqual(require('../resources/window-chrome.cjs').mainWindowChromeOptions('win32','10.0.19045'),{frame:false,roundedCorners:true,thickFrame:false});
  assert.ok(require('../package.json').build.files.includes('resources/**/*'));assert.match(fs.readFileSync(path.join(root,'build-dist.js'),'utf8'),/'resources'/);
 });
 
 test('moving across displays refreshes the physical region when DPI changes without resizing',()=>{
  const win=fake();let scale=1;installWindowCorners(win,{...windows10,getScaleFactor:()=>scale});win.emit('move');assert.equal(win.calls.length,1);scale=1.5;win.emit('move');assert.equal(win.calls.length,2);
+});
+
+test('a standard framed window is never given a custom region that could reveal classic chrome',()=>{
+ const win=fake();installWindowCorners(win,{platform:'win32',release:'10.0.19045'});assert.equal(win.calls.length,0);
 });

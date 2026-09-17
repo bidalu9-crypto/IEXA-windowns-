@@ -96,6 +96,8 @@ const promptPreviewStore = new PromptPreviewStore(() => loadSettings().profiles.
 const sessionEventClients = new Map<http.ServerResponse, string>();
 
 interface AppearanceSettings {
+  fontScale: number;
+  iconScale: number;
   motion: 'system' | 'full' | 'reduced';
   theme: 'light' | 'dark';
   accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
@@ -111,6 +113,8 @@ function normalizeAppearance(value: unknown): AppearanceSettings {
     return Number.isFinite(number) ? Math.round(Math.min(max, Math.max(min, number))) : fallback;
   };
   return {
+    fontScale: width(source.fontScale, 100, 100, 180),
+    iconScale: width(source.iconScale, 100, 100, 160),
     theme: source.theme === 'dark' ? 'dark' : 'light',
     motion: source.motion === 'full' || source.motion === 'reduced' ? source.motion : 'system',
     accent: accents.includes(String(source.accent)) ? String(source.accent) as AppearanceSettings['accent'] : 'violet',

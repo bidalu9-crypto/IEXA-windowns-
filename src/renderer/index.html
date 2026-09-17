@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="workbench.css">
 <link rel="stylesheet" href="vendor/github.min.css" id="hljs-theme-light">
 <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
+<script src="services/UiScale.js"></script>
 <script src="services/InitialAppearance.js"></script>
 <link rel="stylesheet" href="components/AppDialogs.css">
 <style>
@@ -163,6 +164,11 @@
         <button type="button" class="shell-toolbar-button" id="rightPanelToggle" aria-label="隐藏右侧栏" aria-expanded="true" aria-controls="filesPanel" title="隐藏右侧栏"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-right"/></svg></button>
         <button type="button" class="shell-toolbar-button" id="shellOpenProject"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>打开项目</span></button>
         <button type="button" class="shell-toolbar-button" id="shellFocusBtn" aria-label="切换专注布局" aria-pressed="false" title="切换专注布局"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg></button>
+      </div>
+      <div class="window-controls" id="windowControls" role="toolbar" aria-label="窗口控制" hidden>
+        <button type="button" id="windowMinimize" class="window-control" aria-label="最小化" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10"/></svg></button>
+        <button type="button" id="windowMaximize" class="window-control" aria-label="最大化" title="最大化"><svg viewBox="0 0 16 16" aria-hidden="true"><rect class="window-maximize-icon" x="3.5" y="3.5" width="9" height="9"/><path class="window-restore-icon" d="M5.5 5.5v-3h8v8h-3m-8-5h8v8h-8z"/></svg></button>
+        <button type="button" id="windowClose" class="window-control window-control-close" aria-label="关闭窗口" title="关闭窗口"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg></button>
       </div>
     </header>
     <!-- Chat View -->
@@ -730,6 +736,18 @@ version: 1.0.0
               <button type="button" data-theme-set="dark">深色</button>
             </div>
           </div>
+          <div class="theme-panel-row theme-panel-row-block appearance-scale-setting">
+            <div class="appearance-scale-label"><label for="uiFontScale">字体大小</label><output id="uiFontScaleValue" for="uiFontScale">100%</output></div>
+            <input id="uiFontScale" type="range" min="100" max="180" step="10" value="100" aria-describedby="uiFontScaleHelp">
+            <p class="motion-help" id="uiFontScaleHelp">100%–180%，放大聊天正文、侧栏和设置文字，不改变图标大小。</p>
+          </div>
+          <div class="theme-panel-row theme-panel-row-block appearance-scale-setting">
+            <div class="appearance-scale-label"><label for="uiIconScale">SVG 图标大小</label><output id="uiIconScaleValue" for="uiIconScale">100%</output></div>
+            <input id="uiIconScale" type="range" min="100" max="160" step="10" value="100" aria-describedby="uiIconScaleHelp">
+            <p class="motion-help" id="uiIconScaleHelp">100%–160%，独立放大界面图标；不会缩放图片或文件预览。</p>
+          </div>
+          <div class="appearance-scale-preview" aria-label="字体和图标预览"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span>预览：让文字和图标更清楚。IEXA 123</span></div>
+          <button type="button" class="btn-secondary appearance-scale-reset" id="uiScaleReset">恢复默认大小</button>
           <div class="theme-panel-row theme-panel-row-block">
             <span id="motionLabel">界面动效</span>
             <div class="theme-seg" id="motionSeg" role="group" aria-labelledby="motionLabel" aria-describedby="motionHelp">
@@ -867,5 +885,6 @@ version: 1.0.0
 <script src="services/PromptSettings.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
+<script src="services/WindowChrome.js"></script>
 </body>
 </html>

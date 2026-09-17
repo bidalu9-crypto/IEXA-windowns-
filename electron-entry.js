@@ -9,6 +9,7 @@ const http = require('http');
 const fs = require('fs');
 const net = require('net');
 const { installWindowCorners } = require('./resources/window-corners.cjs');
+const { mainWindowChromeOptions, mainWindowState, runWindowCommand, createWindowResize, trackWindowState, isWindowFullscreen } = require('./resources/window-chrome.cjs');
 
 // The backend listens on IPv4 0.0.0.0 for the optional phone bridge. Keep
 // Electron's own control path on an explicit IPv4 loopback address because
@@ -30,6 +31,7 @@ function findFreePort() {
 
 let PORT = null;
 let mainWindow = null;
+let resizeMainWindow = null;
 let desktopLiveWindow = null;
 let server = null;
 let tray = null;
@@ -122,6 +124,18 @@ function secureNavigation(win, trustedPage) {
 ipcMain.on('iexa:get-initial-appearance', (event) => {
   event.returnValue = trustedSender(event) ? readJsonFile(workspaceFile('.iexa-appearance.json'), null) : null;
 });
+
+ipcMain.on('iexa:get-window-state', (event) => {
+  event.returnValue = trustedSender(event) && event.sender === mainWindow?.webContents ? mainWindowState(mainWindow) : null;
+});
+ipcMain.handle('iexa:window-command', (event, command) => {
+  runWindowCommand(mainWindow, event.sender, command);
+});
+ipcMain.handle('iexa:window-resize', (event, request) => {
+  if (!resizeMainWindow || process.platform !== 'win32') throw new Error('Window resize unavailable');
+  resizeMainWindow(event.sender, request);
+});
+
 
 function createDesktopLiveWindow() {
   if (desktopLiveWindow && !desktopLiveWindow.isDestroyed()) {
@@ -378,6 +392,7 @@ function createWindow() {
   const savedWindow = loadWindowState();
 
   mainWindow = new BrowserWindow({
+    ...mainWindowChromeOptions(),
     width: savedWindow.width,
     height: savedWindow.height,
     ...(savedWindow.x !== undefined ? { x: savedWindow.x } : {}),
@@ -386,7 +401,7 @@ function createWindow() {
     minHeight: 600,
     title: 'IEXA-WIN',
     icon: path.join(__dirname, 'resources', 'icon.png'),
-    backgroundColor: '#1a1a2e',
+    backgroundColor: readJsonFile(workspaceFile('.iexa-appearance.json')).theme === 'dark' ? '#1c1c1f' : '#ffffff',
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -396,8 +411,17 @@ function createWindow() {
     },
   });
 
-  // Round the native outer frame on Windows 10; keep native DWM corners on 11.
-  installWindowCorners(mainWindow, { getScaleFactor: () => screen.getDisplayMatching(mainWindow.getBounds()).scaleFactor });
+  trackWindowState(mainWindow);
+  // Never shape a native caption: Windows 10 can fall back to classic chrome.
+  installWindowCorners(mainWindow, { frameless: process.platform === 'win32', getFullScreen: () => isWindowFullscreen(mainWindow), getScaleFactor: () => screen.getDisplayMatching(mainWindow.getBounds()).scaleFactor });
+
+  if (process.platform === 'win32') resizeMainWindow = createWindowResize(mainWindow, () => screen.getCursorScreenPoint());
+
+  const publishWindowState = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('iexa:window-state', mainWindowState(mainWindow));
+  };
+  for (const event of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) mainWindow.on(event, publishWindowState);
+  mainWindow.webContents.on('did-finish-load', publishWindowState);
 
   // Remove default menu
   mainWindow.setMenuBarVisibility(false);
@@ -433,6 +457,7 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    resizeMainWindow = null;
     mainWindow = null;
   });
 

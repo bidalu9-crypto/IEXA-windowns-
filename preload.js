@@ -6,6 +6,15 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('iexaDesktop', {
   initialAppearance: ipcRenderer.sendSync('iexa:get-initial-appearance'),
+  initialWindowState: ipcRenderer.sendSync('iexa:get-window-state'),
+  windowResize: (request) => ipcRenderer.invoke('iexa:window-resize', request),
+  windowCommand: (command) => ipcRenderer.invoke('iexa:window-command', command),
+  onWindowState: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('iexa:window-state', listener);
+    return () => ipcRenderer.removeListener('iexa:window-state', listener);
+  },
   pickFolder: () => ipcRenderer.invoke('iexa:pick-folder'),
   pickPluginFolder: () => ipcRenderer.invoke('iexa:pick-plugin-folder'),
   pickSkillFile: () => ipcRenderer.invoke('iexa:pick-skill-file'),

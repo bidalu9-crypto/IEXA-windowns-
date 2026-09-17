@@ -5582,6 +5582,7 @@ let appearanceSaveTimer = null;
 function currentAppearance() {
   const style = getComputedStyle(document.documentElement);
   return {
+    ...(window.IexaUiScale?.current() || {fontScale:100,iconScale:100}),
     theme: getThemeMode(),
     motion: getMotionMode(),
     accent: getAccent(),
@@ -5611,6 +5612,7 @@ async function loadAppearanceSettings() {
     const accent = ACCENT_PRESETS.some((item) => item.id === value.accent) ? value.accent : 'violet';
     document.documentElement.setAttribute('data-theme', mode);
     applyMotionMode(value.motion);
+    window.IexaUiScale?.apply(value);
     document.documentElement.setAttribute('data-accent', accent);
     document.documentElement.style.setProperty('--sidebar-width', `${value.sidebarWidth || 240}px`);
     document.documentElement.style.setProperty('--files-panel-width', `${value.filesPanelWidth || 300}px`);
@@ -5686,6 +5688,7 @@ function renderAccentDots() {
 }
 
 function syncThemeUI() {
+  window.IexaUiScale?.sync();
   document.querySelectorAll('#motionSeg [data-motion-set]').forEach((button) => {
     const active = button.dataset.motionSet === getMotionMode();
     button.classList.toggle('active', active);
@@ -5699,6 +5702,14 @@ function syncThemeUI() {
 }
 
 function initTheme() {
+  const setUiScale = (change) => {
+    if (!window.IexaUiScale) return;
+    window.IexaUiScale.apply({...window.IexaUiScale.current(),...change});
+    window.IexaUiScale.sync();scheduleAppearanceSave();
+  };
+  document.getElementById('uiFontScale')?.addEventListener('input', event => setUiScale({fontScale:Number(event.target.value)}));
+  document.getElementById('uiIconScale')?.addEventListener('input', event => setUiScale({iconScale:Number(event.target.value)}));
+  document.getElementById('uiScaleReset')?.addEventListener('click', () => setUiScale({fontScale:100,iconScale:100}));
   document.querySelectorAll('#motionSeg [data-motion-set]').forEach((button) => {
     button.addEventListener('click', () => setMotionMode(button.dataset.motionSet));
   });

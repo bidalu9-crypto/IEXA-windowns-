@@ -1,8 +1,8 @@
 'use strict';
 const os = require('node:os');
 
-// Electron's shape coordinates are device-independent pixels. Keep the straight
-// edge centres intact so the native title bar, buttons and edge resizing survive.
+// Use only with a frameless window. On Win10 thickFrame is disabled so these
+// device-independent coordinates match the actual client/window surface.
 function roundedWindowRects(width, height, radius = 12) {
   width = Math.max(1, Math.round(width)); height = Math.max(1, Math.round(height));
   const r = Math.max(0, Math.min(Math.round(radius), Math.floor(width / 2), Math.floor(height / 2)));
@@ -20,15 +20,15 @@ function roundedWindowRects(width, height, radius = 12) {
 function installWindowCorners(win, options = {}) {
   const platform = options.platform || process.platform;
   const release = options.release || os.release();
-  // A standard framed window on Windows 11 keeps DWM's native rounding/shadow.
+  // Windows 11 keeps DWM's native rounding/shadow for the frameless window.
   // Do not install a custom region there: it would override the native treatment.
   const build = Number(release.split('.')[2]) || 0;
-  if (platform !== 'win32' || build >= 22000 || typeof win.setShape !== 'function') return () => {};
+  if (options.frameless !== true || platform !== 'win32' || build >= 22000 || typeof win.setShape !== 'function') return () => {};
   let lastKey = '', disposed = false;
   const refresh = () => {
     if (disposed || win.isDestroyed()) return;
     const [width, height] = win.getSize();
-    const rectangular = win.isMaximized() || win.isFullScreen();
+    const rectangular = win.isMaximized() || (options.getFullScreen ? options.getFullScreen() : win.isFullScreen());
     const scale = options.getScaleFactor ? options.getScaleFactor() : 1;
     const key = rectangular ? 'rectangular' : `${width}:${height}:${scale}`;
     if (key === lastKey) return;
