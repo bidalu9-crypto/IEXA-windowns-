@@ -1,5 +1,5 @@
 export interface DesktopElement {
-  id: string; role: string; text: string; enabled?: boolean; source?: string;
+  id: string; role: string; text: string; enabled?: boolean; source?: string; confidence?: number | null;
   bounds?: { left: number; top: number; width: number; height: number };
   selector?: { automationId?: string; controlType?: string; name?: string };
 }

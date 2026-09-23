@@ -3,7 +3,7 @@ const http=require('node:http');const fs=require('node:fs');
 const {CODEX_COMPAT_USER_AGENT,modelRequestHeaders,normalizeCustomUserAgent}=require('../dist/main/providers/RequestHeaders');
 const utils=require('../dist/main/providers/stream-utils');
 const {OpenAIProvider}=require('../dist/main/providers/OpenAIProvider');
-const {isGptReasoningModel,maxThinkingLevel}=require('../dist/main/providers/ModelCapabilities');
+const {isGptReasoningModel,maxThinkingLevel,shouldUseVisionProxy,modelSupportsVision}=require('../dist/main/providers/ModelCapabilities');
 const {AnthropicProvider}=require('../dist/main/providers/AnthropicProvider');
 const {GeminiProvider}=require('../dist/main/providers/GeminiProvider');
 async function serverFixture(t){const calls=[];const server=http.createServer((req,res)=>{calls.push({url:req.url,headers:req.headers});req.resume();res.writeHead(req.url==='/retry'&&calls.filter(c=>c.url==='/retry').length===1?503:200,{'content-type':'text/event-stream'});res.end('data: ' + JSON.stringify({type:'response.completed',response:{status:'completed'},choices:[{delta:{content:'fixture'},finish_reason:'stop'}],candidates:[{content:{parts:[{text:'fixture'}]},finishReason:'STOP'}]}) + '\n\ndata: {"type":"message_stop"}\n\ndata: [DONE]\n\n');});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{server.close(r);server.closeAllConnections();}));return {url:'http://127.0.0.1:'+server.address().port,calls};}
@@ -79,4 +79,17 @@ test('per-profile custom UA reaches all provider transports independently',async
   const stream=provider.streamMessage([{role:'user',parts:[{type:'text',text:'fixture'}]}],'fixture-system',[],1024);try{await stream.next();}finally{await stream.return();}
  }
  assert.equal(f.calls.length,4);for(const call of f.calls)assert.equal(call.headers['user-agent'],'PersonalClient/9.1');
+});
+
+test('native vision takes precedence over a separately configured vision fallback',()=>{
+ assert.equal(shouldUseVisionProxy('openai','gpt-4o',true,false),false);
+ assert.equal(shouldUseVisionProxy('anthropic','claude-3-7-sonnet',true,false),false);
+ assert.equal(shouldUseVisionProxy('openai','text-only-model',true,false),true);
+ assert.equal(shouldUseVisionProxy('openai','text-only-model',false,false),false);
+ assert.equal(shouldUseVisionProxy('openai','text-only-model',true,true),false);
+ assert.equal(shouldUseVisionProxy('custom','private-alias',true,false,'native'),false);
+ assert.equal(shouldUseVisionProxy('openai','gpt-4o',true,false,'text'),true);
+ assert.equal(modelSupportsVision('custom','private-alias','native'),true);
+ assert.equal(modelSupportsVision('openai','gpt-4o','text'),false);
+ assert.equal(modelSupportsVision('custom','private-alias','auto'),false);
 });

@@ -17,6 +17,7 @@ const nativeStarts = new Map<string, Promise<void>>();
 export class DesktopAgent {
   private healthyUntil = 0;
   private cdpAdapters = new Map<string, ChromiumCdpAdapter>();
+  private recoveryNoticesDelivered = new Set<string>();
 
   private readonly control: DesktopControlSession;
   private isolatedWorkspace?: NativeIsolatedWorkspace;
@@ -33,18 +34,23 @@ export class DesktopAgent {
     }
     const trace = result.metadata?.desktop as any;
     const recovery = trace?.recovered;
-    if (recovery && args.detail !== 'raw' && (recovery.unresolvedOperationCount || recovery.journalIntegrity === 'partial')) {
-      const operations = (recovery.unresolvedOperations || []).slice(-8).map((op: any) => `${op.operationId} (${op.phase}, dispatched=${op.dispatchedActions})`).join('; ');
+    if (recovery && args.detail !== 'raw' && !this.recoveryNoticesDelivered.has(context.owner) && (recovery.unresolvedOperationCount || recovery.journalIntegrity === 'partial')) {
+      this.recoveryNoticesDelivered.add(context.owner);
+      const unresolved = recovery.unresolvedOperations || [];
+      const displayed = unresolved.slice(-8);
+      const safe = (value: unknown, max: number) => String(value || '').replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, max);
+      const operations = displayed.map((op: any) => `${safe(op.operationId, 80)} (action=${safe(op.action, 32) || 'unknown'}, phase=${safe(op.phase, 24)}, dispatched=${Number(op.dispatchedActions) || 0}, completedSteps=${Number(op.completedSteps) || 0})`).join('; ');
+      const omitted = (recovery.unresolvedOperationCount || 0) > displayed.length ? `另有 ${recovery.unresolvedOperationCount - displayed.length} 项未列出。` : '';
       // Place this before the verbose observation so model-context compaction retains the warning.
-      result.output = `恢复警告：${recovery.unresolvedOperationCount || 0} 项历史操作可能已执行但结果未确认。先观察并核对业务状态，不要重复提交。${recovery.journalIntegrity === 'partial' ? '日志存在不完整记录，缺失记录不等于未执行。' : ''}\n${operations}\n` + result.output;
+      result.output = `恢复警告：${recovery.unresolvedOperationCount || 0} 项历史操作可能已执行但结果未确认。先观察并核对业务状态，不要重复提交。${omitted}${recovery.journalIntegrity === 'partial' ? '日志存在不完整记录，缺失记录不等于未执行。' : ''}\n${operations}\n` + result.output;
     }
     if (trace && args.detail !== 'raw') result.output += `\n控制闭环：${trace.events.map((event: any) => event.phase).join(' → ')}\n验证：${trace.verified ? '指定界面文字已核对' : '未证明业务目标完成'}；恢复策略：重新观察，不重放输入。`;
     return result;
   }
 
-  resetControl(): void { this.control.reset(); }
+  resetControl(): void { this.recoveryNoticesDelivered.clear(); this.control.reset(); }
 
-  close(): void { this.isolatedTransport?.close(); this.isolatedWorkspace?.close(); this.control.reset(); for (const adapter of this.cdpAdapters.values()) adapter.close(); this.cdpAdapters.clear(); }
+  close(): void { this.isolatedTransport?.close(); this.isolatedWorkspace?.close(); this.recoveryNoticesDelivered.clear(); this.control.reset(); for (const adapter of this.cdpAdapters.values()) adapter.close(); this.cdpAdapters.clear(); }
 
   private async healthy(): Promise<boolean> {
     // Idle shutdown invalidates native observation state; do not trust cached liveness.
@@ -195,7 +201,8 @@ export class DesktopAgent {
     const timeout = setTimeout(abortParent, actionTimeout);
     try {
       const adapter = desktopAdapterRegistry.resolve({ app: String(args.app || ''), process: String(args.process || ''), windowTitle: String(args.window || ''), handle: Number(args.handle || 0) || undefined, pid: Number(args.pid || 0) || undefined });
-      if (this.isolation?.expectedDesktopName && !['list_windows','launch','observe','bind_window','session_state','find_element','click_element','type_element','frame','wait','wait_change'].includes(action)) throw new Error('Isolated workspace permits semantic operations only.');
+      if (this.isolation?.expectedDesktopName && action === 'read_focused') throw new Error('read_focused queries the current input desktop and is unavailable in native-isolated; use observe on the bound isolated window.');
+      if (this.isolation?.expectedDesktopName && !['list_windows','launch','observe','bind_window','session_state','find_element','click_element','type_element','frame','wait','wait_change'].includes(action)) throw new Error('Isolated workspace permits bound-window semantic operations only.');
       if (args.background === true && !(this.isolation?.expectedDesktopName && ['launch','wait','wait_change'].includes(action))) {
         const preflight = adapter.preflight?.({ app: String(args.app || ''), process: String(args.process || ''), windowTitle: String(args.window || '') }, action);
         if (preflight && !preflight.allowed) throw new Error(`Background action rejected by ${adapter.id}: ${preflight.reason || 'capability unavailable'}`);
@@ -273,7 +280,8 @@ export function formatDesktopResult(value: any): string {
   if (data.frame?.trust === 'background-unverified') lines.push('后台画面未验证；不要把空白图当作软件状态，不要通过激活窗口或重复输入弥补截图失败。');
   if (data.relatedWindows?.length) lines.push('关联对话框（请显式 observe 其 handle 后再操作）：' + JSON.stringify(data.relatedWindows));
   if (data.elements) for (const element of data.elements.slice(0, 80)) {
-    lines.push(`${element.id} | ${element.role} | ${String(element.text || '').slice(0, 180)} | ${JSON.stringify(element.bounds)}${element.selector ? ` | selector=${JSON.stringify({ automationId: element.selector.automationId, name: element.selector.name, controlType: element.selector.controlType })}` : ''}`);
+    const confidence = typeof element.confidence === 'number' && Number.isFinite(element.confidence) ? element.confidence.toFixed(2) : 'unavailable';
+    lines.push(`${element.id} | ${element.role} | ${String(element.text || '').slice(0, 180)} | ${JSON.stringify(element.bounds)} | source=${element.source || 'unknown'} | confidence=${confidence}${element.selector ? ` | selector=${JSON.stringify({ automationId: element.selector.automationId, name: element.selector.name, controlType: element.selector.controlType })}` : ''}`);
   }
   if (data.results) for (const [index, step] of data.results.entries()) lines.push(`${index + 1}. ${step.action}: ${JSON.stringify(step.result)}`);
   if (data.windows) for (const window of data.windows.slice(0, 40)) {

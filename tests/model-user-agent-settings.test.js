@@ -19,6 +19,19 @@ test('profile CRUD persists custom UA, model discovery uses it, blank resets to 
  await api('/api/profiles/fetch-models',{baseURL,profileId:'ua-fixture'});assert.equal(calls.at(-1)['user-agent'],CODEX_COMPAT_USER_AGENT);
  await api('/api/profiles/fetch-models',{baseURL,profileId:'ua-fixture',userAgent:'UnsavedPreview/3'});assert.equal(calls.at(-1)['user-agent'],'UnsavedPreview/3');
 });
+test('profile token rates persist and dynamically recalculate saved usage for custom gateway ids',async()=>{
+ await api('/api/profiles',{...profile(),apiKey:'',tokenPrice:{input:1.25,output:7.5,cacheRead:0.2}});
+ let result=await api('/api/profiles');
+ assert.deepEqual(result.body.profiles.find(p=>p.id==='ua-fixture').tokenPrice,{input:1.25,output:7.5,cacheRead:0.2});
+ const usageFile=path.join(process.env.IEXA_WORKSPACE,'.iexa-token-usage.json');
+ fs.writeFileSync(usageFile,JSON.stringify([{key:'custom:fixture-model:ua-fixture',profileId:'ua-fixture',provider:'custom',model:'fixture-model',inputTokens:1_000_000,outputTokens:1_000_000,cacheCreationInputTokens:0,cacheReadInputTokens:0,requests:1,updatedAt:Date.now()}]));
+ result=await api('/api/token-usage');
+ assert.equal(result.body.records.find(r=>r.profileId==='ua-fixture').estimatedCostUsd,8.75);
+ await api('/api/profiles',{...profile(),apiKey:'',name:'Legacy client edit'});
+ result=await api('/api/profiles');
+ assert.deepEqual(result.body.profiles.find(p=>p.id==='ua-fixture').tokenPrice,{input:1.25,output:7.5,cacheRead:0.2});
+});
+
 test('invalid custom UA is rejected without overwriting saved settings or reaching upstream',async()=>{
  const count=calls.length;const result=await api('/api/profiles',{...profile(),userAgent:'injected\r\nX-Other: value'});assert.equal(result.status,400);assert.match(result.body.error,/User-Agent/);assert.equal((await api('/api/profiles')).body.profiles.find(p=>p.id==='ua-fixture').userAgent,'');
  const discovery=await api('/api/profiles/fetch-models',{baseURL,profileId:'ua-fixture',userAgent:'injected\n'});assert.equal(discovery.status,400);assert.equal(calls.length,count);

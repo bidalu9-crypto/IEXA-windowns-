@@ -37,6 +37,12 @@ test('isolated worker loss never restarts a normal foreground native helper on i
  const r=await agent.executeNative({action:'list_windows',background:true});
  assert.equal(r.success,false);assert.match(r.output,/no foreground fallback/);assert.equal(starts,0);agent.close();
 });
+test('native-isolated read_focused is rejected explicitly because it reads the host input desktop',async()=>{
+ const agent=new DesktopAgent(process.cwd(),false,undefined,'http://127.0.0.1:17998',{expectedDesktopName:'IEXA-Owned-test'});
+ const result=await agent.executeNative({action:'read_focused',background:true});
+ assert.equal(result.success,false);assert.match(result.output,/current input desktop.*unavailable in native-isolated/);
+ agent.close();
+});
 test('unknown backend and mixed isolated/CDP routing fail before any fallback transport',async()=>{
  const agent=new DesktopAgent(process.cwd());let started=0;agent.ensureStarted=async()=>{started++;};
  assert.equal((await agent.executeNative({action:'observe',backend:'misspelled-backend'})).success,false);

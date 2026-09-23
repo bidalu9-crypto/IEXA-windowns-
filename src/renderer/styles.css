@@ -1938,6 +1938,30 @@ body.chat-focus-mode .message.user {
   color: var(--success);
 }
 
+.assistant-message-action.is-translated {
+  color: var(--accent);
+}
+
+.assistant-translation {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  font-size: calc(.95rem * var(--ui-font-scale, 1));
+  line-height: 1.6;
+}
+
+.assistant-translation[hidden] { display: none; }
+.assistant-translation-heading {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: calc(.7rem * var(--ui-font-scale, 1));
+}
+.assistant-translation-content { overflow-wrap: anywhere; }
+.assistant-translation-content > :first-child { margin-top: 0; }
+.assistant-translation-content > :last-child { margin-bottom: 0; }
+
 .assistant-message-action.is-retrying .ui-icon {
   animation: assistant-retry-spin .75s linear infinite;
 }
@@ -4440,6 +4464,12 @@ body.chat-focus-mode .message.user {
 
 /* Token usage dashboard: cumulative actual provider usage, grouped by model. */
 .token-calculator-container .sync-desc { line-height: 1.55; margin-top: -12px; margin-bottom: 18px; }
+.token-price-editor { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-secondary); }
+.token-price-editor summary { cursor: pointer; color: var(--text-primary); font-weight: 600; }
+.token-price-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
+.token-price-fields label { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: calc(.76rem * var(--ui-font-scale, 1)); }
+.token-price-fields input { box-sizing: border-box; width: 100%; min-width: 0; }
+@media (max-width: 560px) { .token-price-fields { grid-template-columns: 1fr; } }
 .token-usage-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; color: var(--text-muted); font-size: calc(.75rem * var(--ui-font-scale, 1)); }
 .token-usage-live { display: inline-flex; align-items: center; gap: 6px; color: var(--success); }
 .token-usage-live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent); }
@@ -5307,9 +5337,21 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  box-sizing: border-box;
+  max-width: 100%;
+  font-family: inherit;
+  font-size: calc(.95rem * var(--ui-font-scale, 1));
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.error-message > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .error-message .ui-icon {
+  color: var(--error);
   width: 17px;
   height: 17px;
   flex-basis: 17px;

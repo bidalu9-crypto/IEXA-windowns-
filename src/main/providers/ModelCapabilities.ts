@@ -26,12 +26,32 @@ export function isGlm53FlashModel(model: string): boolean {
   return /(?:^|[/:-])glm-5-3-(?:flash|falsh)(?:$|[/:-])/.test(id);
 }
 
+export type VisionCapability = 'auto' | 'native' | 'text';
+
 /** Shared native-vision gate used by attachment routing and profile metadata. */
 export function modelLikelySupportsVision(provider: string, model: string): boolean {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase();
   return p === 'anthropic' || p === 'gemini' || isGpt6AstraModel(m) || isGlm53FlashModel(m) ||
     /gpt-4o|gpt-4\.1|gpt-5|claude|gemini|vision|vl|llava|qwen2\.5-vl|qwen3-vl/.test(m);
+}
+
+/** Explicit per-profile capability overrides heuristics for private gateway aliases. */
+export function modelSupportsVision(provider: string, model: string, capability: VisionCapability = 'auto'): boolean {
+  if (capability === 'native') return true;
+  if (capability === 'text') return false;
+  return modelLikelySupportsVision(provider, model);
+}
+
+/** Native image input wins; a separately configured profile is a fallback for text-only chats. */
+export function shouldUseVisionProxy(
+  activeProvider: string,
+  activeModel: string,
+  hasVisionProfile: boolean,
+  sameProfile: boolean,
+  capability: VisionCapability = 'auto',
+): boolean {
+  return hasVisionProfile && !sameProfile && !modelSupportsVision(activeProvider, activeModel, capability);
 }
 
 /** Conservative model-id capability registry. Unknown models stay off so a

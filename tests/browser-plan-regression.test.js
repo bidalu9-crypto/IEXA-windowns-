@@ -64,6 +64,7 @@ test('real browser: archive, independent panels, folding, FLIP send and streamin
     Element.prototype.animate=function(frames,options){if(this.classList.contains('message')&&this.classList.contains('user'))window.__sendAnimations.push({frames,options});return animate.call(this,frames,options);};
     window.fetch=async(input,init)=>{
       if(String(input)==='/api/chat'){window.__sentPayload=JSON.parse(init.body);return new Response('event: text\ndata: {"content":"消息已收到。"}\n\nevent: done\ndata: {}\n\n',{headers:{'content-type':'text/event-stream'}});}
+      if(String(input)==='/api/translate') return new Response(JSON.stringify({text:'Translated fixture',direction:'zh-CN|en'}),{headers:{'content-type':'application/json'}});
       return window.__realFetch(input,init);
     };
     document.documentElement.dataset.motion='full';
@@ -77,6 +78,17 @@ test('real browser: archive, independent panels, folding, FLIP send and streamin
   assert.equal(await evaluate("document.querySelector('.message.user .user-message-text').textContent===window.__sentPayload.message"),true);
   await evaluate("document.querySelector('.message.user .message-fold-toggle').click()");
   assert.equal(await evaluate("window.__sendAnimations[0].frames[0].transform!==window.__sendAnimations[0].frames[1].transform"),true);
+  assert.deepEqual(await evaluate("Array.from(document.querySelector('.message.assistant .assistant-message-actions').querySelectorAll('button')).map(button=>button.dataset.action)"),['translate','copy','retry']);
+  assert.equal(await evaluate("formatEstimatedCost(null)"),'未配置价格');
+  assert.equal(await evaluate("formatEstimatedCost(0)"),'$0.00');
+  assert.equal(await evaluate("formatEstimatedCost(0.00001234)"),'$0.00001234');
+  await evaluate("document.querySelector('.message.assistant .assistant-message-action[data-action=translate]').click()");
+  await wait("!!document.querySelector('.assistant-translation')");
+  assert.equal(await evaluate("document.querySelector('.assistant-translation-content').textContent.trim()"),'Translated fixture');
+  await evaluate("document.querySelector('.message.assistant .assistant-message-action[data-action=translate]').click()");
+  assert.equal(await evaluate("document.querySelector('.assistant-translation').hidden"),true);
+  await evaluate("document.querySelector('.message.assistant .assistant-message-action[data-action=translate]').click()");
+  assert.equal(await evaluate("document.querySelector('.assistant-translation').hidden"),false);
   await evaluate("window.fetch=window.__realFetch");
 
   const metrics=await evaluate(String.raw`new Promise(resolve=>{

@@ -64,6 +64,13 @@ test('input requires owner snapshot and semantic click has full ordered post-ver
  assert.equal(f.calls.find(c => c.action === 'click_element').elementId, 'save');
  assert.equal(JSON.parse(result.output).data.postObservation.observationToken, 't2');
 });
+test('pointer movement without foreground takeover does not cancel a managed desktop action', async () => {
+ let cursorX=0;
+ const f=fixture({transport:async args=>args.action==='session_state'?{success:true,output:JSON.stringify({ok:true,data:{handle:10,foreground:true,observationToken:'t1',geometryChanged:false,cursor:{x:++cursorX,y:12}}})}:undefined});
+ await f.run({action:'observe'});
+ const r=await f.run({action:'click',target:{automationId:'saveButton'}});
+ assert.equal(r.success,true,r.output);assert.equal(r.metadata.desktop.dispatchedActions,1);assert.ok(cursorX>=2);
+});
 test('forcePointer requires one matching UIA no-effect result and fresh observation', async () => {
  const f = fixture({ transport: async args => args.action === 'click_element'
   ? { output: JSON.stringify({ ok: true, action: args.action, data: { method: 'InvokePattern', automation: { success: true }, effectObserved: false, foregroundVerified: true } }), success: true }
@@ -84,15 +91,60 @@ test('forcePointer requires one matching UIA no-effect result and fresh observat
  assert.equal(f.calls.filter(call => call.action === 'click_element').length, 2);
 });
 
-test('focus takeover, owner handoff and stale tokens never issue input', async () => {
+test('foreground loss blocks dispatch without falsely claiming the operation lease was revoked', async () => {
  const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
- const takeover = await f.run({ action: 'type', text: 'secret' }); assert.equal(takeover.metadata.desktop.userTakeover, true);
- assert.equal(f.calls.some(c => c.action === 'type'), false);
+ const blocked = await f.run({ action: 'type', text: 'secret' });
+ assert.equal(blocked.success, false); assert.equal(blocked.metadata.desktop.userTakeover, false); assert.equal(blocked.metadata.desktop.phase, 'failed');
+ assert.match(blocked.output, /not foreground; no physical input dispatched/);
+ assert.equal(blocked.metadata.desktop.dispatchedActions, 0); assert.equal(f.calls.some(c => c.action === 'type'), false);
  f.focus(true); await f.run({ action: 'observe' }); f.bind(20);
  assert.equal((await f.run({ action: 'click' })).success, false);
  await f.run({ action: 'observe' }); assert.equal((await f.run({ action: 'click', observationToken: 'stale' })).success, false);
  assert.equal((await f.run({ action: 'click' }, 'b')).success, false);
  assert.equal(f.calls.some(c => c.action === 'click'), false);
+});
+test('explicit focusPolicy wait pauses dispatch until user restores target focus, then re-observes', async () => {
+ const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
+ const before = f.calls.filter(c => c.action === 'observe').length;
+ const restore = setTimeout(() => f.focus(true), 40);
+ const result = await f.run({ action: 'click', target: { automationId: 'saveButton' }, focusPolicy: 'wait', focusWaitMs: 1000 });
+ clearTimeout(restore);
+ assert.equal(result.success, true, result.output); assert.equal(result.metadata.desktop.dispatchedActions, 1);
+ assert.equal(f.calls.filter(c => c.action === 'observe').length, before + 2);
+ const actions = f.calls.map(c => c.action); const refreshed = actions.lastIndexOf('observe', actions.lastIndexOf('click_element'));
+ assert.ok(refreshed > before - 1, 'the refreshed observation must precede semantic input');
+ assert.equal(f.calls.some(c => c.action === 'activate'), false);
+});
+test('focus wait timeout and explicit operation-lease revocation dispatch no unsafe input', async () => {
+ const timed = fixture(); await timed.run({ action: 'observe' }); timed.focus(false);
+ const timeoutResult = await timed.run({ action: 'click', target: { automationId: 'saveButton' }, focusPolicy: 'wait', focusWaitMs: 20 });
+ assert.equal(timeoutResult.success, false); assert.equal(timeoutResult.metadata.desktop.dispatchedActions, 0); assert.equal(timeoutResult.metadata.desktop.userTakeover, false);
+ assert.match(timeoutResult.output, /Focus wait timed out/);
+ const { DesktopControlScheduler } = require('../dist/main/tools/desktop/DesktopControlScheduler');
+ const scheduler = new DesktopControlScheduler(); const entered = deferred();
+ const revoked = fixture({ scheduler, transport: async (args, signal) => {
+  if (args.action !== 'click_element') return undefined;
+  entered.resolve(); return new Promise(resolve => signal.addEventListener('abort', () => resolve({ success: false, output: signal.reason?.message || 'Lease revoked.' }), { once: true }));
+ }});
+ await revoked.run({ action: 'observe' });
+ const pending = revoked.run({ action: 'click', target: { automationId: 'saveButton' } });
+ await entered.promise; scheduler.pause();
+ const result = await pending;
+ assert.equal(result.cancelled, true); assert.equal(result.metadata.desktop.userTakeover, true);
+ assert.equal(result.metadata.desktop.dispatchedActions, 1); scheduler.resume();
+});
+test('cancelling during focus wait exits promptly and invalidates the prior observation', async () => {
+ const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
+ const controller = new AbortController();
+ const pending = f.run({ action: 'click', target: { automationId: 'saveButton' }, focusPolicy: 'wait', focusWaitMs: 5000 }, 'a', controller.signal);
+ await new Promise(resolve => setTimeout(resolve, 25)); controller.abort(new Error('User cancelled desktop wait.'));
+ const result = await pending;
+ assert.equal(result.success, false); assert.equal(result.cancelled, true);
+ assert.equal(result.metadata.desktop.dispatchedActions, 0);
+ assert.equal(f.calls.some(call => call.action === 'click_element'), false);
+ assert.equal(result.metadata.desktop.userTakeover, false);
+ assert.equal((await f.run({ action: 'click', target: { automationId: 'saveButton' } })).success, false);
+ assert.equal(f.calls.some(call => call.action === 'click_element'), false);
 });
 test('post-action observation is not falsely labeled business success; mismatch stops without retry', async () => {
  const f = fixture(); await f.run({ action: 'observe' });
@@ -167,6 +219,106 @@ test('recovery reads bounded journal tail and reports interrupted operation with
  assert.equal(JSON.parse(state.output).data.control.recovered.interrupted,true);
  assert.equal(JSON.parse(state.output).data.control.needsObservation,true);
  assert.equal((await f.run({action:'type',text:'never replay'})).success,false);assert.equal(f.calls.some(c=>c.action==='type'),false);
+});
+test('uncertain dispatch survives session restart, requires fresh observation, and is never auto-replayed', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-desktop-restart-recovery-'));
+ t.after(()=>{assert.equal(path.dirname(path.resolve(root)),path.resolve(os.tmpdir()));assert.ok(path.basename(root).startsWith('iexa-desktop-restart-recovery-'));fs.rmSync(root,{recursive:true,force:true});});
+ let oldDispatches=0;
+ const crashed=fixture({journalDir:root,transport:async args=>args.action==='click_element'?(oldDispatches++,{success:false,output:'Worker disconnected after dispatch began.'}):undefined});
+ await crashed.run({action:'observe'});
+ const uncertain=await crashed.run({action:'click',target:{automationId:'saveButton'}});
+ assert.equal(uncertain.success,false);assert.equal(uncertain.metadata.desktop.dispatchedActions,1);assert.equal(oldDispatches,1);
+ const restarted=fixture({journalDir:root});
+ const observed=await restarted.run({action:'observe'});assert.equal(observed.success,true);
+ const state=await restarted.run({action:'session_state'});assert.equal(state.success,true);
+ const recovered=JSON.parse(state.output).data.control.recovered;
+ assert.equal(recovered.unresolvedOperationCount,1);assert.equal(recovered.replayPolicy,'observe_and_verify_no_automatic_replay');
+ assert.equal(restarted.calls.some(call=>call.action==='click_element'),false,'restarting and observing must not replay the uncertain click');
+ const fresh=await restarted.run({action:'click',target:{automationId:'saveButton'}});
+ assert.equal(fresh.success,true,fresh.output);
+ assert.equal(restarted.calls.filter(call=>call.action==='click_element').length,1,'only a new explicit action after observation is dispatched');
+});
+test('desktop recovery journal survives actual Node process exit and prevents replay in a new process', async t => {
+ const {execFileSync}=require('node:child_process');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-desktop-os-recovery-'));
+ t.after(()=>{assert.equal(path.dirname(path.resolve(root)),path.resolve(os.tmpdir()));assert.ok(path.basename(root).startsWith('iexa-desktop-os-recovery-'));fs.rmSync(root,{recursive:true,force:true});});
+ const runner=path.join(__dirname,'desktop-recovery-process.cjs');
+ const failed=JSON.parse(execFileSync(process.execPath,[runner,'fail',root],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'}));
+ assert.equal(failed.success,false);assert.equal(failed.dispatched,1);assert.equal(failed.calls.filter(action=>action==='click_element').length,1);
+ const recovered=JSON.parse(execFileSync(process.execPath,[runner,'recover',root],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'}));
+ assert.equal(recovered.success,true);assert.equal(recovered.warning,true);assert.match(recovered.output,/action=click, phase=failed, dispatched=1/);
+ assert.deepEqual(recovered.calls,['observe'],'fresh OS process must observe recovery without replaying old input');
+});
+test('production DesktopAgent surfaces persisted recovery warning after a simulated restart', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-desktop-agent-recovery-'));
+ t.after(()=>{assert.equal(path.dirname(path.resolve(root)),path.resolve(os.tmpdir()));assert.ok(path.basename(root).startsWith('iexa-desktop-agent-recovery-'));fs.rmSync(root,{recursive:true,force:true});});
+ const {DesktopAgent}=require('../dist/main/tools/DesktopAgent');
+ const firstTransport=fixture({transport:async args=>args.action==='click_element'?{success:false,output:'Worker disconnected after dispatch began.'}:undefined});
+ const first=new DesktopAgent(process.cwd(),false,root);first.executeNative=(args,signal)=>firstTransport.transport(args,signal);
+ await first.execute({action:'observe'},undefined,{owner:'session-1'});
+ const failed=await first.execute({action:'click',target:{automationId:'saveButton'}},undefined,{owner:'session-1'});
+ assert.equal(failed.success,false);assert.equal(failed.metadata.desktop.dispatchedActions,1);first.close();
+ const secondTransport=fixture();
+ const second=new DesktopAgent(process.cwd(),false,root);second.executeNative=(args,signal)=>secondTransport.transport(args,signal);
+ const recovered=await second.execute({action:'observe'},undefined,{owner:'session-1'});
+ assert.equal(recovered.success,true);assert.match(recovered.output,/恢复警告：1 项历史操作可能已执行但结果未确认/);
+ assert.match(recovered.output,/不要重复提交/);
+ assert.match(recovered.output,/action=click, phase=failed, dispatched=1/);
+ assert.equal(secondTransport.calls.some(call=>call.action==='click_element'),false,'recovery observation must not replay prior input');
+ const followup=await second.execute({action:'session_state'},undefined,{owner:'session-1'});assert.doesNotMatch(followup.output,/恢复警告：/,'one delivered recovery notice should not repeat on every tool result in the same run');
+ second.resetControl();const nextRun=await second.execute({action:'observe'},undefined,{owner:'session-1'});assert.match(nextRun.output,/恢复警告：1 项历史操作可能已执行但结果未确认/,'unresolved warning should be re-armed for the next model run');
+ second.close();
+});
+test('ToolRuntime beginRun preserves owner recovery journal and delivers warning to the resumed session', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-runtime-recovery-'));
+ t.after(()=>{assert.equal(path.dirname(path.resolve(root)),path.resolve(os.tmpdir()));assert.ok(path.basename(root).startsWith('iexa-runtime-recovery-'));fs.rmSync(root,{recursive:true,force:true});});
+ const {ToolRuntime}=require('../dist/main/runtime/ToolRuntime');
+ const runtime=new ToolRuntime({workspaceDir:root,memoryDir:path.join(root,'memory'),auditDir:path.join(root,'audit')});runtime.registerDefaults();runtime.setPermissionMode('full');
+ const failedTransport=fixture({transport:async args=>args.action==='click_element'?{success:false,output:'Worker disconnected after dispatch began.'}:undefined});
+ runtime.desktop.executeNative=(args,signal)=>failedTransport.transport(args,signal);
+ const invoke=(id,args)=>runtime.execute('desktop_control',{tool_title:args.action,...args},{sessionId:'persistent-session',toolCallId:id,workspaceDir:root,signal:new AbortController().signal});
+ const initial=await invoke('observe-before',{action:'observe'});assert.equal(initial.success,true,initial.output);
+ const failed=await invoke('uncertain-click',{action:'click',target:{automationId:'saveButton'}});
+ assert.equal(failed.success,false);assert.equal(failed.metadata.desktop.dispatchedActions,1);
+ runtime.beginRun(['desktop_control']);
+ const resumedTransport=fixture();runtime.desktop.executeNative=(args,signal)=>resumedTransport.transport(args,signal);
+ const resumed=await invoke('observe-after-restart',{action:'observe'});
+ assert.equal(resumed.success,true);assert.match(resumed.output,/恢复警告：1 项历史操作可能已执行但结果未确认/);
+ assert.equal(resumedTransport.calls.some(call=>call.action==='click_element'),false);
+ runtime.desktop.close();
+});
+test('AgentRuntime restores saved chat and exposes unresolved desktop action before recovery decisions', async t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-agentruntime-recovery-'));
+ t.after(()=>{assert.equal(path.dirname(path.resolve(root)),path.resolve(os.tmpdir()));assert.ok(path.basename(root).startsWith('iexa-agentruntime-recovery-'));fs.rmSync(root,{recursive:true,force:true});});
+ const {AgentRuntime}=require('../dist/main/runtime/AgentRuntime');const sessionId='persistent-agent-runtime';
+ const failedTransport=fixture({transport:async args=>args.action==='click_element'?{success:false,output:'Worker disconnected after dispatch began.'}:undefined});
+ let initialRequests=0;const initialProvider={name:'fixture',model:'fixture',defaultMaxTokens:1024,async *streamMessage(messages){
+  initialRequests++;
+  if(initialRequests===1){yield {type:'toolCallComplete',id:'initial-observe',name:'desktop_control',args:{tool_title:'Observe',action:'observe'}};yield {type:'done',stopReason:'toolUse'};return;}
+  if(initialRequests===2){yield {type:'toolCallComplete',id:'uncertain-click',name:'desktop_control',args:{tool_title:'Click Save',action:'click',target:{automationId:'saveButton'}}};yield {type:'done',stopReason:'toolUse'};return;}
+  const result=messages.flatMap(message=>message.parts).find(part=>part.type==='toolResult'&&part.id==='uncertain-click');
+  assert.ok(result);assert.match(result.content,/Worker disconnected after dispatch began/);
+  yield {type:'textDelta',text:'The click outcome is uncertain; do not replay before checking state.'};yield {type:'done',stopReason:'endTurn'};
+ }};
+ const config={sessionId,workspaceDir:root,memoryDir:path.join(root,'memory'),auditDir:path.join(root,'audit'),memoryEnabled:false,permissionMode:'full',contextWindow:200000,provider:initialProvider};
+ const firstRuntime=new AgentRuntime(config);await firstRuntime.initialize();firstRuntime.tools.desktop.executeNative=(args,signal)=>failedTransport.transport(args,signal);
+ const noop=()=>{};const callbacks=()=>({onTextDelta:noop,onThinkingDelta:noop,onToolCallStart:noop,onToolInputDelta:noop,onToolCallComplete:noop,onToolResult:noop,onUsage:noop,onContext:noop,onError:error=>assert.fail(error),onDone:noop,onCancelled:()=>assert.fail('unexpected cancellation')});
+ await firstRuntime.run({message:'Original task: change and save the document through the desktop UI.',tools:firstRuntime.toolDefinitions(),callbacks:callbacks()});
+ assert.equal(initialRequests,3);assert.equal(failedTransport.calls.filter(call=>call.action==='click_element').length,1);
+ firstRuntime.tools.desktop.close();
+ const resumedTransport=fixture();let resumedRequests=0,finalText='';
+ const resumedProvider={name:'fixture',model:'fixture',defaultMaxTokens:1024,async *streamMessage(messages){
+  resumedRequests++;
+  if(resumedRequests===1){assert.ok(messages.some(message=>message.role==='user'&&message.parts.some(part=>part.type==='text'&&part.text.includes('Original task:'))),'saved task history must be rehydrated');yield {type:'toolCallComplete',id:'recovery-observe',name:'desktop_control',args:{tool_title:'Check current state',action:'observe'}};yield {type:'done',stopReason:'toolUse'};return;}
+  const result=messages.flatMap(message=>message.parts).find(part=>part.type==='toolResult'&&part.id==='recovery-observe');
+  assert.ok(result);assert.match(result.content,/恢复警告：1 项历史操作可能已执行但结果未确认/);assert.match(result.content,/action=click, phase=failed, dispatched=1/);assert.match(result.content,/不要重复提交/);
+  assert.equal(resumedTransport.calls.some(call=>call.action==='click_element'),false,'the restored agent must see recovery evidence before considering a new click');
+  yield {type:'textDelta',text:'先核对状态，不重放未确认点击。'};yield {type:'done',stopReason:'endTurn'};
+ }};
+ const resumedRuntime=new AgentRuntime({...config,provider:resumedProvider});await resumedRuntime.initialize();resumedRuntime.tools.desktop.executeNative=(args,signal)=>resumedTransport.transport(args,signal);
+ resumedRuntime.seedHistoryFromChat([{role:'user',content:'Original task: change and save the document through the desktop UI.'},{role:'assistant',content:'',toolCalls:[{id:'uncertain-click',name:'desktop_control',args:{action:'click'},result:{output:'Worker disconnected after dispatch began.',success:false}}]}]);
+ await resumedRuntime.run({message:'Resume the previous task only after inspecting its current state.',tools:resumedRuntime.toolDefinitions(),callbacks:callbacks()});
+ assert.equal(resumedRequests,2);resumedRuntime.tools.desktop.close();
 });
 test('desktop input respects risk approval before it reaches control queue; full mode is explicit', async t => {
  const {ToolRuntime}=require('../dist/main/runtime/ToolRuntime');
@@ -262,10 +414,16 @@ test('desktop model schema exposes background and compact observations retain tr
  const {makeAgentTools}=require('../dist/main/tools/ToolDefinitions');
  const tool=makeAgentTools().find(t=>t.name==='desktop_control');
  assert.equal(tool.parameters.background.type,'boolean');
+ assert.deepEqual(tool.parameters.focusPolicy.enumValues,['stop','wait']);
+ assert.match(tool.parameters.focusPolicy.description,/never activates or steals focus/i);
+ assert.match(tool.parameters.backend.description,/user's explicit request/);
+ assert.match(tool.parameters.includeOcr.description,/confidence:null/);
+ const prompt=require('../dist/main/agent/SystemPrompt').buildSystemPrompt({});
+ assert.match(prompt,/普通指针移动不转移或撤销租约/);assert.match(prompt,/按用户对当前任务的明确要求选择/);
  for(const key of tool.propertyOrdering)assert.ok(tool.parameters[key],`Unknown ordered parameter: ${key}`);
  const {formatDesktopResult}=require('../dist/main/tools/DesktopAgent');
- const output=formatDesktopResult({ok:true,action:'observe',data:{frame:{trust:'background-unverified'},elements:[{id:'e1',role:'button',text:'Save',selector:{automationId:'SaveButton',name:'Save'}}]}});
- assert.match(output,/background-unverified/);assert.match(output,/SaveButton/);
+ const output=formatDesktopResult({ok:true,action:'observe',data:{frame:{trust:'background-unverified'},elements:[{id:'e1',role:'button',text:'Save',source:'uia',confidence:1,selector:{automationId:'SaveButton',name:'Save'}},{id:'e2',role:'button',text:'Save',source:'ocr',confidence:null}]}});
+ assert.match(output,/background-unverified/);assert.match(output,/SaveButton/);assert.match(output,/source=ocr/);assert.match(output,/confidence=unavailable/);
 });
 
 test('backend switching invalidates prior owner capability before any input',async()=>{

@@ -11,11 +11,21 @@ export interface DesktopEvent { version: 1; operationId: string; sequence: numbe
 export interface DesktopContext { owner: string; operationId?: string; onEvent?: (event: DesktopEvent) => void; }
 interface Snapshot { observationToken: string; capturedAt: number; handle: number; elements: DesktopElement[]; frameHash?: string; captureTrust?: string; }
 interface PointerFallbackGrant { observationToken: string; handle: number; elementId: string; }
-interface OwnerState { snapshot?: Snapshot; needsObservation: boolean; backendContext?: { backend?: unknown; cdpEndpoint?: unknown; cdpTargetId?: unknown }; recovered?: DesktopRecoveryState; pointerFallback?: PointerFallbackGrant; }
+interface OwnerState { snapshot?: Snapshot; needsObservation: boolean; backendContext?: { backend?: unknown; cdpEndpoint?: unknown; cdpTargetId?: unknown }; focusPolicy?: 'stop' | 'wait'; focusWaitMs?: number; recovered?: DesktopRecoveryState; pointerFallback?: PointerFallbackGrant; }
 type Transport = (args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolExecutionResult>;
 const inputActions = new Set(['move', 'click', 'drag', 'click_element', 'type', 'type_element', 'key', 'hotkey', 'scroll']);
 const bindingActions = new Set(['launch', 'activate', 'bind_window']);
 const passiveActions = new Set(['list_windows', 'observe', 'frame', 'session_state', 'find_element', 'read_focused', 'wait', 'wait_change']);
+
+function delayWithSignal(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason instanceof Error ? signal.reason : new Error('Desktop operation lease revoked.')); return; }
+    const timer = setTimeout(() => { cleanup(); resolve(); }, ms);
+    const abort = () => { cleanup(); reject(signal.reason instanceof Error ? signal.reason : new Error('Desktop operation lease revoked.')); };
+    const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); };
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
 
 function hasCoordinatePair(step: Record<string, unknown>, prefix = ''): boolean {
   const x = prefix ? `to${prefix}X` : 'x'; const y = prefix ? `to${prefix}Y` : 'y';
@@ -78,6 +88,15 @@ export class DesktopControlSession {
     let leaseAborted = false;
     try {
       if (!owner.snapshot && !owner.recovered) owner.recovered = this.recover(context.owner);
+      if (args.focusPolicy !== undefined) {
+        if (args.focusPolicy !== 'stop' && args.focusPolicy !== 'wait') throw new Error('focusPolicy must be stop or wait.');
+        owner.focusPolicy = args.focusPolicy;
+      }
+      if (args.focusWaitMs !== undefined) {
+        const waitMs = Number(args.focusWaitMs);
+        if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > 60_000) throw new Error('focusWaitMs must be an integer from 1 to 60000.');
+        owner.focusWaitMs = waitMs;
+      }
       emit('queued');
       const result = await this.scheduler.run(context.owner, operationId, signal, async lease => {
         if (args.backend !== undefined || args.cdpEndpoint !== undefined || args.cdpTargetId !== undefined) {
@@ -114,9 +133,27 @@ export class DesktopControlSession {
         };
         const checkOwnership = async (background = false) => {
           if (!owner.snapshot || owner.needsObservation) throw new Error('Fresh observe is required for this session before input; recovery never replays actions.');
-          const { data } = await call({ action: 'session_state' });
-          if (Number(data.handle) !== owner.snapshot.handle) throw new Error('Desktop owner changed. Explicitly activate and observe your target again.');
-          if (!background && !data.foreground) throw new Error('User takeover: target window lost foreground.');
+          let { data } = await call({ action: 'session_state' });
+          if (Number(data.handle) !== owner.snapshot.handle) throw new Error('Desktop owner changed. Explicitly observe the intended target again.');
+          if (!background && !data.foreground) {
+            if (owner.focusPolicy !== 'wait') throw new Error('Target is not foreground; no physical input dispatched. This is not a lease revocation. Set focusPolicy=wait to wait for the user to return focus, or observe after focus is restored.');
+            const waitMs = owner.focusWaitMs ?? 30_000;
+            const deadline = Date.now() + waitMs;
+            let regained = false;
+            while (Date.now() < deadline) {
+              try { await delayWithSignal(Math.min(100, deadline - Date.now()), lease.signal); }
+              catch (error) { leaseAborted = true; throw error; }
+              const current = (await call({ action: 'session_state' })).data;
+              if (Number(current.handle) !== owner.snapshot.handle) throw new Error('Desktop owner changed while waiting for focus; no input dispatched.');
+              if (current.foreground) {
+                await observe({ handle: owner.snapshot.handle });
+                data = (await call({ action: 'session_state' })).data;
+                regained = true;
+                break;
+              }
+            }
+            if (!regained) throw new Error(`Focus wait timed out after ${waitMs}ms; no physical input dispatched.`);
+          }
           if (data.geometryChanged || data.observationToken !== owner.snapshot.observationToken) throw new Error('Observation is stale. Observe again before input.');
         };
         const perform = async (original: Record<string, unknown>): Promise<ToolExecutionResult> => {
@@ -184,7 +221,7 @@ export class DesktopControlSession {
             emit('action_start');
             const response = await call(step); emit('action_end');
             const { data: current } = await call({ action: 'session_state' });
-            if (!background && !current.foreground) throw new Error('User takeover: target window lost foreground after action.');
+            if (!background && !current.foreground) throw new Error('Target lost foreground during input; the action may have partially executed. Re-observe and verify before continuing; do not replay blindly.');
             // A native same-process dialog transition is accepted only when explicitly verified by native action.
             if (!background && Number(current.handle) !== owner.snapshot!.handle && response.data.foregroundVerified !== true) throw new Error('Desktop owner changed after action. Observe again.');
             const after = await observe({ handle: Number(current.handle), includeOcr: !!step.verifyText });
@@ -246,7 +283,7 @@ export class DesktopControlSession {
       owner.pointerFallback = undefined;
       const message = (error as Error).message; const failedAt = phase;
       const cancelled = !!signal?.aborted || leaseAborted;
-      const takeover = /takeover|foreground|paused by|owner changed/i.test(message);
+      const takeover = /user takeover|desktop control paused by operator|control lease (?:revoked|transferred)/i.test(message);
       try { emit(cancelled ? 'cancelled' : takeover ? 'takeover' : 'failed'); } catch { /* Keep original failure if storage is unavailable. */ }
       // Include the current failed dispatch in recovery, not only the state loaded at startup.
       try { if (this.journalDir) owner.recovered = this.recover(context.owner); } catch { /* Original transport/journal failure remains authoritative. */ }

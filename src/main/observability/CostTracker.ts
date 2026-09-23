@@ -1,7 +1,7 @@
 import { LLMUsage } from '../providers/types';
 
 export interface CostSnapshot extends LLMUsage { estimatedCostUsd: number | null; }
-interface TokenPrice { input: number; output: number; cacheRead?: number; }
+export interface TokenPrice { input: number; output: number; cacheRead?: number; cacheCreation?: number; }
 
 const PRICES: Record<string, TokenPrice> = {
   'openai:gpt-4o': { input: 2.5, output: 10 },
@@ -23,15 +23,17 @@ export class CostTracker {
   snapshot(): CostSnapshot { return { ...this.usage, estimatedCostUsd: estimateCostUsd(this.provider, this.model, this.usage) }; }
 }
 
-export function estimateCostUsd(provider: string, model: string, usage: LLMUsage): number | null {
+export function estimateCostUsd(provider: string, model: string, usage: LLMUsage, override?: TokenPrice | null): number | null {
   const normalizedProvider = String(provider || '').toLowerCase();
   const normalizedModel = String(model || '').toLowerCase();
-  const price = Object.entries(PRICES).sort(([a], [b]) => b.length - a.length).find(([key]) => {
+  const price = override || Object.entries(PRICES).sort(([a], [b]) => b.length - a.length).find(([key]) => {
     const [priceProvider, priceModel] = key.split(':');
     return normalizedProvider === priceProvider && (normalizedModel === priceModel || normalizedModel.startsWith(priceModel + '-'));
   })?.[1];
   if (!price) return null;
-  const standardInput = Math.max(0, Number(usage.inputTokens) || 0) + Math.max(0, Number(usage.cacheCreationInputTokens) || 0);
+  const input = Math.max(0, Number(usage.inputTokens) || 0);
+  const output = Math.max(0, Number(usage.outputTokens) || 0);
   const cacheRead = Math.max(0, Number(usage.cacheReadInputTokens) || 0);
-  return (standardInput * price.input + (Number(usage.outputTokens) || 0) * price.output + cacheRead * (price.cacheRead ?? price.input)) / 1_000_000;
+  const cacheCreation = Math.max(0, Number(usage.cacheCreationInputTokens) || 0);
+  return (input * price.input + output * price.output + cacheRead * (price.cacheRead ?? price.input) + cacheCreation * (price.cacheCreation ?? price.input)) / 1_000_000;
 }

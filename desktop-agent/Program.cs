@@ -45,7 +45,7 @@ internal static class Program
     sealed record ObservedFrame(string Token, long Handle, Rectangle Bounds, CaptureEvidence Evidence, long CapturedAt, byte[] Png);
     static ObservedFrame? LastObservedFrame;
 
-    record SemanticElement(string Id, string Role, string Text, int Left, int Top, int Width, int Height, string Source, double Confidence, bool Enabled = true, AutomationSelector? Selector = null);
+    record SemanticElement(string Id, string Role, string Text, int Left, int Top, int Width, int Height, string Source, double? Confidence, bool Enabled = true, AutomationSelector? Selector = null);
     record FrameState(byte[] Gray, int Width, int Height, string Hash, long CapturedAt);
 
     [STAThread]
@@ -467,7 +467,8 @@ internal static class Program
                 var minX = words.Min(w => w.BoundingRect.X); var minY = words.Min(w => w.BoundingRect.Y); var maxX = words.Max(w => w.BoundingRect.X + w.BoundingRect.Width); var maxY = words.Max(w => w.BoundingRect.Y + w.BoundingRect.Height);
                 var left = origin.Left + (int)minX; var top = origin.Top + (int)minY; var width = (int)Math.Ceiling(maxX - minX); var height = (int)Math.Ceiling(maxY - minY);
                 var role = GuessRole(text, left, top, width, height, origin);
-                result.Add(new SemanticElement(MakeId("ocr", role, text, left, top, width, height), role, text, left, top, width, height, "ocr", 0.91));
+                // Windows OCR exposes recognized text and geometry here, but no calibrated confidence score.
+                result.Add(new SemanticElement(MakeId("ocr", role, text, left, top, width, height), role, text, left, top, width, height, "ocr", null));
             }
             LastOcrCount = result.Count; LastOcrStatus = "ok";
         }

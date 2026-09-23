@@ -3637,8 +3637,13 @@ function formatUsageNumber(value) {
 }
 
 function formatEstimatedCost(value) {
+  if (value === null || value === undefined || value === '') return '未配置价格';
   const cost = Number(value);
-  return Number.isFinite(cost) && cost >= 0 ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}` : '未配置价格';
+  if (!Number.isFinite(cost) || cost < 0) return '未配置价格';
+  if (cost === 0) return '$0.00';
+  if (cost < 1e-8) return `$${cost.toExponential(2)}`;
+  const digits = cost < 0.0001 ? Math.min(12, Math.max(8, -Math.floor(Math.log10(cost)) + 4)) : cost < 0.01 ? 6 : 2;
+  return `$${cost.toFixed(digits).replace(/0+$/, '').replace(/\.$/, '')}`;
 }
 
 function renderTokenUsage() {
@@ -3657,7 +3662,7 @@ function renderTokenUsage() {
     const total = input + output;
     const cache = (Number(r.cacheCreationInputTokens) || 0) + (Number(r.cacheReadInputTokens) || 0);
     return `<div class="token-usage-model-card">
-      <div class="token-usage-model-head"><div><strong>${escapeHtml(r.model || '未知模型')}</strong><span>${escapeHtml(r.provider || '')}</span></div><b>${formatUsageNumber(total)}</b></div>
+      <div class="token-usage-model-head"><div><strong>${escapeHtml(r.model || '未知模型')}</strong><span>${escapeHtml(r.provider || '')}${r.profileName ? ` · ${escapeHtml(r.profileName)}` : ''}</span></div><b>${formatUsageNumber(total)}</b></div>
       <div class="token-usage-model-stats">
         <div><span>输入</span><strong>${formatUsageNumber(input)}</strong></div>
         <div><span>输出</span><strong>${formatUsageNumber(output)}</strong></div>
@@ -4245,8 +4250,12 @@ function appendAssistantMessageActions(messageEl) {
   actions.setAttribute('role', 'group');
   actions.setAttribute('aria-label', '回复操作');
   actions.innerHTML = `
+    <button type="button" class="assistant-message-action" data-action="translate" title="中英互译（调用当前会话模型，会计入模型用量）" aria-label="中英互译">${uiIcon('translate')}</button>
     <button type="button" class="assistant-message-action" data-action="copy" title="复制回复" aria-label="复制回复">${uiIcon('copy')}</button>
     <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>`;
+  actions.querySelector('[data-action="translate"]').addEventListener('click', function () {
+    translateAssistantMessage(messageEl, this);
+  });
   actions.querySelector('[data-action="copy"]').addEventListener('click', function () {
     copyAssistantMessage(messageEl, this);
   });
@@ -4298,6 +4307,57 @@ async function writeClipboardText(text) {
   area.select();
   document.execCommand('copy');
   area.remove();
+}
+
+async function translateAssistantMessage(messageEl, button) {
+  if (!messageEl || !button || messageEl.classList.contains('is-streaming')) return;
+  const existing = messageEl._translationElement;
+  if (existing?.isConnected) {
+    const visible = existing.hidden;
+    existing.hidden = !visible;
+    button.classList.toggle('is-translated', visible);
+    button.title = visible ? '隐藏译文' : '显示译文';
+    button.setAttribute('aria-label', visible ? '隐藏译文' : '显示译文');
+    return;
+  }
+
+  const source = assistantMessageText(messageEl);
+  if (!source.trim()) return;
+  button.disabled = true;
+  button.classList.add('is-translating');
+  button.title = '正在翻译…';
+  button.setAttribute('aria-label', '正在翻译');
+  try {
+    const response = await fetch(`${API_BASE}/api/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: source, sessionId: currentSessionId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '翻译服务暂时不可用。');
+    const translated = document.createElement('section');
+    translated.className = 'assistant-translation';
+    const heading = document.createElement('div');
+    heading.className = 'assistant-translation-heading';
+    heading.textContent = `${data.direction === 'zh-CN|en' ? '英文译文' : '中文译文'} · 当前模型`;
+    const content = document.createElement('div');
+    content.className = 'assistant-translation-content';
+    translated.append(heading, content);
+    const footer = messageEl.querySelector('.assistant-message-footer');
+    messageEl.insertBefore(translated, footer || null);
+    renderMarkdownContent(content, String(data.text || ''), true);
+    messageEl._translationElement = translated;
+    button.classList.add('is-translated');
+    button.title = '隐藏译文';
+    button.setAttribute('aria-label', '隐藏译文');
+  } catch (error) {
+    addError(`翻译失败：${error.message || error}`);
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.classList.remove('is-translating');
+    }
+  }
 }
 
 async function copyAssistantMessage(messageEl, button) {
@@ -5255,6 +5315,12 @@ function showProfileEditor(profile) {
   document.getElementById('profileEditorName').value = profile ? profile.name : '';
   document.getElementById('profileEditorProvider').value = profile ? profile.provider : 'anthropic';
   document.getElementById('profileEditorModel').value = profile ? profile.model : '';
+  document.getElementById('profileEditorVisionCapability').value = ['native', 'text'].includes(profile?.visionCapability) ? profile.visionCapability : 'auto';
+  const rates = profile?.tokenPrice || {};
+  document.getElementById('profileEditorPriceInput').value = rates.input ?? '';
+  document.getElementById('profileEditorPriceOutput').value = rates.output ?? '';
+  document.getElementById('profileEditorPriceCacheRead').value = rates.cacheRead ?? '';
+  document.getElementById('profileEditorPriceCacheCreation').value = rates.cacheCreation ?? '';
   document.getElementById('profileEditorApiKey').value = '';
   document.getElementById('profileEditorApiKey').placeholder = profile ? '已保存，留空即可继续使用' : 'sk-...';
   document.getElementById('profileEditorBaseURL').value = profile ? (profile.baseURL || '') : '';
@@ -5369,6 +5435,18 @@ async function saveProfile() {
     name: document.getElementById('profileEditorName').value.trim(),
     provider: document.getElementById('profileEditorProvider').value,
     model: profileModel,
+    visionCapability: document.getElementById('profileEditorVisionCapability').value,
+    tokenPrice: (() => {
+      const input = document.getElementById('profileEditorPriceInput').value.trim();
+      const output = document.getElementById('profileEditorPriceOutput').value.trim();
+      if (!input && !output) return null;
+      return {
+        input,
+        output,
+        cacheRead: document.getElementById('profileEditorPriceCacheRead').value.trim(),
+        cacheCreation: document.getElementById('profileEditorPriceCacheCreation').value.trim(),
+      };
+    })(),
     apiKey: document.getElementById('profileEditorApiKey').value.trim(),
     baseURL: document.getElementById('profileEditorBaseURL').value.trim(),
     userAgent: document.getElementById('profileEditorUserAgent').value,
