@@ -39,7 +39,9 @@ export function modelLikelySupportsVision(provider: string, model: string): bool
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
-  if (isGptReasoningModel(m)) return /(?:^|[/:-])gpt-?6(?:-|$)/.test(m) || /gpt-5-6/.test(m) ? 'max' : 'xhigh';
+  const gpt6Model = m.match(/(?:^|[/:-])gpt-?6-(astra|sol|luna)(?:$|[/:-])/);
+  if (gpt6Model) return gpt6Model[1] === 'astra' ? 'xhigh' : 'max';
+  if (isGptReasoningModel(m)) return /gpt-5-6/.test(m) ? 'max' : 'xhigh';
   if (isGlm53FlashModel(m)) return 'high';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
