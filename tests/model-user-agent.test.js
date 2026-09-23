@@ -38,12 +38,33 @@ test('custom UA is trimmed, blank resets default, and control/non-ASCII/oversize
  assert.equal(modelRequestHeaders(undefined,'  MyClient/2.0  ').get('user-agent'),'MyClient/2.0');assert.equal(modelRequestHeaders(undefined,' ').get('user-agent'),CODEX_COMPAT_USER_AGENT);
  for(const input of ['bad\r\nAuthorization: fake','bad\tvalue','中文UA','a'.repeat(513),12])assert.throws(()=>normalizeCustomUserAgent(input),/User-Agent/);
 });
-test('GPT reasoning capability covers dated and future families but excludes chat variants',()=>{
- for(const model of ['gpt-6-astra','openrouter/gpt-6-pro-2026-09-23','gpt-7-future','gpt-5.4','provider/gpt-5.3-2027-01-01']) assert.equal(isGptReasoningModel(model),true,model);
- for(const model of ['gpt-4.1','gpt-5-chat-latest','gpt-5-mini','gpt-6-codex','o3']) assert.equal(isGptReasoningModel(model),false,model);
+test('GPT reasoning capability covers GPT-6+ aliases and preserves GPT-5 chat exclusions',()=>{
+ for(const model of ['gpt-6-astra','gpt6-pro','openrouter/gpt-6-pro-2026-09-23','gpt-7-future','provider/gpt-8.1-preview','gpt-5.4','provider/gpt-5.3-2027-01-01']) assert.equal(isGptReasoningModel(model),true,model);
+ for(const model of ['gpt-4.1','gpt-5-chat-latest','gpt-5-mini','gpt-5-nano','o3']) assert.equal(isGptReasoningModel(model),false,model);
  assert.equal(maxThinkingLevel('openai','gpt-6-pro'),'max');
+ assert.equal(maxThinkingLevel('openai','gpt6-pro'),'max');
  assert.equal(maxThinkingLevel('openai','gpt-5.4'),'xhigh');
  assert.equal(maxThinkingLevel('openai','gpt-4.1'),'off');
+});
+test('GPT-6 aliases send the shared reasoning effort field on Chat Completions',async t=>{
+ const f=await serverFixture(t),original=global.fetch;t.after(()=>{global.fetch=original;});
+ let requestBody;
+ global.fetch=async (_url,init)=>{requestBody=JSON.parse(init.body);return original(f.url+'/gpt6',init);};
+ const provider=new OpenAIProvider({model:'provider/gpt6-pro-2027-01-01',apiKey:'FIXTURE',name:'openai',thinkingLevel:'high',baseURL:f.url});
+ const stream=provider.streamMessage([{role:'user',parts:[{type:'text',text:'fixture'}]}],'fixture-system',[],1024);try{await stream.next();}finally{await stream.return();}
+ assert.equal(requestBody.model,'provider/gpt6-pro-2027-01-01');
+ assert.equal(requestBody.reasoning_effort,'high');
+ assert.equal('enable_thinking' in requestBody,false);
+});
+test('Responses reasoning fields fall back when a gateway rejects them',async t=>{
+ const f=await serverFixture(t),original=global.fetch;t.after(()=>{global.fetch=original;});
+ const bodies=[];
+ global.fetch=async (_url,init)=>{const body=JSON.parse(init.body);bodies.push(body);if(bodies.length===1)return new Response(JSON.stringify({error:{message:'unknown field reasoning'}}),{status:400,headers:{'content-type':'application/json'}});return original(f.url+'/responses-fallback',init);};
+ const provider=new OpenAIProvider({model:'gpt-6-pro',apiKey:'FIXTURE',name:'openai',thinkingLevel:'high',baseURL:f.url,apiMode:'responses'});
+ const stream=provider.streamMessage([{role:'user',parts:[{type:'text',text:'fixture'}]}],'fixture-system',[],1024);try{await stream.next();}finally{await stream.return();}
+ assert.equal(bodies.length,2);
+ assert.deepEqual(bodies[0].reasoning,{effort:'high',summary:'auto'});
+ assert.equal('reasoning' in bodies[1],false);
 });
 test('per-profile custom UA reaches all provider transports independently',async t=>{
  const f=await serverFixture(t),original=global.fetch;t.after(()=>{global.fetch=original;});global.fetch=(_url,init)=>{assert.equal('userAgent' in init,false);return original(f.url+'/custom',init);};

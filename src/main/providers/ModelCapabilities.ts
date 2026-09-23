@@ -6,11 +6,12 @@ const ORDER: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max', 
  * Deliberately avoid GPT-4/4o and other chat-only families. */
 export function isGptReasoningModel(model: string): boolean {
   const id = String(model || '').toLowerCase().replace(/[._]/g, '-');
-  const family = id.match(/(?:^|[/:-])(gpt-(?:[5-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*)(?:$|[/:-])/);
+  // GPT-5+ reasoning capability is a family contract, not an Astra-only suffix.
+  const family = id.match(/(?:^|[/:-])(gpt-?(?:[5-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*)(?:$|[/:-])/);
   if (!family) return false;
-  // Dated/provider-prefixed aliases stay compatible, while known chat-only
-  // variants are excluded to avoid sending reasoning fields to plain models.
-  return !/(?:^|[/:-])gpt-(?:5|6)-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(id);
+  // GPT-6+ variants are treated uniformly; retain only the known GPT-5
+  // chat-only exclusions so ordinary GPT-5 chat aliases stay unchanged.
+  return !/(?:^|[/:-])gpt-5-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(id);
 }
 
 /** Backward-compatible named matcher for existing call sites. */
@@ -38,7 +39,7 @@ export function modelLikelySupportsVision(provider: string, model: string): bool
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
-  if (isGptReasoningModel(m)) return /(?:^|[/:-])gpt-6(?:-|$)/.test(m) || /gpt-5-6/.test(m) ? 'max' : 'xhigh';
+  if (isGptReasoningModel(m)) return /(?:^|[/:-])gpt-?6(?:-|$)/.test(m) || /gpt-5-6/.test(m) ? 'max' : 'xhigh';
   if (isGlm53FlashModel(m)) return 'high';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||

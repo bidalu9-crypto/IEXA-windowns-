@@ -8,7 +8,7 @@ import { ProviderError } from './ProviderError';
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readSSEFrames } from './stream-utils';
-import { isGlm53FlashModel, isGpt6AstraModel, isGptReasoningModel } from './ModelCapabilities';
+import { isGlm53FlashModel, isGptReasoningModel } from './ModelCapabilities';
 
 export class OpenAIProvider {
   readonly name: string;
@@ -20,6 +20,9 @@ export class OpenAIProvider {
   /** True only after server-side model/endpoint capability validation. */
   private fastMode: boolean;
   private apiMode: 'chat_completions' | 'responses';
+  /** Cache per-provider/model wire capability after a gateway rejects an
+   * optional reasoning field. This prevents repeating a known-bad request. */
+  private reasoningWireMode: 'full' | 'effort_only' | 'plain' = 'full';
   readonly defaultMaxTokens: number = 64000;
 
   constructor(config: ProviderConfig) {
@@ -83,7 +86,7 @@ export class OpenAIProvider {
     // Normalize base URL
     const apiURL = this.apiBaseURL();
 
-    const response = await fetchWithRetry(`${apiURL}/chat/completions`, {
+    let response = await fetchWithRetry(`${apiURL}/chat/completions`, {
       method: 'POST',
       userAgent: this.userAgent,
       headers: {
@@ -95,11 +98,32 @@ export class OpenAIProvider {
     });
 
     if (!response.ok) {
-      const errorText = await readDiagnosticResponse(response);
-      if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
-        throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+      let errorText = await readDiagnosticResponse(response);
+      if (this.shouldFallbackReasoning(response.status, errorText, body)) {
+        this.disableReasoningFields(body);
+        response = await fetchWithRetry(`${apiURL}/chat/completions`, {
+          method: 'POST',
+          userAgent: this.userAgent,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+        if (response.ok) {
+          // The gateway accepted the same request after removing optional
+          // reasoning fields; keep the successful mode cached for this profile.
+        } else {
+          errorText = await readDiagnosticResponse(response);
+        }
       }
-      throw ProviderError.http(response.status, errorText, 'OpenAI');
+      if (!response.ok) {
+        if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+          throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+        }
+        throw ProviderError.http(response.status, errorText, 'OpenAI');
+      }
     }
 
     const reader = response.body?.getReader();
@@ -352,7 +376,7 @@ export class OpenAIProvider {
       body.tool_choice = 'auto';
     }
 
-    const response = await fetchWithRetry(`${this.apiBaseURL()}/responses`, {
+    let response = await fetchWithRetry(`${this.apiBaseURL()}/responses`, {
       method: 'POST',
       userAgent: this.userAgent,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
@@ -360,11 +384,24 @@ export class OpenAIProvider {
       signal,
     });
     if (!response.ok) {
-      const errorText = await readDiagnosticResponse(response);
-      if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
-        throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+      let errorText = await readDiagnosticResponse(response);
+      if (this.shouldFallbackReasoning(response.status, errorText, body)) {
+        this.disableReasoningFields(body);
+        response = await fetchWithRetry(`${this.apiBaseURL()}/responses`, {
+          method: 'POST',
+          userAgent: this.userAgent,
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+          body: JSON.stringify(body),
+          signal,
+        });
+        if (!response.ok) errorText = await readDiagnosticResponse(response);
       }
-      throw ProviderError.http(response.status, errorText, 'OpenAI Responses');
+      if (!response.ok) {
+        if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+          throw new ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+        }
+        throw ProviderError.http(response.status, errorText, 'OpenAI Responses');
+      }
     }
 
     const reader = response.body?.getReader();
@@ -545,7 +582,7 @@ export class OpenAIProvider {
   }
 
   private applyResponsesThinkingLevel(body: Record<string, unknown>): void {
-    if (this.thinkingLevel === 'off') return;
+    if (this.reasoningWireMode === 'plain' || this.thinkingLevel === 'off') return;
     const model = this.model.toLowerCase();
     if (!isGptReasoningModel(model) && !isGlm53FlashModel(model) && !/o[1-9]|reason|codex/.test(model)) return;
     const effort: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
@@ -641,7 +678,25 @@ export class OpenAIProvider {
     return result;
   }
 
+  private shouldFallbackReasoning(status: number, errorText: string, body: Record<string, unknown>): boolean {
+    if (this.reasoningWireMode !== 'full' || ![400, 422].includes(status)) return false;
+    const hasReasoningFields = ['reasoning_effort', 'reasoning', 'thinking', 'enable_thinking', 'thinking_budget']
+      .some((key) => key in body);
+    return hasReasoningFields && /reasoning|thinking|enable_thinking|thinking_budget/i.test(errorText) &&
+      /unsupported|unknown|invalid|not supported|not allowed|unexpected|unrecognized|extra|parameter|field/i.test(errorText);
+  }
+
+  private disableReasoningFields(body: Record<string, unknown>): void {
+    delete body.reasoning_effort;
+    delete body.reasoning;
+    delete body.thinking;
+    delete body.enable_thinking;
+    delete body.thinking_budget;
+    this.reasoningWireMode = 'plain';
+  }
+
   private applyThinkingLevel(body: Record<string, unknown>): void {
+    if (this.reasoningWireMode === 'plain') return;
     const level = this.thinkingLevel || 'medium';
     const model = (this.model || '').toLowerCase();
     const provider = (this.name || '').toLowerCase();
