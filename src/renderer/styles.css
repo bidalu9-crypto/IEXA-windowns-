@@ -34,6 +34,8 @@
   --accent-light: rgba(96, 165, 250, 0.16);
   --thinking-sheen: rgba(255, 255, 255, 0.92);
   --thinking-sheen-soft: rgba(255, 255, 255, 0.18);
+  /* Brand block: system line is a saturated blue, bold, in both themes. */
+  --brand-system: #1d4ed8;
 }
 
 [data-theme="dark"] {
@@ -63,6 +65,8 @@
   --accent-light: rgba(125, 211, 252, 0.18);
   --thinking-sheen: rgba(0, 0, 0, 0.9);
   --thinking-sheen-soft: rgba(0, 0, 0, 0.2);
+  /* Lighter blue keeps the bold system line legible on the dark sidebar. */
+  --brand-system: #60a5fa;
 }
 
 /* Accent presets (override --accent*) */
@@ -178,10 +182,32 @@ body {
 
 .sidebar-header { flex: 0 0 auto; }
 
+/* Wordmark face, self-hosted so the strict `font-src 'self'` CSP still applies.
+   Orbitron (SIL OFL 1.1) is a geometric display face; the license ships next to
+   the binary in vendor/fonts/. */
+@font-face {
+  font-family: 'IEXA Wordmark';
+  src: url('vendor/fonts/orbitron-latin-var.woff2') format('woff2');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 .brand-row {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+/* The icon sits on the vertical center of the two stacked text lines, and both
+   lines share one left edge, so the block reads as a single aligned unit. */
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
 }
 
 .brand-logo {
@@ -193,19 +219,24 @@ body {
 }
 
 .sidebar-header h1 {
-  font-size: calc(1.4rem * var(--ui-font-scale, 1));
-  font-weight: 700;
+  font-family: 'IEXA Wordmark', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: calc(1.35rem * var(--ui-font-scale, 1));
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
 }
 
 .version {
   font-size: calc(0.72rem * var(--ui-font-scale, 1));
-  color: var(--text-muted);
+  font-weight: 700;
+  color: var(--brand-system, #2563eb);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 140px;
+  line-height: 1.2;
 }
 
 .sidebar-nav {
@@ -2007,11 +2038,14 @@ body.chat-focus-mode .message.user {
   stroke-linejoin: round;
 }
 
-/* Match the model refresh control's compact circular-arrow glyph. */
-.user-message-reset {
-  font-size: calc(17px * var(--ui-font-scale, 1));
-  line-height: 1;
-  font-family: "Segoe UI Symbol", "Segoe UI", sans-serif;
+/* The user-side actions reuse the assistant retry spin while a resend runs. */
+.user-message-resend.is-retrying .ui-icon {
+  animation: assistant-retry-spin .75s linear infinite;
+}
+
+.user-message-action:disabled {
+  cursor: default;
+  opacity: .55;
 }
 
 .user-message-action.is-copied {
@@ -5102,7 +5136,7 @@ body {
   padding: 18px 16px;
 }
 
-.sidebar-header h1 { letter-spacing: -.025em; }
+.sidebar-header h1 { letter-spacing: .2px; }
 
 .nav-btn,
 .session-item {

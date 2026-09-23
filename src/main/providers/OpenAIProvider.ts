@@ -8,7 +8,7 @@ import { ProviderError } from './ProviderError';
 
 import { AgentMessage, AgentToolDefinition, AgentStreamEvent, AgentStopReason, LLMUsage, ProviderConfig, toolParamSchema } from './types';
 import { fetchWithRetry, readSSEFrames } from './stream-utils';
-import { isGlm53FlashModel, isGpt6AstraModel } from './ModelCapabilities';
+import { isGlm53FlashModel, isGpt6AstraModel, isGptReasoningModel } from './ModelCapabilities';
 
 export class OpenAIProvider {
   readonly name: string;
@@ -547,7 +547,7 @@ export class OpenAIProvider {
   private applyResponsesThinkingLevel(body: Record<string, unknown>): void {
     if (this.thinkingLevel === 'off') return;
     const model = this.model.toLowerCase();
-    if (!isGpt6AstraModel(model) && !isGlm53FlashModel(model) && !/gpt-5|o[1-9]|reason|codex/.test(model)) return;
+    if (!isGptReasoningModel(model) && !isGlm53FlashModel(model) && !/o[1-9]|reason|codex/.test(model)) return;
     const effort: Record<string, string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
     // Responses does not stream a displayable reasoning trace by default. Ask
     // for the model-produced summary so the UI can render a thinking block,
@@ -657,13 +657,13 @@ export class OpenAIProvider {
       model.includes('deepseek-v4');
     const isDeepSeekV4 = model.includes('deepseek-v4');
     const isDeepSeekProvider = provider === 'deepseek';
-    const isGpt6Astra = isGpt6AstraModel(model);
+    const isGptReasoning = isGptReasoningModel(model);
     const isGlm53Flash = isGlm53FlashModel(model);
 
     // Only attach effort params on models/providers that actually reason.
     // Avoid breaking plain GPT-4 / chat models that reject unknown fields.
     const isReasoningModel =
-      isGpt6Astra ||
+      isGptReasoning ||
       isGlm53Flash ||
       /^o[1-9]/.test(model) ||
       model.includes('gpt-5') ||

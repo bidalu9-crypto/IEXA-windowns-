@@ -1136,8 +1136,13 @@ async function switchSession(id, updateList = true) {
     const data = await resp.json();
     if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
     // A newer click selected another session while this request was in flight.
-    // Do not append stale history into the current visible chat.
-    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) return;
+    // Do not append stale history into the current visible chat. The placeholder
+    // must still be dropped on this path: an epoch bump from a newer
+    // switchSession() used to strand "正在加载对话…" on screen forever.
+    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) {
+      loading.remove();
+      return;
+    }
     applySessionProject(data.project);
     clearChat();
     targetRuntime.fragment.replaceChildren();
@@ -1252,7 +1257,10 @@ async function switchSession(id, updateList = true) {
     }
   } catch (err) {
     console.error('Failed to load messages:', err);
-    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) return;
+    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) {
+      loading.remove();
+      return;
+    }
     chatMessages.replaceChildren();
     const retry = document.createElement('button');
     retry.className = 'history-loading';
@@ -1370,6 +1378,44 @@ function clearChat() {
   promptQueue = [];
   isDrainingQueue = false;
   suppressQueueDrain = false;
+}
+
+/**
+ * Remove transcript DOM from a branch point, without refetching the session.
+ *
+ * `keepBranchPoint=false` also drops the clicked bubble itself, which matches a
+ * server reset sent with `retainSelected: false` (the prompt is re-persisted by
+ * the following /api/chat). `keepBranchPoint=true` mirrors `retainSelected: true`.
+ */
+function truncateTranscriptFrom(branchEl, keepBranchPoint) {
+  if (!branchEl) return;
+  let node = keepBranchPoint ? branchEl.nextElementSibling : branchEl;
+  while (node) {
+    const next = node.nextElementSibling;
+    node.remove();
+    node = next;
+  }
+}
+
+/**
+ * Drop per-turn bookkeeping while leaving the transcript DOM untouched.
+ *
+ * Branch operations (reset / resend) edit the visible transcript in place, so
+ * they must not go through clearChat(), which would wipe the kept messages.
+ */
+function resetTurnBookkeeping() {
+  currentAssistantMsg = null;
+  currentToolBlocks = {};
+  currentTaskSummary = null;
+  currentTaskToolCount = 0;
+  currentTaskStartedAt = 0;
+  if (currentTaskTimer) {
+    window.clearInterval(currentTaskTimer);
+    currentTaskTimer = null;
+  }
+  isNearChatBottom = true;
+  updateScrollToBottomButton();
+  snapshotActiveSessionRuntime();
 }
 
 function showWelcome() {
@@ -2125,6 +2171,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
         hideWaitingIndicator();
         finishTaskSummary();
         finalizeAssistantMessage(currentAssistantMsg);
+        renderPendingMessageUsage(currentAssistantMsg);
         setProcessing(false);
         scheduleQueueDrain();
       }
@@ -3527,18 +3574,30 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens) {
     <span>${output.toLocaleString()} <em>出</em></span>${timeMarkup}`;
 }
 
-function handleUsage(usage) {
-  if (currentAssistantMsg) {
-    let usageEl = currentAssistantMsg.querySelector('.message-usage');
-    if (!usageEl) {
-      usageEl = document.createElement('div');
-      usageEl.className = 'message-usage';
-      const footer = currentAssistantMsg.querySelector('.assistant-message-footer');
-      const actions = currentAssistantMsg.querySelector('.assistant-message-actions');
-      if (footer && actions) footer.insertBefore(usageEl, actions); else currentAssistantMsg.appendChild(usageEl);
-    }
-    renderMessageUsage(usageEl, usage.inputTokens || 0, usage.outputTokens || 0);
+function renderPendingMessageUsage(messageEl) {
+  if (!messageEl) return;
+  const inputTokens = Number(messageEl.dataset.usageInputTokens);
+  const outputTokens = Number(messageEl.dataset.usageOutputTokens);
+  if (!Number.isFinite(inputTokens) && !Number.isFinite(outputTokens)) return;
+  let usageEl = messageEl.querySelector('.message-usage');
+  if (!usageEl) {
+    usageEl = document.createElement('div');
+    usageEl.className = 'message-usage';
+    const footer = messageEl.querySelector('.assistant-message-footer');
+    const actions = messageEl.querySelector('.assistant-message-actions');
+    if (footer && actions) footer.insertBefore(usageEl, actions); else messageEl.appendChild(usageEl);
   }
+  renderMessageUsage(usageEl, Number.isFinite(inputTokens) ? inputTokens : 0, Number.isFinite(outputTokens) ? outputTokens : 0);
+  delete messageEl.dataset.usageInputTokens;
+  delete messageEl.dataset.usageOutputTokens;
+}
+
+function handleUsage(usage) {
+  // Usage can arrive before the terminal event. Keep it on the live message,
+  // but reveal the footer only after this turn has actually completed.
+  if (!currentAssistantMsg) return;
+  currentAssistantMsg.dataset.usageInputTokens = String(Number(usage?.inputTokens) || 0);
+  currentAssistantMsg.dataset.usageOutputTokens = String(Number(usage?.outputTokens) || 0);
 }
 
 function formatContextTokens(tokens) {
@@ -3687,6 +3746,7 @@ function handleDone(stopReason, turnToken) {
 
   if (currentAssistantMsg) {
     finalizeAssistantMessage(currentAssistantMsg);
+    renderPendingMessageUsage(currentAssistantMsg);
     if (stopReason === 'maxTokens') {
       const notice = document.createElement('div');
       notice.className = 'error-message stream-limit-notice';
@@ -4147,7 +4207,8 @@ function addMessage(role, content, attachments, opts) {
     const timeText = formatMessageTimestamp(timestamp);
     actions.innerHTML = `
       ${timeText ? `<time class="user-message-time" datetime="${new Date(timestamp).toISOString()}" title="发送时间：${new Date(timestamp).toLocaleString()}">${timeText}</time>` : ''}
-      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">${uiIcon('retry')}</button>
+      <button type="button" class="user-message-action user-message-resend" data-action="resend" title="重新发送" aria-label="重新发送">${uiIcon('send')}</button>
+      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">${uiIcon('branch')}</button>
       <button type="button" class="user-message-action" data-action="copy" title="复制消息" aria-label="复制消息">
         ${uiIcon('copy')}
       </button>`;
@@ -4156,6 +4217,9 @@ function addMessage(role, content, attachments, opts) {
     });
     actions.querySelector('[data-action="reset"]').addEventListener('click', function () {
       resetConversationToMessage(msg);
+    });
+    actions.querySelector('[data-action="resend"]').addEventListener('click', function () {
+      resendUserMessage(msg, this);
     });
     msg.appendChild(actions);
   }
@@ -4373,10 +4437,66 @@ async function copyUserMessage(content, button) {
   }
 }
 
+/**
+ * Resolve a user message element to its index in the persisted session timeline.
+ *
+ * `dataset.messageIndex` is only a hint: it is derived from a DOM counter for
+ * freshly sent messages, and that counter drifts as soon as a cancelled or
+ * failed turn leaves an assistant placeholder behind. The persisted session is
+ * authoritative, so match by timestamp first, then by content, and only fall
+ * back to the DOM hint when it still points at a user message.
+ */
+async function resolvePersistedUserIndex(sessionId, userEl, content) {
+  const domIndex = Number(userEl && userEl.dataset.messageIndex);
+  const domHint = Number.isInteger(domIndex) && domIndex >= 0 ? domIndex : -1;
+  try {
+    const resp = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !Array.isArray(data.messages)) return domHint;
+    const messages = data.messages;
+
+    // Prefer the user entry whose timestamp matches the rendered bubble.
+    const stamp = Number(userEl && userEl.dataset.timestamp);
+    if (Number.isInteger(stamp) && stamp > 0) {
+      const exact = messages.findIndex((m) => m.role === 'user' && Number(m.timestamp) === stamp);
+      if (exact >= 0) return exact;
+    }
+
+    // Otherwise match on content, choosing the occurrence closest to the hint
+    // so repeated prompts resolve to the bubble the user actually clicked.
+    const text = String(content || '').trim();
+    if (text) {
+      const matches = [];
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (m.role === 'user' && String(m.content || '').trim() === text) matches.push(i);
+      }
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) {
+        if (domHint < 0) return matches[matches.length - 1];
+        return matches.reduce((best, cur) => (Math.abs(cur - domHint) < Math.abs(best - domHint) ? cur : best));
+      }
+    }
+
+    if (domHint >= 0 && domHint < messages.length && messages[domHint].role === 'user') return domHint;
+    return -1;
+  } catch {
+    return domHint;
+  }
+}
+
 async function resetConversationToMessage(messageEl) {
-  const messageIndex = Number(messageEl && messageEl.dataset.messageIndex);
-  if (!Number.isInteger(messageIndex) || messageIndex < 0 || !currentSessionId) return;
+  if (!messageEl || !currentSessionId) return;
   if (!(await window.IexaDialogs.confirm('重置到此处将移除这条消息之后的对话，是否继续？'))) return;
+
+  const content = String(messageEl.querySelector('.message-content')?.innerText || '').trim();
+  const sessionId = currentSessionId;
+  const messageIndex = await resolvePersistedUserIndex(sessionId, messageEl, content);
+  if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+    addError('没有找到这条消息在会话中的位置。');
+    return;
+  }
+  if (currentSessionId !== sessionId) return;
 
   // A reset is a hard branch point: stop the live request and drop queued prompts.
   suppressQueueDrain = true;
@@ -4390,10 +4510,92 @@ async function resetConversationToMessage(messageEl) {
       body: JSON.stringify({ messageIndex }),
     });
     if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '重置失败');
-    await reloadSessionView(currentSessionId);
+    // Trim the visible transcript in place instead of refetching the whole
+    // session: a full reload flashes the "正在加载对话…" placeholder and can
+    // strand it when a metadata refresh bumps the view epoch mid-flight.
+    truncateTranscriptFrom(messageEl, true);
+    resetTurnBookkeeping();
     scrollToBottom(true);
   } catch (err) {
     addError(err.message || '重置对话失败');
+  } finally {
+    suppressQueueDrain = false;
+  }
+}
+
+/**
+ * Re-send a previous user message as a fresh turn.
+ *
+ * Unlike the assistant-side "重新生成" (which rewrites the last answer in place),
+ * this truncates the session to the selected prompt and replays it, so the user
+ * can branch a conversation from any earlier question.
+ */
+async function resendUserMessage(messageEl, button) {
+  if (!messageEl || !currentSessionId) return;
+  if (isProcessing) {
+    addError('当前任务仍在处理中，请先停止后再重新发送。');
+    return;
+  }
+
+  const content = String(messageEl.querySelector('.message-content')?.innerText || '').trim();
+  const sessionId = currentSessionId;
+  const messageIndex = await resolvePersistedUserIndex(sessionId, messageEl, content);
+  if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+    addError('没有找到这条消息在会话中的位置。');
+    return;
+  }
+  if (currentSessionId !== sessionId) return;
+
+  if (button) {
+    button.disabled = true;
+    button.classList.add('is-retrying');
+    button.title = '正在重新发送';
+    button.setAttribute('aria-label', '正在重新发送');
+  }
+
+  // Hard branch point: drop queued prompts and stop any live request first.
+  suppressQueueDrain = true;
+  promptQueue = [];
+  if (isProcessing) await stopProcessing();
+
+  try {
+    const sessionResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
+    const sessionData = await sessionResponse.json().catch(() => ({}));
+    if (!sessionResponse.ok) throw new Error(sessionData.error || '读取会话失败');
+    const source = Array.isArray(sessionData.messages) ? sessionData.messages[messageIndex] : null;
+    if (!source || source.role !== 'user') throw new Error('没有找到这条消息对应的提问');
+
+    const prompt = String(source.content || '');
+    const attachments = cloneAttachments(source.attachments || []);
+    const displayText = prompt || (attachments.length ? `（附件：${attachments.map((item) => item.name).join('、')}）` : '');
+
+    const resetResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIndex, retainSelected: false }),
+    });
+    const resetData = await resetResponse.json().catch(() => ({}));
+    if (!resetResponse.ok) throw new Error(resetData.error || '重新发送前重置会话失败');
+
+    // Truncate in place rather than reloadSessionView(): the heavy reload mounts
+    // the "正在加载对话…" placeholder and can strand it when a concurrent
+    // metadata sync bumps the view epoch while the fetch is in flight.
+    truncateTranscriptFrom(messageEl, false);
+    chatMessages.querySelector('.welcome')?.remove();
+    resetTurnBookkeeping();
+    addMessage('user', displayText, attachments, { timestamp: Date.now() });
+    suppressQueueDrain = false;
+    await runChatTurn(prompt || displayText, displayText, attachments, { fromRetry: true });
+  } catch (err) {
+    suppressQueueDrain = false;
+    if (currentSessionId === sessionId) addError(err.message || '重新发送失败');
+  } finally {
+    if (button && button.isConnected) {
+      button.disabled = false;
+      button.classList.remove('is-retrying');
+      button.title = '重新发送';
+      button.setAttribute('aria-label', '重新发送');
+    }
   }
 }
 
@@ -4613,17 +4815,21 @@ let thinkingLevelSaveQueue = Promise.resolve();
 let thinkingLevelSaveRevision = 0;
 
 function thinkingMaxLevelForModel(profile) {
-  if (profile && THINKING_LEVEL_ORDER.includes(profile.maxThinkingLevel)) return profile.maxThinkingLevel;
   if (!profile || !profile.model) return 'xhigh';
   const model = String(profile.model).toLowerCase().replace(/[._]/g, '-');
+  // Resolve GPT family locally before trusting cached/server capability metadata;
+  // older running backends may still report "off" for newly supported GPT-6 ids.
+  if (/(?:^|[/:-])gpt-(?:6|[7-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-6-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(model)) return 'max';
+  if (/(?:^|[/:-])gpt-5(?:-[0-9]+)?(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-5-(?:chat|mini|nano|codex|1|2)(?:$|[/:-])/.test(model)) return 'xhigh';
+  if (profile && THINKING_LEVEL_ORDER.includes(profile.maxThinkingLevel)) return profile.maxThinkingLevel;
   const provider = String(profile.provider || '').toLowerCase();
   if (/mimo|agnes|seed-|bytedance-seed|doubao/.test(model)) return 'high';
   if (/claude-opus-4/.test(model)) return 'max';
-  if (/gpt-5-5/.test(model)) return 'xhigh';
-  if (/gpt-5-6/.test(model)) return 'max';
-  if (/(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(model)) return 'max';
+  if (/(?:^|[/:-])gpt-(?:6|[7-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-(?:6)-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(model)) return 'max';
+  if (/(?:^|[/:-])gpt-5(?:-[0-9]+)?(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-5-(?:chat|mini|nano|codex|1|2)(?:$|[/:-])/.test(model)) return 'xhigh';
   if (/(?:^|[/:-])glm-5-3-(?:flash|falsh)(?:$|[/:-])/.test(model)) return 'high';
-  if (/o[1-9]|gpt-5|deepseek|reason|thinking|\br1\b|qwq|grok/.test(model) || provider === 'deepseek' || provider === 'xai') return 'xhigh';
+  if (/(?:^|[/:-])gpt-(?:5|6|[7-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-(?:5|6)-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(model)) return /(?:^|[/:-])gpt-6(?:-|$)/.test(model) ? 'max' : 'xhigh';
+  if (/o[1-9]|deepseek|reason|thinking|\br1\b|qwq|grok/.test(model) || provider === 'deepseek' || provider === 'xai') return 'xhigh';
   return 'off';
 }
 
@@ -6604,7 +6810,11 @@ function showFilesEmpty(recent) {
   const refreshBtn = document.getElementById('filesRefreshBtn');
   const closeProj = document.getElementById('filesCloseProjectBtn');
   closeFilePreview();
-  if (title) title.textContent = '项目';
+  if (title) {
+    title.textContent = '项目';
+    title.removeAttribute('title');
+    title.removeAttribute('aria-label');
+  }
   if (pathEl) pathEl.style.display = 'none';
   if (crumb) { crumb.style.display = 'none'; crumb.innerHTML = ''; }
   if (refreshBtn) refreshBtn.style.display = 'none';
@@ -6641,9 +6851,15 @@ function showFilesEmpty(recent) {
 function renderFilesCrumb(relPath, rootName) {
   const el = document.getElementById('filesCrumb');
   if (!el) return;
-  el.style.display = 'flex';
   const parts = (relPath === '.' || !relPath) ? [] : relPath.split('/').filter(Boolean);
-  let html = `<button type="button" data-path=".">${escapeHtml(rootName || '项目')}</button>`;
+  // At the project root the title is enough; show navigation only in a child folder.
+  if (!parts.length) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  el.style.display = 'flex';
+  let html = `<button type="button" data-path="." aria-label="返回项目根目录">${escapeHtml(rootName || '项目')}</button>`;
   let acc = '';
   for (const p of parts) {
     acc = acc ? acc + '/' + p : p;
@@ -6768,11 +6984,17 @@ async function loadFilesList(relPath, silent) {
     projectName = data.name || projectName;
     filesCurrentPath = data.path || '.';
 
-    if (title) title.textContent = projectName || '项目';
+    if (title) {
+      title.textContent = projectName || '项目';
+      title.title = data.root || projectRoot || projectName || '项目';
+      title.setAttribute('aria-label', `${projectName || '项目'}：${data.root || projectRoot || ''}`);
+    }
+    // The project name already identifies the root. Keep the absolute path available
+    // as a tooltip and only render breadcrumbs after entering a child directory.
     if (pathEl) {
-      pathEl.style.display = 'block';
-      pathEl.textContent = data.root;
-      pathEl.title = data.root;
+      pathEl.style.display = 'none';
+      pathEl.textContent = data.root || projectRoot || '';
+      pathEl.title = data.root || projectRoot || '';
     }
     if (refreshBtn) refreshBtn.style.display = 'flex';
     if (closeProj) closeProj.style.display = 'flex';

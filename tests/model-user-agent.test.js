@@ -3,6 +3,7 @@ const http=require('node:http');const fs=require('node:fs');
 const {CODEX_COMPAT_USER_AGENT,modelRequestHeaders,normalizeCustomUserAgent}=require('../dist/main/providers/RequestHeaders');
 const utils=require('../dist/main/providers/stream-utils');
 const {OpenAIProvider}=require('../dist/main/providers/OpenAIProvider');
+const {isGptReasoningModel,maxThinkingLevel}=require('../dist/main/providers/ModelCapabilities');
 const {AnthropicProvider}=require('../dist/main/providers/AnthropicProvider');
 const {GeminiProvider}=require('../dist/main/providers/GeminiProvider');
 async function serverFixture(t){const calls=[];const server=http.createServer((req,res)=>{calls.push({url:req.url,headers:req.headers});req.resume();res.writeHead(req.url==='/retry'&&calls.filter(c=>c.url==='/retry').length===1?503:200,{'content-type':'text/event-stream'});res.end('data: ' + JSON.stringify({type:'response.completed',response:{status:'completed'},choices:[{delta:{content:'fixture'},finish_reason:'stop'}],candidates:[{content:{parts:[{text:'fixture'}]},finishReason:'STOP'}]}) + '\n\ndata: {"type":"message_stop"}\n\ndata: [DONE]\n\n');});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{server.close(r);server.closeAllConnections();}));return {url:'http://127.0.0.1:'+server.address().port,calls};}
@@ -36,6 +37,13 @@ test('model list uses the shared UA policy; browser traffic is not globally rewr
 test('custom UA is trimmed, blank resets default, and control/non-ASCII/oversized inputs fail early',()=>{
  assert.equal(modelRequestHeaders(undefined,'  MyClient/2.0  ').get('user-agent'),'MyClient/2.0');assert.equal(modelRequestHeaders(undefined,' ').get('user-agent'),CODEX_COMPAT_USER_AGENT);
  for(const input of ['bad\r\nAuthorization: fake','bad\tvalue','中文UA','a'.repeat(513),12])assert.throws(()=>normalizeCustomUserAgent(input),/User-Agent/);
+});
+test('GPT reasoning capability covers dated and future families but excludes chat variants',()=>{
+ for(const model of ['gpt-6-astra','openrouter/gpt-6-pro-2026-09-23','gpt-7-future','gpt-5.4','provider/gpt-5.3-2027-01-01']) assert.equal(isGptReasoningModel(model),true,model);
+ for(const model of ['gpt-4.1','gpt-5-chat-latest','gpt-5-mini','gpt-6-codex','o3']) assert.equal(isGptReasoningModel(model),false,model);
+ assert.equal(maxThinkingLevel('openai','gpt-6-pro'),'max');
+ assert.equal(maxThinkingLevel('openai','gpt-5.4'),'xhigh');
+ assert.equal(maxThinkingLevel('openai','gpt-4.1'),'off');
 });
 test('per-profile custom UA reaches all provider transports independently',async t=>{
  const f=await serverFixture(t),original=global.fetch;t.after(()=>{global.fetch=original;});global.fetch=(_url,init)=>{assert.equal('userAgent' in init,false);return original(f.url+'/custom',init);};

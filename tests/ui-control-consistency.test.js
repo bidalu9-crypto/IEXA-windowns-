@@ -35,5 +35,11 @@ test('dynamic action templates use vector icons, while diff +/- remains literal 
  const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
  assert.doesNotMatch(app,/<button[^>]*>\s*[×↻]\s*<\/button>/);
  assert.match(app,/<span>\+<\/span>\$\{escapeHtml\(line\)\}/);
- assert.match(app,/data-action="reset"[^>]*>\$\{uiIcon\('retry'\)\}/);
+ // "重置到此处" branches the conversation, so it uses the branch glyph. The
+ // circular retry arrow means "regenerate the answer" and belongs to the
+ // assistant-side action, not to a branch point.
+ assert.match(app,/data-action="reset"[^>]*>\$\{uiIcon\('branch'\)\}/);
+ assert.doesNotMatch(app,/data-action="reset"[^>]*>\$\{uiIcon\('retry'\)\}/);
+ // "重新发送" replays an earlier prompt as a fresh turn.
+ assert.match(app,/data-action="resend"[^>]*>\$\{uiIcon\('send'\)\}/);
 });

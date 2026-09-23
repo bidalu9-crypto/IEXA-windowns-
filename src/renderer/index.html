@@ -52,9 +52,11 @@
     <symbol id="ui-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l.8 13h9.4l.8-13M10 11v5M14 11v5"/></symbol>
     <symbol id="ui-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2"/></symbol>
     <symbol id="ui-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.35 6.65"/><path d="M20 4v7h-7"/></symbol>
+    <symbol id="ui-send" viewBox="0 0 24 24"><path d="M4.5 12 20 4.5 14.5 20l-3.2-6.2L4.5 12Z"/><path d="M11.3 13.8 20 4.5"/></symbol>
+    <symbol id="ui-branch" viewBox="0 0 24 24"><circle cx="6.5" cy="5.5" r="2"/><circle cx="17.5" cy="5.5" r="2"/><circle cx="12" cy="18.5" r="2"/><path d="M6.5 7.5v2a3 3 0 0 0 3 3h5a3 3 0 0 0 3-3v-2"/><path d="M12 12.5v4"/></symbol>
     <symbol id="ui-paste" viewBox="0 0 24 24"><path d="M9 5.5h6M10 3.5h4a1 1 0 0 1 1 1v2H9v-2a1 1 0 0 1 1-1Z"/><rect x="5" y="6.5" width="14" height="14" rx="2"/><path d="M9 12h6M9 15.5h4"/></symbol>
     <symbol id="ui-link" viewBox="0 0 24 24"><path d="M10 13.8a4 4 0 0 0 5.7.1l3-3a4 4 0 0 0-5.7-5.7l-1.7 1.7M14 10.2a4 4 0 0 0-5.7-.1l-3 3a4 4 0 0 0 5.7 5.7l1.7-1.7"/></symbol>
-    <symbol id="ui-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 4M20 4v7h-7"/></symbol>
+    <symbol id="ui-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-7-7c1.96 0 3.84.78 5.25 2.13L19 9"/><path d="M19 5v4h-4"/></symbol>
     <symbol id="ui-save" viewBox="0 0 24 24"><path d="M5 3.5h12l3 3v14H4v-15a2 2 0 0 1 1-2Z"/><path d="M8 3.5v5h8v-5M8 20.5v-7h8v7"/></symbol>
     <symbol id="ui-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
     <symbol id="ui-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.8-3.5 3.1-5.3 7-5.3s6.2 1.8 7 5.3"/></symbol>
@@ -80,10 +82,14 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="brand-row">
-        <img class="brand-logo" src="mobile-pair-logo.png" width="20" height="20" alt="IEXA-WIN Logo">
-        <h1 id="brandName">IEXA</h1>
+        <div class="brand-copy">
+          <div class="brand-title">
+            <h1 id="brandName">IEXA</h1>
+            <img class="brand-logo" src="mobile-pair-logo.png" width="20" height="20" alt="IEXA-WIN Logo">
+          </div>
+          <span class="version" id="sysVersion">Windows</span>
+        </div>
       </div>
-      <span class="version" id="sysVersion">Windows</span>
       <button type="button" class="shell-new-thread" id="shellNewThread"><svg class="ui-icon" aria-hidden="true"><use href="#ui-edit"/></svg><span>新建任务</span><kbd>Ctrl N</kbd></button>
     </div>
     <nav class="sidebar-nav" aria-label="工作区导航">

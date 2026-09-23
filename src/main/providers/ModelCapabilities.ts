@@ -2,9 +2,18 @@ export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' 
 
 const ORDER: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
-/** Match the GPT-6 Astra family, including provider-prefixed and dated aliases.
- * Keep this explicit instead of treating every future GPT-6 id as compatible:
- * OpenAI-compatible gateways reject unknown reasoning fields aggressively. */
+/** Match GPT family ids (including GPT-6 Astra), provider-prefixed and dated aliases.
+ * Deliberately avoid GPT-4/4o and other chat-only families. */
+export function isGptReasoningModel(model: string): boolean {
+  const id = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  const family = id.match(/(?:^|[/:-])(gpt-(?:[5-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*)(?:$|[/:-])/);
+  if (!family) return false;
+  // Dated/provider-prefixed aliases stay compatible, while known chat-only
+  // variants are excluded to avoid sending reasoning fields to plain models.
+  return !/(?:^|[/:-])gpt-(?:5|6)-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(id);
+}
+
+/** Backward-compatible named matcher for existing call sites. */
 export function isGpt6AstraModel(model: string): boolean {
   const id = String(model || '').toLowerCase().replace(/[._]/g, '-');
   return /(?:^|[/:-])gpt-6-astra(?:$|[/:-])/.test(id);
@@ -29,7 +38,7 @@ export function modelLikelySupportsVision(provider: string, model: string): bool
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
-  if (isGpt6AstraModel(m)) return 'max';
+  if (isGptReasoningModel(m)) return /(?:^|[/:-])gpt-6(?:-|$)/.test(m) || /gpt-5-6/.test(m) ? 'max' : 'xhigh';
   if (isGlm53FlashModel(m)) return 'high';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
