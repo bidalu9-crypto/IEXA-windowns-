@@ -49,6 +49,8 @@ export interface AgentMessage {
   parts: AgentContentPart[];
   isInterrupted?: boolean;
   reasoningContent?: string;
+  /** Signed Anthropic thinking blocks, retained only in the in-memory message loop. */
+  thinkingBlocks?: Array<{ type: 'thinking'; thinking: string; signature: string } | { type: 'redacted_thinking'; data: string }>;
 }
 
 export type AgentStopReason = 'endTurn' | 'toolUse' | 'maxTokens' | 'refusal';
@@ -62,6 +64,7 @@ export type AgentStreamEvent =
   | { type: 'toolCallComplete'; id: string; name: string; args: Record<string, unknown>; parseError?: string }
   | { type: 'thinkingDelta'; text: string }
   | { type: 'reasoningContent'; content: string }
+  | { type: 'thinkingBlockComplete'; block: { type: 'thinking'; thinking: string; signature: string } | { type: 'redacted_thinking'; data: string } }
   | { type: 'usage'; usage: LLMUsage }
   | { type: 'done'; stopReason: AgentStopReason };
 
@@ -144,7 +147,7 @@ export interface ProviderConfig {
   /** Codex Fast wire mode: sends service_tier: priority when the endpoint opted in. */
   fastMode?: boolean;
   /** OpenAI-compatible request envelope selected by the model profile. */
-  apiMode?: 'chat_completions' | 'responses';
+  apiMode?: 'chat_completions' | 'responses' | 'anthropic_messages';
 }
 
 export interface ModelInfo {

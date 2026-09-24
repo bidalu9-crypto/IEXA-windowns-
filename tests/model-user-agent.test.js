@@ -28,7 +28,7 @@ test('all four provider envelopes carry UA without changing authentication or mo
  assert.equal(f.calls.length,4);for(const call of f.calls)assert.equal(call.headers['user-agent'],CODEX_COMPAT_USER_AGENT);assert.equal(f.calls[0].headers.authorization,'Bearer FIXTURE');assert.equal(f.calls[2].headers['x-api-key'],'FIXTURE');assert.equal(f.calls[2].headers['anthropic-version'],'2023-06-01');
 });
 test('model list uses the shared UA policy; browser traffic is not globally rewritten',()=>{
- const server=fs.readFileSync('src/main/server.ts','utf8');assert.ok(server.includes("headers: Object.fromEntries(modelRequestHeaders({ 'Authorization': `Bearer ${effectiveApiKey}`"));
+ const server=fs.readFileSync('src/main/server.ts','utf8');assert.ok(server.includes('headers: Object.fromEntries(modelRequestHeaders(isAnthropic'));assert.ok(server.includes("{ 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' }"));assert.ok(server.includes("{ 'x-api-key': effectiveApiKey, 'anthropic-version': '2023-06-01'"));
  const browser=fs.readFileSync('src/main/tools/ToolExecutors.ts','utf8');assert.match(browser,/Mozilla\/5\.0/);assert.doesNotMatch(browser,/modelRequestHeaders/);
  const titleCall=server.slice(server.indexOf('const result = await callModelForTitle('));assert.ok(titleCall.slice(0,titleCall.indexOf('    summary,')).includes('userAgent: profile.userAgent'));
  assert.ok(fs.readFileSync('src/main/session-title.ts','utf8').includes('userAgent: profile.userAgent'));

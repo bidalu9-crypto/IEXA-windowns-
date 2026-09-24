@@ -63,6 +63,8 @@ export function maxThinkingLevel(provider: string, model: string): ThinkingLevel
   if (gpt6Model) return gpt6Model[1] === 'astra' ? 'xhigh' : 'max';
   if (isGptReasoningModel(m)) return /gpt-5-6/.test(m) ? 'max' : 'xhigh';
   if (isGlm53FlashModel(m)) return 'high';
+  // Current Claude families use adaptive thinking; keep the UI control visible.
+  if (p === 'anthropic' && /(?:^|[/:-])claude-(?:opus|sonnet)-(?:[5-9]|4-[6-9])(?:-|$)/.test(m)) return 'max';
   const knownDeepSeekThinkingModel =
     /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
     /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(m) ||

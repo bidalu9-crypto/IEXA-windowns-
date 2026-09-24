@@ -250,7 +250,7 @@ interface ModelProfile {
   /** Endpoint contract: it accepts Codex Fast's service_tier: priority field. */
   fastModeSupported?: boolean;
   /** Wire envelope: /v1/chat/completions or /v1/responses. */
-  apiMode?: 'chat_completions' | 'responses';
+  apiMode?: 'chat_completions' | 'responses' | 'anthropic_messages';
   /** Explicit native image-input capability override for custom model aliases. */
   visionCapability?: VisionCapability;
   /** Optional configured USD rates per million tokens for gateway model aliases. */
@@ -2514,7 +2514,7 @@ ${recentMemories}
     if (url.pathname === '/api/profiles/fetch-models' && req.method === 'POST') {
       const body = await readBody(req);
       try {
-        const { baseURL, apiKey, profileId, userAgent } = JSON.parse(body);
+        const { baseURL, apiKey, profileId, userAgent, provider } = JSON.parse(body);
         const existingProfile = typeof profileId === 'string'
           ? loadSettings().profiles.find((profile) => profile.id === profileId)
           : undefined;
@@ -2525,15 +2525,17 @@ ${recentMemories}
           jsonReply(res, 400, { error: '请输入接口地址和 API 密钥。' });
           return;
         }
-        let modelsUrl = baseURL.replace(/\/+$/, '');
-        if (!modelsUrl.includes('/v1')) {
-          modelsUrl = modelsUrl + '/v1';
-        }
+        const isAnthropic = provider === 'anthropic' || (provider === undefined && existingProfile?.provider === 'anthropic');
+        let modelsUrl = baseURL.replace(/\/+$/, '').replace(/\/v1\/messages$/i, '/v1');
+        if (!/\/v1$/i.test(modelsUrl)) modelsUrl += '/v1';
         modelsUrl += '/models';
         const endpoint = new URL(modelsUrl);
         const requestModule = endpoint.protocol === 'https:' ? https : http;
         requestModule.get(endpoint, {
-          headers: Object.fromEntries(modelRequestHeaders({ 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' }, normalizeCustomUserAgent(userAgent === undefined ? existingProfile?.userAgent : userAgent))),
+          headers: Object.fromEntries(modelRequestHeaders(isAnthropic
+            ? { 'x-api-key': effectiveApiKey, 'anthropic-version': '2023-06-01', 'Accept': 'application/json' }
+            : { 'Authorization': `Bearer ${effectiveApiKey}`, 'Accept': 'application/json' },
+            normalizeCustomUserAgent(userAgent === undefined ? existingProfile?.userAgent : userAgent))),
           timeout: 20000,
         }, (r: http.IncomingMessage) => {
           let data = '';
@@ -2600,7 +2602,8 @@ ${recentMemories}
             profile.maxOutputTokens = Number.isFinite(mo) && mo > 0 ? Math.floor(mo) : undefined;
           }
           profile.fastModeSupported = profile.fastModeSupported === true;
-          profile.apiMode = profile.apiMode === 'responses' ? 'responses' : 'chat_completions';
+          profile.apiMode = profile.provider === 'anthropic' ? 'anthropic_messages'
+            : profile.apiMode === 'responses' ? 'responses' : 'chat_completions';
           const s = loadSettings();
           const idx = s.profiles.findIndex(p => p.id === profile.id);
           if (idx >= 0) {

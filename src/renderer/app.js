@@ -5091,7 +5091,7 @@ async function refreshModelSelector() {
   activeProfileId = data.activeProfileId || active.id;
   label.textContent = active.name || (active.provider + '/' + active.model);
   btn.title = `本会话模型：${active.provider} / ${active.model}`;
-  const routeName = active.apiMode === 'responses' ? 'Responses' : 'Chat';
+  const routeName = active.provider === 'anthropic' ? 'Messages' : active.apiMode === 'responses' ? 'Responses' : 'Chat';
   hint.textContent = `本会话 · ${active.provider} · ${active.model} · ${routeName}`;
   syncFastModeUI();
   applyThinkingLevelUI(currentThinkingLevel);
@@ -5351,6 +5351,18 @@ function updateEditorPlaceholders() {
   const b = document.getElementById('profileEditorBaseURL');
   if (!m.value) m.placeholder = MODEL_PLACEHOLDERS[prov] || '';
   b.placeholder = BASE_URL_HINTS[prov] || '';
+  const apiMode = document.getElementById('profileEditorApiMode');
+  const isAnthropic = prov === 'anthropic';
+  for (const option of apiMode.options) {
+    const isNative = option.value === 'anthropic_messages';
+    option.hidden = isAnthropic !== isNative;
+    option.disabled = isAnthropic !== isNative;
+  }
+  if (isAnthropic) apiMode.value = 'anthropic_messages';
+  else if (apiMode.value === 'anthropic_messages') apiMode.value = 'chat_completions';
+  document.getElementById('profileEditorApiModeHint').textContent = isAnthropic
+    ? 'Anthropic 原生 Messages 协议；服务商选 Anthropic 时自动使用 /v1/messages。'
+    : 'Responses 使用独立的消息、工具和流式事件协议；仅在端点实际支持时选择。';
 }
 
 function formatContextTokensForDisplay(tokens) {
@@ -5392,7 +5404,7 @@ async function fetchModels() {
     const resp = await fetch(`${API_BASE}/api/profiles/fetch-models`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseURL, apiKey, profileId, userAgent: document.getElementById('profileEditorUserAgent').value }),
+      body: JSON.stringify({ baseURL, apiKey, profileId, provider: document.getElementById('profileEditorProvider').value, userAgent: document.getElementById('profileEditorUserAgent').value }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -5452,7 +5464,8 @@ async function saveProfile() {
     userAgent: document.getElementById('profileEditorUserAgent').value,
     contextWindow: contextWindow,
     fastModeSupported: !!document.getElementById('profileEditorFastMode').checked,
-    apiMode: document.getElementById('profileEditorApiMode').value === 'responses' ? 'responses' : 'chat_completions',
+    apiMode: document.getElementById('profileEditorProvider').value === 'anthropic' ? 'anthropic_messages'
+      : document.getElementById('profileEditorApiMode').value === 'responses' ? 'responses' : 'chat_completions',
   };
 
   if (!profile.name) profile.name = profile.model || '未命名';

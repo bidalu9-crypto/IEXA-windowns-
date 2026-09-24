@@ -1,0 +1,35 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { sha256, fileHashes, verifiedCachedRuntime } = require('../download_electron.js');
+
+test('verified local Electron runtime launches offline; tampered files and checksums fail closed', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-electron-offline-'));
+  t.after(() => { assert.equal(path.dirname(dir), os.tmpdir()); fs.rmSync(dir, { recursive: true, force: true }); });
+  const name = 'electron-v44.3.0-win32-x64.zip';
+  const sums = path.join(dir, 'SHASUMS256-44.3.0.txt');
+  const archive = path.join(dir, name);
+  const destination = path.join(dir, 'dist');
+  const sumsURL = 'https://github.com/electron/electron/releases/download/v44.3.0/SHASUMS256.txt';
+  fs.mkdirSync(destination);
+  fs.writeFileSync(archive, 'fixture archive');
+  fs.writeFileSync(path.join(destination, 'electron.exe'), 'fixture executable');
+  const digest = await sha256(archive);
+  fs.writeFileSync(sums, `${digest} *${name}\n`);
+  const metadata = { version: '44.3.0', archiveSHA256: digest, sumsURL, files: await fileHashes(destination) };
+  fs.writeFileSync(path.join(destination, '.iexa-verified.json'), JSON.stringify(metadata));
+  const options = { version: metadata.version, sums, name, archive, sumsURL, destination };
+  assert.equal(await verifiedCachedRuntime(options), true);
+  fs.writeFileSync(sums, `${'0'.repeat(64)} *${name}\n`);
+  assert.equal(await verifiedCachedRuntime(options), false);
+  fs.writeFileSync(sums, `${digest} *${name}\n`);
+  fs.writeFileSync(path.join(destination, 'electron.exe'), 'altered');
+  assert.equal(await verifiedCachedRuntime(options), false);
+  fs.writeFileSync(path.join(destination, 'electron.exe'), 'fixture executable');
+  fs.writeFileSync(archive, 'tampered archive');
+  assert.equal(await verifiedCachedRuntime(options), false);
+  fs.rmSync(sums);
+  assert.equal(await verifiedCachedRuntime(options), false);
+});

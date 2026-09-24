@@ -43,3 +43,39 @@ test('actual editor restores custom UA, new profiles are blank, and rejected sav
  let body;w.fetch=async(_url,options)=>{body=JSON.parse(options.body);return {ok:false,json:async()=>({error:'UA error'})};};w.IexaDialogs={alert:async text=>{w.errorText=text;}};await w.fixture.saveProfile();assert.equal(body.userAgent,'EditorClient/2');assert.equal(w.errorText,'UA error');assert.equal(w.hiddenEditor,undefined);
  w.fixture.showProfileEditor();assert.equal(w.document.getElementById('profileEditorUserAgent').value,'');
 });
+
+test('Anthropic model discovery uses Messages API authentication instead of Bearer', async () => {
+ const anthro={...profile(),id:'anthro-fixture',provider:'anthropic',model:'claude-opus-5-5',apiKey:'ANTHRO-FIXTURE'};
+ let result=await api('/api/profiles',anthro);assert.equal(result.status,200);
+ result=await api('/api/profiles/fetch-models',{baseURL:baseURL+'/v1/',profileId:anthro.id});
+ assert.equal(result.status,200);assert.equal(calls.at(-1)['x-api-key'],'ANTHRO-FIXTURE');
+ assert.equal(calls.at(-1)['anthropic-version'],'2023-06-01');assert.equal(calls.at(-1).authorization,undefined);
+ result=await api('/api/profiles/fetch-models',{baseURL:baseURL+'/v1/messages',profileId:anthro.id,provider:'anthropic'});
+ assert.equal(result.status,200);assert.equal(calls.at(-1)['x-api-key'],'ANTHRO-FIXTURE');
+});
+
+test('Anthropic editor shows native Messages route and saves it; OpenAI restores its choices', async t => {
+ const dom=new JSDOM(fs.readFileSync('src/renderer/index.html','utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());
+ const w=dom.window,source=fs.readFileSync('src/renderer/app.js','utf8');
+ const fn=name=>{const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start)+2;return source.slice(source.slice(start-6,start)==='async '?start-6:start,end);};
+ w.eval(`const API_BASE='';const MODEL_PLACEHOLDERS={};const BASE_URL_HINTS={};function hideProfileEditor(){}function renderProfileList(){}function loadVisionProfileSetting(){}function refreshModelSelector(){};${fn('updateEditorPlaceholders')};${fn('showProfileEditor')};${fn('saveProfile')};window.fixture={updateEditorPlaceholders,showProfileEditor,saveProfile};`);
+ w.fixture.showProfileEditor({ ...profile(),provider:'anthropic',apiMode:'chat_completions' });
+ const select=w.document.getElementById('profileEditorApiMode');
+ assert.equal(select.value,'anthropic_messages');
+ assert.equal(select.querySelector('option[value="responses"]').disabled,true);
+ assert.equal(select.querySelector('option[value="anthropic_messages"]').disabled,false);
+ assert.match(w.document.getElementById('profileEditorApiModeHint').textContent,/Anthropic/);
+ let saved;w.fetch=async(_url,options)=>{saved=JSON.parse(options.body);return {ok:false,json:async()=>({error:'fixture'})};};
+ w.IexaDialogs={alert:async()=>{}};
+ await w.fixture.saveProfile();assert.equal(saved.provider,'anthropic');assert.equal(saved.apiMode,'anthropic_messages');
+ w.document.getElementById('profileEditorProvider').value='openai';w.fixture.updateEditorPlaceholders();
+ assert.equal(select.value,'chat_completions');assert.equal(select.querySelector('option[value="anthropic_messages"]').disabled,true);
+ select.value='responses';await w.fixture.saveProfile();assert.equal(saved.apiMode,'responses');
+});
+test('server normalizes native Anthropic interface independently of saved OpenAI modes',async()=>{
+ const p={...profile(),id:'native-claude-fixture',provider:'anthropic',model:'claude-opus-5-5',apiMode:'responses'};
+ let result=await api('/api/profiles',p);assert.equal(result.status,200);assert.equal(result.body.profile.apiMode,'anthropic_messages');
+ result=await api('/api/profiles');assert.equal(result.body.profiles.find(x=>x.id===p.id).apiMode,'anthropic_messages');
+ result=await api('/api/profiles',{...p,provider:'openai',model:'fixture-model',apiMode:'responses',apiKey:''});
+ assert.equal(result.status,200);assert.equal(result.body.profile.apiMode,'responses');
+});

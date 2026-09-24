@@ -247,22 +247,30 @@ export class AgentLoop {
         const completedCalls = (m.toolCalls || [])
           .filter((tc) => tc.id && tc.name && tc.result)
           .slice(-MAX_REHYDRATED_TOOL_RESULTS_PER_TURN);
-        const toolParts: AgentContentPart[] = completedCalls
-          .map((tc) => ({ type: 'toolUse' as const, id: tc.id, name: tc.name, input: tc.args || {} }));
-        if (toolParts.length > 0) {
-          hydrated.push({ role: 'assistant', parts: toolParts });
-        }
-        if (completedCalls.length > 0) {
-          hydrated.push({
-            role: 'user',
-            parts: completedCalls.map((tc) => ({
-              type: 'toolResult' as const,
-              id: tc.id,
-              name: tc.name,
-              content: compactToolResultForContext(String(tc.result?.output || ''), tc.name),
-              isError: tc.result?.success === false,
-            })),
-          });
+        if (this.config.provider.name === 'anthropic' && completedCalls.length > 0) {
+          // Persisted transcripts do not contain Anthropic's signed thinking.
+          // Replaying synthetic tool_use without that signature can be rejected;
+          // retain the result as bounded history text instead of a live tool call.
+          const summary = completedCalls.map(tc =>
+            `[Previously completed ${tc.name}: ${tc.result?.success === false ? 'failed' : 'ok'}] ${compactToolResultForContext(String(tc.result?.output || ''), tc.name)}`
+          ).join('\n');
+          hydrated.push({ role: 'assistant', parts: [{ type: 'text', text: clipHistoryText(summary, MAX_REHYDRATED_TEXT_CHARS) }] });
+        } else {
+          const toolParts: AgentContentPart[] = completedCalls
+            .map((tc) => ({ type: 'toolUse' as const, id: tc.id, name: tc.name, input: tc.args || {} }));
+          if (toolParts.length > 0) hydrated.push({ role: 'assistant', parts: toolParts });
+          if (completedCalls.length > 0) {
+            hydrated.push({
+              role: 'user',
+              parts: completedCalls.map((tc) => ({
+                type: 'toolResult' as const,
+                id: tc.id,
+                name: tc.name,
+                content: compactToolResultForContext(String(tc.result?.output || ''), tc.name),
+                isError: tc.result?.success === false,
+              })),
+            });
+          }
         }
         if (text) {
           hydrated.push({
@@ -442,6 +450,7 @@ export class AgentLoop {
         let assistantText = '';
         const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; parseError?: string }> = [];
         let reasoningContent = '';
+        const thinkingBlocks: NonNullable<AgentMessage['thinkingBlocks']> = [];
         let stopReason: AgentStopReason = 'endTurn';
         let usage: LLMUsage | undefined;
 
@@ -480,6 +489,10 @@ export class AgentLoop {
 
             case 'reasoningContent':
               reasoningContent += event.content;
+              break;
+
+            case 'thinkingBlockComplete':
+              thinkingBlocks.push(event.block);
               break;
 
             case 'toolInputDelta':
@@ -530,6 +543,7 @@ export class AgentLoop {
         const assistantMsg: AgentMessage = {
           role: 'assistant',
           parts: assistantParts,
+          ...(thinkingBlocks.length ? { thinkingBlocks } : {}),
           ...(reasoningContent ? { reasoningContent } : {}),
         };
         this.agentHistory.push(assistantMsg);

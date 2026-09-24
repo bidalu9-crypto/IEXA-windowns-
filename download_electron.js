@@ -100,6 +100,21 @@ async function installRuntime(archive, expected, sumsURL) {
     console.log(`Installed verified Electron ${electronVersion()}: ${destination}`);
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
 }
+/** Reuse only a locally verified official archive + installed runtime.
+ * A missing or mismatching checksum, archive, or file manifest falls back to
+ * the normal online official-checksum verification path. */
+async function verifiedCachedRuntime({ version, sums, name, archive, sumsURL, destination }) {
+  try {
+    const marker = path.join(destination, '.iexa-verified.json');
+    if (![sums, archive, marker, path.join(destination, 'electron.exe')].every(file => fs.existsSync(file))) return false;
+    const expected = expectedChecksum(fs.readFileSync(sums, 'utf8'), name);
+    const metadata = JSON.parse(fs.readFileSync(marker, 'utf8'));
+    if (metadata.version !== version || metadata.archiveSHA256 !== expected || metadata.sumsURL !== sumsURL) return false;
+    if (await sha256(archive) !== expected) return false;
+    return JSON.stringify(metadata.files) === JSON.stringify(await fileHashes(destination));
+  } catch { return false; }
+}
+
 async function main() {
   const version = electronVersion();
   const cache = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'IEXA/electron-cache');
@@ -108,10 +123,17 @@ async function main() {
   const base = `https://github.com/electron/electron/releases/download/v${version}/`;
   const sumsURL = `${base}SHASUMS256.txt`;
   const sums = path.join(cache, `SHASUMS256-${version}.txt`);
-  // The checksum trust root is always the official release, never a binary mirror.
+  const archive = path.join(cache, name);
+  if (process.argv.includes('--install') && await verifiedCachedRuntime({
+    version, sums, name, archive, sumsURL, destination: runtimeDir(),
+  })) {
+    fs.writeFileSync(path.join(root, 'node_modules/electron/path.txt'), 'electron.exe');
+    console.log(`Verified cached Electron ${version}; launch can continue offline.`);
+    return archive;
+  }
+  // New or changed installations still use the fresh official release checksum.
   await download(sumsURL, sums, 1024 * 1024);
   const expected = expectedChecksum(fs.readFileSync(sums, 'utf8'), name);
-  const archive = path.join(cache, name);
   if (fs.existsSync(archive) && await sha256(archive) !== expected) fs.rmSync(archive);
   if (!fs.existsSync(archive)) {
     if (process.argv.includes('--ranged')) await require('./scripts/download-ranged.cjs').downloadRanged(`${base}${name}`, archive);
@@ -130,4 +152,4 @@ async function main() {
   return archive;
 }
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
-module.exports = { expectedChecksum, verifyArchive, sha256, fileHashes, main };
+module.exports = { expectedChecksum, verifyArchive, sha256, fileHashes, verifiedCachedRuntime, main };

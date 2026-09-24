@@ -36,7 +36,8 @@ test('real browser: independent accessibility font/icon scales, persistence, bou
  await slide('uiIconScale',150);m=await metrics();assert.ok(Math.abs(m.font-original.font*1.3)<.1);assert.ok(Math.abs(m.icon-original.icon*1.5)<.1);
  await wait("document.getElementById('uiIconScaleValue').textContent==='150%'");await new Promise(r=>setTimeout(r,300));
  const saved=await evaluate("fetch('/api/appearance').then(r=>r.json())");assert.equal(saved.fontScale,130);assert.equal(saved.iconScale,150);const disk=JSON.parse(fs.readFileSync(path.join(process.env.IEXA_WORKSPACE,'.iexa-appearance.json'),'utf8'));assert.equal(disk.fontScale,130);assert.equal(disk.iconScale,150);
- await cdp('Page.reload');await wait("document.documentElement.dataset.fontScale==='130' && document.documentElement.dataset.iconScale==='150'");
+ const reloaded=new Promise((resolve,reject)=>{const timer=setTimeout(()=>{socket.removeEventListener('message',onMessage);reject(new Error('reload timeout'));},8000);const onMessage=event=>{if(JSON.parse(event.data).method==='Page.loadEventFired'){clearTimeout(timer);socket.removeEventListener('message',onMessage);resolve();}};socket.addEventListener('message',onMessage);});
+ await cdp('Page.reload');await reloaded;await wait("document.documentElement.dataset.fontScale==='130' && document.documentElement.dataset.iconScale==='150' && document.querySelector('[data-view=appearance]')");
  await evaluate("document.querySelector('[data-view=appearance]').click()");
  assert.equal(await evaluate("document.getElementById('uiFontScale').getAttribute('aria-valuetext')"),'130%');
  await slide('uiFontScale',180);await slide('uiIconScale',160);
