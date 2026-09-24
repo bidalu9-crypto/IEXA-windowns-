@@ -20,7 +20,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
     },
     {
       name: 'desktop_control',
-      description: 'Operate real Windows applications through a persistent native perception-action loop. Start with list_windows; use launch when the app is not running, then observe, act, and verify. Never use shell/curl or write observe results to disk for desktop tasks. Vision-capable profiles receive a fresh bound-window screenshot with observe by default. Re-observe after navigation and never guess stale element IDs. UI Automation patterns run first. Never automatically replay uncertain input. forcePointer is foreground-only and requires a fresh observation plus diagnosis of a missing effect. Use verifyText or a fresh frame to prove completion. Pointer movement alone does not revoke the managed operation lease. For foreground input, honor explicit focusPolicy: stop dispatches nothing when the target is unfocused; wait waits boundedly for the user to restore focus, then re-observes. Never auto-activate or reclaim focus. Use minimize instead of closing apps.',
+      description: 'Operate real Windows applications through a persistent native perception-action loop. Start with list_windows; use launch when the app is not running, then observe, act, and verify. Use this for actual GUI observation and input, not for tasks a supported CLI, PowerShell command or public API can perform directly. Never proxy GUI observation or input through shell/curl or write observe results to disk. Vision-capable profiles receive a fresh bound-window screenshot with observe by default. Re-observe after navigation and never guess stale element IDs. UI Automation patterns run first. Never automatically replay uncertain input. forcePointer is foreground-only and requires a fresh observation plus diagnosis of a missing effect. Use verifyText or a fresh frame to prove completion. Pointer movement alone does not revoke the managed operation lease. For foreground input, honor explicit focusPolicy: stop dispatches nothing when the target is unfocused; wait waits boundedly for the user to restore focus, then re-observes. Never auto-activate or reclaim focus. Use minimize instead of closing apps.',
       parameters: {
         tool_title: { type: 'string', description: 'A concise 5-10 word summary of the desktop action.' },
         detail: { type: 'string', description: 'Compact human-readable output by default; raw JSON only for explicit debugging.', enumValues: ['compact', 'raw'] },
@@ -110,7 +110,7 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
     {
       name: 'shell_execute',
       description:
-        'Execute a command in a fresh shell process with stdout and stderr captured. On Windows, set shell to cmd for CMD/batch syntax or powershell/pwsh for raw PowerShell source. auto remains compatible with commands that start with powershell -Command. Default timeout is 15 minutes (900s).',
+        'Execute a command in a fresh shell process with stdout and stderr captured. Prefer direct CLI, PowerShell and public APIs for application tasks they support; use desktop_control for real GUI observation/input. On Windows, set shell to cmd for CMD/batch syntax or powershell/pwsh for raw PowerShell source. auto remains compatible with commands that start with powershell -Command. Default timeout is 15 minutes (900s).',
       parameters: {
         tool_title: {
           type: 'string',
