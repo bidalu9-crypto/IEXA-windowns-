@@ -57,7 +57,11 @@
       node.dataset.activityId = item.id;
       if (item.type === 'tool') {
         let group = fragment.lastElementChild;
-        if (!group?.classList.contains('tool-steps')) { group = document.createElement('div'); group.className = 'tool-steps activity-list'; fragment.appendChild(group); }
+        if (!group?.classList.contains('tool-steps')) {
+          group = node.closest('.tool-steps');
+          if (group) { group.querySelectorAll(':scope > .tool-block').forEach(block => block.remove()); fragment.appendChild(group); }
+          else { group = document.createElement('div'); group.className = 'tool-steps activity-list'; fragment.appendChild(group); }
+        }
         group.appendChild(node);
       } else fragment.appendChild(node);
     }

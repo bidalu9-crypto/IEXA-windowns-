@@ -104,6 +104,7 @@ interface AppearanceSettings {
   accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
   sidebarWidth: number;
   filesPanelWidth: number;
+  collapseConsecutiveTools: boolean;
 }
 
 function normalizeAppearance(value: unknown): AppearanceSettings {
@@ -121,6 +122,7 @@ function normalizeAppearance(value: unknown): AppearanceSettings {
     accent: accents.includes(String(source.accent)) ? String(source.accent) as AppearanceSettings['accent'] : 'violet',
     sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
     filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
+    collapseConsecutiveTools: source.collapseConsecutiveTools === true,
   };
 }
 

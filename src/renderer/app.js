@@ -1187,20 +1187,24 @@ async function switchSession(id, updateList = true) {
           if (msg.toolCalls && msg.toolCalls.length > 0) {
             const steps = document.createElement('div');
             steps.className = 'tool-steps activity-list';
+            const started = msg.toolCalls.map(tc => Number(tc.startedAt || tc.result?.startedAt)).filter(Number.isFinite);
+            const finished = msg.toolCalls.map(tc => Number(tc.finishedAt || tc.result?.finishedAt)).filter(Number.isFinite);
+            if (started.length) steps.dataset.startedAt = String(Math.min(...started));
             const taskSummary = createTaskSummary(msg.toolCalls.length);
             // 历史会话绝不应恢复为运行状态：创建函数默认带 spinner，
             // 因此加载后必须显式收口为静态完成态。
             taskSummary.classList.add('is-complete');
-            const historySpinner = taskSummary.querySelector('.task-summary-spinner');
-            if (historySpinner) historySpinner.remove();
-            taskSummary.querySelector('.task-summary-label').textContent = '任务耗时';
-            taskSummary.querySelector('.task-summary-time').textContent = msg.toolCalls.every(tc => tc.result?.success === true) ? '已完成' : '已结束';
+            if (started.length && finished.length === msg.toolCalls.length) {
+              taskSummary.querySelector('.task-summary-time').textContent = formatTaskElapsed(Math.max(...finished) - Math.min(...started));
+            }
             steps.appendChild(taskSummary);
             for (const tc of msg.toolCalls) {
               const block = document.createElement('div');
               block.className = 'tool-block is-done';
               block.dataset.toolId = tc.id;
               block.dataset.kind = toolKind(tc.name || '');
+              if (Number.isFinite(Number(tc.startedAt || tc.result?.startedAt))) block.dataset.startedAt = String(Number(tc.startedAt || tc.result?.startedAt));
+              if (Number.isFinite(Number(tc.finishedAt || tc.result?.finishedAt))) block.dataset.finishedAt = String(Number(tc.finishedAt || tc.result?.finishedAt));
               const histTitle = (tc.args && tc.args.tool_title) || toolDisplayName(tc.name);
               block.innerHTML = `
                 <div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-${escapeHtml(tc.id)}">
@@ -1227,6 +1231,7 @@ async function switchSession(id, updateList = true) {
               window.IexaChatActivity.updateTool(block, tc.name, tc.args, tc.result);
               steps.appendChild(block);
             }
+            refreshToolGroupSummary(steps);
             // Match the live turn layout: thinking, task/tools, then answer.
             // Appending before the footer put the task duration below the
             // completed answer whenever history was restored.
@@ -2604,6 +2609,67 @@ function formatTaskElapsed(ms) {
 }
 
 /** Create the compact task pill. Click it to show or hide the tool capsules. */
+function consecutiveToolFoldEnabled() {
+  return document.documentElement.getAttribute('data-collapse-tools') === 'on';
+}
+
+function applyConsecutiveToolFoldSetting(enabled) {
+  document.documentElement.setAttribute('data-collapse-tools', enabled ? 'on' : 'off');
+  try { localStorage.setItem('iexa-collapse-tools', enabled ? 'on' : 'off'); } catch { /* current window still applies it */ }
+  document.querySelectorAll('.tool-steps').forEach((host) => {
+    const summary = [...host.children].find((node) => node.classList?.contains('task-summary'));
+    if (summary) {
+      applyConsecutiveToolFold(host, summary, summary.dataset.userExpanded !== 'true');
+      summary.hidden = !enabled;
+    }
+    refreshToolGroupSummary(host);
+  });
+}
+
+function setConsecutiveToolFold(enabled) {
+  applyConsecutiveToolFoldSetting(enabled);
+  try {
+    if (typeof syncThemeUI === 'function') syncThemeUI();
+    if (typeof scheduleAppearanceSave === 'function') scheduleAppearanceSave();
+  } catch { /* the visible fold state is already applied */ }
+}
+
+function applyConsecutiveToolFold(host, summary, collapsed) {
+  if (!host || !summary) return;
+  const enabled = consecutiveToolFoldEnabled();
+  host.classList.toggle('is-collapsed', enabled && collapsed);
+  summary.hidden = !enabled;
+  summary.setAttribute('aria-expanded', String(!(enabled && collapsed)));
+  summary.title = enabled && collapsed ? '点击展开连续工具' : '点击收起连续工具';
+}
+
+function refreshToolGroupSummary(host) {
+  if (!host) return;
+  const summary = [...host.children].find((node) => node.classList?.contains('task-summary'));
+  if (!summary) return;
+  const blocks = [...host.children].filter((node) => node.classList?.contains('tool-block'));
+  const errors = blocks.filter((block) => block.classList.contains('is-error') || ['failed', 'denied', 'timed_out', 'error'].includes(block.dataset.executionStatus || block.dataset.status || '')).length;
+  const countEl = summary.querySelector('.task-summary-count');
+  const errorEl = summary.querySelector('.task-summary-errors');
+  if (countEl) countEl.textContent = blocks.length + ' 次调用';
+  if (errorEl) errorEl.textContent = errors > 0 ? errors + ' 个报错' : '';
+  const terminal = new Set(['done', 'completed', 'error', 'failed', 'denied', 'cancelled', 'timed-out', 'timed_out', 'unknown']);
+  const running = blocks.some((block) => !terminal.has(block.dataset.executionStatus || '') && (block.classList.contains('is-active') || !terminal.has(block.dataset.status || 'running')));
+  const started = blocks.map((block) => Number(block.dataset.startedAt)).filter(Number.isFinite);
+  const ended = blocks.map((block) => Number(block.dataset.finishedAt)).filter(Number.isFinite);
+  const start = started.length ? Math.min(...started) : Number(host.dataset.startedAt) || Date.now();
+  const end = running || !blocks.length || ended.length !== blocks.length ? Date.now() : Math.max(...ended);
+  const timeEl = summary.querySelector('.task-summary-time');
+  if (timeEl) timeEl.textContent = formatTaskElapsed(end - start);
+  const labelEl = summary.querySelector('.task-summary-label');
+  if (labelEl) labelEl.textContent = running ? '正在执行工具' : '已执行工具';
+  summary.classList.toggle('is-running', running);
+  summary.classList.toggle('is-complete', !running && blocks.length > 0);
+  const spinner = summary.querySelector('.task-summary-spinner');
+  if (spinner) spinner.hidden = !running;
+  applyConsecutiveToolFold(host, summary, summary.dataset.userExpanded !== 'true');
+}
+
 function createTaskSummary(toolCount) {
   const summary = document.createElement('button');
   summary.type = 'button';
@@ -2611,16 +2677,18 @@ function createTaskSummary(toolCount) {
   summary.setAttribute('aria-expanded', 'false');
   summary.innerHTML =
     '<span class="task-summary-spinner" aria-hidden="true"></span>' +
-    '<span class="task-summary-label">任务处理中</span>' +
+    '<span class="task-summary-label">正在执行工具</span>' +
+    '<span class="task-summary-count">' + (Number(toolCount) || 0) + ' 次调用</span>' +
+    '<span class="task-summary-errors"></span>' +
     '<span class="task-summary-time">0 秒</span>' +
     '<span class="task-summary-chevron" aria-hidden="true"></span>';
-  summary.title = '点击展开任务详情';
+  summary.title = '点击展开连续工具';
   summary.addEventListener('click', function () {
     const host = summary.closest('.tool-steps');
-    if (!host) return;
-    const collapsed = host.classList.toggle('is-collapsed');
-    summary.setAttribute('aria-expanded', String(!collapsed));
-    summary.title = collapsed ? '点击展开任务详情' : '点击收起任务详情';
+    if (!host || !consecutiveToolFoldEnabled()) return;
+    const collapsed = !host.classList.contains('is-collapsed');
+    summary.dataset.userExpanded = collapsed ? '' : 'true';
+    applyConsecutiveToolFold(host, summary, collapsed);
   });
   return summary;
 }
@@ -2635,9 +2703,8 @@ function updateTaskSummary(label) {
   const summary = taskSummaryForCurrentMessage();
   if (!summary || !currentTaskStartedAt) return;
   const labelEl = summary.querySelector('.task-summary-label');
-  const timeEl = summary.querySelector('.task-summary-time');
   if (labelEl && label) labelEl.textContent = label;
-  if (timeEl) timeEl.textContent = formatTaskElapsed(Date.now() - currentTaskStartedAt);
+  refreshToolGroupSummary(summary.closest('.tool-steps'));
 }
 
 function beginTaskSummary(label) {
@@ -2668,11 +2735,7 @@ function finishTaskSummary() {
   if (!currentTaskStartedAt) return;
   const summary = taskSummaryForCurrentMessage();
   if (summary) {
-    summary.classList.add('is-complete');
-    summary.querySelector('.task-summary-label').textContent = '任务耗时';
-    summary.querySelector('.task-summary-time').textContent = formatTaskElapsed(Date.now() - currentTaskStartedAt);
-    const spinner = summary.querySelector('.task-summary-spinner');
-    if (spinner) spinner.remove();
+    refreshToolGroupSummary(summary.closest('.tool-steps'));
   }
   currentTaskStartedAt = 0;
   currentTaskSummary = null;
@@ -2782,6 +2845,7 @@ function ensureToolStepsHost() {
   if (last?.classList.contains('tool-steps')) return last;
   const host = document.createElement('div');
   host.className = 'tool-steps activity-list';
+  host.dataset.startedAt = String(Date.now());
   window.IexaTranscriptView.append(msg, host);
   return host;
 }
@@ -3042,6 +3106,7 @@ function handleToolStart(id, name) {
   host.appendChild(block);
   currentTaskToolCount += 1;
   beginTaskSummary(toolDisplayName(name));
+  refreshToolGroupSummary(host);
   currentToolBlocks[id] = { block, name, argsText: '' };
   window.IexaChatActivity.updateTool(block, name);
   scrollToBottom();
@@ -3184,7 +3249,9 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
   if (!info) return;
 
   window.IexaToolLifecycleView.applyResult(info.block, { success, executionStatus, metadata }, setToolStepStatus);
+  info.block.dataset.finishedAt = String(Date.now());
   window.IexaChatActivity.updateTool(info.block, info.name, undefined, { success, fileChange, pluginUI });
+  refreshToolGroupSummary(info.block.closest('.tool-steps'));
 
   if (Array.isArray(todos) && success && currentAssistantMsg) {
     renderTodoPlan(currentAssistantMsg, todos);
@@ -5940,6 +6007,7 @@ function currentAppearance() {
     theme: getThemeMode(),
     motion: getMotionMode(),
     accent: getAccent(),
+    collapseConsecutiveTools: consecutiveToolFoldEnabled(),
     sidebarWidth: Number.parseInt(style.getPropertyValue('--sidebar-width'), 10) || 240,
     filesPanelWidth: Number.parseInt(style.getPropertyValue('--files-panel-width'), 10) || 300,
   };
@@ -5968,6 +6036,7 @@ async function loadAppearanceSettings() {
     applyMotionMode(value.motion);
     window.IexaUiScale?.apply(value);
     document.documentElement.setAttribute('data-accent', accent);
+    applyConsecutiveToolFoldSetting(value.collapseConsecutiveTools === true);
     document.documentElement.style.setProperty('--sidebar-width', `${value.sidebarWidth || 240}px`);
     document.documentElement.style.setProperty('--files-panel-width', `${value.filesPanelWidth || 300}px`);
     try { localStorage.setItem('iexa-theme', mode); localStorage.setItem('iexa-accent', accent); } catch { /* */ }
@@ -6048,6 +6117,13 @@ function syncThemeUI() {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
+  const collapseTools = document.getElementById('collapseToolsToggle');
+  if (collapseTools) {
+    collapseTools.checked = consecutiveToolFoldEnabled();
+    collapseTools.setAttribute('aria-checked', String(collapseTools.checked));
+    const state = collapseTools.closest('.appearance-switch')?.querySelector('.appearance-switch-state');
+    if (state) state.textContent = collapseTools.checked ? state.dataset.on : state.dataset.off;
+  }
   const mode = getThemeMode();
   document.querySelectorAll('#themeSeg [data-theme-set]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.themeSet === mode);
@@ -6067,6 +6143,7 @@ function initTheme() {
   document.querySelectorAll('#motionSeg [data-motion-set]').forEach((button) => {
     button.addEventListener('click', () => setMotionMode(button.dataset.motionSet));
   });
+  document.getElementById('collapseToolsToggle')?.addEventListener('change', (event) => setConsecutiveToolFold(event.target.checked));
   let accent = getAccent();
   if (accent === 'opencode') accent = 'violet';
   if (!document.documentElement.getAttribute('data-theme')) setThemeMode('light');

@@ -203,8 +203,10 @@ html[data-motion="reduced"] .workbench-shell *::after {
 /* Compact transcript activity — user-supplied desktop reference, 2026-09-15.
    Keep states/output real; only presentation is changed here. */
 .workbench-shell .tool-steps.activity-list { display: flex; flex-direction: column; gap: 2px; width: 100%; margin: 5px 0 10px; padding: 0; }
-.workbench-shell .tool-steps.activity-list > .task-summary { display: none; }
-.workbench-shell .tool-steps.activity-list > .tool-block { display: block; }
+html:not([data-collapse-tools="on"]) .workbench-shell .tool-steps.activity-list > .task-summary { display: none; }
+html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list > .task-summary { display: flex; width: fit-content; max-width: min(100%, 430px); }
+html:not([data-collapse-tools="on"]) .workbench-shell .tool-steps.activity-list > .tool-block,
+html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list:not(.is-collapsed) > .tool-block { display: block; }
 .workbench-shell .tool-steps.activity-list::before,
 .workbench-shell .tool-steps.activity-list .tool-block::before,
 .workbench-shell .activity-row .tool-header::after { content: none; display: none; }

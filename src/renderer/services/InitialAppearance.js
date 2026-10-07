@@ -11,5 +11,6 @@
     if (accent === 'opencode') accent = 'amber';
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-accent', accent);
+    document.documentElement.setAttribute('data-collapse-tools', (saved && saved.collapseConsecutiveTools === true) || localStorage.getItem('iexa-collapse-tools') === 'on' ? 'on' : 'off');
   } catch (_) {}
 })();
