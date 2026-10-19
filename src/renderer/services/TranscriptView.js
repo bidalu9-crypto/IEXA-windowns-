@@ -98,6 +98,7 @@
     old.forEach(node => node.remove());
     append(element, fragment);
     element.dataset.transcriptState = 'ordered'; element.dataset.transcriptTurnId = message.transcript.turnId;
+    window.IexaTurnSummary?.settle(element);
     return true;
   }
   window.IexaTranscriptView = Object.freeze({ lastNode, append, validate, restore });

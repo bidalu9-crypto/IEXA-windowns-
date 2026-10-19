@@ -189,6 +189,9 @@ function finalizeAssistantMessage(messageEl) {
   });
   messageEl.classList.remove('is-streaming');
   messageEl.querySelectorAll('.assistant-message-action').forEach((button) => { button.disabled = false; });
+  // The turn is over: fold its reasoning and tool rails behind one line that
+  // carries the elapsed time. Expanding restores them exactly as they were.
+  window.IexaTurnSummary?.settle(messageEl);
   scrollToBottom(false, followLatest);
 }
 

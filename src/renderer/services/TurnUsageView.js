@@ -11,7 +11,7 @@ function formatTurnDuration(ms) {
   if (total < 3600) {
     return Math.floor(total / 60) + ' 分 ' + String(total % 60).padStart(2, '0') + ' 秒';
   }
-  return Math.floor(total / 3600) + ' 小时 ' + String(Math.floor((total % 3600) / 60)).padStart(2, '0') + ' 分';
+  return Math.floor(total / 3600) + ' 小时 ' + String(Math.floor((total % 3600) / 60)).padStart(2, '0') + ' 分 ' + String(total % 60).padStart(2, '0') + ' 秒';
 }
 
 /**

@@ -75,8 +75,8 @@ test('turn duration renders whole seconds first, then minutes and hours', (t) =>
     [60_000, '1 分 00 秒'],
     [65_000, '1 分 05 秒'],
     [3_599_000, '59 分 59 秒'],
-    [3_600_000, '1 小时 00 分'],
-    [7_380_000, '2 小时 03 分'],
+    [3_600_000, '1 小时 00 分 00 秒'],
+    [7_380_000, '2 小时 03 分 00 秒'],
   ];
   for (const [ms, expected] of cases) {
     assert.equal(w.formatTurnDuration(ms), expected, `${ms}ms`);

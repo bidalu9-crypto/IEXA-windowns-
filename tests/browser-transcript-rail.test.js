@@ -79,7 +79,7 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
   const messages = [
     { role: 'user', content: '跑一批命令', timestamp: 0 },
     {
-      role: 'assistant', content: '完成。', thinking: 'R1R2', timestamp: 5, toolCalls: calls,
+      role: 'assistant', content: '完成。', thinking: 'R1R2', timestamp: 5, toolCalls: calls, durationMs: 96000,
       transcript: {
         version: 1, valid: true, turnId: 'turn-1', revision: 0, status: 'completed',
         items: [
@@ -137,5 +137,48 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
   assert.equal(opened.folded, false);
   assert.equal(opened.visible, 1);
   assert.equal(opened.others, 1, 'opening one rail must not unfold the rest');
+
+  // The finished turn sits behind one line carrying its cost and its duration;
+  // the rails themselves are folded away, not deleted.
+  const settled = await evaluate(`(() => {
+    const message = document.querySelector('.message.assistant');
+    const bar = message.querySelector('.turn-summary');
+    return {
+      exists: !!bar,
+      collapsed: message.classList.contains('is-activity-collapsed'),
+      label: bar && bar.querySelector('.turn-summary-label').textContent,
+      time: bar && bar.querySelector('.turn-summary-time').textContent,
+      count: bar && bar.querySelector('.turn-summary-count').textContent,
+      rails: message.querySelectorAll('.tool-steps').length,
+      hidden: message.querySelectorAll('.tool-steps.turn-activity-hidden').length,
+      railBarHidden: bar ? getComputedStyle(message.querySelector('.tool-steps > .task-summary')).display : null,
+    };
+  })()`);
+  assert.equal(settled.exists, true, 'a replayed turn has no summary line');
+  assert.equal(settled.collapsed, true, 'the turn did not settle folded');
+  assert.match(settled.label, /用时/);
+  assert.match(settled.time, /1 分 36 秒/, 'the line must carry the persisted duration: ' + settled.time);
+  assert.equal(settled.count, '2 次调用');
+  assert.equal(settled.hidden, settled.rails, 'every rail must be folded, none removed');
+  assert.equal(settled.railBarHidden, 'none', 'the per-rail bar repeats the turn bar');
+
+  // Opening it puts the rails back, still folded inside, and keeps the line.
+  await evaluate("document.querySelector('.message.assistant .turn-summary').click()");
+  const unfolded = await evaluate(`(() => {
+    const message = document.querySelector('.message.assistant');
+    return {
+      collapsed: message.classList.contains('is-activity-collapsed'),
+      hidden: message.querySelectorAll('.turn-activity-hidden').length,
+      bar: !!message.querySelector('.turn-summary'),
+      firstRowVisible: (() => {
+        const row = message.querySelector('.tool-steps:not(.is-collapsed) > .tool-block');
+        return row ? getComputedStyle(row).display !== 'none' : false;
+      })(),
+    };
+  })()`);
+  assert.equal(unfolded.collapsed, false);
+  assert.equal(unfolded.hidden, 0);
+  assert.equal(unfolded.bar, true, 'the line stays as the way back');
+  assert.equal(unfolded.firstRowVisible, true, 'expanding the turn must show the rails it folded');
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions[0] || {}));
 });

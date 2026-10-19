@@ -49,6 +49,62 @@
 .task-summary-spinner[hidden],
 .task-summary.is-complete .task-summary-spinner { display: none; }
 .task-summary.is-complete { opacity: 0.94; }
+
+/* Settled turn -----------------------------------------------------------------
+   A finished turn reads as one line plus its answer. The line carries the
+   elapsed time, the call count and any failures; clicking it puts the original
+   reasoning and tool rails back, untouched. While the turn runs nothing is
+   folded — the sweep, the spinners and the growing capsules are the turn. */
+.turn-summary {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  width: fit-content;
+  max-width: min(100%, 680px);
+  min-height: 30px;
+  margin: 2px 0 6px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: calc(0.76rem * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.turn-summary:hover { background: var(--bg-tertiary); border-color: var(--border); color: var(--text-secondary); }
+.turn-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.turn-summary-label { flex-shrink: 0; }
+.turn-summary-time { flex-shrink: 0; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.turn-summary-count,
+.turn-summary-errors { flex-shrink: 0; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.turn-summary-count:empty { display: none; }
+.turn-summary-errors { color: var(--error, #e11d48); }
+.turn-summary-errors:empty { display: none; }
+.turn-summary-chevron {
+  box-sizing: border-box;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  margin: -3px 1px 0 3px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+  transition: transform 160ms ease;
+}
+.turn-summary[aria-expanded="true"] .turn-summary-chevron { transform: rotate(225deg); }
+
+/* Folded: the blocks disappear, the bar stays as the way back. */
+.message.is-activity-settled .turn-activity-hidden { display: none; }
+/* The turn bar already aggregates count, failures and time; repeating those on
+   every rail underneath would say the same thing three times. The attribute
+   prefix is deliberate: it outranks the `html[data-collapse-tools=…]` rules
+   further down this file without an !important. */
+html[data-collapse-tools] .workbench-shell .message.is-activity-settled .tool-steps > .task-summary { display: none; }
 @keyframes taskSpin { to { transform: rotate(360deg); } }
 html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-block,
 html[data-collapse-tools="on"] .tool-steps.is-collapsed > .thinking-block,

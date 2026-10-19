@@ -4,7 +4,7 @@ const tree=ts.createSourceFile('app.js',app,ts.ScriptTarget.Latest,true,ts.Scrip
 function functions(names){return tree.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(tree)).join('\n');}
 function create(t){
  const dom=new JSDOM('<body><div id="messages"></div></body>',{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost'});if(t)t.after(()=>dom.window.close());const w=dom.window;
- for(const f of ['ChatActivityView','TranscriptView'])w.eval(fs.readFileSync(path.join(root,`src/renderer/services/${f}.js`),'utf8'));
+ for(const f of ['ChatActivityView','TranscriptView','TurnSummaryView'])w.eval(fs.readFileSync(path.join(root,`src/renderer/services/${f}.js`),'utf8'));
  const message=w.document.createElement('div');message.className='message assistant';message._assistantText='';message.innerHTML='<div class="message-content"></div><div class="assistant-message-footer"></div>';w.document.getElementById('messages').appendChild(message);
  Object.assign(w,{currentAssistantMsg:message,currentSessionId:'s',visibleSessionId:'s',currentToolBlocks:{},currentTaskToolCount:0,currentThinkingLevel:'medium',activeChatTurnToken:1,currentTaskSummary:null,
   ensureAssistantMessage:()=>w.currentAssistantMsg,assistantFooterAnchor:msg=>msg.querySelector('.assistant-message-footer'),scrollToBottom:()=>{},shouldFollowLatestMessage:()=>true,snapshotActiveSessionRuntime:()=>{},withSessionRuntime:(_s,fn)=>fn(),
@@ -14,7 +14,7 @@ function create(t){
   renderMarkdownContent:(node,text)=>{node._markdownSource=text;node.textContent=text;},setPagedText:(node,text)=>{node._fullText=String(text);node.textContent=text;},
  });
  w.pendingStreamUpdates = new Map();
- w.eval(functions(['handleTextDelta','handleThinkingDelta','handleToolStart','handleToolComplete','ensureToolStepsHost','ensureAnswerContentEl','hideWaitingIndicator','finishActiveThinkingBlock','finishThinkingBlock','initializeThinkingAutoScroll','scrollThinkingToLatest','setToolStepStatus','restoreTranscriptOrder','queueStreamUpdate','flushStreamUpdates']));
+ w.eval(functions(['handleTextDelta','handleThinkingDelta','handleToolStart','handleToolComplete','ensureToolStepsHost','ensureAnswerContentEl','hideWaitingIndicator','finishActiveThinkingBlock','finishThinkingBlock','initializeThinkingAutoScroll','scrollThinkingToLatest','setToolStepStatus','restoreTranscriptOrder','queueStreamUpdate','flushStreamUpdates','formatTurnDuration','messageTurnDuration']));
  return {w,message,dom};
 }
 function flatten(message){const out=[];const walk=parent=>{for(const n of parent.children){if(n.matches('.message-content')&&n.textContent)out.push(['text',n._markdownSource??n.textContent]);else if(n.matches('.thinking-block'))out.push(['thinking',n._reasoning??n.querySelector('.thinking-content')?.textContent]);else if(n.matches('.tool-steps'))walk(n);else if(n.matches('.tool-block'))out.push(['tool',n.dataset.toolId]);}};walk(message);return out;}

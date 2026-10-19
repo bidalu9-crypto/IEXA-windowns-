@@ -603,6 +603,10 @@ async function switchSession(id, updateList = true) {
             renderMessageUsage(usageEl, (msg.usage && msg.usage.inputTokens) || 0, (msg.usage && msg.usage.outputTokens) || 0,
               msg.usage && msg.usage.cacheReadInputTokens, { pending: !msg.usage });
           }
+          // Replayed turns land folded, like the turn looked the moment it
+          // finished. The stored duration was applied just above, so the bar
+          // paints the real number rather than zero.
+          window.IexaTurnSummary?.settle(el);
         }
       }
       targetRuntime.historyRenderedCount = msgs.length;
