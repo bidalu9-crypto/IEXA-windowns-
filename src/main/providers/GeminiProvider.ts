@@ -157,14 +157,14 @@ export class GeminiProvider {
               if (candidate.finishReason === 'STOP') agentStopReason = 'endTurn';
               else if (candidate.finishReason === 'MAX_TOKENS') agentStopReason = 'maxTokens';
 
-              // Gemini's promptTokenCount includes cachedContentTokenCount; report
-              // the fresh remainder so cache / (input + cache) means the same as
-              // it does for every other provider.
+              // Gemini's promptTokenCount already includes cachedContentTokenCount,
+              // the same shape the OpenAI path and Anthropic normalisation use:
+              // inputTokens is the whole prompt, the cached span sits inside it.
               if (event.usageMetadata) {
                 const reported = Number(event.usageMetadata.promptTokenCount || 0);
                 const cached = Number(event.usageMetadata.cachedContentTokenCount || 0);
                 const cacheRead = Number.isFinite(cached) && cached > 0 ? Math.min(cached, reported) : 0;
-                inputTokens = Math.max(0, reported - cacheRead);
+                inputTokens = reported;
                 outputTokens = event.usageMetadata.candidatesTokenCount || 0;
                 yield { type: 'usage', usage: cacheRead > 0
                   ? { inputTokens, outputTokens, cacheReadInputTokens: cacheRead }

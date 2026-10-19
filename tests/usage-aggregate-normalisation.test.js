@@ -12,8 +12,8 @@ test('the token usage aggregate is corrected once and only once', async (t) => {
   fs.mkdirSync(process.env.IEXA_WORKSPACE, { recursive: true });
   fs.writeFileSync(path.join(process.env.IEXA_WORKSPACE, '.iexa-token-usage.json'), JSON.stringify([{
     key: 'openai:m:p', provider: 'openai', model: 'm', profileName: 'p',
-    inputTokens: 481608890, outputTokens: 12, cacheCreationInputTokens: 0, cacheReadInputTokens: 398963456,
-    requests: 9, estimatedCostUsd: null, updatedAt: 1,
+    inputTokens: 900, outputTokens: 12, cacheCreationInputTokens: 0, cacheReadInputTokens: 398963456,
+    requests: 9, estimatedCostUsd: null, inputTokensAreFresh: true, updatedAt: 1,
   }]));
 
   const backend = require('../dist/main/server');
@@ -31,7 +31,8 @@ test('the token usage aggregate is corrected once and only once', async (t) => {
   })).json()).records[0];
 
   const first = await read();
-  assert.equal(first.inputTokens, 481608890 - 398963456);
+  // Seeded in the old fresh-remainder shape: the cache is added back once.
+  assert.equal(first.inputTokens, 900 + 398963456);
   assert.equal(first.cacheReadInputTokens, 398963456);
 
   const second = await read();

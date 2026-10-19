@@ -140,11 +140,10 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
     if (cacheReadTokens !== undefined && cacheReadTokens !== null && Number.isFinite(cacheRead)) {
       parts.push('<i aria-hidden="true"></i>');
       const cache = Math.max(0, Math.round(cacheRead));
-      // Share of the input side that came from cache, written after the label:
-      // a gauge before the number read as a decoration, and the number itself
-      // was what people wanted to see.
-      const share = input + cache > 0 ? Math.round((cache / (input + cache)) * 100) : 0;
-      parts.push(`<span class="message-usage-cache" title="缓存读取 ${cache.toLocaleString()} tokens（占输入侧 ${share}%）">${formatTokenCount(cache)} <em>缓存</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
+      // Share of the prompt that came from cache. input already contains the
+      // cached span, so this is a plain ratio - the same reading providers give.
+      const share = input > 0 ? Math.round(Math.min(1, cache / input) * 100) : 0;
+      parts.push(`<span class="message-usage-cache" title="缓存读取 ${cache.toLocaleString()} tokens（占输入 ${share}%）">${formatTokenCount(cache)} <em>缓存</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
     }
   }
   if (duration) {
@@ -302,7 +301,7 @@ function renderTokenUsage() {
         <div><span>输入</span><strong>${formatUsageNumber(input)}</strong></div>
         <div><span>输出</span><strong>${formatUsageNumber(output)}</strong></div>
         <div><span>调用次数</span><strong>${Number(r.requests || 0).toLocaleString()}</strong></div>
-        <div class="token-usage-model-stat-cache"><span>缓存</span><strong>${formatUsageNumber(cache)}</strong><small class="token-usage-model-pct">${formatUsagePercent(cache, input + cache)}</small></div>
+        <div class="token-usage-model-stat-cache"><span>缓存</span><strong>${formatUsageNumber(cache)}</strong><small class="token-usage-model-pct">${formatUsagePercent(cache, input)}</small></div>
       </div>
       <div class="token-usage-model-time">费用估算：${formatEstimatedCost(r.estimatedCostUsd)} · 最近更新：${r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}</div>
     </div>`;

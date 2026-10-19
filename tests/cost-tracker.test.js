@@ -9,10 +9,12 @@ test('cost estimator uses built-in model rates and returns null for unpriced ali
 
 test('profile rates price gateway aliases with distinct cache read/write rates', () => {
   const result = estimateCostUsd('custom', 'private-model-alias', {
+    // inputTokens is the whole prompt; the cached spans inside it are billed at
+    // their own rates, so only the 700k remainder pays the full input price.
     inputTokens: 1_000_000, outputTokens: 500_000,
     cacheReadInputTokens: 200_000, cacheCreationInputTokens: 100_000,
   }, { input: 2, output: 8, cacheRead: 0.2, cacheCreation: 2.5 });
-  assert.equal(result, 6.29);
+  assert.equal(result, 5.69);
 });
 
 test('zero rates remain a real free price rather than an unknown price', () => {

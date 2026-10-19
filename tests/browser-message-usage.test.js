@@ -84,12 +84,12 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
   assert.ok(!line.withoutCache.includes('缓存'), line.withoutCache);
   assert.ok(line.zero.includes('0 缓存'), line.zero);
   assert.ok(line.big.includes('132K 入') && line.big.includes('1.2K 出') && line.big.includes('131K 缓存'), line.big);
-  assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens（占输入侧 50%）"'), line.bigHtml);
-  assert.ok(line.bigHtml.includes('(50%)'), 'the share is written after the label: ' + line.bigHtml);
+  assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens（占输入 99%）"'), line.bigHtml);
+  assert.ok(line.bigHtml.includes('(99%)'), 'the share is written after the label: ' + line.bigHtml);
 
   const tokenHtml = await evaluate(`(() => {
     tokenUsageRecords = [
-      { model: 'fixture-cache', provider: 'openai', inputTokens: 1000, outputTokens: 100, requests: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 295680, estimatedCostUsd: null, updatedAt: Date.now() },
+      { model: 'fixture-cache', provider: 'openai', inputTokens: 296680, outputTokens: 100, requests: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 295680, estimatedCostUsd: null, updatedAt: Date.now() },
       { model: 'fixture-zero', provider: 'openai', inputTokens: 10, outputTokens: 1, requests: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, estimatedCostUsd: null, updatedAt: Date.now() - 500 },
     ];
     renderTokenUsage();

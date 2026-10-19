@@ -188,12 +188,11 @@ export class OpenAIProvider {
                 ?? event.usage.prompt_tokens_details?.cached_tokens
                 ?? event.usage.cache_read_input_tokens;
               if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
-                // The reported prompt INCLUDES the cached span. Report the fresh
-                // remainder as inputTokens so one meaning holds across providers:
-                // cache share = cache / (input + cache), and the cost estimate
-                // cannot bill the cached span twice.
+                // inputTokens is the WHOLE prompt with the cached span inside it,
+                // which is the same meaning Anthropic is normalised to, so the
+                // cache share is simply cache / input.
                 const cacheRead = Math.min(cacheHint, reportedInput || cacheHint);
-                inputTokens = Math.max(0, reportedInput - cacheRead);
+                inputTokens = reportedInput;
                 yield { type: 'usage', usage: { inputTokens, outputTokens, cacheReadInputTokens: cacheRead } };
               } else {
                 inputTokens = reportedInput;
@@ -551,13 +550,12 @@ export class OpenAIProvider {
               const responsePromptTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
               const responseOutputTokens = Number(usage.output_tokens || usage.completion_tokens || 0);
               // Responses API exposes cache hits under input_tokens_details. Same
-              // rule as the streaming path: the reported prompt includes the
-              // cached span, so the fresh remainder is what inputTokens means.
+              // rule as the streaming path: inputTokens is the whole prompt and
+              // the cached span is reported next to it.
               const cacheHint = usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens;
               if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
                 const cacheRead = Math.min(cacheHint, responsePromptTokens || cacheHint);
-                const responseInputTokens = Math.max(0, responsePromptTokens - cacheRead);
-                yield { type: 'usage', usage: { inputTokens: responseInputTokens, outputTokens: responseOutputTokens, cacheReadInputTokens: cacheRead } };
+                yield { type: 'usage', usage: { inputTokens: responsePromptTokens, outputTokens: responseOutputTokens, cacheReadInputTokens: cacheRead } };
               } else {
                 yield { type: 'usage', usage: { inputTokens: responsePromptTokens, outputTokens: responseOutputTokens } };
               }

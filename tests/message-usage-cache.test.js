@@ -57,30 +57,30 @@ test('message usage line places the cache receipt between output and time', (t) 
 test('compact counts keep the exact receipt in the hover title', (t) => {
   const w = createWindow(t);
   const { usageEl } = mountMessage(w);
-  w.renderMessageUsage(usageEl, 132225, 1198, 131328);
+  // inputTokens is the whole prompt, so 132,225 in and 131,328 cached is 99.3%.
+  w.renderMessageUsage(usageEl, 263553, 1198, 131328);
   const html = usageEl.innerHTML;
-  assert.ok(html.includes('title="输入 132,225 tokens"'), html);
+  assert.ok(html.includes('title="输入 263,553 tokens"'), html);
   assert.ok(html.includes('title="输出 1,198 tokens"'), html);
-  // The share now trails the label as a parenthetical; the title keeps the
-  // exact count and the same number.
-  assert.ok(html.includes('title="缓存读取 131,328 tokens（占输入侧 50%）"'), html);
+  // The share trails the label as a parenthetical; the title keeps the exact
+  // count and the same number.
+  assert.ok(html.includes('title="缓存读取 131,328 tokens（占输入 50%）"'), html);
   assert.ok(html.includes('class="message-usage-cache"'), html);
   assert.ok(html.includes('(50%)'), html);
   const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
-  assert.ok(text.includes('132K 入'), text);
+  assert.ok(text.includes('264K 入'), text);
   assert.ok(text.includes('1.2K 出'), text);
   assert.ok(text.includes('131K 缓存'), text);
 });
 
 test('a fully cached prompt reads as 100%, not 50%', (t) => {
-  // The provider reports prompt_tokens INCLUDING the cached span, and the
-  // provider adapter now reports the fresh remainder as input. A turn whose
-  // whole prompt came from cache therefore has input 0 and cache 629K.
+  // inputTokens is the whole prompt, cache included, so a fully cached turn
+  // reads 629K in and 629K of it cached.
   const w = createWindow(t);
   const { usageEl } = mountMessage(w);
-  w.renderMessageUsage(usageEl, 0, 431, 629000);
+  w.renderMessageUsage(usageEl, 629000, 431, 629000);
   const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
-  assert.ok(text.includes('0 入'), text);
+  assert.ok(text.includes('629K 入'), text);
   assert.ok(text.includes('629K 缓存 (100%)'), text);
 });
 
@@ -119,9 +119,9 @@ test('server persists and streams the cache receipt for message usage', () => {
   const server = fs.readFileSync(path.join(root, 'src/main/server.ts'), 'utf8');
   assert.ok(server.includes('cacheReadInputTokens: u.cacheReadInputTokens'), 'lastUsage keeps the receipt');
   assert.ok(server.includes('inputTokensAreFresh?: boolean'),
-    'assistant message type marks whether inputTokens is the fresh remainder');
-  assert.ok(server.includes('inputTokensAreFresh: true'),
-    'a persisted record records that its input excludes the cached span');
+    'legacy records are still recognised by the removed remainder marker');
+  assert.ok(!server.includes('inputTokensAreFresh: true'),
+    'nothing writes the marker any more: inputTokens is the whole prompt');
   assert.ok(appSource.includes('0, usage.cacheReadInputTokens)'), 'live stream passes the receipt');
   assert.ok(appSource.includes('msg.usage && msg.usage.cacheReadInputTokens'), 'history re-render passes the receipt');
 });
@@ -178,6 +178,6 @@ test('cache tile shows the cache share of the input side as a percentage', (t) =
   ];
   w.renderTokenUsage();
   const html = w.document.getElementById('tokenUsageList').innerHTML;
-  assert.ok(html.includes('<span>缓存</span><strong>100</strong><small class="token-usage-model-pct">25%</small>'), '100 cache of 300+100 input must read 25%: ' + html.slice(0, 900));
+  assert.ok(html.includes('<span>缓存</span><strong>100</strong><small class="token-usage-model-pct">33%</small>'), '100 cache of a 300-token prompt must read 33%: ' + html.slice(0, 900));
   assert.ok(html.includes('<span>缓存</span><strong>0</strong><small class="token-usage-model-pct">0%</small>'), 'no cache must read 0%: ' + html.slice(0, 900));
 });

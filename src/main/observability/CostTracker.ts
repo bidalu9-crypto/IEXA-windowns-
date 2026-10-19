@@ -35,5 +35,9 @@ export function estimateCostUsd(provider: string, model: string, usage: LLMUsage
   const output = Math.max(0, Number(usage.outputTokens) || 0);
   const cacheRead = Math.max(0, Number(usage.cacheReadInputTokens) || 0);
   const cacheCreation = Math.max(0, Number(usage.cacheCreationInputTokens) || 0);
-  return (input * price.input + output * price.output + cacheRead * (price.cacheRead ?? price.input) + cacheCreation * (price.cacheCreation ?? price.input)) / 1_000_000;
+  // inputTokens is the whole prompt; the cached spans are billed at their own
+  // rate, so only the remainder pays full price. Subtracting both keeps a
+  // cached token from being charged twice.
+  const fresh = Math.max(0, input - cacheRead - cacheCreation);
+  return (fresh * price.input + output * price.output + cacheRead * (price.cacheRead ?? price.input) + cacheCreation * (price.cacheCreation ?? price.input)) / 1_000_000;
 }

@@ -20,8 +20,7 @@ test('legacy usage records lose the double-counted cache span on read', async (t
     { role: 'user', content: 'q', timestamp: 1 },
     { role: 'assistant', content: 'a', timestamp: 2, usage: { inputTokens: 659747, outputTokens: 737, cacheReadInputTokens: 659456 } },
     { role: 'assistant', content: 'b', timestamp: 3, usage: { inputTokens: 1200, outputTokens: 40 } },
-    { role: 'assistant', content: 'c', timestamp: 4, usage: { inputTokens: 900, outputTokens: 8, cacheReadInputTokens: 300, inputTokensAreFresh: true } },
-  ]));
+    { role: 'assistant', content: 'c', timestamp: 4, usage: { inputTokens: 900, outputTokens: 8, cacheReadInputTokens: 300, inputTokensAreFresh: true } },  ]));
 
   const backend = require('../dist/main/server');
   const server = await backend.startServer(0, false);
@@ -40,16 +39,16 @@ test('legacy usage records lose the double-counted cache span on read', async (t
   const data = await response.json();
   const usage = data.messages.filter((m) => m.usage).map((m) => m.usage);
 
-  // 659,747 prompt with 659,456 cached leaves 291 fresh -> share is 100%, not 50%.
-  assert.equal(usage[0].inputTokens, 291);
+  // inputTokens is the whole prompt, so a legacy record needs no arithmetic.
+  assert.equal(usage[0].inputTokens, 659747);
   assert.equal(usage[0].cacheReadInputTokens, 659456);
-  assert.equal(Math.round(100 * usage[0].cacheReadInputTokens / (usage[0].inputTokens + usage[0].cacheReadInputTokens)), 100);
+  assert.equal(Math.round(100 * usage[0].cacheReadInputTokens / usage[0].inputTokens), 100);
 
-  // No cache figure: nothing to subtract, but the record is marked so it is
-  // never re-examined.
+  // No cache figure: nothing to do.
   assert.equal(usage[1].inputTokens, 1200);
-  assert.equal(usage[1].inputTokensAreFresh, true);
 
-  // Already-normalised records are left untouched.
-  assert.equal(usage[2].inputTokens, 900);
+  // A record written by the fresh-remainder version has the cache added back
+  // and the marker dropped, so it can never be corrected twice.
+  assert.equal(usage[2].inputTokens, 1200);
+  assert.equal(usage[2].inputTokensAreFresh, undefined);
 });

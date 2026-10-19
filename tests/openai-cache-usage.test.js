@@ -45,7 +45,7 @@ test('DeepSeek prompt_cache_hit_tokens reach the usage event', async t => {
   // The provider's prompt_tokens INCLUDE the cached span: 4096 total, 3072 of it
   // cached, so the fresh input is 1024. One meaning across providers keeps the
   // cache share (cache / (input + cache)) and the cost estimate honest.
-  assert.deepEqual(usage, { inputTokens: 1024, outputTokens: 12, cacheReadInputTokens: 3072 });
+  assert.deepEqual(usage, { inputTokens: 4096, outputTokens: 12, cacheReadInputTokens: 3072 });
   assert.equal(events.at(-1).type, 'done');
 });
 
@@ -53,7 +53,7 @@ test('OpenAI prompt_tokens_details.cached_tokens reach the usage event', async t
   const f = await fixture(t, frame({ choices: [], usage: { prompt_tokens: 2048, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 1536 } } }) + done);
   const provider = new OpenAIProvider({ model: 'gpt-6-pro', apiKey: 'fixture-key', baseURL: f.baseURL, thinkingLevel: 'off' });
   const usage = (await usageEvents(provider)).find(event => event.type === 'usage').usage;
-  assert.deepEqual(usage, { inputTokens: 512, outputTokens: 4, cacheReadInputTokens: 1536 });
+  assert.deepEqual(usage, { inputTokens: 2048, outputTokens: 4, cacheReadInputTokens: 1536 });
 });
 
 test('a genuinely zero hit count is reported explicitly, absent fields stay absent', async t => {
@@ -73,5 +73,5 @@ test('a cache hint larger than the prompt cannot exceed the prompt budget', asyn
   const f = await fixture(t, frame({ choices: [], usage: { prompt_tokens: 300, completion_tokens: 2, prompt_cache_hit_tokens: 9999 } }) + done);
   const usage = (await usageEvents(new OpenAIProvider({ model: 'relay-model', apiKey: 'k', baseURL: f.baseURL, thinkingLevel: 'off' })))
     .find(event => event.type === 'usage').usage;
-  assert.deepEqual(usage, { inputTokens: 0, outputTokens: 2, cacheReadInputTokens: 300 });
+  assert.deepEqual(usage, { inputTokens: 300, outputTokens: 2, cacheReadInputTokens: 300 });
 });

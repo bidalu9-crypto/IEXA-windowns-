@@ -67,12 +67,31 @@
 612K 入 · 464 出 · 611K 缓存 (50%) · 02:18
 ```
 
-口径是**缓存占 prompt 的比例**：`缓存 ÷（输入 + 缓存）`，其中「入」是**未命中缓存的新鲜输入**。
+口径统一成**一家**：`inputTokens` = 整段 prompt（**含**缓存段），`cacheReadInputTokens` = 其中命中缓存的部分，
+缓存占比 = `缓存 ÷ 入`。
 
-这一点必须由适配层保证：OpenAI / DeepSeek / Gemini 报的 `prompt_tokens` **包含**缓存段，
-Anthropic 的 `input_tokens` **不含**。所以 OpenAI 与 Gemini 的适配器会把缓存段减掉再上报
-`inputTokens`，Anthropic 原样透传。否则同一行会出现两种含义，而且成本估算会把缓存段
-**按全价再计一次**（`input × price` 与 `cacheRead × cachePrice` 叠加）。
+这条口径三家都能直接对上：
+
+| 提供方 | 原始字段 | 处理 |
+|---|---|---|
+| OpenAI / DeepSeek | `prompt_tokens` 含 `cached_tokens` | 原样 |
+| Gemini | `promptTokenCount` 含 `cachedContentTokenCount` | 原样 |
+| Anthropic | `input_tokens` 不含，`cache_read` / `cache_creation` 单列 | `input + read + creation` |
+
+代价与收益：**入** 的读数和上下文环、上下文上限同一个量纲，可以直接比；`1.7K 入` 那种
+「看着像没吃上下文」的困惑消失。成本估算相应改为只对**新鲜输入**计全价：
+`fresh = input − cacheRead − cacheCreation`，其余按缓存价。
+
+历史数据有三种形态，读取时统一（幂等）：
+
+| 形态 | 特征 | 处理 |
+|---|---|---|
+| A 最早 | 无标记，`input ≥ cache` | 已是含缓存，跳过 |
+| B 中间 | 无标记，`cache > input` | `input += cache`（缓存不可能超过 prompt，故可判定） |
+| C 短暂 | 带 `inputTokensAreFresh` | `input += cache`，删标记 |
+
+实测同一个 42 MB 会话末三条：`628,915 / 659,747 / 570,250` 入，分别
+`628,608 / 659,456 / 568,576` 缓存，占比 **100% / 100% / 100%**。
 
 归一之后，整段都命中缓存的回合读作 `0 入 · 431 出 · 629K 缓存 (100%)`，而不是令人困惑的 50%。
 

@@ -654,25 +654,27 @@ function loadMessages(sessionId: string): ChatMessage[] {
 }
 
 /**
- * Rewrite pre-normalisation usage records in memory so an old turn does not
- * keep claiming that half of its prompt was fresh.
+ * Repair usage records written by the short-lived "fresh remainder" version.
  *
- * A record without `inputTokensAreFresh` was written while OpenAI-style
- * providers still reported prompt_tokens inclusive of the cached span, so the
- * fresh input is `inputTokens - cacheReadInputTokens`. Only records that
- * actually carry a cache figure can be corrected; the rest are marked and left
- * alone because there was never anything to subtract.
+ * Older records already stored the whole prompt in `inputTokens`. A record
+ * carrying `inputTokensAreFresh` was written while the adapters subtracted the
+ * cached span instead, so the cache has to be added back. The marker is then
+ * dropped, which makes this idempotent and leaves exactly one meaning on disk.
  */
 function normalizeLegacyUsage(messages: ChatMessage[]): void {
   if (!Array.isArray(messages)) return;
   for (const message of messages) {
     const usage = message?.usage;
-    if (!usage || usage.inputTokensAreFresh === true) continue;
+    if (!usage) continue;
     const cached = Math.max(0, Number(usage.cacheReadInputTokens) || 0);
-    if (cached > 0) {
-      usage.inputTokens = Math.max(0, (Number(usage.inputTokens) || 0) - cached);
-    }
-    usage.inputTokensAreFresh = true;
+    if (cached <= 0 && usage.inputTokensAreFresh !== true) continue;
+    // Two shapes need repair: records written by the fresh-remainder version
+    // (marked), and unmarked ones from the build between the two fixes, which
+    // can be recognised because the cache cannot exceed the prompt - so a cache
+    // larger than input proves input is only the remainder.
+    const remainder = usage.inputTokensAreFresh === true || cached > (Number(usage.inputTokens) || 0);
+    if (remainder) usage.inputTokens = (Number(usage.inputTokens) || 0) + cached;
+    delete usage.inputTokensAreFresh;
   }
 }
 
@@ -916,10 +918,15 @@ function loadTokenUsage(): TokenUsageRecord[] {
       // span into inputTokens. Sum(fresh) == Sum(prompt) - Sum(cached), so the
       // correction is exact at aggregate level too.
       for (const record of records) {
-        if (!record || record.inputTokensAreFresh === true) continue;
+        if (!record) continue;
         const cached = Math.max(0, Number(record.cacheReadInputTokens) || 0);
-        record.inputTokens = Math.max(0, (Number(record.inputTokens) || 0) - cached);
-        record.inputTokensAreFresh = true;
+        if (cached <= 0 && record.inputTokensAreFresh !== true) continue;
+        // Same two legacy shapes as session messages: the marker, or a cache
+        // larger than the prompt (which can only happen when input is the
+        // remainder).
+        const remainder = record.inputTokensAreFresh === true || cached > (Number(record.inputTokens) || 0);
+        if (remainder) record.inputTokens = (Number(record.inputTokens) || 0) + cached;
+        delete record.inputTokensAreFresh;
       }
       return records;
     }
@@ -944,7 +951,6 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
   record.cacheReadInputTokens += Math.max(0, Number(usage.cacheReadInputTokens) || 0);
   record.requests += 1;
   record.estimatedCostUsd = estimateCostUsd(record.provider, record.model, record, profile.tokenPrice);
-  record.inputTokensAreFresh = true;
   record.updatedAt = Date.now();
   new JsonStore<TokenUsageRecord[]>(TOKEN_USAGE_FILE, () => records).saveSync(records);
 }
@@ -1342,7 +1348,7 @@ async function saveSessionMessages(
     thinkingLevel: thinking ? normalizeThinkingLevel(thinkingLevel) : undefined,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
-    usage: usage ? { ...usage, inputTokensAreFresh: true } : undefined,
+    usage: usage,
     durationMs,
     timestamp: Date.now(),
   };

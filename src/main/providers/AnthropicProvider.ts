@@ -124,7 +124,17 @@ export class AnthropicProvider {
           yield { type: 'toolCallComplete', id: block.id, name: block.name, args: block.input || {} };
         }
       }
-      yield { type: 'usage', usage: { inputTokens: message.usage?.input_tokens || 0, outputTokens: message.usage?.output_tokens || 0 } };
+      const cacheRead = message.usage?.cache_read_input_tokens || 0;
+      const cacheCreation = message.usage?.cache_creation_input_tokens || 0;
+      yield {
+        type: 'usage',
+        usage: {
+          inputTokens: (message.usage?.input_tokens || 0) + cacheRead + cacheCreation,
+          outputTokens: message.usage?.output_tokens || 0,
+          ...(cacheRead > 0 ? { cacheReadInputTokens: cacheRead } : {}),
+          ...(cacheCreation > 0 ? { cacheCreationInputTokens: cacheCreation } : {}),
+        },
+      };
       yield { type: 'done', stopReason: message.stop_reason === 'tool_use' ? 'toolUse'
         : message.stop_reason === 'max_tokens' ? 'maxTokens'
           : message.stop_reason === 'refusal' ? 'refusal' : 'endTurn' };
@@ -139,6 +149,8 @@ export class AnthropicProvider {
     let currentToolArgs = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
     let reasoningContent = '';
     let emittedReasoningContent = false;
     let currentThinking: { thinking: string; signature: string } | null = null;
@@ -160,8 +172,14 @@ export class AnthropicProvider {
             switch (event.type) {
               case 'message_start':
                 if (event.message?.usage) {
+                  // Anthropic reports the fresh input beside the cache spans;
+                  // every other provider reports the whole prompt. Sum them so
+                  // inputTokens means the same thing everywhere.
                   inputTokens = event.message.usage.input_tokens || 0;
                   outputTokens = event.message.usage.output_tokens || 0;
+                  cacheReadTokens = event.message.usage.cache_read_input_tokens || 0;
+                  cacheCreationTokens = event.message.usage.cache_creation_input_tokens || 0;
+                  inputTokens += cacheReadTokens + cacheCreationTokens;
                 }
                 break;
 
@@ -250,7 +268,11 @@ export class AnthropicProvider {
 
                 yield {
                   type: 'usage',
-                  usage: { inputTokens, outputTokens },
+                  usage: {
+                    inputTokens, outputTokens,
+                    ...(cacheReadTokens > 0 ? { cacheReadInputTokens: cacheReadTokens } : {}),
+                    ...(cacheCreationTokens > 0 ? { cacheCreationInputTokens: cacheCreationTokens } : {}),
+                  },
                 };
                 if (reasoningContent && !emittedReasoningContent) {
                   emittedReasoningContent = true;
