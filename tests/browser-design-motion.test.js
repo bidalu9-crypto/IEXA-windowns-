@@ -233,10 +233,31 @@ test('real browser: surface scale and motion behave once, and stop on request', 
       mask: sweep ? getComputedStyle(sweep).maskImage.slice(0, 16) : null,
       decorative: row.querySelector('.label-glow')?.getAttribute('aria-hidden'),
     };
+    // The band has to lift the glyphs toward the primary label colour. It used
+    // to reuse --thinking-sheen, which is black in the dark theme: the band then
+    // erased the characters it crossed and the label read as a broken glyph.
+    const lum = (css) => {
+      const [r, g, b] = css.match(/[\\d.]+/g).slice(0, 3).map(Number).map((v) => {
+        const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const sample = (theme) => {
+      document.documentElement.dataset.theme = theme;
+      const label = row.querySelector('.tool-name');
+      const copy = row.querySelector('.label-glow__copy');
+      return { label: lum(getComputedStyle(label).color), copy: lum(getComputedStyle(copy).color) };
+    };
+    out.originalTheme = document.documentElement.dataset.theme;
+    out.dark = sample('dark');
+    out.light = sample('light');
+    document.documentElement.dataset.theme = out.originalTheme;
+    const theme = row.closest('[data-theme]');
     row.classList.remove('is-active');
     window.IexaLabelGlow?.syncRow(row);
     out.removed = !row.querySelector('.label-glow');
     row.remove();
+    out.themeRestored = theme === null;
     return out;
   })()`);
   assert.equal(glow.sync, true, 'IexaLabelGlow did not load in the app shell');
@@ -244,6 +265,11 @@ test('real browser: surface scale and motion behave once, and stop on request', 
   assert.equal(glow.anim, 'iexa-label-glow-sweep');
   assert.match(glow.mask, /linear-gradient/);
   assert.equal(glow.decorative, 'true', 'the decorative copy is not hidden from assistive tech');
+  assert.ok(glow.dark.copy > glow.dark.label + 0.02,
+    'in the dark theme the band must be brighter than the label: ' + JSON.stringify(glow.dark));
+  assert.ok(glow.light.copy < glow.light.label - 0.02,
+    'in the light theme the band must be darker than the label: ' + JSON.stringify(glow.light));
   assert.equal(glow.removed, true, 'a finished row kept its highlight');
+  await evaluate("document.documentElement.dataset.theme = document.documentElement.dataset.theme || 'dark'");
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions[0] || {}));
 });
