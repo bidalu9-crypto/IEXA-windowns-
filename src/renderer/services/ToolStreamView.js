@@ -148,6 +148,34 @@ function createTaskSummary(toolCount) {
   return summary;
 }
 
+/**
+ * Give a rail its task bar and apply the current fold.
+ * Transcript replay rebuilds rails without going through the live start path;
+ * it calls this instead of duplicating the summary markup, so a restored rail
+ * can be collapsed exactly like the one the turn had while streaming.
+ */
+function attachToolGroupSummary(host) {
+  if (!host) return null;
+  let summary = [...host.children].find((node) => node.classList?.contains('task-summary'));
+  if (!summary) {
+    summary = createTaskSummary(0);
+    host.insertBefore(summary, host.firstChild);
+  }
+  refreshToolGroupSummary(host);
+  return summary;
+}
+
+// Exposed through an IIFE so the module keeps its declaration-only top level;
+// transcript replay attaches task bars through this instead of duplicating the
+// summary markup.
+(() => {
+  window.IexaToolRail = Object.freeze({
+    attach: attachToolGroupSummary,
+    refresh: refreshToolGroupSummary,
+    createSummary: createTaskSummary,
+  });
+})();
+
 function taskSummaryForCurrentMessage() {
   // Bind the summary to its own chat turn. currentAssistantMsg can be reset
   // by a done event or replaced when a queued turn starts.

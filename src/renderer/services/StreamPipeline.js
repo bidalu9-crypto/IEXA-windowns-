@@ -404,7 +404,9 @@ function handleThinkingDelta(text) {
   // Reasoning joins the turn's existing rail instead of starting a new block
   // beside it. A think/tool alternation used to break the chain every time,
   // so one turn ended up with a summary bar per alternation and a growing
-  // stack of cards to lay out on every append.
+  // stack of cards to lay out on every append. A folded rail keeps reasoning
+  // outside on purpose: the chain is hidden, and the user still watches the
+  // model think while the turn runs.
   const rail = lastActivity?.classList.contains('tool-steps') && !lastActivity.classList.contains('is-collapsed')
     ? lastActivity : null;
   let thinkBlock = lastActivity?.classList.contains('thinking-block') && !lastActivity.classList.contains('is-complete')

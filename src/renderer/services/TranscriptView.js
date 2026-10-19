@@ -52,18 +52,46 @@
         : factories.thinking(String(message.thinking || '').slice(item.start, item.end), item) }));
     } catch { element.dataset.transcriptState = 'render-error'; return false; }
     const fragment = document.createDocumentFragment();
+    const rails = [];
+    // Whether the rail will be folded when it lands, not whether this detached
+    // group happens to carry the class yet. A folded rail keeps reasoning
+    // outside (live does the same), so a turned-off setting is the only case
+    // where replay may put reasoning back into the chain. localStorage answers
+    // before the appearance fetch resolves.
+    const folded = document.documentElement.getAttribute('data-collapse-tools') === 'on'
+      || (document.documentElement.getAttribute('data-collapse-tools') === null
+        && localStorage.getItem('iexa-collapse-tools') === 'on');
+    let rail = null;
     for (const { item, node } of prepared) {
       node.dataset.activityId = item.id;
       if (item.type === 'tool') {
-        let group = fragment.lastElementChild;
-        if (!group?.classList.contains('tool-steps')) {
-          group = node.closest('.tool-steps');
-          if (group) { group.querySelectorAll(':scope > .tool-block').forEach(block => block.remove()); fragment.appendChild(group); }
-          else { group = document.createElement('div'); group.className = 'tool-steps activity-list'; fragment.appendChild(group); }
+        if (!rail) {
+          // Adopt the rail the legacy pass already built (it carries the task
+          // bar); otherwise start a fresh one.
+          const existing = node.closest('.tool-steps');
+          if (existing) {
+            existing.querySelectorAll(':scope > .tool-block').forEach(block => block.remove());
+            rail = existing;
+          } else {
+            rail = document.createElement('div');
+            rail.className = 'tool-steps activity-list';
+          }
+          rails.push(rail);
+          fragment.appendChild(rail);
         }
-        group.appendChild(node);
-      } else fragment.appendChild(node);
+        rail.appendChild(node);
+      } else if (item.type === 'thinking' && rail && !folded && fragment.lastElementChild === rail) {
+        // Live keeps reasoning in the rail only while the chain is open; a
+        // folded rail leaves it outside. Replay has to reach the same layout,
+        // otherwise the restored turn splits differently from the one the user
+        // watched, and the replacement rails used to carry no task bar at all.
+        rail.appendChild(node);
+      } else {
+        fragment.appendChild(node);
+        rail = null;
+      }
     }
+    for (const group of rails) window.IexaToolRail?.attach(group);
     // Capture leftovers only after adopted groups moved into the fragment:
     // removing a group that was reused would drop its first tool row.
     const old = [...element.children].filter(node => node.matches(contentSelector));
