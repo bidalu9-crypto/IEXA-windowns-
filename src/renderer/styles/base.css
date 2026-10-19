@@ -1,0 +1,175 @@
+/**
+ * Design tokens, reset and accent presets.
+ *
+ * Loaded first: everything below reads these custom properties, so a token
+ * change here reaches every layer without touching a rule.
+ */
+
+/* =============================================================================
+   IEXA PC - Styles · light default · switchable themes
+   ============================================================================= */
+
+:root,
+[data-theme="light"] {
+  /* light */
+  --bg-primary: #f1ecec;
+  --bg-secondary: #faf7f7;
+  --bg-tertiary: #e8e2e2;
+  --bg-input: #ffffff;
+  --text-primary: #211e1e;
+  --text-secondary: #4b4646;
+  --text-muted: #8a8484;
+  --border: #d5cece;
+  --border-strong: #b7b1b1;
+  --code-bg: #e8e2e2;
+  --code-inline: rgba(33, 30, 30, 0.08);
+  --on-accent: #ffffff;
+  --shadow: 0 4px 24px rgba(33, 30, 30, 0.08);
+  --overlay: rgba(33, 30, 30, 0.45);
+  /* ChatGPT-like user bubble: neutral gray, not accent fill */
+  --bubble-user-bg: #e8e8e8;
+  --bubble-user-fg: #211e1e;
+  --attach-chip-bg: rgba(33, 30, 30, 0.06);
+  --success: #3d8b5a;
+  --error: #c44b4b;
+  --warning: #c48a1a;
+  --radius: 12px;
+  --radius-sm: 8px;
+  /* default accent: second preset light blue */
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-light: rgba(96, 165, 250, 0.16);
+  --thinking-sheen: rgba(255, 255, 255, 0.92);
+  --thinking-sheen-soft: rgba(255, 255, 255, 0.18);
+  /* Brand block: system line is a saturated blue, bold, in both themes. */
+  --brand-system: #1d4ed8;
+}
+
+[data-theme="dark"] {
+  /* dark */
+  --bg-primary: #211e1e;
+  --bg-secondary: #2a2626;
+  --bg-tertiary: #353030;
+  --bg-input: #2f2b2b;
+  --text-primary: #f1ecec;
+  --text-secondary: #cfcecd;
+  --text-muted: #8a8484;
+  --border: #3d3838;
+  --border-strong: #656363;
+  --code-bg: #181616;
+  --code-inline: rgba(241, 236, 236, 0.1);
+  --on-accent: #211e1e;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --bubble-user-bg: #303030;
+  --bubble-user-fg: #f1ecec;
+  --attach-chip-bg: rgba(255, 255, 255, 0.08);
+  --success: #6bcf8e;
+  --error: #e57373;
+  --warning: #e6b84d;
+  --accent: #7dd3fc;
+  --accent-hover: #bae6fd;
+  --accent-light: rgba(125, 211, 252, 0.18);
+  --thinking-sheen: rgba(0, 0, 0, 0.9);
+  --thinking-sheen-soft: rgba(0, 0, 0, 0.2);
+  /* Lighter blue keeps the bold system line legible on the dark sidebar. */
+  --brand-system: #60a5fa;
+}
+
+/* Accent presets (override --accent*) */
+[data-accent="amber"] {
+  --accent: #c4841d;
+  --accent-hover: #a86f14;
+  --accent-light: rgba(196, 132, 29, 0.12);
+}
+[data-theme="dark"][data-accent="amber"] {
+  --accent: #e5a33c;
+  --accent-hover: #f0b54f;
+  --accent-light: rgba(229, 163, 60, 0.16);
+  --on-accent: #211e1e;
+}
+
+[data-accent="violet"] {
+  /* Keep the existing preset id for saved preferences; visually this is light blue. */
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-light: rgba(96, 165, 250, 0.16);
+  --on-accent: #ffffff;
+}
+[data-theme="dark"][data-accent="violet"] {
+  --accent: #7dd3fc;
+  --accent-hover: #bae6fd;
+  --accent-light: rgba(125, 211, 252, 0.18);
+  --on-accent: #0f172a;
+}
+
+[data-accent="blue"] {
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-light: rgba(37, 99, 235, 0.12);
+  --on-accent: #ffffff;
+}
+[data-theme="dark"][data-accent="blue"] {
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-light: rgba(96, 165, 250, 0.16);
+  --on-accent: #0f172a;
+}
+
+[data-accent="green"] {
+  --accent: #16a34a;
+  --accent-hover: #15803d;
+  --accent-light: rgba(22, 163, 74, 0.12);
+  --on-accent: #ffffff;
+}
+[data-theme="dark"][data-accent="green"] {
+  --accent: #4ade80;
+  --accent-hover: #86efac;
+  --accent-light: rgba(74, 222, 128, 0.16);
+  --on-accent: #052e16;
+}
+
+[data-accent="rose"] {
+  --accent: #e11d48;
+  --accent-hover: #be123c;
+  --accent-light: rgba(225, 29, 72, 0.12);
+  --on-accent: #ffffff;
+}
+[data-theme="dark"][data-accent="rose"] {
+  --accent: #fb7185;
+  --accent-hover: #fda4af;
+  --accent-light: rgba(251, 113, 133, 0.16);
+  --on-accent: #4c0519;
+}
+
+[data-accent="mono"] {
+  --accent: #4b4646;
+  --accent-hover: #211e1e;
+  --accent-light: rgba(75, 70, 70, 0.12);
+  --on-accent: #f1ecec;
+}
+[data-theme="dark"][data-accent="mono"] {
+  --accent: #cfcecd;
+  --accent-hover: #f1ecec;
+  --accent-light: rgba(207, 206, 205, 0.14);
+  --on-accent: #211e1e;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'Microsoft JhengHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}

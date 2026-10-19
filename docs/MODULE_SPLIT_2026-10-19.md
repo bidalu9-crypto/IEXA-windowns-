@@ -204,6 +204,39 @@ context 接口。
 `pathIsInside()` 全仓零引用，删。`sanitizeFileName`/`MIME_TYPES`/`isPrivateFile` 现在由
 `FileRoutes` 导出，server.ts 反向引用，避免两份实现漂移。
 
+## 第四轮：样式表分层（同日晚）
+
+`styles.css` 6,916 行、87 个分区注释、1,200+ 条规则，是仓库里最大的文件。CSS 没有逻辑，
+但"找 `.checkpoint-popover` 在哪"和"改 `.chat-input-wrapper` 会不会撞上后面的覆盖"是真实的成本。
+
+### 切法与验证
+
+只在**花括号深度为 0** 的位置切，所以没有规则被拆成两半；`<link>` 顺序即原顺序，级联完全不变。
+八个文件：
+
+| 文件 | 行数 | 内容 |
+|---|---|---|
+| `styles/base.css` | 168 | design token、reset、强调色预设 |
+| `styles/shell.css` | 571 | 侧栏、会话列表、搜索、视图切换、聊天框架 |
+| `styles/transcript.css` | 1,446 | 消息气泡、悬停操作、文件面板、右键菜单 |
+| `styles/composer.css` | 897 | 任务栏与工具胶囊、Markdown、diff、附件、发送控件 |
+| `styles/settings.css` | 1,457 | 设置、任务中心、SOUL、权限控件 |
+| `styles/skills.css` | 766 | 技能目录与紧凑卡片网格 |
+| `styles/refinements.css` | 989 | **覆盖层**：后面的追加修订 |
+| `styles/studio.css` | 616 | 检查点、预览工作室、窄屏规则 |
+
+`refinements.css` 的文件头写明了它的性质：**这是一层，不是归属**。规则应该回到拥有该组件的
+文件里，这个文件的目标是变小——把不可见的"历史追加"变成可见的技术债。
+
+### 连带改动
+
+- `index.html`：一条 `<link>` → 八条，顺序即层叠顺序，`workbench.css` 仍在最后。
+- `workbench-shell.test.js`：断言 `workbench.css` 排在 `styles/studio.css` 之后。
+- `scripts/check-desktop-control-ui.cjs`：`insertCSS` 改为按序拼接八个文件。
+- `scripts/check-workbench.cjs`：基线映射改为按扩展名，链接替换改为正则。
+- `tests/renderer-styles.test.js`（4 项）：每层恰好被引用一次且顺序正确；每层花括号平衡、
+  禁止 `@import`；旧 `styles.css` 不得复活；单层超 1,600 行即失败。
+
 ## 还没动的
 
 | 文件 | 行数 | 说明 |

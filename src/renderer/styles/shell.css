@@ -1,0 +1,576 @@
+/**
+ * App shell: sidebar, session list, search, view switching, chat frame and the
+ * focus control that reveals the side panels.
+ */
+
+/* Sidebar */
+.sidebar {
+  width: 240px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-header { flex: 0 0 auto; }
+
+/* Wordmark face, self-hosted so the strict `font-src 'self'` CSP still applies.
+   Orbitron (SIL OFL 1.1) is a geometric display face; the license ships next to
+   the binary in vendor/fonts/. */
+@font-face {
+  font-family: 'IEXA Wordmark';
+  src: url('vendor/fonts/orbitron-latin-var.woff2') format('woff2');
+  font-weight: 400 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* The icon sits on the vertical center of the two stacked text lines, and both
+   lines share one left edge, so the block reads as a single aligned unit. */
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+
+.brand-logo {
+  /* The PNG has a real alpha channel, so it works cleanly in every theme. */
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  object-fit: contain;
+}
+
+.sidebar-header h1 {
+  font-family: 'IEXA Wordmark', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: calc(1.35rem * var(--ui-font-scale, 1));
+  font-weight: 800;
+  font-variation-settings: 'wght' 800;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.version {
+  font-size: calc(0.72rem * var(--ui-font-scale, 1));
+  font-weight: 700;
+  color: var(--brand-system, #2563eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+  line-height: 1.2;
+}
+
+.sidebar-nav {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--border-strong) 74%, transparent) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar { width: 7px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 74%, transparent);
+  background-clip: padding-box;
+}
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 62%, var(--border-strong));
+  background-clip: padding-box;
+}
+
+.nav-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 10px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  text-align: left;
+  font-size: calc(0.9rem * var(--ui-font-scale, 1));
+  transition: all 0.2s;
+  flex: 0 0 auto;
+}
+
+.nav-btn:hover {
+  background: var(--accent-light);
+  color: var(--text-primary);
+}
+
+.nav-btn.active {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.nav-btn-token-usage {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.nav-btn[data-view="sync"],
+.nav-btn[data-view="about"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.nav-device-icon,
+.nav-about-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.nav-token-usage-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+/* Sidebar Sessions */
+.sidebar-sessions {
+  /* Keep recent chats at the top; the list itself scrolls when needed. */
+  margin-top: 20px;
+  flex: 1 1 auto;
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.sessions-title {
+  font-size: calc(0.7rem * var(--ui-font-scale, 1));
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.sessions-new-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.sessions-new-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.sessions-new-btn:hover {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.sessions-new-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sessions-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sessions-empty {
+  font-size: calc(0.75rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px 0;
+}
+
+.session-project-group { display: grid; gap: 3px; margin-bottom: 8px; }
+.session-project-heading {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px 3px;
+  color: var(--text-muted); font-size: calc(0.68rem * var(--ui-font-scale, 1)); font-weight: 650;
+  letter-spacing: .02em;
+}
+.session-project-heading .ui-icon { width: 13px; height: 13px; flex: 0 0 13px; }
+.session-project-heading span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-project-heading b { margin-left: auto; min-width: 18px; text-align: center; font-size: .62rem; font-weight: 600; }
+.session-project-items { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  /* Grid items default to min-width:auto, so a long nowrap title would size the
+     whole column to its max-content and push every row past the panel edge.
+     Rows must always be exactly as wide as the list. */
+  min-width: 0;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  font-size: calc(0.82rem * var(--ui-font-scale, 1));
+}
+
+.session-item:hover {
+  background: var(--accent-light);
+}
+
+.session-item.active {
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
+}
+
+.session-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.session-item-title {
+  color: var(--text-primary);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(0.65rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+}
+
+/* A background session is still streaming, even while another chat is open. */
+.session-running-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+  animation: session-running-pulse 1.25s ease-in-out infinite;
+}
+
+@keyframes session-running-pulse {
+  50% { opacity: .42; transform: scale(.76); }
+}
+
+.session-item-delete,
+.session-item-pin {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: calc(1.1rem * var(--ui-font-scale, 1));
+  padding: 0 4px;
+  line-height: 1;
+  visibility: hidden;
+  transition: color 0.15s;
+}
+
+.session-item:hover :is(.session-item-delete, .session-item-pin),
+.session-item.active :is(.session-item-delete, .session-item-pin),
+.session-item.pinned .session-item-pin {
+  visibility: visible;
+}
+
+.session-item.pinned .session-item-pin { color: var(--accent); }
+.session-item-delete:hover { color: var(--error); }
+.session-item-pin:hover { color: var(--accent); }
+
+.session-item-rename-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: calc(0.82rem * var(--ui-font-scale, 1));
+  padding: 2px 6px;
+  outline: none;
+  min-width: 0;
+}
+
+/* Search Box */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0;
+  margin-bottom: 4px;
+}
+
+.search-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-size: calc(0.78rem * var(--ui-font-scale, 1));
+  outline: none;
+  min-width: 0;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-clear {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: calc(0.85rem * var(--ui-font-scale, 1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.search-clear:hover {
+  background: color-mix(in srgb, var(--error) 20%, transparent);
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* Search Results */
+.search-results {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+.search-result-item {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.search-result-item:hover {
+  background: var(--accent-light);
+}
+
+.search-result-title {
+  font-size: calc(0.78rem * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-snippet {
+  font-size: calc(0.7rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-snippet em {
+  background: var(--accent-light);
+  color: var(--accent);
+  font-style: normal;
+}
+
+/* Snippets with a message offset jump straight to that turn. */
+.search-result-snippet.is-hittable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin-left: -4px;
+}
+
+.search-result-snippet.is-hittable:hover,
+.search-result-snippet.is-hittable:focus-visible {
+  background: var(--accent-light);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.search-hit-flash {
+  animation: search-hit-flash 2.2s ease-out;
+}
+
+@keyframes search-hit-flash {
+  0%, 22% { box-shadow: 0 0 0 2px var(--accent); background: var(--accent-light); }
+  100% { box-shadow: 0 0 0 2px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-hit-flash { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+}
+
+.search-no-results {
+  font-size: calc(0.75rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(0.8rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  padding-top: 8px;
+}
+
+.accent-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  background: var(--dot-color, var(--accent));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.accent-dot:hover {
+  transform: scale(1.12);
+}
+
+.accent-dot.active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3px var(--text-primary);
+}
+
+.nav-btn { position: relative; }
+.nav-job-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: calc(.64rem * var(--ui-font-scale, 1));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.status-dot.processing {
+  width: 12px;
+  height: 12px;
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: status-ring-spin .72s linear infinite;
+}
+
+.status-dot.error {
+  background: var(--error);
+}
+
+@keyframes status-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Main */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Views stay mounted instead of being torn out of the tree. `display: none`
+   discards every descendant's computed style, so returning to a long
+   transcript re-styled and re-laid out tens of thousands of nodes (measured
+   ~160ms style + ~100ms layout on a 57-message history). `content-visibility:
+   hidden` keeps the subtree's styles and element state while skipping its
+   layout and paint; inactive views are taken out of flow so they cannot
+   reserve space. Hit-testing is removed with the `inert` attribute in the nav
+   handler rather than an inherited CSS property, which would force the very
+   subtree recalc this is avoiding. */
+.view {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  content-visibility: hidden;
+}
+
+.view.active {
+  position: relative;
+  width: auto;
+  height: auto;
+  content-visibility: visible;
+}

@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
     const baseline = name.startsWith('baseline/'); if (baseline) name = name.slice(9) || 'index.html';
     let file = path.resolve(renderer, name);
     if (!file.startsWith(renderer + path.sep)) { res.writeHead(403).end(); return; }
-    if (baseline && ['index.html','styles.css'].includes(name)) file = path.join(out,'original/src/renderer',name);
+    if (baseline && (name === 'index.html' || name.endsWith('.css'))) file = path.join(out,'original/src/renderer',name);
     if (!fs.existsSync(file)) { res.writeHead(404).end(); return; }
     const type = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.png':'image/png'}[path.extname(file)] || 'application/octet-stream';
     res.setHeader('Content-Type', type + (type.startsWith('text') ? '; charset=utf-8' : ''));
@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
       // Real markup/styles; disable production scripts so this test never calls tools or APIs.
       let html = fs.readFileSync(file,'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/g,'');
       html = html.replace('<head>', '<head><base href="/">');
-      if (baseline) html = html.replace('href="styles.css"', 'href="/baseline/styles.css"');
+      if (baseline) html = html.replace(/href="(styles\/[a-z]+\.css)"/g, 'href="/baseline/$1"');
       res.end(html);
     } else res.end(fs.readFileSync(file));
   });

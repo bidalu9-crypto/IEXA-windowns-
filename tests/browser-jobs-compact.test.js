@@ -32,7 +32,10 @@ test('real browser: the task center is compact, collapsible and does not re-rend
   });
 
   const wsUrl = await new Promise((resolve, reject) => {
-    let log = ''; const timer = setTimeout(() => reject(new Error('browser startup timeout')), 15000);
+    // Three browser suites run in parallel; Chromium's cold start on a loaded
+    // machine is slow enough to blow a tight budget. A generous ceiling still
+    // fails fast when the browser genuinely never comes up.
+    let log = ''; const timer = setTimeout(() => reject(new Error('browser startup timeout')), 60000);
     proc.stderr.on('data', d => { log += d; const m = log.match(/DevTools listening on (ws:\/\/\S+)/); if (m) { clearTimeout(timer); resolve(m[1]); } });
     proc.once('error', reject);
   });

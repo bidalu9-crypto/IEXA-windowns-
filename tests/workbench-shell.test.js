@@ -40,7 +40,7 @@ test('active view, project title and focus state synchronize without HTML inject
   assert.equal(d.getElementById('shellFocusBtn').getAttribute('aria-pressed'), 'true');
 });
 test('skin is last, honors reduced motion and locks send icon transform', () => {
-  assert.ok(html.indexOf('workbench.css') > html.indexOf('styles.css'));
+  assert.ok(html.indexOf('workbench.css') > html.indexOf('styles/studio.css'));
   assert.match(skin, /prefers-reduced-motion: reduce/);
   assert.match(skin, /#sendBtn:active \.send-icon[^}]+translate\(-58%, -50%\)/);
 });

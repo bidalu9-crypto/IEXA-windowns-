@@ -9,7 +9,7 @@ app.whenReady().then(async()=>{
  fs.mkdirSync(out,{recursive:true});
  win=new BrowserWindow({show:false,width:850,height:700,webPreferences:{offscreen:true,nodeIntegration:false,contextIsolation:true,backgroundThrottling:false}});
  await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent('<html data-theme="dark" data-motion="full"><body class="workbench-shell"><main style="width:min(680px,calc(100vw - 48px));margin:30px auto"><h2>桌面操作</h2><p>观察、定位、执行和验证</p><section id="live" class="tool-block activity-row"><div class="tool-header">在测试窗口中输入并核对内容</div></section><h3>会话恢复</h3><section id="history" class="tool-block activity-row"></section></main></body></html>'));
- await win.webContents.insertCSS(fs.readFileSync(path.join(root,'src/renderer/styles.css'),'utf8')+'\n'+fs.readFileSync(path.join(root,'src/renderer/workbench.css'),'utf8'));
+ await win.webContents.insertCSS(['base','shell','transcript','composer','settings','skills','refinements','studio'].map(n=>fs.readFileSync(path.join(root,'src/renderer/styles',n+'.css'),'utf8')).join('\n')+'\n'+fs.readFileSync(path.join(root,'src/renderer/workbench.css'),'utf8'));
  await win.webContents.executeJavaScript(fs.readFileSync(path.join(root,'src/renderer/services/ToolLifecycleView.js'),'utf8'));
  await win.webContents.executeJavaScript(`window.events=['queued','resolve','action_start','action_end','observe','verify','completed'].map((phase,i)=>({version:1,operationId:'o',sequence:i+1,phase,timestamp:1789469000000+i*200,action:'type',verified:phase==='verify'}));window.render=()=>{};window.live=document.querySelector('#live');window.historyCard=document.querySelector('#history');window.view=IexaToolLifecycleView;void 0;`);
  for(const [theme,width] of [['dark',850],['light',850],['dark',420]]) {
