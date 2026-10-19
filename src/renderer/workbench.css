@@ -213,7 +213,10 @@ html[data-motion="reduced"] .workbench-shell *::after {
 #motionSeg { flex-wrap: wrap; }
 /* Compact transcript activity — user-supplied desktop reference, 2026-09-15.
    Keep states/output real; only presentation is changed here. */
-.workbench-shell .tool-steps.activity-list { display: flex; flex-direction: column; gap: 2px; width: 100%; margin: 5px 0 10px; padding: 0; }
+.workbench-shell .tool-steps.activity-list {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; margin: 5px 0 10px; padding: 0 0 0 9px;
+  border-left: .5px solid color-mix(in srgb, var(--border) 88%, transparent);
+}
 html:not([data-collapse-tools="on"]) .workbench-shell .tool-steps.activity-list > .task-summary { display: none; }
 html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list > .task-summary { display: flex; width: fit-content; max-width: min(100%, 430px); }
 html:not([data-collapse-tools="on"]) .workbench-shell .tool-steps.activity-list > .tool-block,
@@ -238,6 +241,10 @@ html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list:not(.i
 .workbench-shell .activity-row .tool-name { flex: 0 1 auto; min-width: 0; width: auto; max-width: 440px; font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 540; line-height: 1.6; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-shell .activity-row .tool-meta { flex: 1 3 auto; min-width: 0; font-family: inherit; font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.6; color: var(--text-muted); }
 .workbench-shell .activity-row .tool-meta:empty { display: none; }
+.workbench-shell .activity-row .tool-meta::before {
+  content: ''; display: inline-block; width: 2px; height: 2px; margin-right: 8px;
+  border-radius: 1px; background: currentColor; opacity: .55; vertical-align: middle;
+}
 .workbench-shell .activity-diff { display: inline-flex; gap: 5px; flex: 0 0 auto; font-size: calc(12px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
 .workbench-shell .activity-diff:empty { display: none; }
 .workbench-shell .activity-row .tool-status { flex: 0 0 auto; padding: 0; margin-left: 2px; border: 0; border-radius: 0; background: none; box-shadow: none; font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 400; }
@@ -254,13 +261,13 @@ html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list:not(.i
    radius, background and an animated gloss layer, each one another paint
    surface to rasterise on append. Rows on a single rail carry the same
    information with one border, one clip and one animated element per turn. */
-.workbench-shell .tool-steps { display: flex; flex-direction: column; align-items: flex-start; gap: 0; margin: 4px 0 8px; }
-.workbench-shell .tool-steps > :is(.tool-block, .thinking-block) { box-shadow: inset 1px 0 0 color-mix(in srgb, var(--border) 92%, transparent); padding-left: 9px; max-width: min(100%, 640px); }
+.workbench-shell .tool-steps { display: flex; flex-direction: column; align-items: flex-start; gap: 0; margin: 4px 0 8px; padding-left: 9px; border-left: .5px solid color-mix(in srgb, var(--border) 88%, transparent); }
+.workbench-shell .tool-steps > :is(.tool-block, .thinking-block) { max-width: min(100%, 640px); }
 .workbench-shell .tool-block,
 .workbench-shell .tool-block.is-active,
 .workbench-shell .tool-block.is-done { width: 100%; max-width: min(100%, 640px); align-self: flex-start; border: 0; border-radius: 6px; background: transparent; box-shadow: none; overflow: visible; contain: layout paint style; opacity: 1; }
 .workbench-shell .tool-block::before { display: none; }
-.workbench-shell .tool-block .tool-header { min-height: 26px; padding: 3px 8px 3px 2px; gap: 7px; }
+.workbench-shell .tool-block .tool-header { min-height: 24px; padding: 2px 8px 2px 2px; gap: 6px; }
 .workbench-shell .tool-block:is(.is-active, :hover) .tool-header { background: color-mix(in srgb, var(--text-primary) 4%, transparent); border-radius: 6px; }
 .workbench-shell .tool-block.is-active .tool-header::after { content: none; }
 .workbench-shell .tool-summary,
@@ -297,9 +304,11 @@ html[data-motion="reduced"] .workbench-shell .tool-block.is-active > .tool-heade
 .workbench-shell .thinking-content { padding: 7px 12px; margin-left: 24px; width: calc(100% - 24px); border: 0; border-left: 1px solid var(--border); background: transparent; font-family: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.7; }
 .workbench-shell .waiting-indicator { display: block !important; min-height: 24px; max-width: 100%; margin: 8px 0; padding: 0 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.8; }
 .workbench-shell .waiting-indicator__label { font-weight: 400; }
-/* Sweep text only while a real reasoning phase / tool execution is active.
+/* Sweep one-line labels only, while a real reasoning phase / tool execution is
+   active. The reasoning body is never swept: a text-clipped gradient re-rasterises
+   every glyph on every frame, and that body can run to thousands of glyphs.
    Approval, cancellation, completed history and metadata never imply execution. */
-.workbench-shell .thinking-block:not(.is-complete) :is(.thinking-title, .thinking-content),
+.workbench-shell .thinking-block:not(.is-complete) .thinking-title,
 .workbench-shell .tool-block[data-execution-status="running"] :is(.activity-operation, .tool-name, .tool-detail-title) {
   color: var(--text-secondary);
   background-image: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--thinking-sheen, var(--text-primary)) 46%, var(--text-primary) 50%, var(--thinking-sheen, var(--text-primary)) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);

@@ -1040,7 +1040,7 @@ body.chat-focus-mode .message.user {
 
 @keyframes iexa-waiting-text-sweep {
   0% { background-position: 160% 0; }
-  100% { background-position: -160% 0; }
+  66.6667%, 100% { background-position: -160% 0; }
 }
 
 .message-content p { margin-bottom: 8px; }

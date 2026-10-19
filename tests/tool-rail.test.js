@@ -73,3 +73,36 @@ test('tool rows are contained so an append cannot lay out the whole transcript',
   assert.match(rule[1], /contain: layout paint style/);
   assert.match(rule[1], /border: 0/, 'rows should not carry card chrome');
 });
+
+// The next three pin the parts of DeepSeek Harness's tool UI that were actually
+// read from the repo, not the parts that were assumed.
+test('the rail is one border on the container, not a hairline per row', () => {
+  const workbench = css('workbench.css');
+  assert.match(workbench, /\.tool-steps\.activity-list \{[^}]*border-left: \.5px/,
+    'the rail border is not on the container');
+  assert.doesNotMatch(workbench, /\.tool-steps > :is\(\.tool-block, \.thinking-block\) \{[^}]*box-shadow: inset/,
+    'rows still draw their own hairline; that is one paint per row again');
+});
+
+test('a row is one 24px line with the 2px separator', () => {
+  const workbench = css('workbench.css');
+  // ToolRow.module.css documents 24px, gap 6 after the leading glyph, gap 8
+  // around the separator.
+  assert.match(workbench, /\.tool-block \.tool-header \{[^}]*min-height: 24px/,
+    'row height drifted from the measured 24px');
+  assert.match(workbench, /\.tool-meta::before \{[^}]*width: 2px;[^}]*height: 2px/,
+    'the 2x2 dot between title and summary is missing');
+});
+
+test('a paragraph is never text-clipped and swept', () => {
+  const workbench = css('workbench.css');
+  const clip = /([^{}]*)\{[^}]*background-clip: text/.exec(workbench);
+  assert.ok(clip, 'the label sweep is gone');
+  assert.ok(!clip[1].includes('.thinking-content'),
+    'the reasoning body is being re-rasterised every frame; text-clip belongs on one-line labels only');
+  const frames = css('styles', 'transcript.css');
+  const cycle = /@keyframes iexa-waiting-text-sweep \{[\s\S]*?\r?\n\}/.exec(frames);
+  assert.ok(cycle, 'the sweep keyframes are missing');
+  assert.match(cycle[0], /66\.6667%, 100%/,
+    'the sweep runs continuously; Harness holds the band for the last third of the cycle');
+});
