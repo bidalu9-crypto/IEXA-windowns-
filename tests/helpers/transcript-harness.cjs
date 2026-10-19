@@ -17,5 +17,5 @@ function create(t){
  w.eval(functions(['handleTextDelta','handleThinkingDelta','handleToolStart','handleToolComplete','ensureToolStepsHost','ensureAnswerContentEl','hideWaitingIndicator','finishActiveThinkingBlock','finishThinkingBlock','initializeThinkingAutoScroll','scrollThinkingToLatest','setToolStepStatus','restoreTranscriptOrder','queueStreamUpdate','flushStreamUpdates']));
  return {w,message,dom};
 }
-function flatten(message){const out=[];for(const n of message.children){if(n.matches('.message-content')&&n.textContent)out.push(['text',n._markdownSource??n.textContent]);else if(n.matches('.thinking-block'))out.push(['thinking',n._reasoning??n.querySelector('.thinking-content')?.textContent]);else if(n.matches('.tool-steps'))for(const b of n.querySelectorAll('.tool-block'))out.push(['tool',b.dataset.toolId]);}return out;}
+function flatten(message){const out=[];const walk=parent=>{for(const n of parent.children){if(n.matches('.message-content')&&n.textContent)out.push(['text',n._markdownSource??n.textContent]);else if(n.matches('.thinking-block'))out.push(['thinking',n._reasoning??n.querySelector('.thinking-content')?.textContent]);else if(n.matches('.tool-steps'))walk(n);else if(n.matches('.tool-block'))out.push(['tool',n.dataset.toolId]);}};walk(message);return out;}
 module.exports={create,flatten,functions,root};

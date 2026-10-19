@@ -49,3 +49,14 @@ test('scripts/ only holds repeatable entry points', () => {
       `${name} hardcodes an absolute user path; a reusable script resolves from the repo root`);
   }
 });
+
+test('running the server from the repo root leaves no runtime state behind', () => {
+  // `dist/main/server` defaults its workspace to the process cwd, so a manual
+  // run writes sessions, skills and the mobile bridge into the checkout. They
+  // are not source: the real workspace is workspace/ (or IEXA_WORKSPACE).
+  const leaks = ['.iexa-memory', '.iexa-sessions', '.iexa-sessions.json', '.iexa-skills.json',
+    '.iexa-mobile-bridge.json', '.iexa-goals.json', 'skills']
+    .filter((name) => fs.existsSync(path.join(ROOT, name)));
+  assert.deepEqual(leaks, [],
+    `runtime state in the repo root (${leaks.join(', ')}); run with IEXA_WORKSPACE pointing at workspace/ and delete these`);
+});

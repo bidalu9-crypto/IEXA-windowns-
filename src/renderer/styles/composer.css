@@ -5,6 +5,8 @@
 
 /* The task bar is always visible; tool capsules are details-on-demand. */
 .task-summary {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   align-self: flex-start;
@@ -49,6 +51,7 @@
 .task-summary.is-complete { opacity: 0.94; }
 @keyframes taskSpin { to { transform: rotate(360deg); } }
 html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-block,
+html[data-collapse-tools="on"] .tool-steps.is-collapsed > .thinking-block,
 html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-artifacts { display: none; }
 
 .tool-block {
@@ -87,26 +90,11 @@ html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-artifacts { disp
   overflow: hidden;
 }
 
-/* Shimmer while streaming / running */
-.tool-block.is-active .tool-header::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    100deg,
-    transparent 20%,
-    color-mix(in srgb, var(--accent) 14%, transparent) 45%,
-    transparent 70%
-  );
-  transform: translateX(-120%);
-  animation: toolShimmer 1.6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes toolShimmer {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(120%); }
-}
+/* Shimmer while streaming / running.
+   The gloss lives on the one summary bar per turn (workbench.css, railSweep).
+   A per-row copy meant every finished tool call kept its own animated layer
+   inside a clipped, rounded header - dozens of them in a long turn, each
+   re-rastered on append. */
 
 .tool-header .tool-icon {
   font-size: calc(0.95rem * var(--ui-font-scale, 1));

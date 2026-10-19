@@ -248,7 +248,44 @@ html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list:not(.i
 .workbench-shell .activity-row .tool-body { margin: 3px 0 8px 24px; padding: 10px 12px; border: 0; border-left: 1px solid var(--border); border-radius: 0; background: transparent; }
 .workbench-shell .activity-row .file-change-card { box-shadow: none; }
 .workbench-shell .thinking-block,
-.workbench-shell .thinking-block.is-complete { border: 0; border-radius: 0; background: transparent; box-shadow: none; margin: 5px 0 8px; opacity: 1; }
+.workbench-shell .thinking-block.is-complete { border: 0; border-radius: 0; background: transparent; box-shadow: none; margin: 1px 0; opacity: 1; }
+/* One rail per assistant message. A turn alternates think -> tool -> think ->
+   tool, and every alternation used to start a fresh card: its own border,
+   radius, background and an animated gloss layer, each one another paint
+   surface to rasterise on append. Rows on a single rail carry the same
+   information with one border, one clip and one animated element per turn. */
+.workbench-shell .tool-steps { display: flex; flex-direction: column; align-items: flex-start; gap: 0; margin: 4px 0 8px; }
+.workbench-shell .tool-steps > :is(.tool-block, .thinking-block) { box-shadow: inset 1px 0 0 color-mix(in srgb, var(--border) 92%, transparent); padding-left: 9px; max-width: min(100%, 640px); }
+.workbench-shell .tool-block,
+.workbench-shell .tool-block.is-active,
+.workbench-shell .tool-block.is-done { width: 100%; max-width: min(100%, 640px); align-self: flex-start; border: 0; border-radius: 6px; background: transparent; box-shadow: none; overflow: visible; contain: layout paint style; opacity: 1; }
+.workbench-shell .tool-block::before { display: none; }
+.workbench-shell .tool-block .tool-header { min-height: 26px; padding: 3px 8px 3px 2px; gap: 7px; }
+.workbench-shell .tool-block:is(.is-active, :hover) .tool-header { background: color-mix(in srgb, var(--text-primary) 4%, transparent); border-radius: 6px; }
+.workbench-shell .tool-block.is-active .tool-header::after { content: none; }
+.workbench-shell .tool-summary,
+.workbench-shell .tool-name { font-size: calc(12px * var(--ui-font-scale, 1)); }
+/* The only sweep in the transcript: one layer on the call that is actually
+   running. It used to be declared on every row, so a long turn left dozens of
+   clipped, animated layers behind finished calls. Linear, because an eased
+   infinite sweep decelerates to a near-stop at both ends and reads as a
+   stutter rather than a flow. */
+.workbench-shell .tool-block > .tool-header { overflow: hidden; border-radius: 6px; }
+.workbench-shell .tool-block.is-active > .tool-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--accent) 20%, transparent) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: toolSweep 1.55s linear infinite;
+  will-change: transform;
+}
+@keyframes toolSweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+html[data-motion="reduced"] .workbench-shell .tool-block.is-active > .tool-header::after { display: none; }
 .workbench-shell .thinking-block > summary { min-height: 29px; padding: 4px 2px; gap: 8px; font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 400; color: var(--text-muted); border-radius: 4px; }
 .workbench-shell .thinking-block > summary:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
 .workbench-shell .thinking-block summary .ui-icon { color: var(--text-muted); width: 14px; height: 14px; flex-basis: 14px; }
@@ -539,10 +576,13 @@ html[data-motion="reduced"] .desktop-control-trace[data-active="true"] > summary
 .workbench-shell .message.user:not(.is-queued) .message-content { font-size: calc(14px * var(--ui-font-scale, 1)); line-height: 1.65; border-radius: 20px; padding: 12px 18px; }
 .message-fold-toggle { display: block; margin-top: 9px; padding: 2px 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .message-fold-toggle:hover { text-decoration: underline; }
-.stream-reveal { animation: iexa-stream-reveal 240ms ease-out both; }
+.stream-reveal { animation: iexa-stream-reveal 150ms ease-out both; }
+/* Opacity only. The old wipe animated clip-path per streamed chunk, which is
+   not a compositor property: every token repainted its glyphs and forced a new
+   text layer while the sweep above was on screen. */
 @keyframes iexa-stream-reveal {
-  from { opacity: .1; clip-path: inset(0 100% 0 0); }
-  to { opacity: 1; clip-path: inset(0 0 0 0); }
+  from { opacity: .45; }
+  to { opacity: 1; }
 }
 .workbench-shell :is(.session-item-pin, .session-item-archive, .sessions-archive-manager) { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 4px; color: var(--text-muted); border: none; border-radius: 7px; background: transparent; cursor: pointer; }
 .workbench-shell :is(.session-item-pin, .session-item-archive) { opacity: 0; }

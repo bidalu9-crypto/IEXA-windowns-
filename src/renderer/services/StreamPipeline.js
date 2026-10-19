@@ -401,7 +401,16 @@ function handleThinkingDelta(text) {
   hideWaitingIndicator();
   if (!currentAssistantMsg || !text) return;
   const lastActivity = window.IexaTranscriptView.lastNode(currentAssistantMsg);
-  let thinkBlock = lastActivity?.classList.contains('thinking-block') && !lastActivity.classList.contains('is-complete') ? lastActivity : null;
+  // Reasoning joins the turn's existing rail instead of starting a new block
+  // beside it. A think/tool alternation used to break the chain every time,
+  // so one turn ended up with a summary bar per alternation and a growing
+  // stack of cards to lay out on every append.
+  const rail = lastActivity?.classList.contains('tool-steps') && !lastActivity.classList.contains('is-collapsed')
+    ? lastActivity : null;
+  let thinkBlock = lastActivity?.classList.contains('thinking-block') && !lastActivity.classList.contains('is-complete')
+    ? lastActivity
+    : rail?.lastElementChild?.classList.contains('thinking-block') && !rail.lastElementChild.classList.contains('is-complete')
+      ? rail.lastElementChild : null;
   if (!thinkBlock) {
     const level = currentAssistantMsg.dataset.thinkingLevel || currentThinkingLevel;
     thinkBlock = document.createElement('details');
@@ -411,7 +420,8 @@ function handleThinkingDelta(text) {
     thinkBlock._reasoning = '';
     thinkBlock.dataset.thinkingLevel = level;
     thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
-    window.IexaTranscriptView.append(currentAssistantMsg, thinkBlock);
+    if (rail) rail.append(thinkBlock);
+    else window.IexaTranscriptView.append(currentAssistantMsg, thinkBlock);
     window.IexaChatActivity.prepareThinking(thinkBlock);
     stabilizeThinkingBlockWidth(thinkBlock);
   }
