@@ -63,19 +63,23 @@
   width: fit-content;
   max-width: min(100%, 680px);
   min-height: 30px;
-  margin: 2px 0 6px;
-  padding: 5px 10px;
-  border: 1px solid transparent;
-  border-radius: 9px;
+  /* Same left metrics as .tool-steps: a .5px rail and a 9px inset. The folded
+     turn keeps the timeline line the expanded rails draw, so collapsing does
+     not make the turn look like it never had one. */
+  margin: 2px 0 2px;
+  padding: 5px 10px 5px 9px;
+  border: 0;
+  border-left: .5px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
   font-size: calc(0.76rem * var(--ui-font-scale, 1));
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-left-color 120ms ease, color 120ms ease;
 }
-.turn-summary:hover { background: var(--bg-tertiary); border-color: var(--border); color: var(--text-secondary); }
+.turn-summary:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); border-left-color: var(--border-strong, var(--border)); color: var(--text-secondary); }
 .turn-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .turn-summary-label { flex-shrink: 0; }
 .turn-summary-time { flex-shrink: 0; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
