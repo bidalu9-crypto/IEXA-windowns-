@@ -143,8 +143,8 @@ test('real browser: surface scale and motion behave once, and stop on request', 
     const style = getComputedStyle(panel);
     return { name: style.animationName, duration: style.animationDuration, translate: style.translate };
   })()`);
-  assert.equal(view.name, 'ds-view-in');
-  assert.equal(view.duration, '0.22s');
+  assert.equal(view.name, 'ds-view-settle');
+  assert.equal(view.duration, '0.18s');
 
   await wait("document.querySelectorAll('#skillList .skill-card').length === 5", 'five cards');
   const cards = await evaluate(`(() => {

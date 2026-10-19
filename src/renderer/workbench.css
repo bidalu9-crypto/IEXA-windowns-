@@ -155,8 +155,11 @@
    plane is pinned above, because it uses absolute optical centering. */
 .workbench-shell .nav-btn .ui-icon, .workbench-shell .nav-token-usage-icon, .workbench-shell .nav-device-icon, .workbench-shell .nav-about-icon { width: 16px; height: 16px; flex-basis: 16px; stroke-width: 1.7; }
 .workbench-shell :is(button, summary, a, input, select, textarea):focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
-.workbench-shell .view.active { animation: shell-view-in 150ms ease-out; }
-@keyframes shell-view-in { from { opacity: .6; } to { opacity: 1; } }
+/* The pane itself does not animate on `.active`. It used to fade from 0.6 here,
+   and the nav handler's entry class faded it again from zero, so every switch
+   ran two fades back to back: the pane finished appearing, dimmed to 0.6 when
+   the entry class was removed, and faded in a second time. One animation, owned
+   by `.is-entering` below, is enough. */
 @media (prefers-reduced-motion: reduce) {
   html:not([data-motion="full"]) .workbench-shell *, html:not([data-motion="full"]) .workbench-shell *::before, html:not([data-motion="full"]) .workbench-shell *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
@@ -816,14 +819,21 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
   to { opacity: 1; translate: 0 0; }
 }
 
-/* View switch: the workbench skin already faded the panel from 0.6; starting
-   from zero and lifting four pixels makes the swap read as one surface
-   replacing another instead of a repaint. translate (not transform) keeps
-   position:fixed descendants anchored for the whole 220ms. The class is added
-   by the nav handler only, so the first paint has no entry animation to
-   measure through. */
+/* View switch entry.
+   The pane is swapped, not re-created, and the outgoing view disappears in the
+   same frame, so anything that starts below full opacity is a flash of empty
+   space: a 220ms fade from zero is exactly what "切换时闪一下" looks like. The
+   settle below starts at 0.92 and lifts two pixels - enough to read as a new
+   surface arriving, short enough that the content is legible on the first
+   frame. translate (not transform) keeps position:fixed descendants anchored.
+   The class is added by the nav handler only, so the first paint is untouched. */
+@keyframes ds-view-settle {
+  from { opacity: .92; translate: 0 2px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
 .workbench-shell .view.active.is-entering {
-  animation: ds-view-in var(--ds-dur-3) var(--ds-ease-out);
+  animation: ds-view-settle 180ms var(--ds-ease-out);
 }
 
 /* Popovers enter from their anchor. Menus that open upward use the bottom

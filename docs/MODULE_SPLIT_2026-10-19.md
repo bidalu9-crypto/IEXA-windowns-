@@ -237,6 +237,88 @@ context 接口。
 - `tests/renderer-styles.test.js`（4 项）：每层恰好被引用一次且顺序正确；每层花括号平衡、
   禁止 `@import`；旧 `styles.css` 不得复活；单层超 1,600 行即失败。
 
+## 第五轮：视图切换卡顿与闪烁（同日晚）
+
+用户反馈：点其他页面不是丝滑切换，而是"卡一下闪一下"。
+
+### 复现与证据
+
+用 CDP 在真实 Chromium 里对一次切换采样 `getComputedStyle`：
+
+| 时刻 | 动画 | opacity | translate |
+|---|---|---|---|
+| click | `ds-view-in 0.22s` | **0** | 0 4px |
+| +16ms | 同上 | **0** | 0 4px |
+| +60ms | 同上 | 0.259 | 3px |
+| +200ms | 同上 | 0.995 | 0 |
+| +320ms | **`shell-view-in 0.15s`** | **0.723** | none |
+| +400ms | 同上 | 0.958 | none |
+
+两个独立缺陷：
+
+1. **入场动画从 opacity 0 开始**。切换时旧面板在同一帧消失，新面板从全透明淡入 220ms —— 头两帧就是"空白闪一下"。
+2. **动画跑了两遍**。`is-entering` 类在 `animationend` 被移除后，`.view.active` 自己的 `shell-view-in`（0.6 → 1）**重新开始**，于是面板先淡到 1，再掉回 0.6 又淡一次，总时长 370ms。这就是"卡一下"。
+
+### 时间线归因
+
+`Tracing` 抓一次 160 条消息的对话面板切换：
+
+```
+EventDispatch   10.2ms（4 次）
+Layout           8.1ms（最大 5.0ms）
+UpdateLayoutTree 4.8ms
+Paint            5.3ms（81 次增量）
+```
+
+`content-visibility: hidden` 的子树在变可见时必须在主线程完成 style + layout，这部分是切换的固有成本，约 10–15ms。
+
+### 三处改动
+
+**1. 只保留一个动画，且不从全透明开始**（`workbench.css`）
+
+```css
+@keyframes ds-view-settle {
+  from { opacity: .92; translate: 0 2px; }
+  to   { opacity: 1;   translate: 0 0; }
+}
+.workbench-shell .view.active.is-entering { animation: ds-view-settle 180ms var(--ds-ease-out); }
+```
+
+删掉 `.view.active { animation: shell-view-in … }` 与其关键帧 —— 它才是第二次淡入的来源。
+
+**2. 动效关闭时不再做无用的动画编排**（`app.js`）
+
+系统的 `prefers-reduced-motion` 生效时（默认 `data-motion=system` 且 Windows 关了动画），CSS 一条 `animation: none !important` 会让整段编排白做，但 `is-entering` 仍会留在面板上 400ms。下一次切换看到这个类还在，就执行 `void panel.offsetWidth` **强制整块面板同步布局**——为一段没人看得见的动画付 5–10ms。
+
+现在先问同一个问题：
+
+```js
+function viewAnimationsEnabled() {
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  return !reduced || getMotionMode() === 'full';
+}
+```
+
+不可见时连类都不加，`offsetWidth` 也不再读。
+
+**3. 面板刷新收敛成一张表**
+
+八条 `if (view === …)` 变成 `VIEW_REFRESH` 映射。试过把它们延后到 rAF 之后执行，实测切换耗时没有变化（成本在 `content-visibility` 的布局，不在这些调用），还让"点完立刻看"与加载器竞争，所以保留同步调用——这条试错记在代码注释里，避免下次再试。
+
+### 修后
+
+| 时刻 | 动画 | opacity |
+|---|---|---|
+| click | `ds-view-settle 0.18s` | **0.92** |
+| +120ms | 同上 | 0.992 |
+| +200ms | `none` | **1** |
+
+单次、不空白、结束后不再回退。
+
+### 守卫
+
+`tests/view-switch.test.js`（4 项）：`shell-view-in` 不得复活；视图只有 `.is-entering` 能声明动画；`ds-view-settle` 起始 opacity ≥ 0.9；`offsetWidth` 只能在 `restart` 分支里；每个侧栏目标都要在 `VIEW_REFRESH` 里有条目（否则打开就是空面板）。
+
 ## 还没动的
 
 | 文件 | 行数 | 说明 |

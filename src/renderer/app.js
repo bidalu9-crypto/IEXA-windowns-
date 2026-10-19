@@ -491,13 +491,38 @@ function restoreChatViewScroll() {
   requestAnimationFrame(apply);
 }
 
+// The stylesheet only suppresses motion when the OS asks for it and the user
+// has not overridden with "full" (see the reduced-motion blocks in
+// workbench.css). Ask the same question here: adding the entry class when no
+// animation can run leaves it on the pane for 400ms, and the next switch then
+// pays for a forced layout to restart an animation nobody sees.
+function viewAnimationsEnabled() {
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  return !reduced || getMotionMode() === 'full';
+}
+
+// Each pane refreshes its own data on first show. The map exists so the click
+// handler stays a switch instead of eight ifs, and so the refresh can be run
+// after the frame instead of inside the click task.
+const VIEW_REFRESH = {
+  settings: () => loadSettings(),
+  skills: () => loadSkillsList(),
+  soul: () => loadSoul(),
+  'token-calculator': () => loadTokenUsage(),
+  // Paint the cached rows first; a response that matches what is already on
+  // screen then changes no DOM at all.
+  jobs: () => { renderJobs(); loadJobs(); },
+  mcp: () => loadMcpServers(),
+  plugins: () => loadPlugins(),
+  sync: () => loadMobileBridge(),
+};
+
 document.querySelectorAll('.nav-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     const view = btn.dataset.view;
     const chatWasActive = chatViewIsActive();
     if (view !== 'chat' && chatWasActive) captureChatViewScroll();
-    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
+    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
     const panel = document.getElementById(`view-${view}`);
     if (panel) {
@@ -505,44 +530,35 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
       // Replay the entry animation on every switch, but never on first paint:
       // a running animation puts the whole view on its own composited layer,
       // and anything measured during that window comes back a subpixel off.
-      panel.classList.remove('is-entering');
-      void panel.offsetWidth;
-      panel.classList.add('is-entering');
-      const clearEntering = () => panel.classList.remove('is-entering');
-      panel.addEventListener('animationend', clearEntering, { once: true });
-      setTimeout(clearEntering, 400);
+      //
+      // The reflow is only needed when the class is still applied (a second
+      // switch inside the 180ms animation). Doing it unconditionally forced a
+      // synchronous layout of the whole pane - for the chat transcript that is
+      // tens of thousands of nodes - before the frame could be committed, which
+      // is the stall that made switching feel heavy. With motion off entirely
+      // there is nothing to restart, so the class is not applied at all.
+      if (viewAnimationsEnabled()) {
+        const restart = panel.classList.contains('is-entering');
+        panel.classList.remove('is-entering');
+        if (restart) void panel.offsetWidth;
+        panel.classList.add('is-entering');
+        const clearEntering = () => panel.classList.remove('is-entering');
+        panel.addEventListener('animationend', clearEntering, { once: true });
+        setTimeout(clearEntering, 400);
+      } else {
+        panel.classList.remove('is-entering');
+      }
     }
     if (view === 'chat' && !chatWasActive) restoreChatViewScroll();
-
-    if (view === 'settings') {
-      loadSettings();
-    }
-    if (view === 'skills') {
-      loadSkillsList();
-    }
-    if (view === 'soul') {
-      loadSoul();
-    }
-    if (view === 'token-calculator') {
-      loadTokenUsage();
-    }
-    if (view === 'jobs') {
-      // Paint the cached rows before the fetch lands; a response that matches
-      // what is already on screen then changes no DOM at all.
-      renderJobs();
-      loadJobs();
-    }
-    if (view === 'mcp') {
-      loadMcpServers();
-    }
-    if (view === 'plugins') {
-      loadPlugins();
-    }
-    if (view === 'sync') {
-      loadMobileBridge();
-    }
     closeMobileDrawers();
     syncJobsPolling();
+
+    // Load the pane's data. This stays in the click task on purpose: moving it
+    // behind requestAnimationFrame was measured and changed nothing - the
+    // switch already pays for the pane's layout, and the fetches are async
+    // anyway - while it made "click then look" race the loader.
+    const refresh = VIEW_REFRESH[view];
+    if (refresh) refresh();
   });
 });
 
