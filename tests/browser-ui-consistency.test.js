@@ -44,7 +44,8 @@ test('real browser: consistent icon controls, project routing, themes and real v
   const measurements={};
   async function geometry(){return evaluate(`Object.fromEntries(${JSON.stringify(ids)}.map(id=>{
     const el=document.getElementById(id),icon=el.querySelector('svg'),b=el.getBoundingClientRect(),i=icon.getBoundingClientRect(),s=getComputedStyle(el),v=getComputedStyle(icon);
-    return [id,{width:b.width,height:b.height,iconWidth:i.width,iconHeight:i.height,dx:i.x+i.width/2-b.x-b.width/2,dy:i.y+i.height/2-b.y-b.height/2,stroke:v.strokeWidth,color:s.color,fill:v.fill,transform:v.transform,background:s.backgroundColor,label:el.getAttribute('aria-label'),inside:b.x>=0&&b.right<=innerWidth}];
+    const r=(n)=>Math.round(n*1000)/1000;
+    return [id,{width:r(b.width),height:r(b.height),iconWidth:r(i.width),iconHeight:r(i.height),dx:r(i.x+i.width/2-b.x-b.width/2),dy:r(i.y+i.height/2-b.y-b.height/2),stroke:v.strokeWidth,color:s.color,fill:v.fill,transform:v.transform,background:s.backgroundColor,label:el.getAttribute('aria-label'),inside:b.x>=0&&b.right<=innerWidth}];
   }))`);}
   async function shot(name){const result=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(artifact,name+'.png'),Buffer.from(result.result.data,'base64'));}
   async function point(id){return evaluate(`(()=>{const r=document.getElementById('${id}').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);}

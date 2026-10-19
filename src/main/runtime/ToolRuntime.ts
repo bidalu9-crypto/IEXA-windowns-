@@ -16,9 +16,20 @@ import { DesktopAgent } from '../tools/DesktopAgent';
 import { makeAgentTools } from '../tools/ToolDefinitions';
 import { QuestionResolver, normalizeAskUserArgs, formatQuestionAnswers } from './QuestionBroker';
 import { HookSpec, runHooks } from './HookRunner';
+import { ShellSessionTools } from '../tools/ShellSessionTools';
+import { GoalStore } from '../agent/GoalStore';
 
-export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; }
-const risk: Record<string, ToolDefinition['risk']> = { project_instructions: 'low', todo_write: 'low', ask_user: 'low', shell_execute: 'high', file_read: 'low', file_write: 'medium', file_edit: 'medium', grep: 'low', glob: 'low', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
+export interface JobSummary {
+  id: string; toolId?: string; toolName?: string; title: string; status: string;
+  createdAt: number; finishedAt?: number; success?: boolean; preview: string;
+}
+export interface JobBridge {
+  list(sessionId: string, limit: number, tool?: string): JobSummary[];
+  output(sessionId: string, jobId: string): { job: JobSummary; output: string; recorded: boolean } | null;
+}
+
+export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; goalStore?: GoalStore; }
+const risk: Record<string, ToolDefinition['risk']> = { project_instructions: 'low', todo_write: 'low', ask_user: 'low', shell_execute: 'high', shell_session: 'high', job_list: 'low', job_output: 'low', goal: 'low', file_read: 'low', file_write: 'medium', file_edit: 'medium', grep: 'low', glob: 'low', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
 
 export class ToolRuntime {
   readonly registry = new ToolRegistry();
@@ -107,8 +118,12 @@ export class ToolRuntime {
       if (this.allowedTools && !this.allowedTools.has(name)) throw new Error(`Tool ${name} is not available for this client permission level.`);
       this.loopDetector.record(name, args);
       const tool = this.registry.get(name)!;
-      const authorizedTool = name === 'shell_execute'
-        ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
+      const authorizedTool: ToolDefinition = name === 'shell_execute'
+        ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')) as ToolDefinition['risk'], requiresApproval: true }
+        : name === 'shell_session'
+          ? ['read', 'list', 'close'].includes(String(args.action || ''))
+            ? { ...tool, risk: 'low', requiresApproval: false }
+            : { ...tool, risk: this.commandPolicy.classify(String(args.command || '')) as ToolDefinition['risk'], requiresApproval: true }
         : name === 'desktop_control' && !['list_windows','observe','frame','session_state','find_element','read_focused','wait','wait_change'].includes(String(args.action || 'observe'))
           ? { ...tool, requiresApproval: true }
           : tool;
@@ -189,7 +204,8 @@ export class ToolRuntime {
       for (const item of raw) { if (!item || typeof item !== 'object') return { output: 'Error: every todo must be an object.', success: false }; const content = String((item as Record<string, unknown>).content || '').trim(); const status = String((item as Record<string, unknown>).status || ''); if (!content || content.length > 240 || !['pending', 'in_progress', 'completed'].includes(status)) return { output: 'Error: invalid todo item.', success: false }; if (seen.has(content.toLowerCase())) return { output: 'Error: duplicate todo content.', success: false }; seen.add(content.toLowerCase()); if (status === 'in_progress') inProgress++; todos.push({ content, status: status as NonNullable<ToolExecutionResult['todos']>[number]['status'] }); }
       if (inProgress > 1) return { output: 'Error: at most one todo may be in_progress.', success: false }; const completed = todos.filter((t) => t.status === 'completed').length; const active = todos.filter((t) => t.status === 'in_progress').length; return { output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`, success: true, todos };
     };
-    for (const definition of makeAgentTools(this.config.memoryEnabled !== false)) {
+    const surface = { shellSession: !!this.config.shellSessions, jobs: !!this.config.jobBridge, goal: !!this.config.goalStore };
+    for (const definition of makeAgentTools(this.config.memoryEnabled !== false, surface)) {
       add(definition, async (args, context) => {
         if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal, {
           owner: context.sessionId, operationId: `${this.lifecycle.runId}:${context.toolCallId}`,
@@ -213,12 +229,78 @@ export class ToolRuntime {
         if (definition.name === 'memory_get') return this.memory.getMemory(String(args.keywords || ''), Number(args.limit) || 20);
         if (definition.name === 'grep') return this.search.grep(args, this.config.workspaceDir, this.pathPolicy(), context.signal);
         if (definition.name === 'glob') return this.search.glob(args, this.config.workspaceDir, this.pathPolicy(), context.signal);
+        if (definition.name === 'shell_session') return this.config.shellSessions!.execute(String(args.action || 'list'), args, context.sessionId, context.signal, context.workspaceDir);
+        if (definition.name === 'job_list') return this.listJobs(args, context.sessionId);
+        if (definition.name === 'job_output') return this.jobOutput(args, context.sessionId);
+        if (definition.name === 'goal') return this.goal(args, context.sessionId);
         const filePath = String(args.path || ''); const resolved = await this.sandbox.resolve(filePath, { ...this.pathPolicy(), workspaceDir: this.config.workspaceDir, allowMissing: definition.name === 'file_write' });
         if (definition.name === 'file_read') { const result = await this.files.readFile(resolved.path, this.config.workspaceDir, { offset: args.offset ? Number(args.offset) : undefined, lines: args.lines ? Number(args.lines) : undefined, maxLength: args.max_length ? Number(args.max_length) : undefined, direction: args.direction as 'head' | 'tail' | undefined }); if (result.success) onSkillRead?.(resolved.path); return result; }
         if (definition.name === 'file_write') { const result = await this.files.writeFile(resolved.path, String(args.content || ''), this.config.workspaceDir, { append: args.append === true, createDirs: args.create_dirs === true }); if (result.success) onSkillWrite?.(resolved.path); return result; }
         if (definition.name === 'file_edit') { const result = await this.files.editFile(resolved.path, String(args.old_string || ''), String(args.new_string || ''), this.config.workspaceDir, args.replace_all === true); if (result.success) onSkillWrite?.(resolved.path); return result; }
         return buildMediaDisplayResult(resolved.path, this.config.workspaceDir, this.pathPolicy());
-      }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'project_instructions' || definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'grep' || definition.name === 'glob', cancellable: definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'shell_execute' || definition.name === 'desktop_control' || definition.name === 'ask_user' || definition.name === 'grep' || definition.name === 'glob', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
+      }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'project_instructions' || definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'grep' || definition.name === 'glob' || definition.name === 'job_list' || definition.name === 'job_output', cancellable: definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'shell_execute' || definition.name === 'shell_session' || definition.name === 'desktop_control' || definition.name === 'ask_user' || definition.name === 'grep' || definition.name === 'glob', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
     }
+  }
+
+  private listJobs(args: Record<string, unknown>, sessionId: string): ToolExecutionResult {
+    const bridge = this.config.jobBridge!;
+    const limit = Math.min(Math.max(1, Number(args.limit) || 12), 50);
+    const jobs = bridge.list(sessionId, limit, String(args.tool || '').trim() || undefined);
+    if (!jobs.length) return { output: '(本对话还没有任务记录)', success: true };
+    const rows = jobs.map(job => {
+      const duration = job.finishedAt && job.createdAt ? ((job.finishedAt - job.createdAt) / 1000).toFixed(1) + 's' : '—';
+      const callId = job.toolId && job.toolId !== job.id ? ` · ${job.toolId}` : '';
+      return `- ${job.id}${callId} · ${job.toolName || job.title} · ${job.status} · ${duration} · ${job.preview || '(无预览)'}`;
+    });
+    return { output: rows.join('\n'), success: true };
+  }
+
+  private jobOutput(args: Record<string, unknown>, sessionId: string): ToolExecutionResult {
+    const jobId = String(args.job_id || '').trim();
+    if (!jobId) return { output: 'job_id 不能为空；先用 job_list 查任务 id。', success: false };
+    const found = this.config.jobBridge!.output(sessionId, jobId);
+    if (!found) return { output: `没有找到任务 ${jobId}（只支持本对话的任务）。先用 job_list 确认 id。`, success: false };
+    if (!found.recorded) {
+      return {
+        output: `任务 ${found.job.id}（${found.job.toolName || found.job.title}，${found.job.status}）的完整输出未被保留（应用重启或缓存已淘汰）。\n可用预览：\n${found.job.preview || '(无)'}`,
+        success: false,
+      };
+    }
+    const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+    const maxLength = Math.min(Math.max(1, Math.floor(Number(args.max_length) || 20_000)), 120_000);
+    const slice = found.output.slice(offset, offset + maxLength);
+    const remaining = found.output.length - (offset + slice.length);
+    const trailer = remaining > 0 ? `\n\n[... 还有 ${remaining} 字符；用 offset=${offset + slice.length} 继续读取 ...]` : '';
+    return { output: `${slice || '(空输出)'}${trailer}`, success: true };
+  }
+
+  private goal(args: Record<string, unknown>, sessionId: string): ToolExecutionResult {
+    const store = this.config.goalStore!;
+    const action = String(args.action || 'get');
+    if (action === 'get') {
+      const record = store.get(sessionId);
+      return { output: record ? store.format(record) : '(当前对话没有设置目标)', success: true };
+    }
+    if (action === 'set') {
+      const objective = String(args.objective || '').trim();
+      if (!objective) return { output: 'action=set 需要 objective。', success: false };
+      const record = store.set(sessionId, objective, String(args.done_when || ''));
+      return { output: `目标已记录（每轮自动注入，压缩后仍保留）：\n${store.format(record)}`, success: true };
+    }
+    if (action === 'update') {
+      const status = String(args.status || '');
+      if (status && !['active', 'done', 'blocked'].includes(status)) return { output: 'status 只能是 active / done / blocked。', success: false };
+      if (!store.get(sessionId)) return { output: '还没有目标，先用 action=set 建立。', success: false };
+      const record = store.update(sessionId, {
+        ...(status ? { status: status as 'active' | 'done' | 'blocked' } : {}),
+        ...(args.note ? { note: String(args.note) } : {}),
+        ...(args.done_when !== undefined ? { doneWhen: String(args.done_when) } : {}),
+      });
+      return { output: `目标已更新：\n${store.format(record!)}`, success: true };
+    }
+    if (action === 'clear') {
+      return { output: store.clear(sessionId) ? '目标已清除。' : '(当前对话没有设置目标)', success: true };
+    }
+    return { output: `未知 action: ${action}。可用 set / update / get / clear。`, success: false };
   }
 }

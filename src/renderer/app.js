@@ -2772,6 +2772,10 @@ function handleThinkingDelta(text) {
 const TOOL_LABELS = {
   todo_write: '更新计划',
   shell_execute: '执行命令',
+  shell_session: '持久终端',
+  job_list: '任务列表',
+  job_output: '任务输出',
+  goal: '任务目标',
   file_read: '读取文件',
   file_write: '写入文件',
   file_edit: '编辑文件',
@@ -2791,6 +2795,10 @@ const TOOL_ICONS = {
   resume_agent: 'robot',
   todo_write: 'check',
   shell_execute: 'terminal',
+  shell_session: 'terminal',
+  job_list: 'menu',
+  job_output: 'file',
+  goal: 'pin',
   file_read: 'file',
   file_write: 'edit',
   file_edit: 'edit',
@@ -3077,7 +3085,7 @@ function setToolStepStatus(block, status, label) {
 }
 
 function toolKind(name) {
-  if (name === 'shell_execute' || name.startsWith('terminal_')) return 'terminal';
+  if (name === 'shell_execute' || name === 'shell_session' || name.startsWith('terminal_')) return 'terminal';
   if (name === 'file_read' || name === 'file_write' || name === 'file_edit' || name === 'display_file' || name === 'grep' || name === 'glob') return 'file';
   if (name.startsWith('mcp_')) return 'mcp';
   if (name === 'browser_fetch') return 'web';
@@ -3089,6 +3097,10 @@ function toolKind(name) {
 function toolMeta(name, args) {
   const source = args && typeof args === 'object' ? args : {};
   if (name === 'shell_execute') return '工作区命令';
+  if (name === 'shell_session') return `${source.action || 'open'}${source.session_id ? ' · ' + String(source.session_id).slice(0, 8) : ''}`;
+  if (name === 'job_list') return '最近任务';
+  if (name === 'job_output') return String(source.job_id || '任务输出');
+  if (name === 'goal') return `${source.action || 'get'}${source.objective ? ' · ' + String(source.objective).slice(0, 40) : ''}`;
   if (name.startsWith('mcp_')) return 'MCP 工具';
   if (name === 'read_image') return '视觉代理';
   if (name === 'browser_fetch') return '网页读取';

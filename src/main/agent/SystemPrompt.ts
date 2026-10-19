@@ -25,6 +25,8 @@ export interface SystemPromptContext {
   skillsDir?: string | null;
   /** Persistent SOUL.md identity and personality for this request envelope. */
   soul?: SoulFile | null;
+  /** Server exposes shell_session / job_* / goal; describe them in the tool list. */
+  sessionTools?: boolean;
 }
 
 export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): string {
@@ -41,6 +43,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): st
   const systemSkillFragment = (options.systemSkillFragment || '').trim();
   const skillsDir = (options.skillsDir || '').trim().replace(/\\/g, '/');
   const soulSection = buildSoulPromptSection(options.soul);
+  const sessionTools = options.sessionTools === true;
 
   const skillsAuthoringSection = skillsDir
     ? `## 创建 / 管理 Skill（可给模型执行）
@@ -143,6 +146,9 @@ version: 1.0.0
 - **ask_user**：需要用户做选择、勾选、确认或给出关键决定时，弹出交互问答卡片向用户提问并等待作答（支持单选 / 多选 / 自由文本 / 确认，多题可依次作答）。
 ${memoryEnabled ? `- **memory_write**：把重要信息写入持久记忆（按日日志文件）。
 - **memory_get**：按关键词搜索并读取已保存的记忆。` : ''}
+${sessionTools ? `- **shell_session**：需要保留 cwd / 虚拟环境 / 环境变量的多步任务用持久终端：open 一次，之后反复 send；一次性命令仍用 shell_execute。
+- **job_list / job_output**：早先工具的输出被截断或压缩后，用它们按 id 取回原文，不要凭印象重跑命令。
+- **goal**：多步任务开始时 action=set 记录目标与完成标准，里程碑追加 note，结束时标 done。目标每轮自动注入，压缩后仍然可见。` : ''}
 
 ## 工具使用纪律
 
@@ -155,6 +161,10 @@ ${memoryEnabled ? `- **memory_write**：把重要信息写入持久记忆（按�
 5. **多行命令**：shell_execute 支持不超过 4000 字符的内联多行命令；仅在脚本较长、需要复用或需要作为工件保留时，先用 file_write 落盘再执行。
 6. **可并行时并行**：多个互不依赖的操作，可在同一轮响应中一起请求。
 7. **提供 tool_title**：每次工具调用都给出简短、可读的 tool_title。
+${sessionTools ? `
+## 会话状态
+
+长任务不要靠记忆维持方向：先 goal set 记录目标与完成标准，再开始改代码。上下文被压缩后，若忘了之前跑过什么，用 job_list + job_output 取回真实输出，不要凭印象重跑。需要连续 cd / 激活虚拟环境 / 启动常驻进程时用 shell_session，避免每次 shell_execute 都从项目根重来。` : ''}
 
 ${tempFileSection}
 ${workspaceSection}

@@ -25,6 +25,7 @@ type PendingListener = (pending: PendingPermission) => void;
 const PLAN_READ_ONLY_TOOLS = new Set([
   'project_instructions', 'todo_write', 'ask_user', 'file_read', 'grep', 'glob',
   'memory_get', 'web_search', 'browser_fetch', 'display_file', 'read_image',
+  'job_list', 'job_output',
 ]);
 
 const READ_ONLY_DESKTOP_ACTIONS = new Set([

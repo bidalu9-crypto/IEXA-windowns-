@@ -17,6 +17,7 @@ import {
 import { LLMProvider } from '../providers/ProviderFactory';
 import { ToolRuntime } from '../runtime/ToolRuntime';
 import { buildSystemPrompt } from './SystemPrompt';
+import type { GoalStore } from './GoalStore';
 import { ProjectInstructions } from './ProjectInstructions';
 import { ProjectScope } from '../context/ProjectScopeStore';
 import { PromptRequest } from '../observability/PromptPreviewStore';
@@ -116,6 +117,8 @@ export interface AgentLoopConfig {
   onSkillWrite?: (resolvedPath: string) => void;
   /** Runtime is the exclusive execution path for all agent tools. */
   toolRuntime: ToolRuntime;
+  /** Durable objective re-injected into every turn; survives compaction. */
+  goalStore?: GoalStore;
   getAbortSignal: () => AbortSignal | undefined;
 }
 
@@ -385,6 +388,11 @@ export class AgentLoop {
     // prompt: the request head must stay byte-identical across calls so
     // provider-side prefix caching re-uses system+tools+history and only the
     // genuinely new tail is billed at full rate.
+    //
+    // The goal follows the same rule for the same reason, and is re-read from
+    // the store on every turn so compaction can never age it out.
+    const goalBlock = this.config.goalStore?.promptBlock(this.config.sessionId) || '';
+    if (goalBlock) parts.unshift({ type: 'text', text: `<current-goal>\n${goalBlock}\n</current-goal>` });
     if (this.sessionContext && this.sessionContextPlacement === 'message') {
       parts.unshift({ type: 'text', text: `<durable-session-context>\n${this.sessionContext}\n</durable-session-context>` });
     }
@@ -415,6 +423,7 @@ export class AgentLoop {
       systemSkillFragment: this.config.systemSkillFragment || null,
       skillsDir: this.config.skillsDir || null,
       soul: this.config.soul || null,
+      sessionTools: this.config.toolRuntime?.registry?.has?.('shell_session') === true,
     });
     // Prefix stability (prompt caching): indexes that drift between turns
     // (root-session anchors) must not sit in the system prompt — a changed

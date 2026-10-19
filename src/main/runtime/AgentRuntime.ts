@@ -12,8 +12,10 @@ import { CostTracker } from '../observability/CostTracker';
 import { SubAgentManager, SubAgentSummary } from './SubAgentManager';
 import { TraceStore } from '../observability/TraceStore';
 import { HookSpec } from './HookRunner';
+import { ShellSessionTools } from '../tools/ShellSessionTools';
+import type { JobBridge } from './ToolRuntime';
 
-export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; subAgentDir?: string; onSubAgentChange?: (agent: SubAgentSummary) => void; onSubAgentUsage?: (usage: { inputTokens: number; outputTokens: number }) => void; subAgentTree?: SubAgentManager; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; }
+export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; subAgentDir?: string; onSubAgentChange?: (agent: SubAgentSummary) => void; onSubAgentUsage?: (usage: { inputTokens: number; outputTokens: number }) => void; subAgentTree?: SubAgentManager; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; }
 export interface AgentRequest { message: string; tools: AgentToolDefinition[]; callbacks: AgentLoopCallbacks; attachments?: Parameters<AgentLoop['run']>[3]; }
 
 export class AgentRuntime {
@@ -35,7 +37,7 @@ export class AgentRuntime {
     this.costs = new CostTracker(config.provider.name, config.provider.model);
     this.budget = new BudgetManager(config.budget);
     this.traceStore = config.traceDir ? new TraceStore(config.traceDir) : undefined;
-    this.tools = new ToolRuntime({ workspaceDir: config.workspaceDir, memoryDir: config.memoryDir, memoryEnabled: config.memoryEnabled, auditDir: config.auditDir, permissionResolver: config.permissionResolver, permissionMode: config.permissionMode, budget: this.budget, desktopCaptureFrames: config.desktopCaptureFrames, questionResolver: config.questionResolver, hooks: config.hooks });
+    this.tools = new ToolRuntime({ workspaceDir: config.workspaceDir, memoryDir: config.memoryDir, memoryEnabled: config.memoryEnabled, auditDir: config.auditDir, permissionResolver: config.permissionResolver, permissionMode: config.permissionMode, budget: this.budget, desktopCaptureFrames: config.desktopCaptureFrames, questionResolver: config.questionResolver, hooks: config.hooks, shellSessions: config.shellSessions, jobBridge: config.jobBridge, goalStore: config.goalStore });
     this.tools.registerDefaults(config.onSkillRead, config.onSkillWrite);
     this.loop = new AgentLoop({ ...config, sessionId: config.sessionId, toolRuntime: this.tools, getAbortSignal: () => this.cancellation.signal(config.sessionId) });
     this.subAgents = config.subAgentTree || (config.subAgentDir ? new SubAgentManager({

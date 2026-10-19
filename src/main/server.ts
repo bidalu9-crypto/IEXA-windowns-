@@ -5,6 +5,9 @@ import { closeDesktopHelpers } from './tools/desktop/DesktopHelperLifetime';
 import { desktopControlScheduler } from './tools/desktop/DesktopControlScheduler';
 import { controlNativeIsolatedWorkspaces } from './tools/desktop/NativeIsolatedWorkspace';
 import { SubAgentManager } from './runtime/SubAgentManager';
+import { ShellSessionTools } from './tools/ShellSessionTools';
+import { GoalStore } from './agent/GoalStore';
+import type { JobBridge, JobSummary } from './runtime/ToolRuntime';
 // =============================================================================
 // IEXA PC - HTTP Server (multi-model profiles)
 // =============================================================================
@@ -134,6 +137,10 @@ const MAX_DURABLE_USER_NOTES = 10;
 const MAX_DURABLE_TOOL_NOTES = 12;
 const gitService = new GitService();
 const terminalManager = new TerminalManager();
+// Agent-owned persistent shells. Kept separate from the desktop workbench so
+// the terminal UI never shows (or lets a human type into) an agent session.
+const shellSessions = new ShellSessionTools(WORKSPACE_DIR);
+const goalStore = new GoalStore(path.join(WORKSPACE_DIR, '.iexa-goals.json'));
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
 const pluginManager = new PluginManager(WORKSPACE_DIR);
 const mobileBridge = new MobileBridgeManager(WORKSPACE_DIR);
@@ -987,6 +994,55 @@ function updateJobById(jobId: string, mutate: (job: SessionJob) => void): Sessio
   saveJobs(jobs);
   return job;
 }
+
+/**
+ * Full tool output, kept out of the job record itself. The audit row stores a
+ * 320-char preview because it is rendered and polled; job_output needs the
+ * real text after the model's context has compacted it away.
+ */
+interface JobOutputRecord { sessionId: string; toolName: string; output: string; success: boolean; createdAt: number; }
+const jobOutputs = new Map<string, JobOutputRecord>();
+const JOB_OUTPUT_MAX_ENTRIES = 200;
+const JOB_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
+const JOB_OUTPUT_MAX_CHARS = 2_000_000;
+let jobOutputBytes = 0;
+function rememberJobOutput(toolId: string, sessionId: string, toolName: string, output: string, success: boolean): void {
+  const text = String(output || '');
+  const capped = text.length > JOB_OUTPUT_MAX_CHARS
+    ? `${text.slice(0, 1_200_000)}\n\n[... 输出过长，已截断 ... ]\n\n${text.slice(-600_000)}`
+    : text;
+  const previous = jobOutputs.get(toolId);
+  if (previous) { jobOutputBytes -= Buffer.byteLength(previous.output); jobOutputs.delete(toolId); }
+  jobOutputs.set(toolId, { sessionId, toolName, output: capped, success, createdAt: Date.now() });
+  jobOutputBytes += Buffer.byteLength(capped);
+  while ((jobOutputs.size > JOB_OUTPUT_MAX_ENTRIES || jobOutputBytes > JOB_OUTPUT_MAX_BYTES) && jobOutputs.size > 1) {
+    const oldest = jobOutputs.keys().next().value as string;
+    const gone = jobOutputs.get(oldest)!;
+    jobOutputBytes -= Buffer.byteLength(gone.output);
+    jobOutputs.delete(oldest);
+  }
+}
+function jobSummary(job: SessionJob): JobSummary {
+  return {
+    id: job.id, toolId: job.toolId, toolName: job.toolName, title: job.title, status: job.status,
+    createdAt: job.createdAt, finishedAt: job.finishedAt, success: job.success,
+    preview: String(job.outputPreview || '').slice(0, 240),
+  };
+}
+const jobBridge: JobBridge = {
+  list(sessionId, limit, tool) {
+    const needle = (tool || '').toLowerCase();
+    const jobs = loadJobs().filter(job => job.sessionId === sessionId
+      && (!needle || String(job.toolName || '').toLowerCase().includes(needle)));
+    return jobs.slice(-Math.min(Math.max(1, limit), 50)).reverse().map(jobSummary);
+  },
+  output(sessionId, jobId) {
+    const job = loadJobs().find(item => item.sessionId === sessionId && (item.id === jobId || item.toolId === jobId));
+    if (!job) return null;
+    const record = job.toolId ? jobOutputs.get(job.toolId) : undefined;
+    return { job: jobSummary(job), output: record?.output || '', recorded: !!record };
+  },
+};
 function createTurnJob(sessionId: string, message: string): SessionJob {
   const jobs = loadJobs();
   const prompt = String(message || '').trim().replace(/\s+/g, ' ');
@@ -1068,6 +1124,9 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     systemSkillFragment: skillStore.systemPromptFragment(),
     skillsDir,
     soul: soulStore.load(),
+    shellSessions,
+    jobBridge,
+    goalStore,
     projectScope: projectRoot ? projectScopeStore.load(projectRoot) : null,
     onPromptRequest: request => promptPreviewStore.capture(request),
     onSkillRead: (resolvedPath: string) => {
@@ -2491,7 +2550,7 @@ ${recentMemories}
         for (const binding of pluginBindings) {
           agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
         }
-        const availableTools = [...makeAgentTools(true), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
+        const availableTools = [...makeAgentTools(true, { shellSession: true, jobs: true, goal: true }), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
           required: ['path'], propertyOrdering: ['path', 'prompt'],
@@ -2757,6 +2816,7 @@ ${recentMemories}
           onToolResult: (id, r) => {
             if (r.fileChange) runChanges.push(r.fileChange);
             const entry = assistantToolCalls.find((tc) => tc.id === id);
+            rememberJobOutput(id, sessionId, entry?.name || 'unknown', r.output, r.success);
             const artifacts = (r.artifacts || []).map((artifact) => {
               const artifactId = `artifact_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
               const absolute = path.resolve(artifact.path);
@@ -4015,7 +4075,7 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
     const srv = createServer(auth);
     serverAuth.set(srv, auth);
     srv.once('error', reject);
-    srv.once('close', () => { closeDesktopHelpers(); void terminalManager.shutdown(); });
+    srv.once('close', () => { closeDesktopHelpers(); void terminalManager.shutdown(); void shellSessions.shutdown(); });
     srv.listen(port, host, () => {
       const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
       if (!mobileBridge.isEnabled()) mobileBridge.setPort(0);
@@ -4040,7 +4100,7 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
 // Electron can end the Node process before an asynchronous server close has
 // finished. Ensure ConPTY/CMD/PowerShell children are synchronously signalled
 // during the final process-exit phase as a last line of cleanup.
-process.once('exit', () => terminalManager.shutdownSync());
+process.once('exit', () => { terminalManager.shutdownSync(); shellSessions.shutdownSync(); });
 
 /** Keep a standalone start.bat server tied to its launcher process. */
 function monitorStandaloneParent(server: http.Server): void {

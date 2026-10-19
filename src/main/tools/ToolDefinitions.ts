@@ -5,7 +5,14 @@
 
 import { AgentToolDefinition } from '../providers/types';
 
-export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefinition[] {
+/**
+ * Optional tool families. They are only advertised when the server can actually
+ * back them (a terminal manager, the job audit trail, the goal store), so a
+ * provider never receives a tool the runtime cannot execute.
+ */
+export interface ToolSurfaceOptions { shellSession?: boolean; jobs?: boolean; goal?: boolean; }
+
+export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfaceOptions = {}): AgentToolDefinition[] {
   const tools: AgentToolDefinition[] = [
     {
       name: 'project_instructions',
@@ -401,5 +408,73 @@ export function makeAgentTools(memoryEnabled: boolean = true): AgentToolDefiniti
     });
   }
 
+  tools.push(...sessionToolDefinitions(surface));
+  return tools;
+}
+
+export function sessionToolDefinitions(surface: ToolSurfaceOptions = {}): AgentToolDefinition[] {
+  const tools: AgentToolDefinition[] = [];
+  if (surface.shellSession) {
+    tools.push({
+      name: 'shell_session',
+      description:
+        'Persistent shell session for multi-step work: one long-lived shell whose cwd, environment variables and activated virtualenv survive between commands. Use shell_execute for a one-off command; use open once then send repeatedly when state must persist (cd through a repo, activate a venv, start a server). action=send waits for the command to finish and returns its exit code; a command that never returns leaves the session open, so use action=read for later output and action=close to stop it.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise 5-10 word summary (e.g. 'Open build shell', 'Run tests in session')." },
+        action: { type: 'string', description: 'open creates a shell; send runs a command and waits; read drains output since the last call; close terminates; list shows this conversation\'s sessions.', enumValues: ['open', 'send', 'read', 'close', 'list'] },
+        session_id: { type: 'string', description: 'Session id returned by action=open. Required for send / read / close.' },
+        command: { type: 'string', description: 'Command text for action=send. Multi-line input is submitted line by line.' },
+        shell: { type: 'string', description: 'Shell for action=open. auto picks PowerShell on Windows (or bash elsewhere).', enumValues: ['auto', 'cmd', 'powershell', 'bash', 'wsl'] },
+        cwd: { type: 'string', description: 'Working directory for action=open. Relative paths resolve against the project root; defaults to the project root.' },
+        timeout: { type: 'integer', minimum: 1, maximum: 900, description: 'Seconds to wait for the completion marker on send (default 120, max 900).' },
+      },
+      required: ['tool_title', 'action'],
+      propertyOrdering: ['tool_title', 'action', 'session_id', 'command', 'shell', 'cwd', 'timeout'],
+    });
+  }
+  if (surface.jobs) {
+    tools.push({
+      name: 'job_list',
+      description:
+        'List recent jobs of this conversation (every tool call and turn) with job id, tool, status, duration and a short preview. Use it to find the id for job_output, especially after an earlier tool result was compacted out of the context.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'List recent jobs')." },
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Maximum rows to return (default 12, max 50).' },
+        tool: { type: 'string', description: 'Only jobs whose tool name contains this text.' },
+      },
+      required: ['tool_title'],
+      propertyOrdering: ['tool_title', 'limit', 'tool'],
+    });
+    tools.push({
+      name: 'job_output',
+      description:
+        'Return the full output recorded for an earlier tool call or turn in this conversation. Accepts a job id from job_list or the tool_call_id visible in the transcript. Use it when a previous result was truncated, compacted, or the call was interrupted before you read it.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Recover build log')." },
+        job_id: { type: 'string', description: 'Job id from job_list, or the tool_call_id of the call.' },
+        offset: { type: 'integer', minimum: 0, description: 'Character offset to start from (default 0).' },
+        max_length: { type: 'integer', minimum: 1, maximum: 120000, description: 'Maximum characters to return (default 20000).' },
+      },
+      required: ['tool_title', 'job_id'],
+      propertyOrdering: ['tool_title', 'job_id', 'offset', 'max_length'],
+    });
+  }
+  if (surface.goal) {
+    tools.push({
+      name: 'goal',
+      description:
+        'Maintain the durable objective of this conversation. The goal is re-injected into every turn and survives context compaction and restarts, so long multi-step tasks keep their destination after older turns are summarized away. Set it once the task is clear, append a progress note at milestones, and mark it done when finished.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Record task objective', 'Mark goal done')." },
+        action: { type: 'string', description: 'set replaces the objective; update appends a note or changes status; get prints the current goal; clear removes it.', enumValues: ['set', 'update', 'get', 'clear'] },
+        objective: { type: 'string', description: 'What the user ultimately wants, in one or two sentences. Required for action=set.' },
+        done_when: { type: 'string', description: 'Observable completion criteria (tests green, build artifact present, user confirmed).' },
+        status: { type: 'string', description: 'Goal status for action=update.', enumValues: ['active', 'done', 'blocked'] },
+        note: { type: 'string', description: 'Progress note appended for action=update (kept to the most recent 12).' },
+      },
+      required: ['tool_title', 'action'],
+      propertyOrdering: ['tool_title', 'action', 'objective', 'done_when', 'status', 'note'],
+    });
+  }
   return tools;
 }
