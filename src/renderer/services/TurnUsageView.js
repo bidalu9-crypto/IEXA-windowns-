@@ -140,10 +140,11 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
     if (cacheReadTokens !== undefined && cacheReadTokens !== null && Number.isFinite(cacheRead)) {
       parts.push('<i aria-hidden="true"></i>');
       const cache = Math.max(0, Math.round(cacheRead));
-      // Share of the input side that came from cache. The ring behind the label
-      // draws it; the exact counts stay in the title.
+      // Share of the input side that came from cache, written after the label:
+      // a gauge before the number read as a decoration, and the number itself
+      // was what people wanted to see.
       const share = input + cache > 0 ? Math.round((cache / (input + cache)) * 100) : 0;
-      parts.push(`<span class="message-usage-cache" style="--cache-share:${share}" title="缓存读取 ${cache.toLocaleString()} tokens（占输入侧 ${share}%）">${formatTokenCount(cache)} <em>缓存</em></span>`);
+      parts.push(`<span class="message-usage-cache" title="缓存读取 ${cache.toLocaleString()} tokens（占输入侧 ${share}%）">${formatTokenCount(cache)} <em>缓存</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
     }
   }
   if (duration) {

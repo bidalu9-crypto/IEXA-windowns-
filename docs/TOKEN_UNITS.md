@@ -59,22 +59,25 @@
 `formatContextTokens` 与 `formatUsageNumber` 都改为转调 `formatTokenCount`，不再各写一套阈值——
 这正是之前 `128K` 和 `132,225` 会同时出现在同一屏的原因。
 
-## 缓存圆环
+## 缓存百分比写在括号里
 
-用量行的「缓存」前面有一个 11px 的圆环，画的是**缓存占输入侧的比例**：
+用量行的「缓存」后面直接跟百分比：
 
 ```
-缓存 ÷（输入 + 缓存）
+612K 入 · 464 出 · 611K 缓存 (50%) · 02:18
 ```
 
-- 圆环用 `conic-gradient` 从 `--cache-share`（0–100）取角度，再用 `radial-gradient` 遮罩
-  掏空中心，因此只有描边可见；
-- 精确 token 数和百分比都在 `title` 里：`缓存读取 131,328 tokens（占输入侧 50%）`；
-- 数值仍走 `formatTokenCount`，所以是 `530K 缓存` 而不是 `530,000`。
+口径是**缓存占输入侧的比例**：`缓存 ÷（输入 + 缓存）`。
 
-实现只有一条伪元素规则，不动 DOM 结构与文本，已有的文本断言不受影响；渲染时给元素写
-`style="--cache-share:50"`。截图 `workspace/attachments/usage-cache-ring.png` 里三行分别是
-50% / 8% / 99%。
+- 括号里的数字由 `Math.round(share)` 得出，虚色 `--text-muted`、`tabular-nums`，不抢主数字；
+- 精确 token 数和同一个百分比都在 `title` 里：`缓存读取 611,000 tokens（占输入侧 50%）`；
+- 数值仍走 `formatTokenCount`，所以是 `611K 缓存` 而不是 `611,000`。
+
+**为什么不是圆环**：第一版在「缓存」前面画了一个 11px 的 conic 圆环。实测下来它对读数是干扰——
+数字才是要读的，圆环既小又难和周边分隔，百分比还得靠猜。改成括号文本后，行宽几乎不变，
+但读数一眼可见。已删除 `::before` 的环和 `--cache-share` 变量，只留下 `.message-usage-cache-share`。
+
+截图 `workspace/attachments/usage-cache-share.png`：`(50%)`、`(50%)`、`(8%)` 三档。
 
 ## 顺带修好：品牌字体的相对路径
 
