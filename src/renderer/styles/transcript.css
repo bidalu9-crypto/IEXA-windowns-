@@ -1143,6 +1143,29 @@ body.chat-focus-mode .message.user {
   color: var(--accent);
 }
 
+/* Cache share gauge. A conic ring is drawn from --cache-share (0..100) and
+   hollowed with a radial mask so only the stroke shows; the label keeps its
+   normal text and the exact counts stay in the title. */
+.message-usage-cache {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-usage-cache::before {
+  content: '';
+  flex: 0 0 11px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) calc(var(--cache-share, 0) * 1%),
+    color-mix(in srgb, var(--text-muted) 34%, transparent) 0
+  );
+  -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%);
+  mask: radial-gradient(circle, transparent 58%, #000 59%);
+}
+
 .message-usage span {
   white-space: nowrap;
 }

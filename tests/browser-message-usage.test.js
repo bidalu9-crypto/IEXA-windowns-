@@ -84,7 +84,8 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
   assert.ok(!line.withoutCache.includes('缓存'), line.withoutCache);
   assert.ok(line.zero.includes('0 缓存'), line.zero);
   assert.ok(line.big.includes('132K 入') && line.big.includes('1.2K 出') && line.big.includes('131K 缓存'), line.big);
-  assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens"'), line.bigHtml);
+  assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens（占输入侧 50%）"'), line.bigHtml);
+  assert.ok(line.bigHtml.includes('--cache-share:50'), 'the ring is driven by the measured share: ' + line.bigHtml);
 
   const tokenHtml = await evaluate(`(() => {
     tokenUsageRecords = [

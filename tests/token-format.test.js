@@ -56,7 +56,7 @@ test('every token surface routes through the shared formatter', () => {
   assert.ok(appSource.includes('${formatTokenCount(output)} <em>出</em>'), 'message output uses the formatter');
   assert.ok(appSource.includes('${formatTokenCount(cache)} <em>缓存</em>'), 'message cache uses the formatter');
   assert.ok(appSource.includes('title="输入 ${input.toLocaleString()} tokens"'), 'exact input stays in the title');
-  assert.ok(appSource.includes('title="缓存读取 ${cache.toLocaleString()} tokens"'), 'exact cache stays in the title');
+  assert.ok(appSource.includes('title="缓存读取 ${cache.toLocaleString()} tokens'), 'exact cache stays in the title');
   assert.ok(appSource.includes('countEl.textContent = formatTokenCount(tokens);'), 'thinking badge is compact');
   assert.ok(appSource.includes('约 ${formatTokenCount(count)} tokens'), 'soul editor estimate is compact');
   assert.ok(appSource.includes('${formatTokenCount(currentContextCompactionLimit)} token）'), 'compaction tooltip is compact');

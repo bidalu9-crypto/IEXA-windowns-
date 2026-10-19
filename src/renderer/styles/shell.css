@@ -21,9 +21,13 @@
 /* Wordmark face, self-hosted so the strict `font-src 'self'` CSP still applies.
    Orbitron (SIL OFL 1.1) is a geometric display face; the license ships next to
    the binary in vendor/fonts/. */
+/* The path is relative to this file. When the styles lived in one stylesheet at
+   src/renderer/styles.css the bare `vendor/...` resolved; after the split this
+   file sits one level down, so it must step up or the wordmark silently falls
+   back to Segoe UI. */
 @font-face {
   font-family: 'IEXA Wordmark';
-  src: url('vendor/fonts/orbitron-latin-var.woff2') format('woff2');
+  src: url('../vendor/fonts/orbitron-latin-var.woff2') format('woff2');
   font-weight: 400 900;
   font-style: normal;
   font-display: swap;

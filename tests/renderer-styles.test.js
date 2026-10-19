@@ -49,3 +49,23 @@ test('a layer does not silently grow back into a monolith', () => {
     assert.ok(lines < 1600, `${layer}.css is ${lines} lines; split it or move the rules to their owner`);
   }
 });
+
+test('every relative url() in a layer resolves from that layer', () => {
+  // url() is resolved against the stylesheet, not the document. Moving rules
+  // from src/renderer/styles.css into src/renderer/styles/ silently broke the
+  // wordmark font: the browser fell back to Segoe UI with no error anywhere.
+  const dir = path.join(RENDERER, 'styles');
+  const missing = [];
+  for (const layer of [...layers, '../workbench']) {
+    const file = path.join(dir, `${layer}.css`);
+    const text = fs.readFileSync(file, 'utf8');
+    for (const match of text.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)) {
+      const target = match[1];
+      if (/^(data:|https?:|#|\/)/.test(target)) continue;
+      if (!fs.existsSync(path.resolve(path.dirname(file), target))) {
+        missing.push(`${layer}.css -> ${target}`);
+      }
+    }
+  }
+  assert.deepEqual(missing, [], 'unresolvable asset URLs: ' + missing.join(', '));
+});

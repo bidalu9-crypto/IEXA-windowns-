@@ -59,9 +59,36 @@
 `formatContextTokens` 与 `formatUsageNumber` 都改为转调 `formatTokenCount`，不再各写一套阈值——
 这正是之前 `128K` 和 `132,225` 会同时出现在同一屏的原因。
 
-## 验证
+## 缓存圆环
 
-`tests/token-format.test.js`：
+用量行的「缓存」前面有一个 11px 的圆环，画的是**缓存占输入侧的比例**：
+
+```
+缓存 ÷（输入 + 缓存）
+```
+
+- 圆环用 `conic-gradient` 从 `--cache-share`（0–100）取角度，再用 `radial-gradient` 遮罩
+  掏空中心，因此只有描边可见；
+- 精确 token 数和百分比都在 `title` 里：`缓存读取 131,328 tokens（占输入侧 50%）`；
+- 数值仍走 `formatTokenCount`，所以是 `530K 缓存` 而不是 `530,000`。
+
+实现只有一条伪元素规则，不动 DOM 结构与文本，已有的文本断言不受影响；渲染时给元素写
+`style="--cache-share:50"`。截图 `workspace/attachments/usage-cache-ring.png` 里三行分别是
+50% / 8% / 99%。
+
+## 顺带修好：品牌字体的相对路径
+
+`IEXA` 的展示字体（Orbitron，`vendor/fonts/orbitron-latin-var.woff2`）在样式表拆分后失效了。
+`@font-face` 的 `src` 是相对**样式表所在目录**解析的：原来规则在 `src/renderer/styles.css`，
+`url('vendor/fonts/…')` 指向 `src/renderer/vendor/fonts/…`；拆到
+`src/renderer/styles/shell.css` 后，同一行变成 `src/renderer/styles/vendor/fonts/…`，
+文件不存在，字体静默回落到 Segoe UI —— 于是「艺术字体不见了」。
+
+改成 `url('../vendor/fonts/…')`，并在注释里写明这是相对本文件。
+
+**这类错误的特征**：`@font-face`、`url()`、`sourceMappingURL` 都按文件位置解析，样式表一搬家
+就会断，而且**不会报错**——浏览器只会静默使用后备字体。现在 `tests/renderer-styles.test.js`
+会遍历每层样式表里的相对 `url()`，逐个检查目标文件存在。
 
 - 19 组阈值逐项比对，含 `999,500 → 1M` 的进位边界
 - 异常输入（`undefined` / `'abc'` / `-5`）全部落到 `0`

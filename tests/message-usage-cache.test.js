@@ -61,7 +61,11 @@ test('compact counts keep the exact receipt in the hover title', (t) => {
   const html = usageEl.innerHTML;
   assert.ok(html.includes('title="输入 132,225 tokens"'), html);
   assert.ok(html.includes('title="输出 1,198 tokens"'), html);
-  assert.ok(html.includes('title="缓存读取 131,328 tokens"'), html);
+  // The ring behind the label reads --cache-share; the title carries the exact
+  // count and the share as a number.
+  assert.ok(html.includes('title="缓存读取 131,328 tokens（占输入侧 50%）"'), html);
+  assert.ok(html.includes('class="message-usage-cache"'), html);
+  assert.ok(html.includes('--cache-share:50'), html);
   const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
   assert.ok(text.includes('132K 入'), text);
   assert.ok(text.includes('1.2K 出'), text);
