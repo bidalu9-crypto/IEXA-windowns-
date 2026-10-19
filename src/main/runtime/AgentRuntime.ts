@@ -101,6 +101,7 @@ export class AgentRuntime {
   setPermissionMode(mode: PermissionMode): void { this.permissionMode = mode; this.tools.setPermissionMode(mode); if (!this.config.subAgentTree) this.subAgents?.setPermissionMode(mode); }
   setSessionContext(value: string | null | undefined, placement?: 'message' | 'system'): void { this.loop.setSessionContext(value, placement); }
   setCompactorSummary(value: string | null | undefined): void { this.loop.setCompactorSummary(value); }
+  restoreContextUsage(usedTokens: number): void { this.loop.restoreContextUsage(usedTokens); }
   getCompactorSummary(): string { return this.loop.getCompactorSummary(); }
   seedHistoryFromChat(...args: Parameters<AgentLoop['seedHistoryFromChat']>): void { this.loop.seedHistoryFromChat(...args); }
   private finish(status: AgentState['status']): void {

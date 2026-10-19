@@ -137,7 +137,7 @@ function handleSSEEvent(raw, turnToken) {
         handleToolResult(data.id, data.output, data.success, data.todos, data.fileChange, data.imageData, data.imageMimeType, data.artifacts, data.executionStatus, data.durationMs, data.pluginUI, data.metadata);
         break;
       case 'context':
-        handleContextStatus(data);
+        handleContextStatus(data, currentSessionId);
         break;
       case 'usage':
         handleUsage(data);

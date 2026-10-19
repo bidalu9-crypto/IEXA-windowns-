@@ -37,10 +37,18 @@ import { readImageNative, readImageToolDefinition } from './tools/ImageTools';
 import { PermissionBroker, PermissionRequest, PendingPermission, PermissionDecision, PermissionMode } from './security/PermissionManager';
 import { QuestionBroker, AskUserRequest, QuestionAnswer, PendingQuestion } from './runtime/QuestionBroker';
 import { SessionManager } from './session/SessionManager';
+import {
+  ContextUsageSnapshot,
+  contextUsageFromStatus,
+  contextUsageStatus,
+  readContextUsage,
+  shouldPersistContextUsage,
+  writeContextUsage,
+} from './session/ContextUsageStore';
 import { TraceStore } from './observability/TraceStore';
 import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd, TokenPrice } from './observability/CostTracker';
-import { contextWindowForModel } from './agent/ContextCompactor';
+import { contextWindowForModel, rehydrateBudgetForWindow } from './agent/ContextCompactor';
 import { SoulStore, checkSoulBodyLimit, normalizeSoulMetadata } from './agent/SoulStore';
 import { configureApiResponse, jsonReply, readBody, readRawBody, HttpError, handleHttpError } from './api/HttpServer';
 import { LocalApiAuth, isTLS } from './security/LocalApiAuth';
@@ -669,6 +677,8 @@ interface DurableSessionContext {
   content: string;
   /** Codex-style rolling summary of the compacted past (survives restarts). */
   summary?: string;
+  /** Last known request size, so a reopen continues instead of restarting. */
+  usage?: ContextUsageSnapshot;
 }
 
 function sessionContextPath(sessionId: string): string {
@@ -729,7 +739,7 @@ function loadSessionSummary(sessionId: string): string {
   } catch { return ''; }
 }
 
-function saveSessionContext(sessionId: string, messages: ChatMessage[], summary = ''): void {
+function saveSessionContext(sessionId: string, messages: ChatMessage[], summary = '', usage?: ContextUsageSnapshot): void {
   // Build a small durable index from the complete history. The chat transcript
   // remains the source of truth; this index carries high-value anchors through
   // restart, model changes and transcript trimming without replaying huge tool
@@ -799,7 +809,50 @@ function saveSessionContext(sessionId: string, messages: ChatMessage[], summary 
     content += separator + compactContextText(section, remaining);
   }
   const state: DurableSessionContext = { version: 2, sessionId, updatedAt: Date.now(), content, summary: summary || undefined };
+  // A durable index rewrite must not erase the request size the next launch
+  // continues from; take it from the caller, the live cache, or the file.
+  const persistedUsage = usage || contextUsageBySession.get(sessionId) || readContextUsage(sessionContextPath(sessionId));
+  if (persistedUsage) state.usage = persistedUsage;
   try { new JsonStore<DurableSessionContext>(sessionContextPath(sessionId), () => state).saveSync(state); } catch { /* best effort */ }
+}
+
+/** Last context status seen in this process, keyed by session. */
+const contextUsageBySession = new Map<string, ContextUsageSnapshot>();
+
+/**
+ * Remember the request size a session reached. The meter and the compaction
+ * threshold both read this after a relaunch, so it must survive the process
+ * that measured it — without a write on every streaming status.
+ */
+function rememberContextUsage(sessionId: string, status: Parameters<typeof contextUsageFromStatus>[0]): void {
+  const snapshot = contextUsageFromStatus(status);
+  if (!snapshot) return;
+  const previous = contextUsageBySession.get(sessionId) || readContextUsage(sessionContextPath(sessionId));
+  contextUsageBySession.set(sessionId, snapshot);
+  if (!shouldPersistContextUsage(previous, snapshot)) return;
+  writeContextUsage(sessionContextPath(sessionId), snapshot);
+}
+
+/** What the client should paint for a session it has not run yet. */
+function sessionContextStatus(sessionId: string): ReturnType<typeof contextUsageStatus> | null {
+  const snapshot = contextUsageBySession.get(sessionId) || readContextUsage(sessionContextPath(sessionId));
+  return snapshot ? contextUsageStatus(snapshot) : null;
+}
+
+/**
+ * A branch reset shortens the conversation, so the carried request size no
+ * longer describes it. Drop the record instead of showing a size the session
+ * no longer has; the next turn measures the new one.
+ */
+function clearSessionUsage(sessionId: string): void {
+  contextUsageBySession.delete(sessionId);
+  try {
+    const fp = sessionContextPath(sessionId);
+    if (!fs.existsSync(fp)) return;
+    const state = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Record<string, unknown>;
+    delete state.usage;
+    new JsonStore<Record<string, unknown>>(fp, () => state).saveSync(state);
+  } catch { /* best effort */ }
 }
 
 interface TokenUsageRecord {
@@ -1257,6 +1310,9 @@ async function saveSessionMessages(
   // Grab the Codex-style compaction summary from the agent (if any)
   const agent = agentCache.get(sessionId);
   const summary = agent ? agent.getCompactorSummary() : '';
+  // The usage record is resolved inside saveSessionContext, which owns the file
+  // format. Keeping it out of this call also keeps this function self-contained
+  // for tests that evaluate it in isolation.
   saveSessionContext(sessionId, updatedMessages, summary);
 
   // Update session metadata
@@ -2061,7 +2117,9 @@ function createServer(auth: LocalApiAuth): http.Server {
         }
         const session = loadSessionStore().sessions.find((item) => item.id === sid);
         if (!session) { jsonReply(res, 404, { error: '会话未找到' }); return; }
-        jsonReply(res, 200, { messages: clientMessages(msgs), session });
+        // The ring must show the session's carried request size before the first
+    // turn of this process; otherwise a reopen looks like a brand-new chat.
+    jsonReply(res, 200, { messages: clientMessages(msgs), session, context: sessionContextStatus(sid) });
         return;
       }
 
@@ -2149,6 +2207,8 @@ function createServer(auth: LocalApiAuth): http.Server {
           const retained = messages.slice(0, messageIndex + (retainSelected ? 1 : 0));
           cancelSessionAgent(sessionId);
           await saveMessages(sessionId, retained);
+          // The conversation just got shorter; its measured size is stale.
+          clearSessionUsage(sessionId);
           saveSessionContext(sessionId, retained);
           const store = loadSessionStore();
           const session = store.sessions.find((s) => s.id === sessionId);
@@ -2372,8 +2432,21 @@ ${recentMemories}
           agent.setCompactorSummary(persistedSummary);
         }
         if (needHydrate) {
-          // Prior turns from disk → model remembers after reopen / process restart
-          agent.seedHistoryFromChat(persistedMessages);
+          // Prior turns from disk → model remembers after reopen / process restart.
+          // The replay budget follows the model window: a reopen must continue the
+          // conversation the user actually had, not a fixed 24K slice of it.
+          const replayWindow = effectiveContextWindow(profile, profile.contextCompactionLimit ?? getContextCompactionLimit());
+          agent.seedHistoryFromChat(persistedMessages, {
+            budgetTokens: rehydrateBudgetForWindow(replayWindow, profile.maxOutputTokens || 64000),
+          });
+          // Continue this session's request size from the last run instead of
+          // restarting the meter at the rehydrated working set. A different
+          // window (model switch) invalidates the old number outright.
+          const persistedUsage = readContextUsage(sessionContextPath(sessionId));
+          if (persistedUsage && persistedUsage.contextWindow === replayWindow) {
+            contextUsageBySession.set(sessionId, persistedUsage);
+            agent.restoreContextUsage(persistedUsage.usedTokens);
+          }
         }
         const visionProfile = configuredVisionProfile(profile.id);
         // The configured vision profile is a fallback, not a replacement for
@@ -2741,7 +2814,10 @@ ${recentMemories}
             recordTokenUsage(profile, u);
             emitTurnEvent('usage', u);
           },
-          onContext: (context) => emitTurnEvent('context', context),
+          onContext: (context) => {
+            emitTurnEvent('context', context);
+            rememberContextUsage(sessionId, context);
+          },
           onError: async (e) => {
             transcriptRecorder.finish('failed');
             clearPermissionSubscription(sessionId);

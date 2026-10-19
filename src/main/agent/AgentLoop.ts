@@ -30,7 +30,7 @@ import { ProviderError } from '../providers/ProviderError';
 /** Keep live tool evidence useful without letting build logs dominate context. */
 const MAX_TOOL_RESULT_CHARS = 2400;
 const TOOL_RESULT_COMPACT_AT = 1800;
-/** Restart recovery is a bounded working set; full records stay in session JSON. */
+/** Restart recovery is bounded by the model window, not by a fixed slice. */
 const MAX_REHYDRATED_HISTORY_TOKENS = 24000;
 const MAX_REHYDRATED_TEXT_CHARS = 6000;
 const MAX_REHYDRATED_TOOL_RESULTS_PER_TURN = 16;
@@ -140,6 +140,12 @@ export class AgentLoop {
   private compactor: ContextManager | null = null;
   /** Summary can be loaded from disk before run() creates a request compactor. */
   private pendingCompactorSummary = '';
+  /**
+   * Request size carried across a process restart. A reopened session must
+   * keep counting from the context it already has instead of re-estimating
+   * from zero, which is what made the meter reset on every relaunch.
+   */
+  private pendingContextUsage = 0;
   private readonly retryManager = new RetryManager();
   /** Restored checkpoints must become model-visible once, not once per turn. */
   private restoredSummaryInjected = false;
@@ -165,6 +171,7 @@ export class AgentLoop {
     this.isCancelled = false;
     this.compactor = null;
     this.pendingCompactorSummary = '';
+    this.pendingContextUsage = 0;
     this.restoredSummaryInjected = false;
   }
 
@@ -193,10 +200,21 @@ export class AgentLoop {
     this.compactor?.restoreSummary(restored);
   }
 
+  /** Restore the request size the session had when it was last saved. */
+  restoreContextUsage(usedTokens: number): void {
+    const seeded = Math.max(0, Math.floor(Number(usedTokens) || 0));
+    this.pendingContextUsage = Number.isFinite(seeded) ? seeded : 0;
+    this.compactor?.restoreUsage(this.pendingContextUsage);
+  }
+
   /**
    * Rehydrate a compact working set from saved chat messages. The on-disk
    * transcript remains lossless for the renderer, while the provider gets
-   * only recent, protocol-valid evidence within a fixed token budget.
+   * only recent, protocol-valid evidence within the caller's budget.
+   *
+   * `budgetTokens` comes from the model window (see rehydrateBudgetForWindow):
+   * a large-window model must replay the conversation it actually had, or a
+   * reopen silently becomes a smaller, different context.
    */
   seedHistoryFromChat(
     msgs: Array<{
@@ -210,9 +228,14 @@ export class AgentLoop {
         result?: { output?: string; success?: boolean };
       }>;
     }>,
+    options: { budgetTokens?: number } = {},
   ): void {
     this.agentHistory = [];
     this.restoredSummaryInjected = false;
+    const requested = Math.floor(Number(options.budgetTokens) || 0);
+    const budget = requested > 0
+      ? Math.max(MAX_REHYDRATED_HISTORY_TOKENS, requested)
+      : MAX_REHYDRATED_HISTORY_TOKENS;
     const turns: typeof msgs[] = [];
     let currentTurn: typeof msgs = [];
     for (const message of msgs) {
@@ -229,7 +252,7 @@ export class AgentLoop {
       const hydrated = this.hydrateSavedTurn(turns[index]);
       if (hydrated.length === 0) continue;
       const turnTokens = estimateMessageTokens(hydrated);
-      if (retainedTokens > 0 && retainedTokens + turnTokens > MAX_REHYDRATED_HISTORY_TOKENS) break;
+      if (retainedTokens > 0 && retainedTokens + turnTokens > budget) break;
       this.agentHistory.unshift(...hydrated);
       retainedTokens += turnTokens;
     }
@@ -447,6 +470,7 @@ export class AgentLoop {
     );
     this.compactor = compactor;
     if (this.pendingCompactorSummary) compactor.restoreSummary(this.pendingCompactorSummary);
+    if (this.pendingContextUsage > 0) compactor.restoreUsage(this.pendingContextUsage);
     // Display history spans all provider/tool cycles in this user run.
     // assistantText below stays per-provider-cycle for the model protocol.
     let displayText = '';

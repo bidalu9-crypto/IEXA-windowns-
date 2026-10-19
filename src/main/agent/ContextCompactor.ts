@@ -46,6 +46,21 @@ export function compactThresholdForWindow(window: number, maxOutputTokens = 0): 
   return Math.max(1, Math.min(defaultThreshold, safeWindow - outputReserve));
 }
 
+/**
+ * How much saved conversation to replay when a session is reopened.
+ *
+ * A fixed ceiling made every restart a smaller, differently-shaped context:
+ * the user watched the meter fall back and the model forgot the middle of the
+ * task. Recovery has to scale with the model window instead, so the reopened
+ * session continues at the size it had, and compaction — not an arbitrary
+ * constant — decides what leaves the request.
+ */
+export const MIN_REHYDRATED_TOKENS = 24_000;
+export function rehydrateBudgetForWindow(window: number, maxOutputTokens = 0): number {
+  const threshold = compactThresholdForWindow(window, maxOutputTokens);
+  return Math.max(MIN_REHYDRATED_TOKENS, Math.floor(threshold * 0.75));
+}
+
 function estimatePartTokens(part: AgentContentPart): number {
   if (part.type === 'text') return Math.ceil(part.text.length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD;
   if (part.type === 'toolUse') {
@@ -177,6 +192,10 @@ export class ContextCompactor {
   private lastReportedInputTokens = 0;
   private lastUsageEstimate = 0;
   private lastEstimatedRequest = 0;
+  /** Session size restored from disk before this process made a request. */
+  private pendingRestoredUsage = 0;
+  /** Until a provider receipt arrives, the carried value is still an estimate. */
+  private restoredBaseline = false;
 
   constructor(
     private readonly provider: LLMProvider,
@@ -189,22 +208,43 @@ export class ContextCompactor {
 
   status(history: AgentMessage[], state: ContextStatus['state'] = 'ok'): ContextStatus {
     const estimate = estimateRequestTokens(history, this.systemPrompt, this.tools);
+    if (this.pendingRestoredUsage > 0) {
+      // Continue the session's accounting from where it stopped instead of
+      // reporting only the rehydrated working set. Growth is measured from the
+      // seeded request, so later appends still add to the carried value.
+      this.lastReportedInputTokens = Math.max(this.pendingRestoredUsage, estimate);
+      this.lastUsageEstimate = estimate;
+      this.pendingRestoredUsage = 0;
+      this.restoredBaseline = true;
+    }
     const growth = Math.max(0, estimate - this.lastUsageEstimate);
     const usedTokens = Math.max(estimate, this.lastReportedInputTokens + growth);
     this.lastEstimatedRequest = estimate;
     const threshold = compactThresholdForWindow(this.contextWindow, this.maxOutputTokens);
     return {
       contextWindow: this.contextWindow, usedTokens,
-      estimated: !this.lastReportedInputTokens || growth > 0 || estimate > this.lastReportedInputTokens,
+      estimated: this.restoredBaseline || !this.lastReportedInputTokens || growth > 0 || estimate > this.lastReportedInputTokens,
       compactThreshold: threshold,
       state: state === 'ok' && usedTokens >= threshold ? 'near-limit' : state,
     };
+  }
+
+  /**
+   * Adopt the persisted request size for a reopened session. The first
+   * status() call applies it; a later provider receipt supersedes it.
+   */
+  restoreUsage(usedTokens: number): void {
+    const seeded = Math.max(0, Math.floor(Number(usedTokens) || 0));
+    if (!Number.isFinite(seeded) || seeded <= 0) return;
+    this.pendingRestoredUsage = seeded;
+    this.restoredBaseline = true;
   }
 
   recordProviderUsage(inputTokens: number, history?: AgentMessage[]): void {
     if (Number.isFinite(inputTokens) && inputTokens > 0) {
       this.lastReportedInputTokens = inputTokens;
       this.lastUsageEstimate = history ? estimateRequestTokens(history, this.systemPrompt, this.tools) : this.lastEstimatedRequest;
+      this.restoredBaseline = false;
     }
   }
 

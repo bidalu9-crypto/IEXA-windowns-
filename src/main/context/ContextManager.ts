@@ -11,6 +11,8 @@ export class ContextManager {
   compact(messages: AgentMessage[], report: (status: ContextUsage) => void, signal?: AbortSignal): Promise<AgentMessage[]> { return this.compactor.compactIfNeeded(messages, report, signal); }
   recover(messages: AgentMessage[], report: (status: ContextUsage) => void, signal?: AbortSignal): Promise<AgentMessage[]> { return this.compactor.compactForOverflow(messages, report, signal); }
   recordInputTokens(tokens: number, messages?: AgentMessage[]): void { this.compactor.recordProviderUsage(tokens, messages); }
+  /** Continue a reopened session's request size instead of restarting at zero. */
+  restoreUsage(usedTokens: number): void { this.compactor.restoreUsage(usedTokens); }
   status(messages: AgentMessage[]): ContextUsage { return this.compactor.status(messages); }
   summary(): string { return this.compactor.getSummary(); }
   restoreSummary(summary: string): void { this.compactor.setSummary(summary); }

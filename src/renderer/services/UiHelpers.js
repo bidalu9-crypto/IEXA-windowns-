@@ -483,6 +483,8 @@ async function resetConversationToMessage(messageEl) {
     // strand it when a metadata refresh bumps the view epoch mid-flight.
     truncateTranscriptFrom(messageEl, true);
     resetTurnBookkeeping();
+    // The conversation is shorter now; its measured request size is gone too.
+    applySessionContextStatus(currentSessionId, null);
     scrollToBottom(true);
   } catch (err) {
     addError(err.message || '重置对话失败');

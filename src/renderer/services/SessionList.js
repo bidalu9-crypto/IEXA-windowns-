@@ -467,6 +467,9 @@ async function switchSession(id, updateList = true) {
       return;
     }
     applySessionProject(data.project);
+    // The session carries its request size across restarts; paint it before the
+    // first turn of this process instead of leaving the ring at zero.
+    applySessionContextStatus(id, data.context || null);
     clearChat();
     targetRuntime.fragment.replaceChildren();
     targetRuntime.historyReady = true;

@@ -438,7 +438,8 @@ function syncActiveSessionUI() {
   if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
   statusDot.className = processing ? 'status-dot processing' : 'status-dot';
   statusText.textContent = processing ? '处理中...' : '就绪';
-  if (latestContextStatus) handleContextStatus(latestContextStatus);
+  if (latestContextStatus) applySessionContextStatus(currentSessionId);
+  else resetContextStatus();
   updateComposerForQueue();
   updateScrollToBottomButton();
   renderSessionList();

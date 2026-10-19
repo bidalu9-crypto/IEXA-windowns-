@@ -42,7 +42,9 @@ test('clientMessages trims only tool calls that carry a fileChange', () => {
 
 test('server wires the trim into the GET route and the tool_result stream', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/main/server.ts'), 'utf8');
-  assert.match(src, /jsonReply\(res, 200, \{ messages: clientMessages\(msgs\), session \}\)/);
+  // The route also carries the session's context accounting so the ring can be
+  // painted before the first turn; the trim itself must still be applied.
+  assert.match(src, /jsonReply\(res, 200, \{ messages: clientMessages\(msgs\), session, context: sessionContextStatus\(sid\) \}\)/);
   assert.match(src, /fileChange: r\.fileChange \? clientFileChange\(r\.fileChange\) : undefined/);
   assert.match(src, /export function clientFileChange/);
   assert.match(src, /export function clientMessages/);

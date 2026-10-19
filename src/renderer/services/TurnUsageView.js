@@ -160,12 +160,50 @@ function formatContextTokens(tokens) {
   return formatTokenCount(tokens);
 }
 
-function handleContextStatus(context) {
+/** Last known request size per session; a reopen repaints from it. */
+const contextStatusBySession = new Map();
+
+function resetContextStatus() {
+  if (!contextProgress || !contextProgressValue || !contextProgressTooltip) return;
+  contextProgress.dataset.state = 'ok';
+  contextProgressValue.style.strokeDasharray = '0 100';
+  const percentLabel = document.getElementById('contextProgressPercent');
+  if (percentLabel) percentLabel.textContent = '0%';
+  const detail = '上下文用量：本会话尚无请求';
+  contextProgress.title = detail;
+  contextProgressTooltip.textContent = detail;
+}
+
+/**
+ * Paint the carried status for the session the user just opened, so a restart
+ * continues the conversation's context instead of showing a fresh one.
+ *
+ * `context` undefined means "no new information" (cached runtime switch);
+ * `null` means the server reports no accounting for this session and the
+ * renderer's copy must be dropped.
+ */
+function applySessionContextStatus(sessionId, context) {
+  const provided = context !== undefined;
+  if (sessionId && provided) {
+    if (context) contextStatusBySession.set(sessionId, context);
+    else contextStatusBySession.delete(sessionId);
+  }
+  const known = (provided ? context : null) || (sessionId ? contextStatusBySession.get(sessionId) : null);
+  if (!known) { resetContextStatus(); return; }
+  if (sessionId) contextStatusBySession.set(sessionId, known);
+  handleContextStatus(known, sessionId);
+}
+
+function handleContextStatus(context, sessionId) {
   if (!context || !contextProgress || !contextProgressValue || !contextProgressTooltip) return;
-  latestContextStatus = context;
+  const owner = sessionId || currentSessionId;
+  if (owner) contextStatusBySession.set(owner, context);
   // Background task pressure belongs to its own runtime. Do not repaint the
-  // selected conversation's context ring on every foreign SSE event.
+  // selected conversation's context ring on every foreign SSE event, and do
+  // not let a background session become the value a later switch re-applies.
   if (currentSessionId !== visibleSessionId) return;
+  if (owner && owner !== visibleSessionId) return;
+  latestContextStatus = context;
   const windowTokens = Math.max(1, Number(context.contextWindow) || 128000);
   const usedTokens = Math.max(0, Number(context.usedTokens) || 0);
   const percent = Math.min(100, Math.round((usedTokens / windowTokens) * 100));
