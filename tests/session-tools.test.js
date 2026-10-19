@@ -86,3 +86,33 @@ test('a real powershell session keeps location and reports native exit codes', {
     tools.shutdownSync();
   }
 });
+
+test('the task center sees only its own shells and can close one by id', { skip: process.platform !== 'win32', timeout: 60000 }, async () => {
+  const tools = new ShellSessionTools(process.cwd());
+  let id;
+  try {
+    assert.deepEqual(tools.summaries('owner-a'), []);
+    const opened = await tools.execute('open', { shell: 'cmd' }, 'owner-a', undefined, process.cwd());
+    assert.equal(opened.success, true, opened.output);
+    id = opened.metadata.sessionId;
+
+    const mine = tools.summaries('owner-a');
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].id, id);
+    assert.equal(mine[0].shell, 'cmd');
+    assert.equal(mine[0].running, true);
+    assert.equal(typeof mine[0].createdAt, 'number');
+    // A summary is a projection, not the tty buffer.
+    assert.equal(Object.prototype.hasOwnProperty.call(mine[0], 'cursor'), false);
+    assert.deepEqual(tools.summaries('owner-b'), [], 'another conversation must not enumerate this shell');
+
+    const closed = await tools.close(id, 'owner-a');
+    assert.equal(closed.success, true, closed.output);
+    id = undefined;
+    assert.deepEqual(tools.summaries('owner-a'), []);
+  } finally {
+    if (id) await tools.execute('close', { session_id: id }, 'owner-a').catch(() => {});
+    tools.shutdownSync();
+  }
+});
+

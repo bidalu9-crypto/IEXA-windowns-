@@ -28,6 +28,12 @@ export interface RuntimeRoutesContext {
   cancelSession(sessionId: string): void;
   clearRunningSession(sessionId: string): void;
   cancelLiveJobs(sessionId: string, settled?: boolean): void;
+  /** Objective kept outside the transcript so compaction cannot drop it. */
+  getGoal(sessionId: string): unknown;
+  clearGoal(sessionId: string): boolean;
+  /** Active persistent shells belonging to this conversation. */
+  listShellSessions(sessionId: string): unknown[];
+  closeShellSession(id: string, sessionId: string): Promise<{ output: string; success: boolean }>;
 }
 
 export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.ServerResponse, url: URL, context: RuntimeRoutesContext): Promise<boolean> {
@@ -42,6 +48,29 @@ export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.Se
   if (url.pathname === '/api/jobs' && req.method === 'DELETE') {
     const sessionId = url.searchParams.get('sessionId') || '';
     jsonReply(res, 200, { ok: true, ...context.clearJobs(sessionId) });
+    return true;
+  }
+  if (url.pathname === '/api/goal' && req.method === 'GET') {
+    const sessionId = url.searchParams.get('sessionId') || '';
+    jsonReply(res, 200, { goal: sessionId ? context.getGoal(sessionId) : null });
+    return true;
+  }
+  if (url.pathname === '/api/goal' && req.method === 'DELETE') {
+    const sessionId = url.searchParams.get('sessionId') || '';
+    jsonReply(res, 200, { ok: sessionId ? context.clearGoal(sessionId) : false });
+    return true;
+  }
+  if (url.pathname === '/api/shell-sessions' && req.method === 'GET') {
+    const sessionId = url.searchParams.get('sessionId') || '';
+    jsonReply(res, 200, { sessions: sessionId ? context.listShellSessions(sessionId) : [] });
+    return true;
+  }
+  if (url.pathname === '/api/shell-sessions' && req.method === 'DELETE') {
+    const sessionId = url.searchParams.get('sessionId') || '';
+    const id = url.searchParams.get('id') || '';
+    if (!sessionId || !id) { jsonReply(res, 400, { error: 'sessionId 和 id 必填。' }); return true; }
+    const result = await context.closeShellSession(id, sessionId);
+    jsonReply(res, result.success ? 200 : 404, { ok: result.success, message: result.output });
     return true;
   }
   if (url.pathname === '/api/agent/state' && req.method === 'GET') {

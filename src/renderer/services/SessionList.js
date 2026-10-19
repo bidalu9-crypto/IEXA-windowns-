@@ -432,6 +432,7 @@ async function switchSession(id, updateList = true) {
   }
   currentSessionId = id;
   visibleSessionId = id;
+  void refreshGoalBanner();
   syncSubAgentView();
   const targetRuntime = runtimeForSession(id);
   if (targetRuntime.historyReady || targetRuntime.isProcessing) {

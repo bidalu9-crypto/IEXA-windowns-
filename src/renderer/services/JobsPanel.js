@@ -196,6 +196,84 @@ async function clearJobsHistory() {
   }
 }
 
+// Persistent shells are a different kind of job: they stay alive across turns,
+// so they get their own compact block instead of being mixed into the audit rows.
+let shellSessionSignature = '';
+
+async function loadShellSessions() {
+  const host = document.getElementById('shellSessionList');
+  if (!host) return;
+  if (!currentSessionId) { host.hidden = true; host.innerHTML = ''; shellSessionSignature = ''; return; }
+  try {
+    const response = await fetch(`${API_BASE}/api/shell-sessions?sessionId=${encodeURIComponent(currentSessionId)}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    renderShellSessions(Array.isArray(data.sessions) ? data.sessions : []);
+  } catch {
+    host.hidden = true;
+  }
+}
+
+function renderShellSessions(sessions) {
+  const host = document.getElementById('shellSessionList');
+  if (!host) return;
+  const signature = sessions.map((session) => `${session.id}:${session.running}`).join('|');
+  // Polling every 2.5s must not rebuild rows that did not change.
+  if (signature === shellSessionSignature) return;
+  shellSessionSignature = signature;
+  host.hidden = sessions.length === 0;
+  host.innerHTML = '';
+  if (!sessions.length) return;
+
+  const title = document.createElement('div');
+  title.className = 'shell-session-title';
+  title.textContent = `持久终端 · ${sessions.length}`;
+  host.appendChild(title);
+
+  for (const session of sessions) {
+    const row = document.createElement('div');
+    row.className = `shell-session-row${session.running ? ' is-running' : ''}`;
+    row.dataset.sessionId = session.id;
+
+    const dot = document.createElement('span');
+    dot.className = 'shell-session-dot';
+    const id = document.createElement('code');
+    id.className = 'shell-session-id';
+    id.textContent = String(session.id).slice(0, 8);
+    const meta = document.createElement('span');
+    meta.className = 'shell-session-meta';
+    meta.textContent = `${session.shell || 'shell'} · ${session.cwd || ''}`;
+    const state = document.createElement('span');
+    state.className = 'shell-session-state';
+    state.textContent = session.running ? '运行中' : '已结束';
+    row.append(dot, id, meta, state);
+
+    if (session.running) {
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'shell-session-close';
+      close.dataset.closeSession = session.id;
+      close.title = '结束这个终端';
+      close.setAttribute('aria-label', `结束终端 ${id.textContent}`);
+      close.textContent = '结束';
+      row.appendChild(close);
+    }
+    host.appendChild(row);
+  }
+}
+
+async function closeShellSession(id) {
+  if (!id || !currentSessionId) return;
+  try {
+    await fetch(`${API_BASE}/api/shell-sessions?sessionId=${encodeURIComponent(currentSessionId)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (error) {
+    console.error('Failed to close shell session:', error);
+  } finally {
+    shellSessionSignature = '';
+    await loadShellSessions();
+  }
+}
+
 async function loadJobs() {
   const list = document.getElementById('jobsList');
   try {
@@ -228,7 +306,9 @@ function applyJobUpdate(job) {
 }
 function syncJobsPolling() {
   const active = jobsViewActive() && !document.hidden;
-  if (active && !jobsRefreshTimer) jobsRefreshTimer = window.setInterval(loadJobs, 2500);
+  if (active && !jobsRefreshTimer) {
+    jobsRefreshTimer = window.setInterval(() => { loadJobs(); loadShellSessions(); }, 2500);
+  }
   if (!active && jobsRefreshTimer) { window.clearInterval(jobsRefreshTimer); jobsRefreshTimer = null; }
 }
 function initJobsUI() {
@@ -247,6 +327,8 @@ function initJobsUI() {
   // One delegated listener survives every re-render, so cards never carry
   // their own handlers and a reused card keeps its expanded state.
   document.getElementById('jobsList')?.addEventListener('click', (event) => {
+    const close = event.target.closest('[data-close-session]');
+    if (close) { closeShellSession(close.dataset.closeSession); return; }
     const row = event.target.closest('.job-row');
     if (!row) return;
     const card = row.closest('.job-card');
@@ -260,7 +342,7 @@ function initJobsUI() {
   });
   document.addEventListener('visibilitychange', () => {
     syncJobsPolling();
-    if (!document.hidden && jobsViewActive()) renderJobs();
+    if (!document.hidden && jobsViewActive()) { renderJobs(); loadShellSessions(); }
   });
 }
 

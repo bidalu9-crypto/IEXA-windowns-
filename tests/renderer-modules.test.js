@@ -15,7 +15,9 @@ const ROOT = path.resolve(__dirname, '..');
 const RENDERER = path.join(ROOT, 'src/renderer');
 const bundle = require('./helpers/renderer-bundle');
 
-const APP_LINES = 4600;
+// Two cuts brought app.js from 10,123 to ~2,355 lines. The budget follows the
+// work rather than the other way round: if this needs raising, split again.
+const APP_LINES = 3200;
 const MODULE_LINES = 1200;
 
 function countLines(file) {

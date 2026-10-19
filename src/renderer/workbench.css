@@ -909,6 +909,115 @@ html[data-motion="reduced"] .workbench-shell .skill-card:hover {
   transform: none;
 }
 
+/* ---------------------------------------------------------------------------
+   Goal banner + persistent shells
+   The goal is stored on the server, outside the transcript; this bar is only
+   its reflection, so it stays one line and never competes with the message.
+--------------------------------------------------------------------------- */
+.workbench-shell .goal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 8px 16px 0;
+  padding: 5px 10px;
+  border-radius: var(--ds-r-sm);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+  box-shadow: var(--ds-elev-1);
+  color: var(--text-secondary);
+  font-size: calc(.76rem * var(--ui-font-scale, 1));
+  animation: ds-pop-in var(--ds-dur-2) var(--ds-ease-out);
+}
+
+.workbench-shell .goal-bar[hidden] { display: none; }
+.workbench-shell .goal-bar .ui-icon { flex: 0 0 14px; width: 14px; height: 14px; color: var(--accent); }
+.workbench-shell .goal-bar-label { flex: 0 0 auto; color: var(--text-muted); }
+.workbench-shell .goal-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-shell .goal-bar-status { flex: 0 0 auto; color: var(--text-muted); white-space: nowrap; }
+.workbench-shell .goal-bar[data-status="blocked"] .goal-bar-status { color: var(--warning); }
+.workbench-shell .goal-bar[data-status="done"] { opacity: .72; }
+.workbench-shell .goal-bar-clear {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-r-xs);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--ds-dur-1) var(--ds-ease-out), color var(--ds-dur-1) var(--ds-ease-out);
+}
+.workbench-shell .goal-bar-clear .ui-icon { width: 12px; height: 12px; color: inherit; }
+.workbench-shell .goal-bar-clear:hover { background: var(--bg-hover, rgb(127 127 127 / .12)); color: var(--text-primary); }
+.workbench-shell .goal-bar.is-clearing { opacity: .55; }
+
+.workbench-shell .shell-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.workbench-shell .shell-session-list[hidden] { display: none; }
+.workbench-shell .shell-session-title {
+  color: var(--text-muted);
+  font-size: calc(.68rem * var(--ui-font-scale, 1));
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.workbench-shell .shell-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: var(--ds-r-sm);
+  background: var(--bg-secondary);
+  box-shadow: var(--ds-elev-1);
+  font-size: calc(.74rem * var(--ui-font-scale, 1));
+}
+.workbench-shell .shell-session-dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.workbench-shell .shell-session-row.is-running .shell-session-dot {
+  background: var(--accent);
+  animation: session-running-pulse 1.25s ease-in-out infinite;
+}
+.workbench-shell .shell-session-id {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.workbench-shell .shell-session-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-shell .shell-session-state { flex: 0 0 auto; color: var(--text-muted); white-space: nowrap; }
+.workbench-shell .shell-session-close {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: var(--ds-r-xs);
+  background: transparent;
+  box-shadow: var(--ds-elev-1);
+  color: var(--text-muted);
+  font-size: inherit;
+  cursor: pointer;
+  transition: background var(--ds-dur-1) var(--ds-ease-out), color var(--ds-dur-1) var(--ds-ease-out);
+}
+.workbench-shell .shell-session-close:hover { background: var(--bg-hover, rgb(127 127 127 / .12)); color: var(--text-primary); }
+
 @media (prefers-reduced-motion: reduce) {
   html:not([data-motion="full"]) .workbench-shell :is(.view.active, .skill-card,
     .skill-add-menu, .model-selector-menu, .slash-menu, .files-context-menu,

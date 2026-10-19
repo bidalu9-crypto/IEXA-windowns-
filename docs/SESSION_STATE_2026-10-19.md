@@ -103,6 +103,54 @@ shell_session:  open 一次 → cd / activate / export 全部留在同一个 tty
 
 全量 **683 / 683**（并发 2），构建 exit 0。
 
+## 可见的一半：目标条与持久终端块（同日晚）
+
+工具能用了，但只有模型知道。补两处界面，让状态对人也可读。
+
+### 目标条
+
+`/api/goal`（GET / DELETE）返回 `GoalStore` 里的记录；`services/GoalBanner.js` 把它渲染成
+聊天区顶部一行：
+
+```
+⚑ 目标  把 app.js 拆成功能模块，保持共享作用域与测试全绿        进行中 · 3 条进度  ✕
+```
+
+- 只占一行，超出省略；完整目标、完成标准和最近三条进度在 `title` 里。
+- `data-status` 驱动样式：`active` 正常、`blocked` 用警告色、`done` 降到 72% 透明度。
+- 刷新时机：`init()`、`switchSession()`、`handleDone()`（goal 工具刚写完就能看到）。
+- 竞态：每次请求带自增序号，切会话后旧响应不能覆盖新会话的条（有测试）。
+- 清除按钮发 `DELETE`，仅桌面端可用（移动端 `readOnly` 拒绝）。
+
+### 持久终端块
+
+任务中心顶部单列一块，与任务审计行分开——它们的生命周期不同（终端跨回合存活）：
+
+```
+持久终端 · 3
+● 3f9c1a2b  powershell · E:\IEXA-WIN                    运行中  结束
+● 77d0e4c5  cmd · C:\Users\...\Temp                     运行中  结束
+● 91aa0f3d  bash · /home/iexa/repo                      已结束
+```
+
+- `GET /api/shell-sessions?sessionId=` 走 `ShellSessionTools.summaries(owner)`，只返回
+  该对话自己的 tty，且**不含缓冲区**（`cursor` 不在投影里）。
+- `DELETE /api/shell-sessions?sessionId=&id=` 复用 `execute('close')`，owner 校验照旧；
+  少传 id 返回 400，不猜要关哪个。
+- 轮询 2.5s；`renderShellSessions` 先算签名（`id:running`），签名不变就不重建 DOM——
+  和任务卡片同一个思路，避免每 2.5 秒把整块重新画一遍。
+- 已结束的会话保留在列表里但不显示「结束」按钮，重启或关闭后自然消失。
+
+### 验证
+
+- `tests/runtime-routes-goal.test.js`（4 项）：goal 读取/清除、shell 列表按会话隔离、
+  关闭必须带 id、未知路由不拦截。
+- `tests/goal-shell-ui.test.js`（5 项）：目标条文案与 tooltip、done 状态、切会话竞态、
+  清除发 DELETE、终端块只渲染运行中会话的关闭按钮且不重建未变行。
+- `tests/session-tools.test.js` 增 1 项：`summaries` 只含自己的会话、不含 `cursor`、
+  `close` 后清空。
+- 全量 **699 / 699**，构建 exit 0。
+
 ## 已知边界
 
 - `job_output` 的完整输出只在内存里，重启后不可恢复；磁盘只留 320 字预览。这是有意的取舍：把每次工具输出都落盘会让 `.iexa-jobs.json` 从 KB 级涨到百 MB 级。

@@ -110,6 +110,16 @@ interface OwnedSession {
   owner: string;
 }
 
+/** Task-center projection; never carries the tty buffer. */
+export interface ShellSessionSummary {
+  id: string;
+  shell: TerminalShell;
+  cwd: string;
+  running: boolean;
+  createdAt: number;
+  endedAt?: number;
+}
+
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 /**
@@ -257,6 +267,29 @@ export class ShellSessionTools {
     } catch (error) {
       return { output: `shell_session 失败：${(error as Error).message}`, success: false };
     }
+  }
+
+  /**
+   * Read-only projection for the task center. The owner check keeps one
+   * conversation (or a paired phone) from enumerating another's tty.
+   */
+  summaries(owner: string): ShellSessionSummary[] {
+    return [...this.sessions.values()]
+      .filter(item => item.owner === owner)
+      .sort((a, b) => b.info.createdAt - a.info.createdAt)
+      .map(item => ({
+        id: item.info.id,
+        shell: item.info.shell,
+        cwd: item.info.cwd,
+        running: item.info.running,
+        createdAt: item.info.createdAt,
+        endedAt: item.info.endedAt,
+      }));
+  }
+
+  /** Close from the UI; reuses the same execute path, so owner checks apply. */
+  close(id: string, owner: string): Promise<ToolExecutionResult> {
+    return this.execute('close', { session_id: id }, owner);
   }
 
   async shutdown(): Promise<void> {

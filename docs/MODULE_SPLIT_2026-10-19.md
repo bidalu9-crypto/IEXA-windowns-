@@ -108,13 +108,52 @@ initModelProfilesModule();
 
 `tests/helpers/transcript-harness.cjs` 也改为读 bundle。
 
+## 第二轮：流式与工具渲染（同日晚）
+
+第一轮把功能面板搬走了，`app.js` 剩下的 4,105 行里仍有约 2,000 行是**对话流本身**：
+SSE 分发、文本/思考增量、工具卡片、交付物、用量行、检查点。这是每次改对话行为都要
+翻的部分，所以按同一套规则再切一刀。
+
+`app.js`：**4,105 → 2,355 行**。新增五个模块：
+
+| 模块 | 行数 | 职责 |
+|---|---|---|
+| `ToolStreamView.js` | 613 | 工具标签/图标、连续折叠、任务摘要、四种工具生命周期事件 |
+| `StreamPipeline.js` | 428 | SSE 分发、文本与思考增量、权限弹窗、提问卡片 |
+| `DeliverableView.js` | 350 | 工具产物、待办计划、交付卡片、文件变更 |
+| `TurnUsageView.js` | 293 | 回合计时、用量回执、上下文圆环、Token 用量页 |
+| `Checkpoints.js` | 101 | 检查点列表、弹层定位、回滚 |
+
+累计：`app.js` 从 10,123 行降到 2,355 行（-77%），`services/` 41 个模块。
+
+### 这次怎么保证不出错
+
+函数搬家用脚本按 AST 偏移裁剪，而不是手抄：
+
+1. `ts.createSourceFile` 拿到每个顶层语句的**字符偏移**；
+2. 按名字选中目标语句，连同它前面的注释一起剪走；
+3. 从 `app.js` 中按区间删除，其余字节原样保留；
+4. 写入 `services/*.js`，补 `<script>`。
+
+第一步先备份、跑完先 `node --check`。第一次运行失败在输出路径写成了相对项目根，
+`app.js` 已被改写——因为备份在 `.tmp/app.before.js`，回滚只花了一条 `Copy-Item`。
+**任何机械改写都要先备份**，这次算是用上了。
+
+### 新模块的额外守卫
+
+`GoalBanner.js`（64 行）是同批加的，展示服务端目标记录。它和上面五个模块一起被
+`renderer-modules.test.js` 的同名检查覆盖：不得重名、不得在求值时接线、行数上限。
+
 ## 还没动的
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
 | `src/main/server.ts` | 3,890 | 单文件 200+ 路由，闭包共享大量模块状态；拆分需要先抽出 store 层，风险高于本轮 |
 | `src/renderer/styles.css` | 6,194 | CSS 拆分受层叠顺序约束，需要按 `@layer` 重构才能安全拆 |
-| `src/renderer/app.js` | 4,105 | 剩下的是 Markdown 渲染、导航、SOUL、搜索、输入、附件、发送、SSE 事件处理（约 2,000 行）、UI 工具函数、主题、`init()` |
+| `src/renderer/app.js` | 2,355 | 剩下的是 Markdown 渲染、导航、SOUL、搜索、输入、附件、发送、主题、`init()`、事件委托 |
+
+下一步优先级建议：`server.ts` 的路由分组（`api/` 下已有 `RuntimeRoutes` 的先例）
+→ `styles.css` 按 `@layer` 分层 → `app.js` 的输入/附件段。
 
 下一步优先级建议：`app.js` 里的 SSE 事件处理段（`handleSSEEvent` 及其 tool/usage/deliverable
 处理器，约 2,000 行）→ `server.ts` 的路由分组 → `styles.css` 分层。

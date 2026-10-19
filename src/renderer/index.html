@@ -191,6 +191,13 @@
               <span class="chat-focus-toggle-label">展开聊天</span>
             </button>
           </div>
+          <div class="goal-bar" id="goalBar" hidden>
+            <svg class="ui-icon" aria-hidden="true"><use href="#ui-pin"/></svg>
+            <span class="goal-bar-label">目标</span>
+            <span class="goal-bar-text" id="goalBarText"></span>
+            <span class="goal-bar-status" id="goalBarStatus"></span>
+            <button type="button" class="goal-bar-clear" id="goalBarClear" title="清除目标" aria-label="清除目标"><svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg></button>
+          </div>
           <div class="chat-messages-area">
             <div class="chat-messages" id="chatMessages">
               <div class="welcome">
@@ -784,7 +791,8 @@ version: 1.0.0
           <button type="button" data-jobs-filter="current" class="is-active">当前会话</button>
           <button type="button" data-jobs-filter="all">全部会话</button>
         </div>
-        <div class="jobs-list" id="jobsList"><div class="profile-empty">加载任务中…</div></div>
+        <div class="shell-session-list" id="shellSessionList" hidden></div>
+      <div class="jobs-list" id="jobsList"><div class="profile-empty">加载任务中…</div></div>
       </div>
     </div>
 
@@ -1011,6 +1019,12 @@ version: 1.0.0
 <script src="services/JobsPanel.js"></script>
 <script src="services/ShellLayout.js"></script>
 <script src="services/MobileBridge.js"></script>
+<script src="services/StreamPipeline.js"></script>
+<script src="services/ToolStreamView.js"></script>
+<script src="services/DeliverableView.js"></script>
+<script src="services/TurnUsageView.js"></script>
+<script src="services/Checkpoints.js"></script>
+<script src="services/GoalBanner.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 <script src="services/WindowChrome.js"></script>

@@ -1460,6 +1460,8 @@ function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: str
     || pathname === '/api/appearance'
     || pathname === '/api/soul'
     || pathname === '/api/jobs'
+    || pathname === '/api/goal'
+    || pathname === '/api/shell-sessions'
     || pathname === '/api/checkpoints'
     || pathname === '/api/checkpoints/rewind'
     || pathname === '/api/diagnostics'
@@ -1477,6 +1479,8 @@ function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: str
     if (pathname === '/api/token-usage' && !readOnly) return false;
     // Purging the audit trail is a desktop action; a paired phone may read it.
     if (pathname === '/api/jobs' && !readOnly) return false;
+    // Clearing a goal or killing a tty is a desktop action.
+    if ((pathname === '/api/goal' || pathname === '/api/shell-sessions') && !readOnly) return false;
     return true;
   }
   if (device.capability !== 'files') return false;
@@ -1887,6 +1891,10 @@ function createServer(auth: LocalApiAuth): http.Server {
         total: JOB_RETENTION_TOTAL,
       },
       cancelSession: (sessionId) => cancelSessionAgent(sessionId, false), clearRunningSession: (sessionId) => runningSessionIds.delete(sessionId), cancelLiveJobs,
+      getGoal: (sessionId) => goalStore.get(sessionId),
+      clearGoal: (sessionId) => goalStore.clear(sessionId),
+      listShellSessions: (sessionId) => shellSessions.summaries(sessionId),
+      closeShellSession: (id, sessionId) => shellSessions.close(id, sessionId),
     })) return;
 
     // =====================================================================
