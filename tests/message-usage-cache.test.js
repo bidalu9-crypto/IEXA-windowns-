@@ -118,7 +118,10 @@ test('token usage page keeps a cache tile for every model, including zero', (t) 
 test('server persists and streams the cache receipt for message usage', () => {
   const server = fs.readFileSync(path.join(root, 'src/main/server.ts'), 'utf8');
   assert.ok(server.includes('cacheReadInputTokens: u.cacheReadInputTokens'), 'lastUsage keeps the receipt');
-  assert.ok(server.includes('usage?: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number };'), 'assistant message type extended');
+  assert.ok(server.includes('inputTokensAreFresh?: boolean'),
+    'assistant message type marks whether inputTokens is the fresh remainder');
+  assert.ok(server.includes('inputTokensAreFresh: true'),
+    'a persisted record records that its input excludes the cached span');
   assert.ok(appSource.includes('0, usage.cacheReadInputTokens)'), 'live stream passes the receipt');
   assert.ok(appSource.includes('msg.usage && msg.usage.cacheReadInputTokens'), 'history re-render passes the receipt');
 });

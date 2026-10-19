@@ -55,7 +55,9 @@ test('running the server from the repo root leaves no runtime state behind', () 
   // run writes sessions, skills and the mobile bridge into the checkout. They
   // are not source: the real workspace is workspace/ (or IEXA_WORKSPACE).
   const leaks = ['.iexa-memory', '.iexa-sessions', '.iexa-sessions.json', '.iexa-skills.json',
-    '.iexa-mobile-bridge.json', '.iexa-goals.json', 'skills']
+    '.iexa-mobile-bridge.json', '.iexa-goals.json', '.iexa-session-context', '.iexa-traces',
+    '.iexa-plugins', '.iexa-token-usage.json', '.iexa-settings.json', '.iexa-appearance.json',
+    'skills']
     .filter((name) => fs.existsSync(path.join(ROOT, name)));
   assert.deepEqual(leaks, [],
     `runtime state in the repo root (${leaks.join(', ')}); run with IEXA_WORKSPACE pointing at workspace/ and delete these`);

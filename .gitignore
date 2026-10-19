@@ -50,3 +50,20 @@ debug.log
 # Accidental shell artifacts (PowerShell redirect mistakes)
 /$null
 /-p/
+
+# Runtime state. The server defaults its workspace to the process cwd, so a
+# manual run from the repo root writes these into the checkout. They are data,
+# not source: the real home is workspace/ (or IEXA_WORKSPACE).
+/.iexa-memory/
+/.iexa-sessions/
+/.iexa-sessions.json
+/.iexa-skills.json
+/.iexa-mobile-bridge.json
+/.iexa-mobile-bridge.json.bak
+/.iexa-goals.json
+/.iexa-token-usage.json
+/.iexa-settings.json
+/.iexa-appearance.json
+/.iexa-project.json
+/.iexa-jobs.json
+/skills/
