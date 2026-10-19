@@ -28,7 +28,7 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
     try { socket?.close(); } catch {}
     proc.kill();
     await new Promise(r => server.close(r));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* Windows file lock */ }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {
@@ -157,6 +157,11 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
       // selector leaves the whole rail laid out and the transcript shows a gap.
       railDisplay: (() => { const rail = message.querySelector('.tool-steps'); return rail ? getComputedStyle(rail).display : null; })(),
       railHeight: (() => { const rail = message.querySelector('.tool-steps'); return rail ? Math.round(rail.getBoundingClientRect().height) : null; })(),
+      // The closing rule has to end where the reply column ends. A max-width on
+      // the bar cut it short on wide windows while the text ran on.
+      barWidth: bar ? Math.round(bar.getBoundingClientRect().width) : null,
+      replyWidth: Math.round((message.querySelector('.message-content') || message).getBoundingClientRect().width),
+      messageWidth: Math.round(message.getBoundingClientRect().width),
     };
   })()`);
   assert.equal(settled.exists, true, 'a replayed turn has no summary line');
@@ -168,6 +173,10 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
   assert.equal(settled.railBarHidden, 'none', 'the per-rail bar repeats the turn bar');
   assert.equal(settled.railDisplay, 'none', 'a folded rail must not stay in the layout');
   assert.equal(settled.railHeight, 0, 'a folded rail must not reserve height');
+  assert.ok(Math.abs(settled.barWidth - settled.messageWidth) <= 2,
+    `the rule must span the message column (${settled.barWidth} vs ${settled.messageWidth})`);
+  assert.ok(settled.barWidth >= settled.replyWidth - 2,
+    `the rule must not stop short of the reply (${settled.barWidth} < ${settled.replyWidth})`);
 
   // Opening it puts the rails back, still folded inside, and keeps the line.
   await evaluate("document.querySelector('.message.assistant .turn-summary').click()");

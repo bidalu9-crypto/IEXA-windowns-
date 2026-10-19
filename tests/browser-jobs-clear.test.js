@@ -42,7 +42,7 @@ test('real browser: the purge action clears settled tasks and keeps running ones
     await Promise.race([exited, new Promise(r => setTimeout(r, 1500))]);
     server.closeAllConnections();
     await new Promise(r => server.close(r));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* Windows file lock */ }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {

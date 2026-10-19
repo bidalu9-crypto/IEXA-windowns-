@@ -38,7 +38,7 @@ test('real browser: skills add button stays visible in light and dark', { skip: 
     await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1500))]);
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* Windows file lock */ }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {

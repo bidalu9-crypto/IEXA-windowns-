@@ -29,7 +29,7 @@ test('real browser: a reopened session keeps its carried context size', { skip: 
     try { socket?.close(); } catch {}
     proc.kill();
     await new Promise(r => server.close(r));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* Windows file lock */ }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {

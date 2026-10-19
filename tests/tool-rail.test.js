@@ -135,6 +135,8 @@ test('the folded turn keeps the closing rule the reference draws under it', () =
   assert.match(bar[1], /border-bottom:\s*\.?5px solid/, 'the bar lost its closing rule');
   assert.doesNotMatch(bar[1], /border-left:\s*[^0]/, 'a left rail is not what the reference draws');
   assert.match(bar[1], /width:\s*100%/, 'the band must span the content column');
+  assert.doesNotMatch(bar[1], /max-width:\s*min\(100%,\s*\d+px\)/,
+    'a fixed cap ends the rule before the reply column does');
   assert.match(bar[1], /border-radius:\s*0\s*(?:;|$)/, 'a rounded band would cut the rule');
 });
 

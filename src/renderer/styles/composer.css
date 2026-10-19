@@ -61,7 +61,8 @@
   align-self: stretch;
   gap: 8px;
   width: 100%;
-  max-width: min(100%, 680px);
+  /* No max-width: the rule has to end where the reply column ends, not at a
+     hardcoded 680px that cuts it short on a wide window. */
   min-height: 30px;
   /* The reference is a full-width band closed by a hairline underneath, not a
      pill: measured rgb(38,38,38) on a rgb(24,24,24) page, one pixel tall, running

@@ -28,7 +28,10 @@ test('real browser: history renders in frames, skips needless rebuilds and keeps
     await Promise.race([exited, new Promise(r => setTimeout(r, 1500))]);
     server.closeAllConnections();
     await new Promise(r => server.close(r));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    // A teardown that fails on a Windows file lock turns a green run red for a
+    // reason that has nothing to do with the code under test. Retries cover the
+    // normal case; the catch covers Chromium still holding the profile.
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* locked */ }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {
