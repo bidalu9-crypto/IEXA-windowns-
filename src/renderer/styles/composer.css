@@ -99,7 +99,12 @@
 .turn-summary[aria-expanded="true"] .turn-summary-chevron { transform: rotate(225deg); }
 
 /* Folded: the blocks disappear, the bar stays as the way back. */
-.message.is-activity-settled .turn-activity-hidden { display: none; }
+/* A settled turn hides its activity entirely. The rule carries `.workbench-shell`
+   on purpose: workbench.css loads last and styles `.tool-steps.activity-list` as
+   `display: flex` at the same (0,3,0) specificity, so a shorter selector here
+   loses the cascade and the folded rail keeps its three thousand pixels of
+   height - a blank gap between the summary line and the answer. */
+.workbench-shell .message.is-activity-settled .turn-activity-hidden { display: none; }
 /* The turn bar already aggregates count, failures and time; repeating those on
    every rail underneath would say the same thing three times. The attribute
    prefix is deliberate: it outranks the `html[data-collapse-tools=…]` rules

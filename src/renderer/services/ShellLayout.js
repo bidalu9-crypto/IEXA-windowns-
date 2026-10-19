@@ -71,6 +71,13 @@ function initPanelResizers() {
   };
 
   normalize();
+  // Appearance can resolve before init() runs, and in that window the seeding
+  // path writes the widths on :root because this module is not reachable yet.
+  // Panels are authoritative now, so drop the inherited copy: an inline :root
+  // value makes every later write look like a global style invalidation, and a
+  // drag that lands while it is still set fails the "no inherited write" rule.
+  if (panels.sidebar) root.style.removeProperty('--sidebar-width');
+  if (panels.files) root.style.removeProperty('--files-panel-width');
   window.addEventListener('resize', normalize);
 
   // Appearance settings arrive before this module runs, so they seed the :root

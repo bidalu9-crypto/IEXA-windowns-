@@ -124,3 +124,18 @@ test('only a running row carries a glow, never the reasoning body', () => {
   const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
   assert.ok(html.includes('services/LabelGlow.js'), 'the glow module is not loaded by the shell');
 });
+
+test('a settled turn removes its activity from the layout, not just its class', () => {
+  // workbench.css styles .tool-steps.activity-list as display:flex at (0,3,0)
+  // and loads after the styles layer. A hide rule with the same weight loses
+  // silently: the class lands, the rail keeps its three thousand pixels, and
+  // the transcript shows a gap between the summary line and the answer.
+  const sheet = css('styles', 'composer.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = /([^{}]*\.turn-activity-hidden[^{}]*)\{[^}]*display:\s*none/.exec(sheet);
+  assert.ok(rule, 'no rule folds the settled activity away');
+  const selector = rule[1].trim();
+  const weight = (selector.match(/\./g) || []).length;
+  assert.ok(selector.includes('.workbench-shell'),
+    'the hide rule must outrank .workbench-shell .tool-steps.activity-list: ' + selector);
+  assert.ok(weight >= 4, `hide selector has ${weight} class names, needs at least 4: ${selector}`);
+});

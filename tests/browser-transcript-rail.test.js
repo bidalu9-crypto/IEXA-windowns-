@@ -152,6 +152,11 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
       rails: message.querySelectorAll('.tool-steps').length,
       hidden: message.querySelectorAll('.tool-steps.turn-activity-hidden').length,
       railBarHidden: bar ? getComputedStyle(message.querySelector('.tool-steps > .task-summary')).display : null,
+      // Class presence is not folding: workbench.css styles .tool-steps as
+      // display:flex at the same specificity and loads later, so a losing
+      // selector leaves the whole rail laid out and the transcript shows a gap.
+      railDisplay: (() => { const rail = message.querySelector('.tool-steps'); return rail ? getComputedStyle(rail).display : null; })(),
+      railHeight: (() => { const rail = message.querySelector('.tool-steps'); return rail ? Math.round(rail.getBoundingClientRect().height) : null; })(),
     };
   })()`);
   assert.equal(settled.exists, true, 'a replayed turn has no summary line');
@@ -161,6 +166,8 @@ test('real browser: a restored chain keeps its task bar and stays folded', { ski
   assert.equal(settled.count, '2 次调用');
   assert.equal(settled.hidden, settled.rails, 'every rail must be folded, none removed');
   assert.equal(settled.railBarHidden, 'none', 'the per-rail bar repeats the turn bar');
+  assert.equal(settled.railDisplay, 'none', 'a folded rail must not stay in the layout');
+  assert.equal(settled.railHeight, 0, 'a folded rail must not reserve height');
 
   // Opening it puts the rails back, still folded inside, and keeps the line.
   await evaluate("document.querySelector('.message.assistant .turn-summary').click()");
