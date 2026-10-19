@@ -58,18 +58,18 @@
 .turn-summary {
   display: flex;
   align-items: center;
-  align-self: flex-start;
+  align-self: stretch;
   gap: 8px;
-  width: fit-content;
+  width: 100%;
   max-width: min(100%, 680px);
   min-height: 30px;
-  /* Same left metrics as .tool-steps: a .5px rail and a 9px inset. The folded
-     turn keeps the timeline line the expanded rails draw, so collapsing does
-     not make the turn look like it never had one. */
-  margin: 2px 0 2px;
-  padding: 5px 10px 5px 9px;
+  /* The reference is a full-width band closed by a hairline underneath, not a
+     pill: measured rgb(38,38,38) on a rgb(24,24,24) page, one pixel tall, running
+     the whole content column. The text shares the answer's left edge. */
+  margin: 6px 0 0;
+  padding: 6px 0;
   border: 0;
-  border-left: .5px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-bottom: .5px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
@@ -77,9 +77,9 @@
   font-size: calc(0.76rem * var(--ui-font-scale, 1));
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, border-left-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-bottom-color 120ms ease, color 120ms ease;
 }
-.turn-summary:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); border-left-color: var(--border-strong, var(--border)); color: var(--text-secondary); }
+.turn-summary:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); border-bottom-color: var(--border-strong, var(--border)); color: var(--text-secondary); }
 .turn-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .turn-summary-label { flex-shrink: 0; }
 .turn-summary-time { flex-shrink: 0; color: var(--text-secondary); font-variant-numeric: tabular-nums; }

@@ -125,22 +125,17 @@ test('only a running row carries a glow, never the reasoning body', () => {
   assert.ok(html.includes('services/LabelGlow.js'), 'the glow module is not loaded by the shell');
 });
 
-test('the folded turn keeps the timeline rail it folded into', () => {
-  // Collapsing must not make the turn look like it never had a rail: the bar
-  // carries the same .5px line and 9px inset as .tool-steps, so the collapsed
-  // line and the expanded rows stand at the same x.
+test('the folded turn keeps the closing rule the reference draws under it', () => {
+  // The reference row is a full-width band closed by a one-pixel hairline
+  // underneath, not a pill and not a left rail: the line runs the content
+  // column so the collapsed turn reads as a section that ended.
   const composer = css('styles', 'composer.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const bar = /\.turn-summary \{([^}]*)\}/.exec(composer);
   assert.ok(bar, 'the summary bar rule is gone');
-  assert.match(bar[1], /border-left:\s*\.5px solid/, 'the bar lost its timeline line');
-  assert.match(bar[1], /padding:\s*[^;]*\b9px\b/, 'the bar is not inset like the rails');
-  assert.match(bar[1], /border-radius:\s*0\s*(?:;|$)/,
-    'the bar must keep square corners, a rounded edge cuts the rail line');
-
-  const rail = /\.workbench-shell \.tool-steps \{([^}]*)\}/.exec(css('workbench.css'));
-  assert.ok(rail, 'the rail rule is gone');
-  assert.match(rail[1], /padding-left:\s*9px/, 'the rail inset changed; the bar must follow');
-  assert.match(rail[1], /border-left:\s*\.5px solid/, 'the rail line changed; the bar must follow');
+  assert.match(bar[1], /border-bottom:\s*\.?5px solid/, 'the bar lost its closing rule');
+  assert.doesNotMatch(bar[1], /border-left:\s*[^0]/, 'a left rail is not what the reference draws');
+  assert.match(bar[1], /width:\s*100%/, 'the band must span the content column');
+  assert.match(bar[1], /border-radius:\s*0\s*(?:;|$)/, 'a rounded band would cut the rule');
 });
 
 test('a settled turn removes its activity from the layout, not just its class', () => {

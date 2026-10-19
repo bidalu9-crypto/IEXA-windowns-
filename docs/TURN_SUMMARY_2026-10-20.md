@@ -19,12 +19,16 @@
 
 ```
 .message.assistant
-├─ button.turn-summary          ← 用时 · N 次调用 · n 个报错 ›
+├─ button.turn-summary          ← 用时 · N 次调用 · n 个报错，整行宽，底部一条发丝线
 ├─ details.thinking-block       ← 折叠态加 .turn-activity-hidden
 ├─ div.tool-steps               ← 同上
 ├─ div.tool-steps ...
 └─ div.message-content          ← 回答，永远可见
 ```
+
+摘要行是**整行宽的横带**，底边一条 `0.5px` 发丝线（`color-mix(--border 70%)`），文字与下面的
+回答共用同一个左边缘。参照 Codex 的实测：`rgb(38,38,38)` 的 1px 线画在 `rgb(24,24,24)`
+的背景上，横贯整个内容列——不是胶囊、也不是左边的竖线。
 
 - `.message.is-activity-settled` 表示这一轮已经收拢；
   `.is-activity-collapsed` 表示当前是收起状态。
