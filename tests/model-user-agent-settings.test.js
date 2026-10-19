@@ -37,7 +37,7 @@ test('invalid custom UA is rejected without overwriting saved settings or reachi
  const discovery=await api('/api/profiles/fetch-models',{baseURL,profileId:'ua-fixture',userAgent:'injected\n'});assert.equal(discovery.status,400);assert.equal(calls.length,count);
 });
 test('actual editor restores custom UA, new profiles are blank, and rejected saves remain open',async t=>{
- const dom=new JSDOM(fs.readFileSync('src/renderer/index.html','utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window,source=fs.readFileSync('src/renderer/app.js','utf8');const fn=name=>{const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start)+2;return source.slice(source.slice(start-6,start)==='async '?start-6:start,end);};
+ const dom=new JSDOM(fs.readFileSync('src/renderer/index.html','utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window,source=require('./helpers/renderer-bundle').source;const fn=name=>{const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start)+2;return source.slice(source.slice(start-6,start)==='async '?start-6:start,end);};
  w.eval(`const API_BASE='';function updateEditorPlaceholders(){}function hideProfileEditor(){window.hiddenEditor=true;}function renderProfileList(){}function loadVisionProfileSetting(){}function refreshModelSelector(){};${fn('showProfileEditor')};${fn('saveProfile')};window.fixture={showProfileEditor,saveProfile};`);
  w.fixture.showProfileEditor({...profile(),userAgent:'EditorClient/2'});assert.equal(w.document.getElementById('profileEditorUserAgent').value,'EditorClient/2');
  let body;w.fetch=async(_url,options)=>{body=JSON.parse(options.body);return {ok:false,json:async()=>({error:'UA error'})};};w.IexaDialogs={alert:async text=>{w.errorText=text;}};await w.fixture.saveProfile();assert.equal(body.userAgent,'EditorClient/2');assert.equal(w.errorText,'UA error');assert.equal(w.hiddenEditor,undefined);
@@ -56,7 +56,7 @@ test('Anthropic model discovery uses Messages API authentication instead of Bear
 
 test('Anthropic editor shows native Messages route and saves it; OpenAI restores its choices', async t => {
  const dom=new JSDOM(fs.readFileSync('src/renderer/index.html','utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());
- const w=dom.window,source=fs.readFileSync('src/renderer/app.js','utf8');
+ const w=dom.window,source=require('./helpers/renderer-bundle').source;
  const fn=name=>{const start=source.indexOf('function '+name+'('),end=source.indexOf('\n}',start)+2;return source.slice(source.slice(start-6,start)==='async '?start-6:start,end);};
  w.eval(`const API_BASE='';const MODEL_PLACEHOLDERS={};const BASE_URL_HINTS={};function hideProfileEditor(){}function renderProfileList(){}function loadVisionProfileSetting(){}function refreshModelSelector(){};${fn('updateEditorPlaceholders')};${fn('showProfileEditor')};${fn('saveProfile')};window.fixture={updateEditorPlaceholders,showProfileEditor,saveProfile};`);
  w.fixture.showProfileEditor({ ...profile(),provider:'anthropic',apiMode:'chat_completions' });

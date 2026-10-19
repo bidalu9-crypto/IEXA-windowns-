@@ -44,7 +44,7 @@ test('SOUL API saves and reloads long bodies without a persona cap, restore repo
 test('actual SOUL editor submits long text, keeps in-flight lock and recovers after errors', async t => {
   const dom = new JSDOM(fs.readFileSync('src/renderer/index.html', 'utf8'), { runScripts: 'outside-only' });
   t.after(() => dom.window.close());
-  const w = dom.window, source = fs.readFileSync('src/renderer/app.js', 'utf8');
+  const w = dom.window, source = require('./helpers/renderer-bundle').source;
   const fn = name => {
     const start = source.indexOf('function ' + name + '('), end = source.indexOf('\n}', start) + 2;
     assert.ok(start >= 0);

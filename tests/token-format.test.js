@@ -6,7 +6,7 @@ const path = require('node:path');
 const ts = require('typescript');
 
 const root = path.resolve(__dirname, '..');
-const appSource = fs.readFileSync(path.join(root, 'src/renderer/app.js'), 'utf8');
+const appSource = require('./helpers/renderer-bundle').source;
 const tree = ts.createSourceFile('app.js', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const declarations = tree.statements.filter((node) => ts.isFunctionDeclaration(node));
 function pick(name) {

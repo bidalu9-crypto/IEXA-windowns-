@@ -1,5 +1,5 @@
 const fs=require('node:fs'),path=require('node:path'),ts=require('typescript');const {JSDOM}=require('jsdom');
-const root=path.resolve(__dirname,'../..');const app=fs.readFileSync(path.join(root,'src/renderer/app.js'),'utf8');
+const root=path.resolve(__dirname,'../..');const app=require('./renderer-bundle').source;
 const tree=ts.createSourceFile('app.js',app,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
 function functions(names){return tree.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(tree)).join('\n');}
 function create(t){

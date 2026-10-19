@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');const {JSDOM}=require('jsdom');
 const root=path.resolve(__dirname,'../src/renderer'),names=['spawn_agent','send_input','wait_agent','close_agent','resume_agent'];
 test('all five sub-agent operations map to the robot; ordinary tool icons keep their identity',()=>{
- const source=ts.createSourceFile('app.js',fs.readFileSync(path.join(root,'app.js'),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ const source=ts.createSourceFile('app.js',require('./helpers/renderer-bundle').source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
  const mapping=source.statements.find(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(source)==='TOOL_ICONS'));
  const fn=source.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='toolIcon');const context={uiIcon:name=>name};vm.createContext(context);vm.runInContext(mapping.getText(source)+'\n'+fn.getText(source),context);
  for(const name of names)assert.equal(context.toolIcon(name),'robot');assert.equal(context.toolIcon('shell_execute'),'terminal');assert.equal(context.toolIcon('file_read'),'file');assert.equal(context.toolIcon('unrecognized'),'settings');

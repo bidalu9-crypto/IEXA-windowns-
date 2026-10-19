@@ -5,7 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const {JSDOM}=require('jsdom');
 const script=fs.readFileSync(path.join(__dirname,'../src/renderer/services/ToolLifecycleView.js'),'utf8');
-const appSource=fs.readFileSync(path.join(__dirname,'../src/renderer/app.js'),'utf8').replace(/\r\n/g,'\n');
+const appSource=require('./helpers/renderer-bundle').source.replace(/\r\n/g,'\n');
 function fixture(t){const dom=new JSDOM('<div id="tool"><span class="tool-status"></span></div>',{runScripts:'outside-only'});t.after(()=>dom.window.close());dom.window.eval(script);const block=dom.window.document.getElementById('tool');const render=(b,cls,label)=>{b.dataset.status=cls;b.querySelector('.tool-status').textContent=label||cls;};return {view:dom.window.IexaToolLifecycleView,block,render};}
 const event=(sequence,status,runId='run-a')=>({version:1,runId,sequence,sessionId:'s',id:'c',name:'t',status,timestamp:1000+sequence});
 test('tool UI distinguishes approval, running, cancellation request and terminal',t=>{

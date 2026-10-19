@@ -11,7 +11,7 @@ const { JSDOM } = require('jsdom');
    and freezes when the reply is finalized. */
 
 const root = path.resolve(__dirname, '..');
-const appSource = fs.readFileSync(path.join(root, 'src/renderer/app.js'), 'utf8');
+const appSource = require('./helpers/renderer-bundle').source;
 const tree = ts.createSourceFile('app.js', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const declarations = tree.statements.filter((node) => ts.isFunctionDeclaration(node));
 function pickFunctions(names) {

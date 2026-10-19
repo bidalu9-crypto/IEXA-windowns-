@@ -71,7 +71,12 @@ test('real browser: consistent icon controls, project routing, themes and real v
   for(const theme of ['light','dark']){
     await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     const form=await evaluate(`(()=>{const input=document.getElementById('profileEditorName'),select=document.getElementById('profileEditorProvider'),box=document.getElementById('profileEditorFastMode');return {input:getComputedStyle(input).borderRadius,select:getComputedStyle(select).borderRadius,inputHeight:input.getBoundingClientRect().height,selectHeight:select.getBoundingClientRect().height,checkbox:box.getBoundingClientRect().width,background:getComputedStyle(input).backgroundColor,selectBackground:getComputedStyle(select).backgroundColor};})()`);
-    assert.equal(form.input,'9px');assert.equal(form.select,'9px');assert.ok(form.inputHeight>=40);assert.ok(form.selectHeight>=40);assert.equal(form.checkbox,18);assert.equal(form.background,form.selectBackground);
+    assert.equal(form.input,'9px');assert.equal(form.select,'9px');
+    // Chromium reports fractional layout boxes (39.9999 for a 40px control), so
+    // compare against the design value with a subpixel tolerance instead of
+    // demanding an exact float.
+    assert.ok(form.inputHeight>=39.5,`input height ${form.inputHeight} in ${theme}`);
+    assert.ok(form.selectHeight>=39.5,`select height ${form.selectHeight} in ${theme}`);assert.equal(form.checkbox,18);assert.equal(form.background,form.selectBackground);
     assert.equal(await evaluate("(()=>{const input=document.getElementById('profileEditorModel').getBoundingClientRect(),button=document.getElementById('fetchModelsBtn').getBoundingClientRect();return Math.abs(input.top-button.top)<1 && input.right<button.left;})()"),true);
     measurements['form-'+theme]=form;await shot('settings-'+theme);
   }

@@ -9,7 +9,7 @@ const { spawn } = require('node:child_process');
 const { JSDOM } = require('jsdom');
 const ROOT = path.resolve(__dirname, '..');
 const RENDERER = path.join(ROOT, 'src/renderer');
-const app = fs.readFileSync(path.join(RENDERER, 'app.js'), 'utf8');
+const app = require('./helpers/renderer-bundle').source;
 const scripts = ['vendor/marked.umd.js', 'vendor/highlight.min.js', 'vendor/purify.min.js', 'services/SafeMarkdown.js'];
 const payloads = [
   '<img src=x onerror="window.SECURITY_EXECUTED=1">',

@@ -1,7 +1,7 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');const {JSDOM}=require('jsdom');const ts=require('typescript');
 const root=path.resolve(__dirname,'..');const source=fs.readFileSync(path.join(root,'src/renderer/services/ChatActivityView.js'),'utf8');
-const app=fs.readFileSync(path.join(root,'src/renderer/app.js'),'utf8');
+const app=require('./helpers/renderer-bundle').source;
 function setup(t){const dom=new JSDOM('<body><div id="msg"></div></body>',{runScripts:'outside-only'});t.after(()=>dom.window.close());dom.window.eval(source);return dom.window;}
 function block(w){const b=w.document.createElement('div');b.className='tool-block';b.innerHTML='<div class="tool-header" data-ui-action="toggleToolBody"><span class="tool-icon"></span><span class="tool-heading"><span class="tool-name"></span><span class="tool-meta"></span></span><span class="tool-status">等待批准</span><span class="tool-chevron"></span></div><div class="tool-body" id="old-call-id" style="display:none"><pre class="tool-result">真实输出</pre></div>';w.document.body.appendChild(b);return b;}
 function loadFunctions(w,names){const tree=ts.createSourceFile('app.js',app,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);for(const n of tree.statements)if(ts.isFunctionDeclaration(n)&&names.includes(n.name?.text))w.eval(n.getText(tree));}

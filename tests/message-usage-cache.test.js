@@ -7,7 +7,7 @@ const ts = require('typescript');
 const { JSDOM } = require('jsdom');
 
 const root = path.resolve(__dirname, '..');
-const appSource = fs.readFileSync(path.join(root, 'src/renderer/app.js'), 'utf8');
+const appSource = require('./helpers/renderer-bundle').source;
 const tree = ts.createSourceFile('app.js', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 const declarations = tree.statements.filter((node) => ts.isFunctionDeclaration(node));
 function pickFunctions(names) {
@@ -115,7 +115,7 @@ test('usage rendering keeps a single handler and the dead pending path stays rem
   assert.ok(!appSource.includes('usageCacheReadTokens'), 'dataset stash removed (cache)');
 });
 
-test('app.js keeps no duplicate top-level function declarations', () => {
+test('the renderer keeps no duplicate top-level function declarations', () => {
   const counts = new Map();
   for (const node of declarations) {
     const name = node.name?.text;

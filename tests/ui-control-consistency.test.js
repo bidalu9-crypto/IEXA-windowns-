@@ -32,7 +32,7 @@ test('special folder categories retain semantic labels without overlapping black
 });
 
 test('dynamic action templates use vector icons, while diff +/- remains literal code content',()=>{
- const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
+ const app=require('./helpers/renderer-bundle').source;
  assert.doesNotMatch(app,/<button[^>]*>\s*[×↻]\s*<\/button>/);
  assert.match(app,/<span>\+<\/span>\$\{escapeHtml\(line\)\}/);
  // "重置到此处" branches the conversation, so it uses the branch glyph. The
