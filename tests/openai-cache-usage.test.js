@@ -69,6 +69,16 @@ test('a genuinely zero hit count is reported explicitly, absent fields stay abse
   assert.equal('cacheReadInputTokens' in plainUsage, false);
 });
 
+test('the cached span is always a subset of the reported prompt', async t => {
+  // The share on screen is cache / input, so this invariant is what makes the
+  // number meaningful: a cache larger than the prompt would render over 100%.
+  const f = await fixture(t, frame({ choices: [], usage: { prompt_tokens: 900, completion_tokens: 3, prompt_cache_hit_tokens: 400 } }) + done);
+  const usage = (await usageEvents(new OpenAIProvider({ model: 'relay-model', apiKey: 'k', baseURL: f.baseURL, thinkingLevel: 'off' })))
+    .find(event => event.type === 'usage').usage;
+  assert.equal(usage.inputTokens, 900);
+  assert.ok(usage.cacheReadInputTokens <= usage.inputTokens, 'cache must sit inside the prompt');
+});
+
 test('a cache hint larger than the prompt cannot exceed the prompt budget', async t => {
   const f = await fixture(t, frame({ choices: [], usage: { prompt_tokens: 300, completion_tokens: 2, prompt_cache_hit_tokens: 9999 } }) + done);
   const usage = (await usageEvents(new OpenAIProvider({ model: 'relay-model', apiKey: 'k', baseURL: f.baseURL, thinkingLevel: 'off' })))
