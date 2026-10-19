@@ -22,7 +22,7 @@ function createWindow(t) {
   w.formatMessageTimestamp = (value) => (Number.isFinite(Number(value)) && Number(value) > 0 ? '14:31' : '');
   w.eval('var liveTurnDurations = new Set(); var liveTurnDurationTimer = 0;');
   w.eval(pickFunctions([
-    'renderMessageUsage', 'formatUsageNumber', 'formatEstimatedCost', 'renderTokenUsage', 'uiIcon', 'formatUsagePercent',
+    'renderMessageUsage', 'formatTokenCount', 'formatUsageNumber', 'formatEstimatedCost', 'renderTokenUsage', 'uiIcon', 'formatUsagePercent',
     'formatTurnDuration', 'messageTurnDuration', 'renderTurnDurationMarkup', 'registerLiveTurnDuration',
     'unregisterLiveTurnDuration', 'tickLiveTurnDurations', 'freezeTurnDuration', 'ensureMessageUsage',
   ]));
@@ -45,12 +45,27 @@ test('message usage line places the cache receipt between output and time', (t) 
   const { usageEl } = mountMessage(w);
   w.renderMessageUsage(usageEl, 80739, 19398, 79104);
   const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
-  assert.ok(text.includes(`${(80739).toLocaleString()} 入`), text);
-  assert.ok(text.includes(`${(19398).toLocaleString()} 出`), text);
-  assert.ok(text.includes(`${(79104).toLocaleString()} 缓存`), text);
+  assert.ok(text.includes('80.7K 入'), text);
+  assert.ok(text.includes('19.4K 出'), text);
+  assert.ok(text.includes('79.1K 缓存'), text);
+  assert.ok(!/\d,\d{3}/.test(text), 'no digit-grouped counts survive in the line: ' + text);
   assert.ok(text.indexOf('缓存') > text.indexOf('出'), 'cache follows the output count: ' + text);
   assert.ok(text.indexOf('14:31') > text.indexOf('缓存'), 'time stays last: ' + text);
   assert.equal(usageEl.querySelectorAll('i').length, 2, 'two separator dots around the cache segment');
+});
+
+test('compact counts keep the exact receipt in the hover title', (t) => {
+  const w = createWindow(t);
+  const { usageEl } = mountMessage(w);
+  w.renderMessageUsage(usageEl, 132225, 1198, 131328);
+  const html = usageEl.innerHTML;
+  assert.ok(html.includes('title="输入 132,225 tokens"'), html);
+  assert.ok(html.includes('title="输出 1,198 tokens"'), html);
+  assert.ok(html.includes('title="缓存读取 131,328 tokens"'), html);
+  const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
+  assert.ok(text.includes('132K 入'), text);
+  assert.ok(text.includes('1.2K 出'), text);
+  assert.ok(text.includes('131K 缓存'), text);
 });
 
 test('cache segment is omitted when the endpoint reported nothing', (t) => {
@@ -68,7 +83,7 @@ test('a genuine zero cache receipt is shown as 0 rather than hidden', (t) => {
   const w = createWindow(t);
   const { usageEl } = mountMessage(w);
   w.renderMessageUsage(usageEl, 59272, 19899, 0);
-  assert.ok(usageEl.textContent.includes(`${(0).toLocaleString()} 缓存`), usageEl.textContent);
+  assert.ok(usageEl.textContent.includes('0 缓存'), usageEl.textContent);
 });
 
 test('token usage page keeps a cache tile for every model, including zero', (t) => {

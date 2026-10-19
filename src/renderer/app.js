@@ -611,7 +611,7 @@ function updateSoulPreview() {
   const countEl = document.getElementById('soulTokenCount');
   const saveBtn = document.getElementById('soulSaveBtn');
   if (countEl) {
-    countEl.textContent = `约 ${count.toLocaleString()} tokens`;
+    countEl.textContent = `约 ${formatTokenCount(count)} tokens`;
     countEl.classList.remove('is-over-limit');
   }
   if (saveBtn) saveBtn.disabled = soulSaving;
@@ -2638,21 +2638,20 @@ function thinkingEffortLabelFor(level) {
   return THINKING_LEVELS[normalized]?.label || '标准';
 }
 
-function formatThinkingTokens(text) {
+function estimateThinkingTokens(text) {
   const chars = String(text || '').length;
-  if (!chars) return '0';
+  if (!chars) return 0;
   // Keep this consistent with the backend's ContextCompactor estimate.
-  const tokens = Math.max(1, Math.ceil(chars / 3.5));
-  return tokens.toLocaleString();
+  return Math.max(1, Math.ceil(chars / 3.5));
 }
 
 function updateThinkingTokenCount(thinkBlock, text) {
   if (!thinkBlock) return;
-  const count = formatThinkingTokens(text);
+  const tokens = estimateThinkingTokens(text);
   const countEl = thinkBlock.querySelector('.thinking-token-count');
   if (countEl) {
-    countEl.textContent = count;
-    countEl.title = `思考 token：${count}（按思考内容估算）`;
+    countEl.textContent = formatTokenCount(tokens);
+    countEl.title = `思考 token：${tokens.toLocaleString()}（按思考内容估算）`;
   }
 }
 
@@ -3996,12 +3995,13 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
       <rect x="10.5" y="8" width="3" height="11" rx="1" stroke="currentColor" stroke-width="1.7"/>
       <rect x="17" y="4" width="3" height="15" rx="1" stroke="currentColor" stroke-width="1.7"/>
     </svg>`);
-    parts.push(`<span>${input.toLocaleString()} <em>入</em></span>`);
+    parts.push(`<span title="输入 ${input.toLocaleString()} tokens">${formatTokenCount(input)} <em>入</em></span>`);
     parts.push('<i aria-hidden="true"></i>');
-    parts.push(`<span>${output.toLocaleString()} <em>出</em></span>`);
+    parts.push(`<span title="输出 ${output.toLocaleString()} tokens">${formatTokenCount(output)} <em>出</em></span>`);
     if (cacheReadTokens !== undefined && cacheReadTokens !== null && Number.isFinite(cacheRead)) {
       parts.push('<i aria-hidden="true"></i>');
-      parts.push(`<span>${Math.max(0, Math.round(cacheRead)).toLocaleString()} <em>缓存</em></span>`);
+      const cache = Math.max(0, Math.round(cacheRead));
+      parts.push(`<span title="缓存读取 ${cache.toLocaleString()} tokens">${formatTokenCount(cache)} <em>缓存</em></span>`);
     }
   }
   if (duration) {
@@ -4018,8 +4018,7 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
 }
 
 function formatContextTokens(tokens) {
-  const n = Math.max(0, Number(tokens) || 0);
-  return n >= 1000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'K' : String(Math.round(n));
+  return formatTokenCount(tokens);
 }
 
 function handleContextStatus(context) {
@@ -4162,11 +4161,29 @@ async function rewindCheckpoint(checkpointId) {
   }
 }
 
-function formatUsageNumber(value) {
+/**
+ * Token counts are magnitudes, not ledger lines: "132K" is read at a glance
+ * where "132,225" has to be parsed digit by digit. Three significant digits
+ * is plenty to compare two turns, and the exact value stays in the hover
+ * title, so nothing is lost. Every surface that prints a token count (message
+ * receipt, thinking badge, context ring, token page) shares this rule.
+ */
+function formatTokenCount(value) {
   const n = Math.max(0, Number(value) || 0);
-  if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'K';
-  return n.toLocaleString();
+  if (!Number.isFinite(n)) return '0';
+  if (n < 1000) return String(Math.round(n));
+  // Pick the unit after rounding, so 999,999 renders as 1M rather than 1000K.
+  const k = n / 1000;
+  if (k < 999.5) return (k < 100 ? k.toFixed(1).replace(/\.0$/, '') : String(Math.round(k))) + 'K';
+  const m = n / 1e6;
+  if (m < 999.5) return (m < 10 ? m.toFixed(1).replace(/\.0$/, '') : String(Math.round(m))) + 'M';
+  const b = n / 1e9;
+  return (b < 10 ? b.toFixed(1).replace(/\.0$/, '') : String(Math.round(b))) + 'B';
+}
+
+// Kept as the name the token page and its tests already use.
+function formatUsageNumber(value) {
+  return formatTokenCount(value);
 }
 
 function formatEstimatedCost(value) {
@@ -6533,7 +6550,7 @@ function applyContextCompactionUI(limit) {
   const btn = document.getElementById('contextCompactionBtn');
   const label = document.getElementById('contextCompactionLabel');
   const title = currentContextCompactionLimit
-    ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${currentContextCompactionLimit.toLocaleString()} token）`
+    ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${formatTokenCount(currentContextCompactionLimit)} token）`
     : '自动压缩档位：自动（按模型上下文上限）';
   if (btn) {
     btn.dataset.limit = currentContextCompactionLimit === null ? 'auto' : String(currentContextCompactionLimit);

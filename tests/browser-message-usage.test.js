@@ -65,18 +65,26 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
     const el = document.createElement('div'); el.className = 'message-usage'; msg.appendChild(el); document.body.appendChild(msg);
     renderMessageUsage(el, 80739, 19398, 79104);
     const withCache = el.textContent.replace(/\\s+/g, ' ').trim();
+    const withCacheHtml = el.innerHTML;
     renderMessageUsage(el, 123, 45);
     const withoutCache = el.textContent;
     renderMessageUsage(el, 59272, 19899, 0);
     const zero = el.textContent;
+    renderMessageUsage(el, 132225, 1198, 131328);
+    const big = el.textContent.replace(/\\s+/g, ' ').trim();
+    const bigHtml = el.innerHTML;
     msg.remove();
-    return { withCache, withoutCache, zero, expect: { input: (80739).toLocaleString(), output: (19398).toLocaleString(), cache: (79104).toLocaleString(), cold: (0).toLocaleString() } };
+    return { withCache, withCacheHtml, withoutCache, zero, big, bigHtml };
   })()`);
-  assert.ok(line.withCache.includes(`${line.expect.input} 入`), line.withCache);
-  assert.ok(line.withCache.includes(`${line.expect.output} 出`), line.withCache);
-  assert.ok(line.withCache.includes(`${line.expect.cache} 缓存`), line.withCache);
+  assert.ok(line.withCache.includes('80.7K 入'), line.withCache);
+  assert.ok(line.withCache.includes('19.4K 出'), line.withCache);
+  assert.ok(line.withCache.includes('79.1K 缓存'), line.withCache);
+  assert.ok(!/\d,\d{3}/.test(line.withCache), 'the painted line carries no digit-grouped counts: ' + line.withCache);
+  assert.ok(line.withCacheHtml.includes('title="输入 80,739 tokens"'), 'exact value stays in the title: ' + line.withCacheHtml);
   assert.ok(!line.withoutCache.includes('缓存'), line.withoutCache);
-  assert.ok(line.zero.includes(`${line.expect.cold} 缓存`), line.zero);
+  assert.ok(line.zero.includes('0 缓存'), line.zero);
+  assert.ok(line.big.includes('132K 入') && line.big.includes('1.2K 出') && line.big.includes('131K 缓存'), line.big);
+  assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens"'), line.bigHtml);
 
   const tokenHtml = await evaluate(`(() => {
     tokenUsageRecords = [

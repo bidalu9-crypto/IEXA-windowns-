@@ -20,6 +20,7 @@ function pickFunctions(names) {
 
 const DURATION_FUNCTIONS = [
   'renderMessageUsage',
+  'formatTokenCount',
   'formatTurnDuration',
   'messageTurnDuration',
   'renderTurnDurationMarkup',
@@ -123,9 +124,9 @@ test('a token receipt arrives mid-turn without resetting the counter', (t) => {
   w.renderMessageUsage(usageEl, 80739, 19398, 79104);
 
   const line = text(usageEl);
-  assert.ok(line.includes(`${(80739).toLocaleString()} 入`), line);
-  assert.ok(line.includes(`${(19398).toLocaleString()} 出`), line);
-  assert.ok(line.includes(`${(79104).toLocaleString()} 缓存`), line);
+  assert.ok(line.includes('80.7K 入'), line);
+  assert.ok(line.includes('19.4K 出'), line);
+  assert.ok(line.includes('79.1K 缓存'), line);
   assert.ok(line.includes('耗时 12 秒'), line);
   assert.ok(line.indexOf('缓存') < line.indexOf('耗时'), 'the turn time follows the cache receipt: ' + line);
   assert.ok(line.indexOf('耗时') < line.indexOf('14:31'), 'the clock stays last: ' + line);

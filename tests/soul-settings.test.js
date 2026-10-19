@@ -53,7 +53,7 @@ test('actual SOUL editor submits long text, keeps in-flight lock and recovers af
   w.eval(`const API_BASE='';let soulSaving=false;
     function setSoulSaveFeedback(){}function showSoulResult(text,error){window.lastError=error;}
     function populateSoulForm(){updateSoulPreview();}
-    ${['estimateSoulTokens', 'soulFormValue', 'updateSoulPreview', 'saveSoul'].map(fn).join('\n')}
+    ${['estimateSoulTokens', 'formatTokenCount', 'soulFormValue', 'updateSoulPreview', 'saveSoul'].map(fn).join('\n')}
     window.fixture={updateSoulPreview,saveSoul};`);
   const input = w.document.getElementById('soulBody'), button = w.document.getElementById('soulSaveBtn');
   assert.equal(input.hasAttribute('maxlength'), false);
