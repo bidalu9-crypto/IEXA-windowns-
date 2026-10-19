@@ -4623,60 +4623,281 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   color: var(--accent);
 }
 
-.skill-list {
+/* Skills toolbar: filter chips on the left, sort on the right. */
+.skill-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  margin: -4px 0 12px;
+}
+
+.skill-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+}
+
+.skill-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(.76rem * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+
+.skill-filter button:hover {
+  color: var(--text-primary);
+}
+
+.skill-filter button.is-active {
+  background: var(--bg-input);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.skill-filter-count {
+  color: var(--text-muted);
+  font-size: calc(.68rem * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-filter button.is-active .skill-filter-count {
+  color: inherit;
+  opacity: .7;
+}
+
+.skill-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: calc(.72rem * var(--ui-font-scale, 1));
+}
+
+.skill-sort select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(.74rem * var(--ui-font-scale, 1));
+  outline: none;
+  cursor: pointer;
+}
+
+.skill-sort select:focus-visible {
+  border-color: var(--accent);
+}
+
+/* Multi-column grid of compact cards: head line, two-line description and a
+   footer with counters plus three icon actions. The previous layout stacked
+   four full-width buttons on every card, one per row. */
+.skill-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.skill-empty {
+  grid-column: 1 / -1;
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
 }
 
 .skill-card {
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
+  border-radius: 10px;
 }
 
-.skill-card.disabled {
-  opacity: 0.65;
+.skill-card.is-disabled {
+  background: color-mix(in srgb, var(--bg-secondary) 72%, var(--bg-tertiary));
 }
 
-.skill-card-main {
-  flex: 1;
-  min-width: 0;
+.skill-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .skill-card-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  min-width: 0;
   color: var(--text-primary);
 }
 
-.skill-card-desc {
-  font-size: calc(0.82rem * var(--ui-font-scale, 1));
-  color: var(--text-secondary);
-  line-height: 1.45;
-  margin-bottom: 6px;
+.skill-card-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(.84rem * var(--ui-font-scale, 1));
 }
 
-.skill-card-meta {
-  font-size: calc(0.72rem * var(--ui-font-scale, 1));
+.skill-card.is-disabled .skill-card-name {
   color: var(--text-muted);
 }
 
+.skill-card-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(2 * 1.4em);
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: calc(.74rem * var(--ui-font-scale, 1));
+  line-height: 1.4;
+}
+
+.skill-card.is-disabled .skill-card-desc {
+  color: var(--text-muted);
+}
+
+.skill-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.skill-card-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(.68rem * var(--ui-font-scale, 1));
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.skill-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.skill-icon-btn .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.skill-icon-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.skill-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.skill-icon-btn.is-on {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.skill-icon-btn.skill-del:hover {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+/* Small switch instead of a "禁用 / 启用" text button. */
+.skill-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 17px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: background .16s, border-color .16s;
+}
+
+.skill-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform .16s ease, background .16s ease;
+}
+
+.skill-switch[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.skill-switch[aria-checked="true"]::after {
+  transform: translateX(13px);
+  background: var(--accent);
+}
+
+.skill-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .skill-badge {
-  font-size: calc(0.68rem * var(--ui-font-scale, 1));
+  flex: 0 0 auto;
   padding: 1px 6px;
   border-radius: 9999px;
   background: var(--accent-light);
   color: var(--accent);
   border: 1px solid var(--border);
+  font-size: calc(.68rem * var(--ui-font-scale, 1));
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .skill-badge.off {
@@ -4688,13 +4909,6 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   background: color-mix(in srgb, var(--success) 18%, transparent);
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 40%, transparent);
-}
-
-.skill-card-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
 }
 
 .skill-editor textarea {
@@ -5794,6 +6008,9 @@ body {
 
 /* Token usage dashboard: widen the column so two compact cards fit per row. */
 #view-token-calculator > .settings-container { width: min(100%, 920px); }
+
+/* Skills: three compact cards per row instead of one tall card per skill. */
+#view-skills > .settings-container { width: min(100%, 1080px); }
 
 /* The skills editor remains a fixed modal, independent from page scrolling. */
 #view-skills > .profile-editor-overlay {

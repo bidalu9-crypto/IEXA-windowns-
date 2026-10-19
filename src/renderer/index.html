@@ -639,8 +639,25 @@
           也可让 AI 按规范写入该目录自动收录。对话输入 <code>/</code> 可插入技能名。
         </p>
         <input type="file" id="skillFileInput" accept=".md,text/markdown,text/plain" hidden>
+        <div class="skill-toolbar">
+          <div class="skill-filter" id="skillFilter" role="group" aria-label="筛选技能">
+            <button type="button" data-skill-filter="all" class="is-active" aria-pressed="true">全部<span class="skill-filter-count" data-skill-count="all">0</span></button>
+            <button type="button" data-skill-filter="enabled" aria-pressed="false">已启用<span class="skill-filter-count" data-skill-count="enabled">0</span></button>
+            <button type="button" data-skill-filter="disabled" aria-pressed="false">已关闭<span class="skill-filter-count" data-skill-count="disabled">0</span></button>
+            <button type="button" data-skill-filter="system" aria-pressed="false">系统级<span class="skill-filter-count" data-skill-count="system">0</span></button>
+          </div>
+          <label class="skill-sort">
+            <span>排序</span>
+            <select id="skillSort" aria-label="技能排序方式">
+              <option value="name">名称</option>
+              <option value="usage">使用次数</option>
+              <option value="recent">最近更新</option>
+              <option value="status">启用优先</option>
+            </select>
+          </label>
+        </div>
         <div class="skill-list" id="skillList">
-          <div class="profile-empty">加载中…</div>
+          <div class="skill-empty">加载中…</div>
         </div>
       </div>
 

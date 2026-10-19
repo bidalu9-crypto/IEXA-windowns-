@@ -8695,6 +8695,134 @@ function refreshFilesPanelSoft() {
 // =============================================================================
 
 let skillsCache = [];
+let skillsFilter = 'all';
+let skillsSort = 'name';
+try {
+  const savedSort = localStorage.getItem('iexa.skills.sort');
+  if (savedSort && ['name', 'usage', 'recent', 'status'].includes(savedSort)) skillsSort = savedSort;
+} catch { /* storage unavailable */ }
+
+const SKILL_FILTERS = {
+  all: () => true,
+  enabled: (s) => s.enabled !== false,
+  disabled: (s) => s.enabled === false,
+  system: (s) => !!s.systemPrompt,
+};
+const SKILL_SORTS = {
+  name: (a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), 'zh-Hans-CN'),
+  usage: (a, b) => (Number(b.useCount) || 0) - (Number(a.useCount) || 0)
+    || String(a.name || a.id).localeCompare(String(b.name || b.id), 'zh-Hans-CN'),
+  recent: (a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0),
+  status: (a, b) => (Number(b.enabled !== false) - Number(a.enabled !== false))
+    || (Number(!!b.systemPrompt) - Number(!!a.systemPrompt))
+    || String(a.name || a.id).localeCompare(String(b.name || b.id), 'zh-Hans-CN'),
+};
+
+// escapeHtml() goes through textContent, so it leaves quotes intact and cannot
+// be used inside title="…". This variant covers attribute context.
+function skillAttr(value) {
+  return String(value == null ? '' : value).replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+function skillUpdatedLabel(value) {
+  const stamp = Number(value) || 0;
+  if (!stamp) return '';
+  const date = new Date(stamp);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  if (date.getFullYear() !== now.getFullYear()) return `${date.getFullYear()}/${date.getMonth() + 1}`;
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+// Compact grid card: one head line, a two-line description and a footer that
+// holds the counters plus three icon actions. The old layout stacked four
+// full-width buttons per card, which is what made every row ~180px tall.
+function renderSkills() {
+  const list = document.getElementById('skillList');
+  if (!list) return;
+  const filter = SKILL_FILTERS[skillsFilter] ? skillsFilter : 'all';
+  const sort = SKILL_SORTS[skillsSort] ? skillsSort : 'name';
+  const count = (key) => skillsCache.filter(SKILL_FILTERS[key]).length;
+  document.querySelectorAll('[data-skill-count]').forEach((node) => {
+    const next = String(count(node.dataset.skillCount) || 0);
+    if (node.textContent !== next) node.textContent = next;
+  });
+  document.getElementById('skillFilter')?.querySelectorAll('[data-skill-filter]').forEach((button) => {
+    const active = button.dataset.skillFilter === filter;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  const sortSelect = document.getElementById('skillSort');
+  if (sortSelect && sortSelect.value !== sort) sortSelect.value = sort;
+
+  const visible = skillsCache.filter(SKILL_FILTERS[filter]).sort(SKILL_SORTS[sort]);
+  if (!visible.length) {
+    list.innerHTML = `<div class="skill-empty">${skillsCache.length
+      ? '当前筛选下没有 Skill。'
+      : '暂无 Skill。点击右上角「+」导入或创建。'}</div>`;
+    return;
+  }
+  list.innerHTML = visible.map((s) => {
+    const enabled = s.enabled !== false;
+    const name = s.name || s.id;
+    const description = s.description || '（无描述）';
+    const updated = skillUpdatedLabel(s.updatedAt);
+    const meta = `使用 ${Number(s.useCount) || 0} 次 · v${s.version || '1.0.0'}${updated ? ` · ${updated}` : ''}`;
+    const metaTitle = `使用 ${Number(s.useCount) || 0} 次 · v${s.version || '1.0.0'}`
+      + (s.updatedAt ? ` · 更新于 ${new Date(Number(s.updatedAt)).toLocaleString()}` : '');
+    const switchLabel = `${enabled ? '停用' : '启用'} ${name}`;
+    return `<article class="skill-card${enabled ? '' : ' is-disabled'}" data-id="${skillAttr(s.id)}">
+      <div class="skill-card-head">
+        <div class="skill-card-title">
+          <strong class="skill-card-name" title="${skillAttr(name)}">${escapeHtml(name)}</strong>
+          <span class="skill-badge">${escapeHtml(s.source || 'file')}</span>
+          ${s.systemPrompt ? '<span class="skill-badge sys">系统级</span>' : ''}
+          ${enabled ? '' : '<span class="skill-badge off">已关闭</span>'}
+        </div>
+        <button type="button" class="skill-switch" role="switch" aria-checked="${enabled}" data-act="toggle" title="${skillAttr(switchLabel)}" aria-label="${skillAttr(switchLabel)}"></button>
+      </div>
+      <p class="skill-card-desc" title="${skillAttr(description)}">${escapeHtml(description)}</p>
+      <div class="skill-card-foot">
+        <span class="skill-card-meta" title="${skillAttr(metaTitle)}">${escapeHtml(meta)}</span>
+        <div class="skill-card-actions">
+          <button type="button" class="skill-icon-btn${s.systemPrompt ? ' is-on' : ''}" data-act="sysprompt" aria-pressed="${!!s.systemPrompt}" title="${s.systemPrompt ? '取消系统级' : '设为系统级'}" aria-label="${s.systemPrompt ? '取消系统级' : '设为系统级'}">${uiIcon('pin')}</button>
+          <button type="button" class="skill-icon-btn" data-act="view" title="查看 / 编辑" aria-label="查看 / 编辑">${uiIcon('edit')}</button>
+          <button type="button" class="skill-icon-btn skill-del" data-act="delete" title="删除" aria-label="删除">${uiIcon('trash')}</button>
+        </div>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function setSkillFlag(id, patch) {
+  await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  await loadSkillsList();
+}
+
+// One delegated listener: cards are re-rendered from a template, so per-card
+// handlers would be re-attached (and leak) on every toggle.
+async function onSkillListClick(event) {
+  const button = event.target.closest('button[data-act]');
+  if (!button) return;
+  const card = button.closest('.skill-card');
+  const id = card?.dataset.id;
+  if (!id) return;
+  const skill = skillsCache.find((item) => item.id === id);
+  const act = button.dataset.act;
+  if (act === 'toggle') await setSkillFlag(id, { enabled: !(skill && skill.enabled !== false) });
+  else if (act === 'sysprompt') await setSkillFlag(id, { systemPrompt: !(skill && skill.systemPrompt) });
+  else if (act === 'view') openSkillViewer(id);
+  else if (act === 'delete') {
+    if (!(await window.IexaDialogs.confirm('确定删除该 Skill？'))) return;
+    await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadSkillsList();
+  }
+}
 
 async function loadSkillsList() {
   const list = document.getElementById('skillList');
@@ -8702,66 +8830,10 @@ async function loadSkillsList() {
   try {
     const resp = await fetch(`${API_BASE}/api/skills`);
     const data = await resp.json();
-    skillsCache = data.skills || [];
-    if (skillsCache.length === 0) {
-      list.innerHTML = '<div class="profile-empty">暂无 Skill。点击「+ 导入」粘贴 SKILL.md。</div>';
-      return;
-    }
-    list.innerHTML = skillsCache.map((s) => `
-      <div class="skill-card ${s.enabled ? '' : 'disabled'}" data-id="${escapeHtml(s.id)}">
-        <div class="skill-card-main">
-          <div class="skill-card-title">
-            <strong>${escapeHtml(s.name)}</strong>
-            <span class="skill-badge">${escapeHtml(s.source || 'file')}</span>
-            ${s.systemPrompt ? '<span class="skill-badge sys">系统级</span>' : ''}
-            ${s.enabled ? '' : '<span class="skill-badge off">已关闭</span>'}
-          </div>
-          <div class="skill-card-desc">${escapeHtml(s.description || '（无描述）')}</div>
-          <div class="skill-card-meta">使用 ${s.useCount || 0} 次 · v${escapeHtml(s.version || '1.0.0')}</div>
-        </div>
-        <div class="skill-card-actions">
-          <button type="button" class="btn-secondary btn-sm" data-act="toggle">${s.enabled ? '禁用' : '启用'}</button>
-          <button type="button" class="btn-secondary btn-sm" data-act="sysprompt">${s.systemPrompt ? '取消系统级' : '系统级'}</button>
-          <button type="button" class="btn-secondary btn-sm" data-act="view">查看</button>
-          <button type="button" class="btn-secondary btn-sm skill-del" data-act="delete">删除</button>
-        </div>
-      </div>
-    `).join('');
-
-    list.querySelectorAll('.skill-card').forEach((card) => {
-      const id = card.dataset.id;
-      card.querySelectorAll('button[data-act]').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const act = btn.dataset.act;
-          if (act === 'toggle') {
-            const s = skillsCache.find((x) => x.id === id);
-            await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ enabled: !(s && s.enabled) }),
-            });
-            loadSkillsList();
-          } else if (act === 'sysprompt') {
-            const s = skillsCache.find((x) => x.id === id);
-            await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ systemPrompt: !(s && s.systemPrompt) }),
-            });
-            loadSkillsList();
-          } else if (act === 'view') {
-            openSkillViewer(id);
-          } else if (act === 'delete') {
-            if (!(await window.IexaDialogs.confirm('确定删除该 Skill？'))) return;
-            await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, { method: 'DELETE' });
-            loadSkillsList();
-          }
-        });
-      });
-    });
+    skillsCache = Array.isArray(data.skills) ? data.skills : [];
+    renderSkills();
   } catch (err) {
-    list.innerHTML = `<div class="profile-empty">加载失败：${escapeHtml(err.message || String(err))}</div>`;
+    list.innerHTML = `<div class="skill-empty">加载失败：${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -8960,7 +9032,27 @@ function initSkillsUI() {
   });
   const fileInput = document.getElementById('skillFileInput');
   if (fileInput) fileInput.addEventListener('change', onSkillFileInputChange);
-  const cancel = document.getElementById('skillEditorCancel');
+
+  // Filter / sort / card actions. The list is re-rendered from a template, so
+  // actions are delegated once instead of bound per card.
+  const skillList = document.getElementById('skillList');
+  if (skillList) skillList.addEventListener('click', onSkillListClick);
+  const skillFilter = document.getElementById('skillFilter');
+  if (skillFilter) skillFilter.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-skill-filter]');
+    if (!button) return;
+    skillsFilter = button.dataset.skillFilter || 'all';
+    renderSkills();
+  });
+  const sortSelect = document.getElementById('skillSort');
+  if (sortSelect) {
+    if (SKILL_SORTS[skillsSort]) sortSelect.value = skillsSort;
+    sortSelect.addEventListener('change', () => {
+      skillsSort = SKILL_SORTS[sortSelect.value] ? sortSelect.value : 'name';
+      try { localStorage.setItem('iexa.skills.sort', skillsSort); } catch { /* storage unavailable */ }
+      renderSkills();
+    });
+  }  const cancel = document.getElementById('skillEditorCancel');
   if (cancel) cancel.addEventListener('click', closeSkillEditor);
   const save = document.getElementById('skillEditorSave');
   if (save) save.addEventListener('click', saveSkillEditor);
