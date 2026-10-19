@@ -72,6 +72,18 @@ test('compact counts keep the exact receipt in the hover title', (t) => {
   assert.ok(text.includes('131K 缓存'), text);
 });
 
+test('a fully cached prompt reads as 100%, not 50%', (t) => {
+  // The provider reports prompt_tokens INCLUDING the cached span, and the
+  // provider adapter now reports the fresh remainder as input. A turn whose
+  // whole prompt came from cache therefore has input 0 and cache 629K.
+  const w = createWindow(t);
+  const { usageEl } = mountMessage(w);
+  w.renderMessageUsage(usageEl, 0, 431, 629000);
+  const text = usageEl.textContent.replace(/\s+/g, ' ').trim();
+  assert.ok(text.includes('0 入'), text);
+  assert.ok(text.includes('629K 缓存 (100%)'), text);
+});
+
 test('cache segment is omitted when the endpoint reported nothing', (t) => {
   const w = createWindow(t);
   const { usageEl } = mountMessage(w);

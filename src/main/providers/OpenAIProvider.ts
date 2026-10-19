@@ -178,7 +178,7 @@ export class OpenAIProvider {
             // SSE frame with an empty `choices` array. Process usage before
             // ignoring non-content frames so it reaches the persistent ledger.
             if (event.usage) {
-              inputTokens = event.usage.prompt_tokens || event.usage.input_tokens || 0;
+              const reportedInput = Number(event.usage.prompt_tokens || event.usage.input_tokens || 0);
               outputTokens = event.usage.completion_tokens || event.usage.output_tokens || 0;
               // Cache receipts: DeepSeek reports prompt_cache_hit_tokens; OpenAI
               // and most compatible gateways use prompt_tokens_details.cached_tokens.
@@ -188,8 +188,15 @@ export class OpenAIProvider {
                 ?? event.usage.prompt_tokens_details?.cached_tokens
                 ?? event.usage.cache_read_input_tokens;
               if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
-                yield { type: 'usage', usage: { inputTokens, outputTokens, cacheReadInputTokens: Math.min(cacheHint, inputTokens || cacheHint) } };
+                // The reported prompt INCLUDES the cached span. Report the fresh
+                // remainder as inputTokens so one meaning holds across providers:
+                // cache share = cache / (input + cache), and the cost estimate
+                // cannot bill the cached span twice.
+                const cacheRead = Math.min(cacheHint, reportedInput || cacheHint);
+                inputTokens = Math.max(0, reportedInput - cacheRead);
+                yield { type: 'usage', usage: { inputTokens, outputTokens, cacheReadInputTokens: cacheRead } };
               } else {
+                inputTokens = reportedInput;
                 yield { type: 'usage', usage: { inputTokens, outputTokens } };
               }
             }
@@ -541,14 +548,18 @@ export class OpenAIProvider {
             const completed = (event.response || {}) as Record<string, any>;
             const usage = completed.usage || event.usage;
             if (usage) {
-              const responseInputTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
+              const responsePromptTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
               const responseOutputTokens = Number(usage.output_tokens || usage.completion_tokens || 0);
-              // Responses API exposes cache hits under input_tokens_details.
+              // Responses API exposes cache hits under input_tokens_details. Same
+              // rule as the streaming path: the reported prompt includes the
+              // cached span, so the fresh remainder is what inputTokens means.
               const cacheHint = usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens;
               if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
-                yield { type: 'usage', usage: { inputTokens: responseInputTokens, outputTokens: responseOutputTokens, cacheReadInputTokens: Math.min(cacheHint, responseInputTokens || cacheHint) } };
+                const cacheRead = Math.min(cacheHint, responsePromptTokens || cacheHint);
+                const responseInputTokens = Math.max(0, responsePromptTokens - cacheRead);
+                yield { type: 'usage', usage: { inputTokens: responseInputTokens, outputTokens: responseOutputTokens, cacheReadInputTokens: cacheRead } };
               } else {
-                yield { type: 'usage', usage: { inputTokens: responseInputTokens, outputTokens: responseOutputTokens } };
+                yield { type: 'usage', usage: { inputTokens: responsePromptTokens, outputTokens: responseOutputTokens } };
               }
             }
             for (const call of calls.values()) yield* finishCall(call);

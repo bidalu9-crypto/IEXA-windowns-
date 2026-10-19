@@ -67,7 +67,14 @@
 612K 入 · 464 出 · 611K 缓存 (50%) · 02:18
 ```
 
-口径是**缓存占输入侧的比例**：`缓存 ÷（输入 + 缓存）`。
+口径是**缓存占 prompt 的比例**：`缓存 ÷（输入 + 缓存）`，其中「入」是**未命中缓存的新鲜输入**。
+
+这一点必须由适配层保证：OpenAI / DeepSeek / Gemini 报的 `prompt_tokens` **包含**缓存段，
+Anthropic 的 `input_tokens` **不含**。所以 OpenAI 与 Gemini 的适配器会把缓存段减掉再上报
+`inputTokens`，Anthropic 原样透传。否则同一行会出现两种含义，而且成本估算会把缓存段
+**按全价再计一次**（`input × price` 与 `cacheRead × cachePrice` 叠加）。
+
+归一之后，整段都命中缓存的回合读作 `0 入 · 431 出 · 629K 缓存 (100%)`，而不是令人困惑的 50%。
 
 - 括号里的数字由 `Math.round(share)` 得出，虚色 `--text-muted`、`tabular-nums`，不抢主数字；
 - 精确 token 数和同一个百分比都在 `title` 里：`缓存读取 611,000 tokens（占输入侧 50%）`；

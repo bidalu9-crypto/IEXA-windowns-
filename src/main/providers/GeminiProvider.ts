@@ -157,11 +157,18 @@ export class GeminiProvider {
               if (candidate.finishReason === 'STOP') agentStopReason = 'endTurn';
               else if (candidate.finishReason === 'MAX_TOKENS') agentStopReason = 'maxTokens';
 
-              // Token usage
+              // Gemini's promptTokenCount includes cachedContentTokenCount; report
+              // the fresh remainder so cache / (input + cache) means the same as
+              // it does for every other provider.
               if (event.usageMetadata) {
-                inputTokens = event.usageMetadata.promptTokenCount || 0;
+                const reported = Number(event.usageMetadata.promptTokenCount || 0);
+                const cached = Number(event.usageMetadata.cachedContentTokenCount || 0);
+                const cacheRead = Number.isFinite(cached) && cached > 0 ? Math.min(cached, reported) : 0;
+                inputTokens = Math.max(0, reported - cacheRead);
                 outputTokens = event.usageMetadata.candidatesTokenCount || 0;
-                yield { type: 'usage', usage: { inputTokens, outputTokens } };
+                yield { type: 'usage', usage: cacheRead > 0
+                  ? { inputTokens, outputTokens, cacheReadInputTokens: cacheRead }
+                  : { inputTokens, outputTokens } };
               }
 
               yield { type: 'done', stopReason: agentStopReason };
