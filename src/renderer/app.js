@@ -502,7 +502,18 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.add('active');
     document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
     const panel = document.getElementById(`view-${view}`);
-    if (panel) panel.classList.add('active');
+    if (panel) {
+      panel.classList.add('active');
+      // Replay the entry animation on every switch, but never on first paint:
+      // a running animation puts the whole view on its own composited layer,
+      // and anything measured during that window comes back a subpixel off.
+      panel.classList.remove('is-entering');
+      void panel.offsetWidth;
+      panel.classList.add('is-entering');
+      const clearEntering = () => panel.classList.remove('is-entering');
+      panel.addEventListener('animationend', clearEntering, { once: true });
+      setTimeout(clearEntering, 400);
+    }
     if (view === 'chat' && !chatWasActive) restoreChatViewScroll();
 
     if (view === 'settings') {
@@ -7395,6 +7406,23 @@ function applyMotionMode(value) {
   try { localStorage.setItem('iexa-motion', mode); } catch { /* current window still applies it */ }
 }
 
+// "Follow system" is a real choice, but on Windows the flag behind it is the
+// same one that "Show animations in Windows" controls, and it is off on plenty
+// of desktops, RDP sessions and servers. When that happens the app looks
+// frozen and nobody knows why, so say it next to the setting instead of
+// silently animating nothing.
+let motionHintBase;
+function syncMotionHint() {
+  const hint = document.getElementById('motionHelp');
+  if (!hint) return;
+  if (motionHintBase === undefined) motionHintBase = hint.textContent || '';
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  const suppressed = getMotionMode() === 'system' && reduced;
+  hint.textContent = suppressed
+    ? `${motionHintBase} 系统当前要求减少动效，选择「完整动效」可覆盖。`
+    : motionHintBase;
+}
+
 function setMotionMode(value) {
   applyMotionMode(value);
   syncThemeUI();
@@ -7456,6 +7484,7 @@ function syncThemeUI() {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   });
+  syncMotionHint();
   const collapseTools = document.getElementById('collapseToolsToggle');
   if (collapseTools) {
     collapseTools.checked = consecutiveToolFoldEnabled();
@@ -7482,6 +7511,9 @@ function initTheme() {
   document.querySelectorAll('#motionSeg [data-motion-set]').forEach((button) => {
     button.addEventListener('click', () => setMotionMode(button.dataset.motionSet));
   });
+  const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  if (motionQuery?.addEventListener) motionQuery.addEventListener('change', syncMotionHint);
+  else motionQuery?.addListener?.(syncMotionHint);
   document.getElementById('collapseToolsToggle')?.addEventListener('change', (event) => setConsecutiveToolFold(event.target.checked));
   let accent = getAccent();
   if (accent === 'opencode') accent = 'violet';

@@ -768,3 +768,156 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
   [data-ui-scaled="true"] .workbench-shell .workbench-breadcrumb > :not(strong) { display:none; }
 }
 [data-ui-scaled="true"] .workbench-shell .sidebar { min-width:min(36vw,calc(180px * var(--ui-font-scale,1))); }
+
+/* =============================================================================
+   Surface + motion scale, after DeepSeek Harness (dsh).
+
+   Three ideas borrowed from dsh, not its palette:
+   1. A named scale instead of one-off numbers. Radii, durations and elevations
+      are tokens; a component picks a step, never 9px or 150ms.
+   2. Elevation is a hairline plus a shadow, not a border plus a shadow. The
+      half-pixel stroke keeps the edge crisp when the panel floats over dense
+      text, and it disappears cleanly on hover instead of doubling up.
+   3. Motion moves opacity and the independent translate/scale properties, so
+      an entry animation never becomes a containing block for fixed children
+      and never fights a hover transform.
+   ============================================================================= */
+.workbench-shell {
+  --ds-r-xs: 6px;
+  --ds-r-sm: 8px;
+  --ds-r-md: 10px;
+  --ds-r-lg: 14px;
+  --ds-r-xl: 18px;
+
+  --ds-dur-1: 90ms;
+  --ds-dur-2: 150ms;
+  --ds-dur-3: 220ms;
+  --ds-ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ds-ease-spring: cubic-bezier(.34, 1.3, .64, 1);
+
+  --ds-hairline: color-mix(in srgb, var(--border) 80%, transparent);
+  --ds-elev-1: 0 0 0 .5px var(--ds-hairline), 0 1px 2px rgb(15 23 42 / .04);
+  --ds-elev-2: 0 0 0 .5px var(--ds-hairline), 0 10px 28px -10px rgb(15 23 42 / .22);
+  --ds-elev-3: 0 0 0 .5px var(--ds-hairline), 0 24px 60px -14px rgb(15 23 42 / .3);
+}
+
+@keyframes ds-view-in {
+  from { opacity: 0; translate: 0 4px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes ds-pop-in {
+  from { opacity: 0; translate: 0 4px; scale: .985; }
+  to { opacity: 1; translate: 0 0; scale: 1; }
+}
+
+@keyframes ds-card-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+/* View switch: the workbench skin already faded the panel from 0.6; starting
+   from zero and lifting four pixels makes the swap read as one surface
+   replacing another instead of a repaint. translate (not transform) keeps
+   position:fixed descendants anchored for the whole 220ms. The class is added
+   by the nav handler only, so the first paint has no entry animation to
+   measure through. */
+.workbench-shell .view.active.is-entering {
+  animation: ds-view-in var(--ds-dur-3) var(--ds-ease-out);
+}
+
+/* Popovers enter from their anchor. Menus that open upward use the bottom
+   edge as the origin so the content grows out of the trigger. */
+.workbench-shell :is(.skill-add-menu, .files-context-menu, .text-context-menu,
+  .thinking-level-menu, .context-compaction-menu, .permission-mode-menu,
+  .checkpoint-popover) {
+  animation: ds-pop-in var(--ds-dur-2) var(--ds-ease-spring);
+  transform-origin: center top;
+  border-radius: var(--ds-r-lg);
+  box-shadow: var(--ds-elev-2);
+}
+
+.workbench-shell :is(.model-selector-menu, .slash-menu) {
+  animation: ds-pop-in var(--ds-dur-2) var(--ds-ease-spring);
+  transform-origin: center bottom;
+  border-radius: var(--ds-r-lg);
+  box-shadow: var(--ds-elev-2);
+}
+
+/* Cards settle in sequence rather than all at once. The delay is capped at
+   eight steps; a longer list would feel laggy, not choreographed. */
+.workbench-shell .skill-card {
+  animation: ds-card-in var(--ds-dur-3) var(--ds-ease-out) both;
+  border-radius: var(--ds-r-md);
+  box-shadow: var(--ds-elev-1);
+  transition: box-shadow var(--ds-dur-2) var(--ds-ease-out),
+              transform var(--ds-dur-2) var(--ds-ease-out),
+              border-color var(--ds-dur-2) var(--ds-ease-out);
+}
+
+.workbench-shell .skill-card:nth-child(2) { animation-delay: 18ms; }
+.workbench-shell .skill-card:nth-child(3) { animation-delay: 36ms; }
+.workbench-shell .skill-card:nth-child(4) { animation-delay: 54ms; }
+.workbench-shell .skill-card:nth-child(5) { animation-delay: 72ms; }
+.workbench-shell .skill-card:nth-child(6) { animation-delay: 90ms; }
+.workbench-shell .skill-card:nth-child(7) { animation-delay: 108ms; }
+.workbench-shell .skill-card:nth-child(8) { animation-delay: 126ms; }
+.workbench-shell .skill-card:nth-child(n + 9) { animation-delay: 140ms; }
+
+.workbench-shell .skill-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--ds-elev-2);
+  border-color: var(--border-strong);
+}
+
+.workbench-shell .job-card {
+  border-radius: var(--ds-r-sm);
+}
+
+.workbench-shell .image-preview-dialog {
+  border-radius: var(--ds-r-xl);
+  box-shadow: var(--ds-elev-3);
+}
+
+/* Press feedback is a scale, not a colour flash: it reads on both themes and
+   survives a background that is already tinted. */
+.workbench-shell :is(.btn-primary, .btn-secondary, .skill-card-actions button, .command-palette-item):active {
+  transform: scale(.985);
+}
+
+/* Superellipse corners are the one purely cosmetic dsh trait kept here. The
+   @supports probe means engines without corner-shape keep plain arcs. */
+@supports (corner-shape: superellipse(1.5)) {
+  .workbench-shell :is(.skill-card, .job-card, .model-selector-menu, .skill-add-menu,
+    .slash-menu, .image-preview-dialog, .checkpoint-popover) {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+/* The app owns a three-way motion preference. Honour an explicit "reduced"
+   even when the OS has motion enabled, and keep the system media query in
+   charge when the preference is "system". */
+html[data-motion="reduced"] .workbench-shell :is(.view.active, .skill-card,
+  .skill-add-menu, .model-selector-menu, .slash-menu, .files-context-menu,
+  .text-context-menu, .thinking-level-menu, .context-compaction-menu,
+  .permission-mode-menu, .checkpoint-popover) {
+  animation: none !important;
+  transition: none !important;
+}
+
+html[data-motion="reduced"] .workbench-shell .skill-card:hover {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion="full"]) .workbench-shell :is(.view.active, .skill-card,
+    .skill-add-menu, .model-selector-menu, .slash-menu, .files-context-menu,
+    .text-context-menu, .thinking-level-menu, .context-compaction-menu,
+    .permission-mode-menu, .checkpoint-popover) {
+    animation: none !important;
+    transition: none !important;
+  }
+  html:not([data-motion="full"]) .workbench-shell .skill-card:hover {
+    transform: none;
+  }
+}
