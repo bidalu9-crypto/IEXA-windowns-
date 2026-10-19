@@ -144,13 +144,74 @@ SSE 分发、文本/思考增量、工具卡片、交付物、用量行、检查
 `GoalBanner.js`（64 行）是同批加的，展示服务端目标记录。它和上面五个模块一起被
 `renderer-modules.test.js` 的同名检查覆盖：不得重名、不得在求值时接线、行数上限。
 
+## 第三轮：服务端拆路由（同日晚）
+
+`server.ts` 4,139 行里，`createServer()` 的 `handle()` 是一个 2,208 行的 if 链，89 个顶层语句、
+113 条路由共享同一个闭包。改任何一条路由都要滚过其他所有路由。
+
+### 做法：按前缀选块，AST 定位，正文逐字节搬运
+
+不手抄。脚本解析 `handle` 的顶层语句，按路由前缀匹配 `if`，取字符区间原文，只做三件事：
+
+1. 把块内 `return;` 改成 `return true;`（表示"这条请求归我处理"）；
+2. 把闭包符号换成 `ctx.*`；
+3. 前面加 import 和 context 接口。
+
+生成的文件是**原文搬运**，不是重写。这是能一次过的原因。
+
+新模块（`src/main/api/`）：
+
+| 模块 | 行数 | 路由 |
+|---|---|---|
+| `FileRoutes.ts` | 510 | `/api/fs/*`、`/api/artifacts/*`、`/api/attachments/*`，外加路径沙箱、私有文件规则、预览运行时注入 |
+| `SkillRoutes.ts` | 130 | `/api/skills*` |
+| `GitRoutes.ts` | 119 | `/api/git/*` |
+| `PluginRoutes.ts` | 102 | `/api/plugins/*` |
+| `TerminalRoutes.ts` | 77 | `/api/terminal/sessions*` |
+| `McpRoutes.ts` | 68 | `/api/mcp/servers*` |
+
+`server.ts`：**4,139 → 3,339 行**（本轮 −800）。派发点收敛成五行：
+
+```ts
+if (await handleGitRoute(req, res, url, gitRouteContext)) return;
+if (await handleFileRoute(req, res, url, fileRouteContext)) return;
+if (await handleSkillRoute(req, res, url, skillRouteContext)) return;
+...
+```
+
+### 上下文而不是导出
+
+路由模块**不导入 server.ts**——那会形成循环依赖，行为取决于加载顺序。相反：
+
+```ts
+export interface FileRouteContext {
+  workspaceDir: string;
+  getProjectRoot(): string | null;
+  sessionProjectRoots(): string[];
+  artifacts: Map<string, RegisteredArtifact>;
+}
+```
+
+server.ts 在 `createServer` 里构造一次。好处是**耦合从此显式**：以前 `scopedArtifact` 隐式读
+`loadSessionStore()` 和 `WORKSPACE_DIR`，现在签名上写着它需要什么。
+
+`tests/server-modules.test.js` 四条守卫：`server.ts < 3600` 行；每个 `handle*Route` 必须真的
+在 server.ts 里被调用（漏了派发 = 该路由 404）；api 模块不得反向导入 server；每个模块必须有
+context 接口。
+
+### 顺手删的
+
+`pathIsInside()` 全仓零引用，删。`sanitizeFileName`/`MIME_TYPES`/`isPrivateFile` 现在由
+`FileRoutes` 导出，server.ts 反向引用，避免两份实现漂移。
+
 ## 还没动的
 
 | 文件 | 行数 | 说明 |
 |---|---|---|
-| `src/main/server.ts` | 3,890 | 单文件 200+ 路由，闭包共享大量模块状态；拆分需要先抽出 store 层，风险高于本轮 |
-| `src/renderer/styles.css` | 6,194 | CSS 拆分受层叠顺序约束，需要按 `@layer` 重构才能安全拆 |
-| `src/renderer/app.js` | 2,355 | 剩下的是 Markdown 渲染、导航、SOUL、搜索、输入、附件、发送、主题、`init()`、事件委托 |
+| `src/renderer/styles.css` | 6,916 | 声明式，拆分收益低于代码模块；已按 11 个切点验证过括号深度为 0，可直接切 |
+| `src/main/server.ts` | 3,339 | 剩下 `/api/chat`（约 510 行）、会话 CRUD、SSE、鉴权与启动；chat 段是下一刀 |
+| `src/renderer/app.js` | 2,359 | 输入/附件/Markdown/搜索/主题 |
+| `src/main/providers/OpenAIProvider.ts` | 846 | 三家协议的响应解析可以各自成文件 |
 
 下一步优先级建议：`server.ts` 的路由分组（`api/` 下已有 `RuntimeRoutes` 的先例）
 → `styles.css` 按 `@layer` 分层 → `app.js` 的输入/附件段。

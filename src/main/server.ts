@@ -44,7 +44,6 @@ import { contextWindowForModel } from './agent/ContextCompactor';
 import { SoulStore, checkSoulBodyLimit, normalizeSoulMetadata } from './agent/SoulStore';
 import { configureApiResponse, jsonReply, readBody, readRawBody, HttpError, handleHttpError } from './api/HttpServer';
 import { LocalApiAuth, isTLS } from './security/LocalApiAuth';
-import { searchProjectText } from './search/ProjectSearch';
 import { SessionSearchIndex } from './search/SessionSearchIndex';
 import { UploadRoutes } from './api/UploadRoutes';
 import { MobileTlsListener } from './mobile/MobileTlsListener';
@@ -55,7 +54,12 @@ import { CheckpointStore, FileChange } from './session/CheckpointStore';
 import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
-import { GitService } from './git/GitService';
+import { handleFileRoute, FileRouteContext, MIME_TYPES, isPrivateFile, sanitizeFileName } from './api/FileRoutes';
+import { handleGitRoute, GitRouteContext } from './api/GitRoutes';
+import { handleSkillRoute, SkillRouteContext } from './api/SkillRoutes';
+import { handleTerminalRoute, TerminalRouteContext } from './api/TerminalRoutes';
+import { handleMcpRoute, McpRouteContext } from './api/McpRoutes';
+import { handlePluginRoute, PluginRouteContext } from './api/PluginRoutes';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { normalizeMcpToolResult } from './mcp/McpToolResult';
@@ -135,7 +139,6 @@ const MAX_AUTO_MEMORY_CHARS = 6000;
 const MAX_DURABLE_CONTEXT_CHARS = 18000;
 const MAX_DURABLE_USER_NOTES = 10;
 const MAX_DURABLE_TOOL_NOTES = 12;
-const gitService = new GitService();
 const terminalManager = new TerminalManager();
 // Agent-owned persistent shells. Kept separate from the desktop workbench so
 // the terminal UI never shows (or lets a human type into) an agent session.
@@ -1282,126 +1285,12 @@ function backfillSessionContexts(): void {
 // Agents are now cached per session via getOrCreateAgent()/cancelSessionAgent()
 // See agentCache Map above.
 
-// ---- MIME ----
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html', '.htm': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
-  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp', '.svg': 'image/svg+xml',
-  '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime',
-  '.webm': 'video/webm', '.ogv': 'video/ogg', '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska',
-  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
-  '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.opus': 'audio/opus', '.flac': 'audio/flac', '.aac': 'audio/aac',
-  '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
-};
 
 const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
-function isPrivateFile(file: string): boolean {
-  return file.split(/[\\/]/).some(part => /^\.iexa-/i.test(part) || /^\.env(?:\.|$)/i.test(part) || ['.ssh', '.git'].includes(part.toLowerCase()));
-}
-function applyPreviewIsolation(res: http.ServerResponse, extension: string): void {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  if (['.html', '.htm', '.svg', '.xhtml', '.xml'].includes(extension)) {
-    res.removeHeader('X-Frame-Options');
-    res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
-  }
-}
 
-/**
- * Channel injected into live preview documents.
- *
- * The preview iframe is sandboxed with allow-scripts but deliberately without
- * allow-same-origin, so the host page can never reach into it. That isolation
- * is what makes previewing generated HTML safe, and it is also why the frame
- * has to report its own scroll position and runtime errors: postMessage is the
- * only thing that crosses the boundary. The parent never trusts this data for
- * anything but presentation.
- */
-const PREVIEW_RUNTIME = `<script data-iexa-runtime="1">
-(function () {
-  if (window.__iexaPreviewRuntime) return;
-  window.__iexaPreviewRuntime = 1;
-  function send(message) {
-    message.__iexaPreview = 1;
-    try { parent.postMessage(message, '*'); } catch (error) { /* frame is gone */ }
-  }
-  function report(type) {
-    send({
-      type: type,
-      title: document.title || '',
-      scrollY: window.scrollY || window.pageYOffset || 0,
-      height: document.documentElement ? document.documentElement.scrollHeight : 0,
-    });
-  }
-  var queued = 0;
-  window.addEventListener('scroll', function () {
-    if (queued) return;
-    queued = requestAnimationFrame(function () { queued = 0; report('scroll'); });
-  }, { passive: true });
-  window.addEventListener('error', function (event) {
-    send({
-      type: 'error',
-      message: String(event.message || 'Script error'),
-      source: String(event.filename || ''),
-      line: event.lineno || 0,
-    });
-  }, true);
-  window.addEventListener('unhandledrejection', function (event) {
-    var reason = event.reason;
-    send({ type: 'error', message: 'Unhandled rejection: ' + (reason && reason.message ? reason.message : String(reason)) });
-  });
-  window.addEventListener('message', function (event) {
-    var data = event.data;
-    if (!data || data.__iexaPreviewCommand !== 1) return;
-    if (data.type === 'scroll') window.scrollTo(0, Math.max(0, Number(data.y) || 0));
-    else if (data.type === 'report') report('ready');
-  });
-  if (document.readyState === 'complete') report('ready');
-  else window.addEventListener('load', function () { report('ready'); });
-})();
-</script>`;
-const PREVIEW_RUNTIME_MAX_BYTES = 16 * 1024 * 1024;
 
-function injectPreviewRuntime(html: string): string {
-  // Inject as early as the document allows: a page that throws in its own
-  // <head> scripts must still be reported, so appending before </body> is too
-  // late. Stay behind the charset declaration and the <head> tag so encoding
-  // sniffing and parser state are untouched.
-  const head = /<head[^>]*>/i.exec(html);
-  const charset = /<meta[^>]+charset[^>]*>/i.exec(html);
-  let at = head ? head.index + head[0].length : -1;
-  if (charset && charset.index < 4096) at = Math.max(at, charset.index + charset[0].length);
-  if (at < 0) {
-    const body = /<body[^>]*>/i.exec(html);
-    at = body ? body.index + body[0].length : 0;
-  }
-  return `${html.slice(0, at)}${PREVIEW_RUNTIME}${html.slice(at)}`;
-}
 
-function scopedArtifact(file: string): string | null {
-  const sessionRoots = loadSessionStore().sessions.map(session => {
-    const root = normalizeSessionProject(session).projectRoot;
-    if (!root) return null;
-    try { return fs.statSync(root).isDirectory() ? fs.realpathSync.native(root) : null; } catch { return null; }
-  }).filter((value): value is string => Boolean(value));
-  const roots = [...new Set([WORKSPACE_DIR, getProjectRoot(), ...sessionRoots].filter((value): value is string => Boolean(value)))];
-  try { const safe = resolveScopedPath(file, roots); if (!isPrivateFile(safe)) return safe; } catch {}
-  // Only application-generated text artifacts may use the otherwise-private artifact directory.
-  if (!/^artifact_[A-Za-z0-9_-]+\.txt$/.test(path.basename(file))) return null;
-  for (const root of roots) {
-    const directory = path.join(root, '.iexa-artifacts');
-    try { const canonicalRoot = fs.realpathSync.native(root); const canonicalDirectory = fs.realpathSync.native(directory); const canonicalFile = fs.realpathSync.native(file);
-      if (!fs.lstatSync(directory).isSymbolicLink() && path.dirname(canonicalDirectory) === canonicalRoot && path.dirname(canonicalFile) === canonicalDirectory) return canonicalFile;
-    } catch {}
-  }
-  return null;
-}
 
-function pipeFile(file: string, res: http.ServerResponse): void {
-  // Headers may already have been sent by the route; set isolation before writeHead.
-
-  const stream = fs.createReadStream(file); stream.once('error', error => handleHttpError(res, error));
-  res.once('close', () => stream.destroy()); stream.pipe(res);
-}
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
   const pathname = new URL(req.url || '/', 'http://localhost').pathname;
@@ -1538,28 +1427,9 @@ function broadcastSessionEvent(event: string, data: unknown, excludedClientId = 
   }
 }
 
-function sanitizeFileName(name: string): string {
-  const base = path.basename(name || 'file').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim();
-  return base || 'file';
-}
 
-/** Resolve a path relative to the active project; block path traversal. */
-function resolveProjectPath(rel: string): string | null {
-  const root = getProjectRoot(); if (!root) return null;
-  try { return resolveScopedPath(rel || '.', [root]); } catch { return null; }
-}
 
-function pathIsInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
 
-/** Resolve HTML preview files while preserving a virtual directory for relative assets. */
-function resolveHtmlPreviewPath(scope: string, requestedPath: string): string | null {
-  const project = getProjectRoot();
-  const roots = scope === 'workspace' ? [WORKSPACE_DIR] : scope === 'project' ? (project ? [project] : []) : scope === 'absolute' && path.isAbsolute(requestedPath) ? [WORKSPACE_DIR, ...(project ? [project] : [])] : [];
-  try { const target = resolveScopedPath(requestedPath, roots); return !isPrivateFile(target) && fs.statSync(target).isFile() ? target : null; } catch { return null; }
-}
 
 /**
  * iOS-style auto title: JSON {title, category}, language injection, summary,
@@ -1691,6 +1561,21 @@ function getSystemInfo(): {
 // ---- Create Server ----
 function createServer(auth: LocalApiAuth): http.Server {
   const uploads = new UploadRoutes(WORKSPACE_DIR);
+  const fileRouteContext: FileRouteContext = {
+    workspaceDir: WORKSPACE_DIR,
+    getProjectRoot,
+    sessionProjectRoots: () => loadSessionStore().sessions.map(session => {
+      const root = normalizeSessionProject(session).projectRoot;
+      if (!root) return null;
+      try { return fs.statSync(root).isDirectory() ? fs.realpathSync.native(root) : null; } catch { return null; }
+    }).filter((value): value is string => Boolean(value)),
+    artifacts: artifactRegistry,
+  };
+  const gitRouteContext: GitRouteContext = { getProjectRoot };
+  const skillRouteContext: SkillRouteContext = { skills: skillStore, skillsChanged: invalidateAllAgentsForNextTurn };
+  const terminalRouteContext: TerminalRouteContext = { terminals: terminalManager, getProjectRoot, workspaceDir: WORKSPACE_DIR };
+  const mcpRouteContext: McpRouteContext = { mcp: mcpManager };
+  const pluginRouteContext: PluginRouteContext = { plugins: pluginManager, skillsChanged: invalidateAllAgentsForNextTurn };
   let bridge: MobileTlsListener;
   let bridgeTransition: Promise<unknown> = Promise.resolve();
   const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
@@ -3283,109 +3168,6 @@ ${recentMemories}
     // =====================================================================
     // Skills API (iOS-style SKILL.md)
     // =====================================================================
-    if (url.pathname === '/api/skills' && req.method === 'GET') {
-      skillStore.reload(); // always rescan disk so Explorer edits show up
-      jsonReply(res, 200, {
-        skillsDir: skillStore.getSkillsDir(),
-        skills: skillStore.list().map((s) => ({
-          id: s.id,
-          name: s.name,
-          description: s.description,
-          version: s.version,
-          source: s.source,
-          enabled: s.enabled,
-          useCount: s.useCount,
-          systemPrompt: s.systemPrompt,
-          skillPath: s.skillPath,
-          updatedAt: s.updatedAt,
-        })),
-      });
-      return;
-    }
-
-    if (url.pathname === '/api/skills/open-dir' && req.method === 'POST') {
-      const dir = skillStore.getSkillsDir();
-      try {
-        fs.mkdirSync(dir, { recursive: true });
-      } catch { /* */ }
-      jsonReply(res, 200, { path: dir });
-      return;
-    }
-
-    if (url.pathname === '/api/skills' && req.method === 'POST') {
-      const body = await readBody(req);
-      try {
-        const { content, source } = JSON.parse(body || '{}');
-        if (!content || typeof content !== 'string') {
-          jsonReply(res, 400, { error: '需要 content（SKILL.md 文本）' });
-          return;
-        }
-        const skill = skillStore.importFromContent(
-          content,
-          source === 'file' || source === 'url' || source === 'session' ? source : 'paste',
-        );
-        invalidateAllAgentsForNextTurn();
-        jsonReply(res, 200, { skill });
-      } catch (err) {
-        jsonReply(res, 400, { error: (err as Error).message || '导入失败' });
-      }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/skills/')) {
-      const id = decodeURIComponent(url.pathname.replace('/api/skills/', '').split('/')[0] || '');
-      if (!id) {
-        jsonReply(res, 400, { error: '缺少 skill id' });
-        return;
-      }
-
-      if (req.method === 'GET') {
-        const skill = skillStore.get(id);
-        if (!skill) { jsonReply(res, 404, { error: '未找到' }); return; }
-        let raw = '';
-        try { raw = fs.readFileSync(skill.skillPath, 'utf-8'); } catch { /* */ }
-        jsonReply(res, 200, { skill, content: raw });
-        return;
-      }
-
-      if (req.method === 'PUT') {
-        const body = await readBody(req);
-        try {
-          const data = JSON.parse(body || '{}');
-          if (typeof data.enabled === 'boolean') {
-            skillStore.setEnabled(id, data.enabled);
-          }
-          if (typeof data.systemPrompt === 'boolean') {
-            skillStore.setSystemPrompt(id, data.systemPrompt);
-          }
-          if (typeof data.content === 'string' && data.content.trim()) {
-            // Rewrite SKILL.md
-            const skill = skillStore.get(id);
-            if (skill) {
-              fs.writeFileSync(skill.skillPath, data.content, 'utf-8');
-              skillStore.reload();
-            }
-          }
-          // Rebuild agents so updated system-level skill content is used on the
-          // next request instead of remaining captured in an old prompt.
-        invalidateAllAgentsForNextTurn();
-          const updated = skillStore.get(id);
-          jsonReply(res, 200, { skill: updated });
-        } catch (err) {
-          jsonReply(res, 400, { error: (err as Error).message });
-        }
-        return;
-      }
-
-      if (req.method === 'DELETE') {
-        const ok = skillStore.delete(id);
-        if (ok) {
-          invalidateAllAgentsForNextTurn();
-        }
-        jsonReply(res, ok ? 200 : 404, ok ? { ok: true } : { error: '未找到' });
-        return;
-      }
-    }
 
     if (url.pathname === '/api/project/scope') {
       const root = getProjectRoot();
@@ -3415,6 +3197,11 @@ ${recentMemories}
       if (req.method === 'DELETE') { promptPreviewStore.clear(sessionId); jsonReply(res, 200, { armed: false, preview: null }); return; }
       if (req.method === 'GET') { jsonReply(res, 200, promptPreviewStore.read(sessionId)); return; }
     }
+
+    if (await handleSkillRoute(req, res, url, skillRouteContext)) return;
+    if (await handleTerminalRoute(req, res, url, terminalRouteContext)) return;
+    if (await handleMcpRoute(req, res, url, mcpRouteContext)) return;
+    if (await handlePluginRoute(req, res, url, pluginRouteContext, desktopAuthenticated)) return;
 
     if (url.pathname === '/api/project' && req.method === 'GET') {
       jsonReply(res, 200, projectInfo());
@@ -3446,606 +3233,19 @@ ${recentMemories}
     // =====================================================================
     // Persistent terminal sessions for the project workbench
     // =====================================================================
-    if (url.pathname === '/api/terminal/sessions' && req.method === 'GET') {
-      jsonReply(res, 200, { sessions: terminalManager.list() });
-      return;
-    }
-
-    if (url.pathname === '/api/terminal/sessions' && req.method === 'POST') {
-      const projectRoot = getProjectRoot() || WORKSPACE_DIR;
-      try {
-        const body = JSON.parse(await readBody(req) || '{}');
-        jsonReply(res, 201, { session: terminalManager.create(projectRoot, body.shell) });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/terminal/sessions/')) {
-      const parts = url.pathname.split('/').filter(Boolean);
-      const id = parts[3] || '';
-      const action = parts[4] || '';
-      try {
-        if (!id) throw new Error('终端会话 ID 无效。');
-        if (!action && req.method === 'GET') {
-          const after = Number(url.searchParams.get('after') || '0');
-          jsonReply(res, 200, terminalManager.output(id, after));
-          return;
-        }
-        if ((action === 'input' || action === 'execute') && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req) || '{}');
-          terminalManager.write(id, action === 'input' ? String(body.input || '') : String(body.command || ''), action === 'execute');
-          jsonReply(res, 200, { ok: true });
-          return;
-        }
-        if (action === 'resize' && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req) || '{}');
-          terminalManager.resize(id, Number(body.cols), Number(body.rows));
-          jsonReply(res, 200, { ok: true });
-          return;
-        }
-        if (action === 'terminate' && req.method === 'POST') {
-          await terminalManager.terminate(id);
-          jsonReply(res, 200, { ok: true });
-          return;
-        }
-        jsonReply(res, 404, { error: '终端接口不存在' });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
 
     // =====================================================================
     // MCP server catalog and desktop-side tool calls
     // =====================================================================
-    if (url.pathname === '/api/mcp/servers' && req.method === 'GET') {
-      jsonReply(res, 200, { servers: mcpManager.list() });
-      return;
-    }
-
-    if (url.pathname === '/api/mcp/servers' && req.method === 'POST') {
-      try {
-        const body = JSON.parse(await readBody(req) || '{}');
-        jsonReply(res, 201, { server: mcpManager.add({
-          name: String(body.name || ''), transport: body.transport === 'http' ? 'http' : 'stdio', command: body.command,
-          args: Array.isArray(body.args) ? body.args : [], url: body.url, enabled: body.enabled !== false,
-        }) });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/mcp/servers/')) {
-      const parts = url.pathname.split('/').filter(Boolean);
-      const id = parts[3] || '';
-      const action = parts[4] || '';
-      try {
-        if (!id) throw new Error('MCP Server ID 无效。');
-        if (!action && req.method === 'DELETE') { mcpManager.remove(id); jsonReply(res, 200, { ok: true }); return; }
-        if (action === 'connect' && req.method === 'POST') { jsonReply(res, 200, { server: await mcpManager.connect(id) }); return; }
-        if (action === 'disconnect' && req.method === 'POST') { jsonReply(res, 200, { server: mcpManager.disconnect(id) }); return; }
-        if (action === 'call' && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req) || '{}');
-          const result = await mcpManager.callTool(id, String(body.name || ''), body.arguments && typeof body.arguments === 'object' ? body.arguments : {});
-          jsonReply(res, 200, { result }); return;
-        }
-        if (action === 'resource' && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req) || '{}');
-          const result = await mcpManager.readResource(id, String(body.uri || ''));
-          jsonReply(res, 200, { result }); return;
-        }
-        jsonReply(res, 404, { error: 'MCP 接口不存在' });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
 
     // =====================================================================
     // Local extension plugins: install, lifecycle, tools and sandboxed UI
     // =====================================================================
-    if (url.pathname === '/api/plugins' && req.method === 'GET') {
-      jsonReply(res, 200, { plugins: pluginManager.list(), pluginsDir: pluginManager.pluginsDir });
-      return;
-    }
 
-    if (url.pathname === '/api/plugins/install' && req.method === 'POST') {
-      try {
-        const body = JSON.parse(await readBody(req) || '{}') as { path?: string };
-        const plugin = pluginManager.install(String(body.path || ''));
-        invalidateAllAgentsForNextTurn();
-        jsonReply(res, 201, { plugin });
-      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/plugins/')) {
-      const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-      const id = parts[2] || '';
-      const action = parts[3] || '';
-      try {
-        if (!id) throw new Error('插件 ID 无效。');
-        if ((action === 'ui' || action === 'panel') && req.method === 'GET') {
-          const relative = parts.slice(action === 'panel' ? 5 : 4).join('/');
-          const asset = pluginManager.resolveUiAsset(id, relative, action === 'panel' ? parts[4] : undefined);
-          const ext = path.extname(asset.path).toLowerCase();
-          const headers: Record<string, string> = {
-            'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-            'Cache-Control': 'no-store',
-            'Content-Security-Policy': "default-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
-          };
-          res.writeHead(200, headers); fs.createReadStream(asset.path).pipe(res); return;
-        }
-        if (action === 'enable' && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req) || '{}') as { enabled?: boolean };
-          const plugin = pluginManager.setEnabled(id, body.enabled === true);
-          invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { plugin }); return;
-        }
-        if (action === 'reload' && req.method === 'POST') {
-          const plugin = pluginManager.reload(id);
-          invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { plugin }); return;
-        }
-        if (action === 'ui-grant' && req.method === 'POST') {
-          if (!desktopAuthenticated) throw new HttpError(403, '插件面板仅限本地工作台。');
-          const body = JSON.parse(await readBody(req, 4096) || '{}');
-          jsonReply(res, 200, pluginManager.createUIGrant(id, typeof body.panelId === 'string' ? body.panelId : undefined)); return;
-        }
-        if (action === 'ui-grant' && req.method === 'DELETE') {
-          const body = JSON.parse(await readBody(req, 4096) || '{}');
-          pluginManager.revokeUIGrant(id, String(body.token || '')); jsonReply(res, 200, { ok: true }); return;
-        }
-        if (action === 'ui-state' && req.method === 'GET') { jsonReply(res, 200, pluginManager.readUIState(id)); return; }
-        if (action === 'ui-state' && req.method === 'PUT') {
-          const body = JSON.parse(await readBody(req, 70 * 1024) || '{}');
-          jsonReply(res, 200, pluginManager.writeUIState(id, body.revision, body.value)); return;
-        }
-        if (action === 'invoke' && req.method === 'POST') {
-          const body = JSON.parse(await readBody(req, 2 * 1024 * 1024) || '{}') as { tool?: string; arguments?: unknown };
-          const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? body.arguments as Record<string, unknown> : {};
-          const controller = new AbortController();
-          const abort = () => { if (!res.writableEnded) controller.abort(); };
-          res.on('close', abort);
-          try { const result = await pluginManager.invoke(id, String(body.tool || ''), args, controller.signal); if (!res.destroyed) jsonReply(res, 200, { result }); }
-          finally { res.removeListener('close', abort); }
-          return;
-        }
-        if (!action && req.method === 'DELETE') {
-          pluginManager.remove(id); invalidateAllAgentsForNextTurn(); jsonReply(res, 200, { ok: true }); return;
-        }
-        jsonReply(res, 404, { error: '插件接口不存在。' });
-      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
-      return;
-    }
-
-    // =====================================================================
-    // Project workbench: structured Git status/diff plus bounded text search
-    // =====================================================================
-    if (url.pathname === '/api/git/status' && req.method === 'GET') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      jsonReply(res, 200, await gitService.status(projectRoot));
-      return;
-    }
-
-    if (url.pathname === '/api/git/diff' && req.method === 'GET') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      try {
-        const target = url.searchParams.get('path') || undefined;
-        const staged = url.searchParams.get('staged') === '1';
-        jsonReply(res, 200, await gitService.diff(projectRoot, target, staged));
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/git/branches' && req.method === 'GET') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      try {
-        jsonReply(res, 200, { branches: await gitService.branches(projectRoot) });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/git/log' && req.method === 'GET') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      try {
-        jsonReply(res, 200, { entries: await gitService.log(projectRoot, Number(url.searchParams.get('limit') || 12)) });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if ((url.pathname === '/api/git/stage' || url.pathname === '/api/git/unstage' || url.pathname === '/api/git/restore') && req.method === 'POST') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      try {
-        const body = JSON.parse(await readBody(req) || '{}');
-        const paths = Array.isArray(body.paths) ? body.paths.filter((value: unknown): value is string => typeof value === 'string') : [];
-        if (url.pathname.endsWith('/stage')) await gitService.stage(projectRoot, paths);
-        else if (url.pathname.endsWith('/unstage')) await gitService.unstage(projectRoot, paths);
-        else await gitService.restore(projectRoot, paths);
-        jsonReply(res, 200, await gitService.status(projectRoot));
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (['/api/git/stage-all', '/api/git/switch', '/api/git/create-branch', '/api/git/commit', '/api/git/pull', '/api/git/push'].includes(url.pathname) && req.method === 'POST') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      try {
-        const body = JSON.parse(await readBody(req) || '{}');
-        if (url.pathname.endsWith('/stage-all')) await gitService.stageAll(projectRoot);
-        if (url.pathname.endsWith('/switch')) await gitService.switchBranch(projectRoot, String(body.branch || ''));
-        if (url.pathname.endsWith('/create-branch')) await gitService.createBranch(projectRoot, String(body.branch || ''));
-        if (url.pathname.endsWith('/commit')) await gitService.commit(projectRoot, String(body.message || ''));
-        if (url.pathname.endsWith('/pull')) await gitService.pull(projectRoot);
-        if (url.pathname.endsWith('/push')) await gitService.push(projectRoot);
-        jsonReply(res, 200, { status: await gitService.status(projectRoot) });
-      } catch (error) {
-        jsonReply(res, 400, { error: (error as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/fs/search' && req.method === 'GET') {
-      const projectRoot = getProjectRoot();
-      if (!projectRoot) {
-        jsonReply(res, 400, { error: '尚未打开项目' });
-        return;
-      }
-      const query = (url.searchParams.get('q') || '').trim();
-      if (query.length < 2) {
-        jsonReply(res, 200, { query, results: [], scanned: false });
-        return;
-      }
-      const requestedLimit = Number(url.searchParams.get('limit') || '100');
-      const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, Math.floor(requestedLimit))) : 100;
-      jsonReply(res, 200, { query, results: await searchProjectText(projectRoot, query, limit), scanned: true });
-      return;
-    }
-
-    // =====================================================================
-    // Project file browser (only when a project is open)
-    // =====================================================================
-    if (url.pathname.startsWith('/api/artifacts/') && req.method === 'GET') {
-      applyPreviewIsolation(res, '.html');
-      const id = decodeURIComponent(url.pathname.slice('/api/artifacts/'.length));
-      const artifact = artifactRegistry.get(id);
-      if (!artifact || !fs.existsSync(artifact.path) || Date.now() - artifact.created > 30 * 60 * 1000) {
-        artifactRegistry.delete(id);
-        res.writeHead(404); res.end('artifact not found'); return;
-      }
-      const safePath = scopedArtifact(artifact.path);
-      if (!safePath) throw new HttpError(403, '工件路径不在当前授权范围。');
-      const stat = fs.statSync(safePath);
-      const range = req.headers.range;
-      const commonHeaders = {
-        'Content-Type': MIME_TYPES[path.extname(safePath).toLowerCase()] || 'application/octet-stream',
-        'Content-Disposition': 'inline',
-        'Cache-Control': 'no-store',
-        'Accept-Ranges': 'bytes',
-      };
-      if (range) {
-        const match = /^bytes=(\d*)-(\d*)$/i.exec(range);
-        if (match) {
-          const start = match[1] ? Number(match[1]) : Math.max(0, stat.size - Number(match[2] || 0));
-          const end = match[2] ? Number(match[2]) : stat.size - 1;
-          if (Number.isFinite(start) && Number.isFinite(end) && start >= 0 && start <= end && end < stat.size) {
-            res.writeHead(206, {
-              ...commonHeaders,
-              'Content-Length': end - start + 1,
-              'Content-Range': `bytes ${start}-${end}/${stat.size}`,
-            });
-            const stream = fs.createReadStream(safePath, { start, end }); stream.once('error', error => handleHttpError(res, error)); res.once('close', () => stream.destroy()); stream.pipe(res);
-            return;
-          }
-        }
-      }
-      res.writeHead(200, { ...commonHeaders, 'Content-Length': stat.size });
-      pipeFile(safePath, res);
-      return;
-    }
-
-    // Cheap change detection for the live preview. The renderer polls this
-    // instead of the preview URL so a 20 MB document is not re-downloaded just
-    // to discover that nothing changed.
-    if (url.pathname.startsWith('/api/fs/preview-stat/') && req.method === 'GET') {
-      const encoded = url.pathname.slice('/api/fs/preview-stat/'.length);
-      const separator = encoded.indexOf('/');
-      const reply = (payload: unknown) => {
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-        });
-        res.end(JSON.stringify(payload));
-      };
-      if (separator < 1) { reply({ exists: false }); return; }
-      try {
-        const scope = encoded.slice(0, separator);
-        const requestedPath = decodeURIComponent(encoded.slice(separator + 1)).replace(/\//g, path.sep);
-        const target = resolveHtmlPreviewPath(scope, requestedPath);
-        if (!target) { reply({ exists: false }); return; }
-        const stat = fs.statSync(target);
-        reply({ exists: true, mtimeMs: stat.mtimeMs, size: stat.size });
-      } catch { reply({ exists: false }); }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/fs/preview/') && req.method === 'GET') {
-      try {
-        const encoded = url.pathname.slice('/api/fs/preview/'.length);
-        const separator = encoded.indexOf('/');
-        if (separator < 1) {
-          res.writeHead(404); res.end('预览文件不存在'); return;
-        }
-        const scope = encoded.slice(0, separator);
-        const requestedPath = decodeURIComponent(encoded.slice(separator + 1)).replace(/\//g, path.sep);
-        const target = resolveHtmlPreviewPath(scope, requestedPath);
-        if (!target) {
-          res.writeHead(404); res.end('预览文件不存在'); return;
-        }
-        const ext = path.extname(target).toLowerCase();
-        applyPreviewIsolation(res, ext);
-        const commonHeaders = {
-          'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-          'Content-Disposition': 'inline',
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-        };
-        // Only the top-level HTML document gets the runtime. Subresources keep
-        // streaming straight from disk.
-        if (url.searchParams.get('iexa_runtime') === '1' && (ext === '.html' || ext === '.htm')) {
-          const stat = fs.statSync(target);
-          if (stat.size <= PREVIEW_RUNTIME_MAX_BYTES) {
-            const source = fs.readFileSync(target, 'utf8');
-            // The runtime is injected as UTF-8 text and the response is served
-            // as UTF-8, so only touch documents that are already UTF-8 (or pure
-            // ASCII, which is identical in every ASCII-compatible encoding).
-            // Anything else is streamed untouched; it simply loses the scroll
-            // and error channel, never its bytes.
-            const declared = /<meta[^>]+charset\s*=\s*["']?([\w-]+)/i.exec(source.slice(0, 4096));
-            const charset = declared ? declared[1].toLowerCase() : '';
-            const utf8Safe = charset === 'utf-8' || charset === 'utf8'
-              || (!charset && !/[\u0080-\uFFFF]/.test(source));
-            if (utf8Safe) {
-              const document = injectPreviewRuntime(source);
-              const body = Buffer.from(document, 'utf8');
-              res.writeHead(200, {
-                ...commonHeaders,
-                'Content-Type': 'text/html; charset=utf-8',
-                'Content-Length': body.length,
-              });
-              res.end(body);
-              return;
-            }
-          }
-        }
-        res.writeHead(200, commonHeaders);
-        pipeFile(target, res);
-      } catch {
-        res.writeHead(400); res.end('预览路径无效');
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/fs/raw' && req.method === 'GET') {
-      try {
-        const projectRoot = getProjectRoot();
-        const rel = (url.searchParams.get('path') || '').replace(/\\/g, '/');
-        const base = projectRoot || WORKSPACE_DIR;
-        let target: string | null;
-        try { target = resolveScopedPath(rel || '.', [base]); } catch { target = null; }
-        if (target && isPrivateFile(target)) target = null;
-        if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
-          res.writeHead(404); res.end('文件不存在'); return;
-        }
-        const ext = path.extname(target).toLowerCase();
-        applyPreviewIsolation(res, ext);
-        res.writeHead(200, {
-          'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-          'Content-Disposition': 'inline; filename="' + sanitizeFileName(path.basename(target)) + '"',
-          'Cache-Control': 'no-store',
-        });
-        pipeFile(target, res);
-      } catch { res.writeHead(400); res.end('无法读取文件'); }
-      return;
-    }
-
-    if (url.pathname.startsWith('/api/attachments/') && req.method === 'GET') {
-      applyPreviewIsolation(res, '.html');
-      const parts = url.pathname.split('/').filter(Boolean);
-      const sid = parts[2] || '';
-      const name = sanitizeFileName(decodeURIComponent(parts.slice(3).join('/')));
-      if (!/^[A-Za-z0-9_-]{1,128}$/.test(sid) || !name) throw new HttpError(404, '附件不存在。');
-      const uploadRoot = path.resolve(WORKSPACE_DIR, 'uploads', sid);
-      let target: string;
-      try { target = resolveScopedPath(name, [uploadRoot]); } catch { throw new HttpError(404, '附件不存在。'); }
-      const rel = path.relative(fs.realpathSync.native(uploadRoot), target);
-      if (!sid || !name || rel.startsWith('..') || path.isAbsolute(rel) || !fs.existsSync(target)) {
-        res.writeHead(404); res.end('附件不存在'); return;
-      }
-      const ext = path.extname(target).toLowerCase();
-      res.writeHead(200, {
-        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-        'Content-Disposition': 'inline; filename="' + name + '"',
-        'Cache-Control': 'no-store',
-      });
-      pipeFile(target, res);
-      return;
-    }
-
-    if (url.pathname === '/api/fs/list' && req.method === 'GET') {
-      try {
-        const projectRoot = getProjectRoot();
-        if (!projectRoot) {
-          jsonReply(res, 200, { root: null, path: '.', entries: [], empty: true });
-          return;
-        }
-        const rel = (url.searchParams.get('path') || '.').replace(/\\/g, '/');
-        const target = resolveProjectPath(rel);
-        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
-        if (!target) {
-          jsonReply(res, 400, { error: '路径无效' });
-          return;
-        }
-        if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
-          jsonReply(res, 404, { error: '目录不存在' });
-          return;
-        }
-        const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv']);
-        const entries = fs.readdirSync(target, { withFileTypes: true })
-          .filter((d) => {
-            if (d.name === '.' || d.name === '..' || isPrivateFile(path.join(target, d.name))) return false;
-            if (d.name.startsWith('.') && d.name !== '.env' && d.name !== '.gitignore') return false;
-            if (SKIP.has(d.name)) return false;
-            return true;
-          })
-          .map((d) => {
-            const full = path.join(target, d.name);
-            let size = 0;
-            let mtime = 0;
-            try {
-              const st = fs.statSync(full);
-              size = st.size;
-              mtime = st.mtimeMs;
-            } catch { /* */ }
-            const isDir = d.isDirectory();
-            const relPath = path.relative(projectRoot, full).replace(/\\/g, '/') || '.';
-            return {
-              name: d.name,
-              type: isDir ? 'dir' : 'file',
-              size,
-              mtime,
-              path: relPath,
-            };
-          })
-          .sort((a, b) => {
-            if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-            return a.name.localeCompare(b.name, 'zh-CN');
-          });
-
-        const relNorm = path.relative(projectRoot, target).replace(/\\/g, '/') || '.';
-        jsonReply(res, 200, {
-          root: projectRoot,
-          name: path.basename(projectRoot),
-          path: relNorm,
-          entries,
-          empty: false,
-        });
-      } catch (err) {
-        jsonReply(res, 500, { error: (err as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/fs/read' && req.method === 'GET') {
-      try {
-        const projectRoot = getProjectRoot();
-        if (!projectRoot) {
-          jsonReply(res, 400, { error: '尚未打开项目' });
-          return;
-        }
-        const rel = (url.searchParams.get('path') || '').replace(/\\/g, '/');
-        const target = resolveProjectPath(rel);
-        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
-        if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
-          jsonReply(res, 404, { error: '文件不存在' });
-          return;
-        }
-        const st = fs.statSync(target);
-        if (st.size > 512 * 1024) {
-          jsonReply(res, 400, { error: '文件过大（>512KB），请用对话工具读取' });
-          return;
-        }
-        const buf = fs.readFileSync(target);
-        const sample = buf.subarray(0, Math.min(8000, buf.length));
-        let nulls = 0;
-        for (let i = 0; i < sample.length; i++) if (sample[i] === 0) nulls++;
-        if (nulls > 0) {
-          jsonReply(res, 400, { error: '二进制文件，无法预览' });
-          return;
-        }
-        let text = buf.toString('utf-8');
-        if (text.length > 80000) text = text.substring(0, 80000) + '\n\n…（已截断）';
-        jsonReply(res, 200, {
-          path: path.relative(projectRoot, target).replace(/\\/g, '/'),
-          name: path.basename(target),
-          size: st.size,
-          content: text,
-        });
-      } catch (err) {
-        jsonReply(res, 500, { error: (err as Error).message });
-      }
-      return;
-    }
-
-    if (url.pathname === '/api/fs/delete' && req.method === 'POST') {
-      try {
-        const projectRoot = getProjectRoot();
-        if (!projectRoot) {
-          jsonReply(res, 400, { error: '尚未打开项目' });
-          return;
-        }
-        const body = await readBody(req);
-        let rel = '';
-        try { rel = (JSON.parse(body).path || '').replace(/\\/g, '/'); } catch { /* */ }
-        const target = resolveProjectPath(rel);
-        if (target && isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在展示范围。' }); return; }
-        if (!target) {
-          jsonReply(res, 400, { error: '路径无效' });
-          return;
-        }
-        if (path.relative(projectRoot, target) === '' || path.relative(projectRoot, target) === '.') {
-          jsonReply(res, 400, { error: '不能删除项目根目录' });
-          return;
-        }
-        if (!fs.existsSync(target)) {
-          jsonReply(res, 404, { error: '文件不存在' });
-          return;
-        }
-        const st = fs.statSync(target);
-        if (st.isDirectory()) {
-          fs.rmSync(target, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(target);
-        }
-        jsonReply(res, 200, { ok: true });
-      } catch (err) {
-        jsonReply(res, 500, { error: (err as Error).message });
-      }
-      return;
-    }
+    // Feature routes live in api/; each reports whether it owned the request.
+    // Order matters only where prefixes overlap, which they do not here.
+    if (await handleGitRoute(req, res, url, gitRouteContext)) return;
+    if (await handleFileRoute(req, res, url, fileRouteContext)) return;
 
     if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'API 不存在或方法不匹配。');
     serveStatic(req, res);
