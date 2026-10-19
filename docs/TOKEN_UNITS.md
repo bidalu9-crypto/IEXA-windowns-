@@ -76,6 +76,20 @@ Anthropic 的 `input_tokens` **不含**。所以 OpenAI 与 Gemini 的适配器�
 
 归一之后，整段都命中缓存的回合读作 `0 入 · 431 出 · 629K 缓存 (100%)`，而不是令人困惑的 50%。
 
+历史数据同样处理：早于这次修正写入的记录没有 `inputTokensAreFresh` 标记，读取时按
+「`inputTokens` 是含缓存的 prompt」还原成新鲜值（`input − cache`），并打上标记，
+下次保存即固化。聚合表 `.iexa-token-usage.json` 同理——`sum(fresh) = sum(prompt) − sum(cache)`
+在聚合层面同样成立。
+
+实测同一个 42 MB 会话（117 条消息、58 条有用量）：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| 末条读数 | `660K 入 · 659K 缓存 (50%)` | `291 入 · 659K 缓存 (100%)` |
+| 归一化标记 | 无 | `inputTokensAreFresh: true` |
+
+另一个会话尾部三条分别是 `98% / 100% / 99%`。
+
 - 括号里的数字由 `Math.round(share)` 得出，虚色 `--text-muted`、`tabular-nums`，不抢主数字；
 - 精确 token 数和同一个百分比都在 `title` 里：`缓存读取 611,000 tokens（占输入侧 50%）`；
 - 数值仍走 `formatTokenCount`，所以是 `611K 缓存` 而不是 `611,000`。

@@ -521,9 +521,19 @@ interface ChatMessage {
   fileUndo?: { paths: string[]; timestamp: number };
   /** Files changed successfully in this assistant turn, independent of final prose. */
   deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
-  usage?: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number };
+  usage?: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; inputTokensAreFresh?: boolean };
   /** Wall-clock length of the turn that produced this reply, measured from the chat request to the final save. */
   durationMs?: number;
+  /**
+   * Set when `inputTokens` is the fresh, uncached part of the prompt.
+   *
+   * Anthropic reports input_tokens that way; OpenAI, DeepSeek and Gemini report
+   * prompt_tokens as the WHOLE prompt with the cached span inside it. Records
+   * written before the adapters were normalised lack this marker and carry the
+   * inclusive figure, which made a fully cached turn read as 50% instead of
+   * 100% - see normalizeLegacyUsage.
+   */
+  inputTokensAreFresh?: boolean;
   attachments?: ChatAttachmentMeta[];
   timestamp: number;
 }
@@ -636,9 +646,34 @@ function bindSessionProject(sessionId: string, root: string | null): Session | n
 
 function loadMessages(sessionId: string): ChatMessage[] {
   try {
-    return messageStore.loadSync(sessionId) || [];
+    const messages = messageStore.loadSync(sessionId) || [];
+    normalizeLegacyUsage(messages);
+    return messages;
   } catch { /* ignore */ }
   return [];
+}
+
+/**
+ * Rewrite pre-normalisation usage records in memory so an old turn does not
+ * keep claiming that half of its prompt was fresh.
+ *
+ * A record without `inputTokensAreFresh` was written while OpenAI-style
+ * providers still reported prompt_tokens inclusive of the cached span, so the
+ * fresh input is `inputTokens - cacheReadInputTokens`. Only records that
+ * actually carry a cache figure can be corrected; the rest are marked and left
+ * alone because there was never anything to subtract.
+ */
+function normalizeLegacyUsage(messages: ChatMessage[]): void {
+  if (!Array.isArray(messages)) return;
+  for (const message of messages) {
+    const usage = message?.usage;
+    if (!usage || usage.inputTokensAreFresh === true) continue;
+    const cached = Math.max(0, Number(usage.cacheReadInputTokens) || 0);
+    if (cached > 0) {
+      usage.inputTokens = Math.max(0, (Number(usage.inputTokens) || 0) - cached);
+    }
+    usage.inputTokensAreFresh = true;
+  }
 }
 
 async function saveMessages(sessionId: string, msgs: ChatMessage[]): Promise<void> {
@@ -867,6 +902,8 @@ interface TokenUsageRecord {
   cacheReadInputTokens: number;
   requests: number;
   estimatedCostUsd?: number | null;
+  /** True once inputTokens is the fresh remainder rather than the whole prompt. */
+  inputTokensAreFresh?: boolean;
   updatedAt: number;
 }
 
@@ -874,7 +911,17 @@ function loadTokenUsage(): TokenUsageRecord[] {
   try {
     if (fs.existsSync(TOKEN_USAGE_FILE) || fs.existsSync(`${TOKEN_USAGE_FILE}.bak`)) {
       const raw = new JsonStore<unknown>(TOKEN_USAGE_FILE, () => []).loadSync();
-      return Array.isArray(raw) ? raw : [];
+      const records = Array.isArray(raw) ? raw as TokenUsageRecord[] : [];
+      // Aggregates written before the adapters were normalised fold the cached
+      // span into inputTokens. Sum(fresh) == Sum(prompt) - Sum(cached), so the
+      // correction is exact at aggregate level too.
+      for (const record of records) {
+        if (!record || record.inputTokensAreFresh === true) continue;
+        const cached = Math.max(0, Number(record.cacheReadInputTokens) || 0);
+        record.inputTokens = Math.max(0, (Number(record.inputTokens) || 0) - cached);
+        record.inputTokensAreFresh = true;
+      }
+      return records;
     }
   } catch { /* ignore corrupt statistics */ }
   return [];
@@ -897,6 +944,7 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
   record.cacheReadInputTokens += Math.max(0, Number(usage.cacheReadInputTokens) || 0);
   record.requests += 1;
   record.estimatedCostUsd = estimateCostUsd(record.provider, record.model, record, profile.tokenPrice);
+  record.inputTokensAreFresh = true;
   record.updatedAt = Date.now();
   new JsonStore<TokenUsageRecord[]>(TOKEN_USAGE_FILE, () => records).saveSync(records);
 }
@@ -1274,7 +1322,7 @@ async function saveSessionMessages(
   userMsg: ChatMessage,
   assistantText: string,
   toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
-  usage: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number } | undefined,
+  usage: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; inputTokensAreFresh?: boolean } | undefined,
   thinking = '',
   thinkingLevel = getThinkingLevel(),
   transcript?: TranscriptEvents,
@@ -1294,7 +1342,7 @@ async function saveSessionMessages(
     thinkingLevel: thinking ? normalizeThinkingLevel(thinkingLevel) : undefined,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
-    usage: usage,
+    usage: usage ? { ...usage, inputTokensAreFresh: true } : undefined,
     durationMs,
     timestamp: Date.now(),
   };
