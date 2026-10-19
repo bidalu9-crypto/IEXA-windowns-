@@ -223,6 +223,7 @@
     const indicator = make('div', 'waiting-indicator');
     indicator.setAttribute('role', 'status'); indicator.setAttribute('aria-live', 'polite');
     indicator.appendChild(make('span', 'waiting-indicator__label', 'IEXA正在处理...'));
+    window.IexaLabelGlow?.attach(indicator.querySelector('.waiting-indicator__label'));
     return indicator;
   }
   window.IexaChatActivity = Object.freeze({ updateTool, prepareThinking, finishThinking, createWaiting, refreshDetail });

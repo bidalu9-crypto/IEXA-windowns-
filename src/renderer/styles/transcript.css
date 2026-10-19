@@ -934,13 +934,6 @@ body.chat-focus-mode .message.user {
   color: var(--text-secondary);
   font-weight: 560;
   white-space: nowrap;
-  background: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--thinking-sheen) 46%, var(--text-primary) 50%, var(--thinking-sheen) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);
-  background-size: 220% 100%;
-  background-position: 120% 0;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: iexa-waiting-text-sweep 1.65s linear infinite;
 }
 
 @keyframes iexa-thinking-orb-sweep {
@@ -1037,11 +1030,6 @@ body.chat-focus-mode .message.user {
 .permission-action-primary { color: #fff; background: var(--accent-hover); border-color: var(--accent-hover); }
 .permission-action-danger { color: var(--text-primary); }
 .permission-action-secondary { background: var(--accent-light); }
-
-@keyframes iexa-waiting-text-sweep {
-  0% { background-position: 160% 0; }
-  66.6667%, 100% { background-position: -160% 0; }
-}
 
 .message-content p { margin-bottom: 8px; }
 .message-content p:last-child { margin-bottom: 0; }

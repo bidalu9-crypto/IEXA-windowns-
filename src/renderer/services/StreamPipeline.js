@@ -422,6 +422,7 @@ function handleThinkingDelta(text) {
     thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
     if (rail) rail.append(thinkBlock);
     else window.IexaTranscriptView.append(currentAssistantMsg, thinkBlock);
+    window.IexaLabelGlow?.attach(thinkBlock.querySelector('.thinking-title'));
     window.IexaChatActivity.prepareThinking(thinkBlock);
     stabilizeThinkingBlockWidth(thinkBlock);
   }

@@ -304,32 +304,57 @@ html[data-motion="reduced"] .workbench-shell .tool-block.is-active > .tool-heade
 .workbench-shell .thinking-content { padding: 7px 12px; margin-left: 24px; width: calc(100% - 24px); border: 0; border-left: 1px solid var(--border); background: transparent; font-family: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.7; }
 .workbench-shell .waiting-indicator { display: block !important; min-height: 24px; max-width: 100%; margin: 8px 0; padding: 0 2px; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.8; }
 .workbench-shell .waiting-indicator__label { font-weight: 400; }
-/* Sweep one-line labels only, while a real reasoning phase / tool execution is
-   active. The reasoning body is never swept: a text-clipped gradient re-rasterises
-   every glyph on every frame, and that body can run to thousands of glyphs.
-   Approval, cancellation, completed history and metadata never imply execution. */
-.workbench-shell .thinking-block:not(.is-complete) .thinking-title,
-.workbench-shell .tool-block[data-execution-status="running"] :is(.activity-operation, .tool-name, .tool-detail-title) {
-  color: var(--text-secondary);
-  background-image: linear-gradient(105deg, var(--text-secondary) 0%, var(--text-secondary) 34%, var(--thinking-sheen, var(--text-primary)) 46%, var(--text-primary) 50%, var(--thinking-sheen, var(--text-primary)) 54%, var(--text-secondary) 66%, var(--text-secondary) 100%);
-  background-size: 220% 100%; background-position: 160% 0;
-  background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  animation: iexa-waiting-text-sweep 1.65s linear infinite;
-  text-shadow: none;
+/* One travelling band per running label, drawn the way DeepSeek Harness draws
+   TextShimmer: the label keeps its own text and colour; an aria-hidden copy sits
+   in a clipped window under a static mask, and two opposite transforms slide the
+   glyphs beneath that band. Both animated properties are transforms, so the band
+   rides the compositor and the label never re-rasterises. Only the line that is
+   actually running carries a band - never the reasoning body, never history.
+   Approval, cancellation, completed metadata never imply execution. */
+:is(.thinking-title, .tool-name, .activity-operation, .tool-detail-title, .waiting-indicator__label) {
+  position: relative;
 }
-html[data-motion="reduced"] .workbench-shell :is(.thinking-title, .thinking-content, .activity-operation, .tool-name, .tool-detail-title),
-html[data-motion="reduced"] .workbench-shell .waiting-indicator__label {
-  background-image: none !important; -webkit-text-fill-color: currentColor !important; animation: none !important;
+.label-glow {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+  color: var(--thinking-sheen, var(--text-primary));
 }
+.label-glow__sweep {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  will-change: transform;
+  -webkit-mask-image: linear-gradient(105deg, transparent 0%, #000 42% 58%, transparent 100%);
+  mask-image: linear-gradient(105deg, transparent 0%, #000 42% 58%, transparent 100%);
+  transform: translateX(-100%);
+  animation: iexa-label-glow-sweep 1.5s linear infinite;
+}
+.label-glow__copy {
+  display: block;
+  width: 100%;
+  height: 100%;
+  white-space: nowrap;
+  will-change: transform;
+  transform: translateX(100%);
+  animation: iexa-label-glow-copy 1.5s linear infinite;
+}
+@keyframes iexa-label-glow-sweep {
+  0% { transform: translateX(-100%); }
+  66.6667%, 100% { transform: translateX(100%); }
+}
+@keyframes iexa-label-glow-copy {
+  0% { transform: translateX(100%); }
+  66.6667%, 100% { transform: translateX(-100%); }
+}
+html[data-motion="reduced"] .label-glow { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion="full"]) .workbench-shell :is(.thinking-title, .thinking-content, .activity-operation, .tool-name, .tool-detail-title, .waiting-indicator__label) {
-    background-image: none !important; -webkit-text-fill-color: currentColor !important; animation: none !important;
-  }
+  html:not([data-motion="full"]) .label-glow { display: none; }
 }
 @media (forced-colors: active) {
-  .workbench-shell :is(.thinking-title, .thinking-content, .activity-operation, .tool-name, .tool-detail-title, .waiting-indicator__label) {
-    background-image: none !important; -webkit-text-fill-color: currentColor !important; animation: none !important;
-  }
+  .label-glow { display: none; }
 }
 @media (max-width: 760px) {
   .workbench-shell .activity-row .tool-header { gap: 6px; flex-wrap: wrap; }
@@ -570,12 +595,8 @@ html[data-motion="reduced"] .workbench-shell .waiting-indicator__label {
 .desktop-control-events { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 5px; }
 .desktop-control-events li { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
 .desktop-control-events time { opacity: .55; font-size: calc(11px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
-.desktop-control-trace[data-active="true"] > summary { background: linear-gradient(105deg, #81818a 30%, #e9e9ee 48%, #81818a 66%); background-size: 240% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: desktop-phase-sweep 2.2s linear infinite; }
 .desktop-control-trace[data-phase="takeover"] > summary, .desktop-control-trace[data-phase="failed"] > summary { color: var(--warning-color, #bf923f); }
-@keyframes desktop-phase-sweep { from { background-position: 150% 0; } to { background-position: -80% 0; } }
-@media (prefers-reduced-motion: reduce) { html:not([data-motion="full"]) .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; } }
 
-html[data-motion="reduced"] .desktop-control-trace[data-active="true"] > summary { animation: none; background: none; color: inherit; }
 
 /* Focused chat polish: retain the workbench structure and all navigation. */
 .workbench-shell .shell-toolbar-button { min-width: 32px; min-height: 32px; border-radius: 8px; }

@@ -94,15 +94,33 @@ test('a row is one 24px line with the 2px separator', () => {
     'the 2x2 dot between title and summary is missing');
 });
 
-test('a paragraph is never text-clipped and swept', () => {
+test('a running label is swept by transforms, never by repainting glyphs', () => {
   const workbench = css('workbench.css');
-  const clip = /([^{}]*)\{[^}]*background-clip: text/.exec(workbench);
-  assert.ok(clip, 'the label sweep is gone');
-  assert.ok(!clip[1].includes('.thinking-content'),
-    'the reasoning body is being re-rasterised every frame; text-clip belongs on one-line labels only');
-  const frames = css('styles', 'transcript.css');
-  const cycle = /@keyframes iexa-waiting-text-sweep \{[\s\S]*?\r?\n\}/.exec(frames);
-  assert.ok(cycle, 'the sweep keyframes are missing');
-  assert.match(cycle[0], /66\.6667%, 100%/,
-    'the sweep runs continuously; Harness holds the band for the last third of the cycle');
+  assert.doesNotMatch(workbench, /background-clip: text/,
+    'a text-clipped gradient re-rasterises every glyph of the label on every frame');
+  assert.doesNotMatch(workbench, /@keyframes[^{]*\{[^}]*background-position/,
+    'animating background-position is a paint-only animation, not a compositor one');
+  const sweep = /@keyframes iexa-label-glow-sweep \{([\s\S]*?)\n\}/.exec(workbench);
+  const copy = /@keyframes iexa-label-glow-copy \{([\s\S]*?)\n\}/.exec(workbench);
+  assert.ok(sweep && copy, 'the two opposite transforms from TextShimmer are missing');
+  assert.match(sweep[1], /translateX\(-100%\)/);
+  assert.match(copy[1], /translateX\(100%\)/,
+    'without the counter-translate the glyphs slide with the band instead of staying put');
+  assert.match(workbench, /\.label-glow__sweep \{[^}]*mask-image: linear-gradient\(105deg/,
+    'the band is drawn by a mask on the moving window');
+  assert.match(workbench, /animation: iexa-label-glow-sweep 1\.5s linear/,
+    'the sweep left its measured timing');
+});
+
+test('only a running row carries a glow, never the reasoning body', () => {
+  const glow = fs.readFileSync(path.join(ROOT, 'src/renderer/services/LabelGlow.js'), 'utf8');
+  assert.match(glow, /classList\.contains\('is-active'\)/,
+    'the glow no longer reads the row state, so finished rows would keep animating');
+  assert.match(glow, /setAttribute\('aria-hidden', 'true'\)/,
+    'the decorative copy would be read out twice by a screen reader');
+  const workbench = css('workbench.css');
+  assert.doesNotMatch(workbench, /\.thinking-content[^{]*\{[^}]*\.label-glow/,
+    'the reasoning body is swept again; it can run to thousands of glyphs');
+  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
+  assert.ok(html.includes('services/LabelGlow.js'), 'the glow module is not loaded by the shell');
 });

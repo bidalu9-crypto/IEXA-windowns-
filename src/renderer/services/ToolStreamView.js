@@ -318,6 +318,7 @@ function setToolStepStatus(block, status, label) {
   block.classList.toggle('is-done', status === 'done');
   block.classList.toggle('is-error', ['error', 'denied', 'timed-out'].includes(status));
   block.classList.toggle('is-cancelled', status === 'cancelled');
+  window.IexaLabelGlow?.syncRow(block);
 }
 
 function toolKind(name) {

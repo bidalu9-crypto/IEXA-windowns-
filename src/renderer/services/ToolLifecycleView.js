@@ -35,7 +35,9 @@
       const active = !['completed', 'failed', 'takeover', 'cancelled'].includes(event.phase);
       panel.dataset.active = String(active); panel.dataset.phase = event.phase;
       const label = event.phase === 'verify' ? (event.verified ? '指定界面文字已核对' : '已采集后置画面 · 业务结果待确认') : desktopLabels[event.phase];
-      panel.querySelector('summary').textContent = label;
+      const phaseSummary = panel.querySelector('summary');
+      phaseSummary.textContent = label;
+      window.IexaLabelGlow?.sync(phaseSummary, active);
       const item = doc.createElement('li'); item.dataset.phase = event.phase;
       const text = doc.createElement('span'); text.textContent = event.step ? `${event.step}/${event.totalSteps} · ${label}` : label;
       item.append(text);
@@ -49,6 +51,7 @@
     const state = Object.hasOwn(states, status) ? status : 'unknown';
     block.dataset.executionStatus = state;
     render(block, ...states[state]);
+    window.IexaLabelGlow?.syncRow(block);
   }
   function apply(block, event, render) {
     if (!block || !event || event.version !== 1 || !Number.isSafeInteger(event.sequence) || event.sequence < 1 ||

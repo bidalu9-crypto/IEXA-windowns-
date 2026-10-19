@@ -213,4 +213,37 @@ test('real browser: surface scale and motion behave once, and stop on request', 
   await cdp('Emulation.setEmulatedMedia', { features: [] });
 
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions[0] || {}));
+
+  // The running label's highlight must come from the shell module and animate
+  // transforms only. A text-clipped background-position sweep would repaint every
+  // glyph of the label on every frame; this pins the loaded implementation.
+  await evaluate("document.documentElement.setAttribute('data-motion', 'full')");
+  const glow = await evaluate(`(() => {
+    const row = document.createElement('div');
+    row.className = 'tool-block activity-row is-active';
+    row.innerHTML = '<div class="tool-header"><span class="tool-name">grep</span></div>';
+    document.querySelector('.workbench-shell, body').append(row);
+    const sync = typeof window.IexaLabelGlow?.syncRow === 'function';
+    window.IexaLabelGlow?.syncRow(row);
+    const sweep = row.querySelector('.label-glow__sweep');
+    const out = {
+      sync,
+      hasGlow: !!row.querySelector('.label-glow'),
+      anim: sweep ? getComputedStyle(sweep).animationName : null,
+      mask: sweep ? getComputedStyle(sweep).maskImage.slice(0, 16) : null,
+      decorative: row.querySelector('.label-glow')?.getAttribute('aria-hidden'),
+    };
+    row.classList.remove('is-active');
+    window.IexaLabelGlow?.syncRow(row);
+    out.removed = !row.querySelector('.label-glow');
+    row.remove();
+    return out;
+  })()`);
+  assert.equal(glow.sync, true, 'IexaLabelGlow did not load in the app shell');
+  assert.equal(glow.hasGlow, true, 'a running row got no highlight');
+  assert.equal(glow.anim, 'iexa-label-glow-sweep');
+  assert.match(glow.mask, /linear-gradient/);
+  assert.equal(glow.decorative, 'true', 'the decorative copy is not hidden from assistive tech');
+  assert.equal(glow.removed, true, 'a finished row kept its highlight');
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions[0] || {}));
 });
