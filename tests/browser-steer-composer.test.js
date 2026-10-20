@@ -152,6 +152,21 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
   // the composer carries no mode jargon.
   assert.equal(await evaluate("getComputedStyle(stopBtn).display !== 'none'"), true, 'stop is the visible action');
   assert.equal(await evaluate("getComputedStyle(sendBtn).display === 'none'"), true, 'send is not shown beside stop');
+  const stopTint = `(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { stop: getComputedStyle(stopBtn).backgroundColor, expected };
+  })()`;
+  const stopDefault = await evaluate(stopTint);
+  assert.equal(stopDefault.stop, stopDefault.expected, 'stop follows the theme accent');
+  await evaluate("document.documentElement.dataset.accent = 'green'");
+  const stopGreen = await evaluate(stopTint);
+  assert.equal(stopGreen.stop, stopGreen.expected, 'stop re-resolves with the accent');
+  assert.notEqual(stopGreen.stop, stopDefault.stop, 'changing the accent repaints stop');
+  await evaluate("document.documentElement.dataset.accent = 'violet'");
   assert.equal(await evaluate("chatInput.placeholder"), '有问题，随便问');
   assert.equal(await evaluate("document.querySelector('.input-actions').textContent.trim()"), '');
 

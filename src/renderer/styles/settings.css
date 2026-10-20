@@ -24,12 +24,12 @@
 }
 
 #stopBtn {
-  background: var(--text-primary);
-  color: var(--bg-primary);
+  background: var(--action-bg);
+  color: var(--on-accent);
 }
 
 #stopBtn:hover {
-  background: var(--text-secondary);
+  background: var(--action-bg-hover);
 }
 
 #stopBtn::before {
