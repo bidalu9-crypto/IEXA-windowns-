@@ -47,6 +47,9 @@
   --thinking-sheen-soft: rgba(255, 255, 255, 0.18);
   /* Brand block: system line is a saturated blue, bold, in both themes. */
   --brand-system: #1d4ed8;
+  /* Structural rails are accent-tinted, so switching theme or accent repaints
+     them instead of leaving a neutral hairline behind. */
+  --rail-line: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 [data-theme="dark"] {

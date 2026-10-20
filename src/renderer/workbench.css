@@ -226,7 +226,7 @@ html[data-motion="reduced"] .workbench-shell *::after {
    Keep states/output real; only presentation is changed here. */
 .workbench-shell .tool-steps.activity-list {
   display: flex; flex-direction: column; gap: 2px; width: 100%; margin: 5px 0 10px; padding: 0 0 0 9px;
-  border-left: .5px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-left: 1px solid var(--rail-line);
 }
 html:not([data-collapse-tools="on"]) .workbench-shell .tool-steps.activity-list > .task-summary { display: none; }
 html[data-collapse-tools="on"] .workbench-shell .tool-steps.activity-list > .task-summary { display: flex; width: fit-content; max-width: min(100%, 430px); }

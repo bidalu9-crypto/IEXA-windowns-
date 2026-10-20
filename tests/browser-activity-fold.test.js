@@ -115,6 +115,21 @@ test('real browser: live reasoning and its rail stay open until the next step', 
     'a running rail must be expanded');
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.tool-block')).display !== 'none'"), true,
     'the tool capsule is still hidden inside a folded rail');
+  const railStyle = `(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--rail-line)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { rail: getComputedStyle(document.querySelector('.tool-steps')).borderLeftColor, expected };
+  })()`;
+  const defaultRail = await evaluate(railStyle);
+  assert.equal(defaultRail.rail, defaultRail.expected, 'the rail takes the theme accent');
+  await evaluate("document.documentElement.dataset.accent = 'green'");
+  const greenRail = await evaluate(railStyle);
+  assert.equal(greenRail.rail, greenRail.expected);
+  assert.notEqual(greenRail.rail, defaultRail.rail, 'switching the accent repaints the rail');
+  await evaluate("delete document.documentElement.dataset.accent");
   await evaluate(`window.__pushChat(${JSON.stringify('event: tool_complete\ndata: {"id":"t1","name":"file_read","args":{"path":"a.ts"}}\n\n')}); true`);
   await evaluate(`window.__pushChat(${JSON.stringify('event: tool_result\ndata: {"id":"t1","output":"ok","success":true,"executionStatus":"completed"}\n\n')}); true`);
 

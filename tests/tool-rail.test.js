@@ -78,8 +78,11 @@ test('tool rows are contained so an append cannot lay out the whole transcript',
 // read from the repo, not the parts that were assumed.
 test('the rail is one border on the container, not a hairline per row', () => {
   const workbench = css('workbench.css');
-  assert.match(workbench, /\.tool-steps\.activity-list \{[^}]*border-left: \.5px/,
+  const base = css('styles/base.css');
+  assert.match(workbench, /\.tool-steps\.activity-list \{[^}]*border-left: 1px solid var\(--rail-line\)/,
     'the rail border is not on the container');
+  assert.match(base, /--rail-line: color-mix\(in srgb, var\(--accent\) 55%, var\(--border\)\)/,
+    'the rail must derive from the accent so a theme switch repaints it');
   assert.doesNotMatch(workbench, /\.tool-steps > :is\(\.tool-block, \.thinking-block\) \{[^}]*box-shadow: inset/,
     'rows still draw their own hairline; that is one paint per row again');
 });
