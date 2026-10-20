@@ -105,6 +105,22 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
   assert.notEqual(greenFill.send, accentFill.send, 'changing the accent changes the button');
   await evaluate("document.documentElement.dataset.accent = 'violet'");
 
+  // Secondary and primary actions must read as the same size: identical boxes,
+  // identical glyph size, and a ring strong enough to hold the outline.
+  assert.deepEqual(await evaluate(`(() => {
+    const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+    const glyph = (el, sel) => { const r = el.querySelector(sel).getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+    return {
+      voice: box(voiceBtn), send: box(sendBtn),
+      voiceGlyph: glyph(voiceBtn, '.voice-icon'), sendGlyph: glyph(sendBtn, '.send-icon'),
+      ring: getComputedStyle(voiceBtn).borderTopColor,
+    };
+  })()`), {
+    voice: [32, 32], send: [32, 32],
+    voiceGlyph: [18, 18], sendGlyph: [18, 18],
+    ring: 'rgb(206, 206, 211)',
+  });
+
   // Stub only the two turn endpoints; everything else hits the real server.
   await evaluate(String.raw`(() => {
     window.__realFetch = window.fetch;

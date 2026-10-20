@@ -116,10 +116,10 @@
 .workbench-shell .model-selector:hover, .workbench-shell .thinking-level-btn:hover, .workbench-shell .context-compaction-btn:hover, .workbench-shell .permission-mode-btn:hover { background: var(--shell-hover); box-shadow: none; transform: none; }
 .workbench-shell .model-selector-label { max-width: 180px; }
 .workbench-shell .input-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; position:relative; }
-.workbench-shell #voiceBtn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border); border-radius:50%; background:transparent; color:var(--text-secondary); transition:color 140ms ease, background 140ms ease, border-color 140ms ease; }
-.workbench-shell #voiceBtn:hover { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--border-strong); }
+.workbench-shell #voiceBtn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border-strong); border-radius:50%; background:transparent; color:var(--text-secondary); transition:color 140ms ease, background 140ms ease, border-color 140ms ease; }
+.workbench-shell #voiceBtn:hover { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--text-muted); }
 .workbench-shell #voiceBtn[hidden] { display:none; }
-.workbench-shell #voiceBtn .voice-icon { display:block; flex:0 0 17px; width:17px; height:17px; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.workbench-shell #voiceBtn .voice-icon { display:block; flex:0 0 18px; width:18px; height:18px; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
 .workbench-shell #voiceBtn .voice-level { position:absolute; bottom:4px; right:4px; display:flex; align-items:end; gap:1px; height:7px; opacity:0; transition:opacity 140ms ease; }
 .workbench-shell #voiceBtn .voice-level i { width:1.5px; height:3px; border-radius:2px; background:currentColor; }
 .workbench-shell #voiceBtn .voice-level i:nth-child(2){height:6px}.workbench-shell #voiceBtn .voice-level i:nth-child(3){height:4px}.workbench-shell #voiceBtn .voice-level i:nth-child(4){height:7px}
