@@ -285,6 +285,8 @@ function handleTextDelta(fullText) {
   hideWaitingIndicator();
   finishActiveThinkingBlock();
   if (!currentAssistantMsg) return;
+  // The answer is now the current activity; finished tool steps fold back.
+  window.IexaToolRail?.collapseActive?.();
   const previous = String(currentAssistantMsg._assistantText || '');
   const value = String(fullText || '');
   const contentEl = ensureAnswerContentEl();
@@ -369,7 +371,9 @@ function finishThinkingBlock(thinkBlock) {
   if (timerId) window.clearInterval(timerId);
   delete thinkBlock.dataset.timerId;
   window.IexaChatActivity.finishThinking(thinkBlock);
-  thinkBlock.open = false;
+  // Live reasoning reads open; once it is history it folds back unless the
+  // user opened or closed it by hand.
+  if (thinkBlock.dataset.userToggled !== 'true') thinkBlock.open = false;
   thinkBlock.classList.add('is-complete');
   const title = thinkBlock.querySelector('.thinking-title');
   const effort = thinkBlock.querySelector('.thinking-effort');
@@ -406,6 +410,9 @@ function scrollThinkingToLatest(content) {
 function handleThinkingDelta(text) {
   hideWaitingIndicator();
   if (!currentAssistantMsg || !text) return;
+  // Reasoning is the new current activity: the rail it interrupts folds away
+  // before the new block is placed, otherwise the rail would swallow it.
+  window.IexaToolRail?.collapseActive?.();
   const lastActivity = window.IexaTranscriptView.lastNode(currentAssistantMsg);
   // Reasoning joins the turn's existing rail instead of starting a new block
   // beside it. A think/tool alternation used to break the chain every time,
@@ -423,16 +430,24 @@ function handleThinkingDelta(text) {
     const level = currentAssistantMsg.dataset.thinkingLevel || currentThinkingLevel;
     thinkBlock = document.createElement('details');
     thinkBlock.className = 'thinking-block';
-    thinkBlock.open = false;
+    // Live reasoning is visible while it streams; finishing folds it.
+    thinkBlock.open = true;
     thinkBlock.dataset.startedAt = String(Date.now());
     thinkBlock._reasoning = '';
     thinkBlock.dataset.thinkingLevel = level;
     thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+    // Clicks on the summary are the only reliable user intent: programmatic
+    // open changes also emit `toggle`, so that event cannot tell them apart.
+    thinkBlock.querySelector(':scope > summary')?.addEventListener('click', () => {
+      thinkBlock.dataset.userToggled = 'true';
+    });
     if (rail) rail.append(thinkBlock);
     else window.IexaTranscriptView.append(currentAssistantMsg, thinkBlock);
     window.IexaLabelGlow?.attach(thinkBlock.querySelector('.thinking-title'));
     window.IexaChatActivity.prepareThinking(thinkBlock);
     stabilizeThinkingBlockWidth(thinkBlock);
+  } else if (thinkBlock.dataset.userToggled !== 'true') {
+    thinkBlock.open = true;
   }
   const total = (thinkBlock._reasoning || '') + String(text);
   thinkBlock._reasoning = total;

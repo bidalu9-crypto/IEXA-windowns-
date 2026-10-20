@@ -23,9 +23,9 @@ test('native details buttons are bound once, preserve output and have unique DOM
  w.IexaChatActivity.updateTool(a,'shell_execute',{command:'npm test'});const h=a.querySelector('.tool-header');assert.equal(h.tagName,'BUTTON');assert.equal(h.hasAttribute('data-ui-action'),false);
  assert.notEqual(h.getAttribute('aria-controls'),b.querySelector('.tool-header').getAttribute('aria-controls'));h.click();assert.equal(h.getAttribute('aria-expanded'),'true');assert.equal(a.querySelector('.tool-body').style.display,'block');h.click();assert.equal(h.getAttribute('aria-expanded'),'false');assert.equal(a.querySelector('.tool-result').textContent,'真实输出');
 });
-test('thinking summary collapses by default and records only measured elapsed time',t=>{
+test('thinking summary keeps the caller open state and records only measured elapsed time',t=>{
  const w=setup(t),d=w.document.createElement('details');d.innerHTML='<summary><span class="thinking-title">思考</span><span class="thinking-effort">标准</span><span class="thinking-token-count">123</span><span class="thinking-chevron"></span></summary><pre class="thinking-content">推理内容</pre>';d.open=true;
- w.IexaChatActivity.prepareThinking(d);assert.equal(d.open,false);assert.equal(d.querySelector('summary .thinking-token-count'),null);assert.equal(d.querySelector('.thinking-details-meta').textContent,'标准123');
+ w.IexaChatActivity.prepareThinking(d);assert.equal(d.open,true,'open state belongs to the caller');assert.equal(d.querySelector('summary .thinking-token-count'),null);assert.equal(d.querySelector('.thinking-details-meta').textContent,'标准123');
  w.IexaChatActivity.finishThinking(d,10000);assert.equal(d.querySelector('.thinking-elapsed').textContent,'');d.dataset.startedAt='1000';w.IexaChatActivity.finishThinking(d,30000);assert.match(d.querySelector('.thinking-elapsed').textContent,/29/);d.dataset.priorDurationMs='29000';d.dataset.startedAt='31000';w.IexaChatActivity.finishThinking(d,33000);assert.equal(d.dataset.durationMs,'31000');
 });
 test('actual waiting handler suppresses cancelled-turn recreation and creates no duplicate text',t=>{

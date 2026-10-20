@@ -1950,6 +1950,7 @@ function handleError(message, turnToken) {
   protectLiveTurnDom();
   runtimeForSession(currentSessionId).turnStopPending = false;
   finishActiveThinkingBlock();
+  window.IexaToolRail?.collapseActive?.();
   hideWaitingIndicator();
   finalizeAssistantMessage(currentAssistantMsg);
   addError(message);

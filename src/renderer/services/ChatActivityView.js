@@ -208,7 +208,8 @@
     const elapsed = make('span', 'thinking-elapsed');
     summary.insertBefore(elapsed, summary.querySelector('.thinking-chevron'));
     block.dataset.activityBound = 'true';
-    block.open = false;
+    // Open state belongs to the caller: live reasoning starts expanded and
+    // folds when it finishes; restored history starts collapsed.
   }
   function finishThinking(block, now = Date.now()) {
     prepareThinking(block);

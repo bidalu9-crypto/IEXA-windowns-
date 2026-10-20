@@ -74,7 +74,7 @@ function applyConsecutiveToolFoldSetting(enabled) {
   document.querySelectorAll('.tool-steps').forEach((host) => {
     const summary = [...host.children].find((node) => node.classList?.contains('task-summary'));
     if (summary) {
-      applyConsecutiveToolFold(host, summary, summary.dataset.userExpanded !== 'true');
+      applyConsecutiveToolFold(host, summary, railShouldCollapse(host, summary));
       summary.hidden = !enabled;
     }
     refreshToolGroupSummary(host);
@@ -87,6 +87,17 @@ function setConsecutiveToolFold(enabled) {
     if (typeof syncThemeUI === 'function') syncThemeUI();
     if (typeof scheduleAppearanceSave === 'function') scheduleAppearanceSave();
   } catch { /* the visible fold state is already applied */ }
+}
+
+/**
+ * A live rail is open while its tools run. Reasoning or answer text taking
+ * over folds it back into the summary bar, so only the current step is
+ * expanded. Explicit clicks always win over that default.
+ */
+function railShouldCollapse(host, summary) {
+  if (summary.dataset.userCollapsed === 'true') return true;
+  if (summary.dataset.userExpanded === 'true') return false;
+  return host.dataset.autoOpen !== 'true';
 }
 
 function applyConsecutiveToolFold(host, summary, collapsed) {
@@ -122,7 +133,7 @@ function refreshToolGroupSummary(host) {
   summary.classList.toggle('is-complete', !running && blocks.length > 0);
   const spinner = summary.querySelector('.task-summary-spinner');
   if (spinner) spinner.hidden = !running;
-  applyConsecutiveToolFold(host, summary, summary.dataset.userExpanded !== 'true');
+  applyConsecutiveToolFold(host, summary, railShouldCollapse(host, summary));
 }
 
 function createTaskSummary(toolCount) {
@@ -143,6 +154,7 @@ function createTaskSummary(toolCount) {
     if (!host || !consecutiveToolFoldEnabled()) return;
     const collapsed = !host.classList.contains('is-collapsed');
     summary.dataset.userExpanded = collapsed ? '' : 'true';
+    summary.dataset.userCollapsed = collapsed ? 'true' : '';
     applyConsecutiveToolFold(host, summary, collapsed);
   });
   return summary;
@@ -165,6 +177,22 @@ function attachToolGroupSummary(host) {
   return summary;
 }
 
+/** Keep this turn's rail open while its tools are the current activity. */
+function expandToolGroup(host) {
+  if (!host) return;
+  host.dataset.autoOpen = 'true';
+  refreshToolGroupSummary(host);
+}
+
+/** Fold every rail whose tools have been superseded by reasoning or answer text. */
+function collapseActiveToolGroups() {
+  if (!currentAssistantMsg) return;
+  currentAssistantMsg.querySelectorAll('.tool-steps[data-auto-open="true"]').forEach((host) => {
+    delete host.dataset.autoOpen;
+    refreshToolGroupSummary(host);
+  });
+}
+
 // Exposed through an IIFE so the module keeps its declaration-only top level;
 // transcript replay attaches task bars through this instead of duplicating the
 // summary markup.
@@ -173,6 +201,8 @@ function attachToolGroupSummary(host) {
     attach: attachToolGroupSummary,
     refresh: refreshToolGroupSummary,
     createSummary: createTaskSummary,
+    expand: expandToolGroup,
+    collapseActive: collapseActiveToolGroups,
   });
 })();
 
@@ -215,6 +245,8 @@ function beginTaskSummary(label) {
 function finishTaskSummary() {
   if (currentTaskTimer) window.clearInterval(currentTaskTimer);
   currentTaskTimer = null;
+  // The turn is over, so no rail stays expanded waiting for a successor.
+  collapseActiveToolGroups();
   if (!currentTaskStartedAt) return;
   const summary = taskSummaryForCurrentMessage();
   if (summary) {
@@ -325,6 +357,9 @@ function hideWaitingIndicator() {
 function ensureToolStepsHost() {
   const msg = ensureAssistantMessage();
   const last = window.IexaTranscriptView.lastNode(msg);
+  // Reuse only the rail at the end of the turn. A folded rail can sit before
+  // newer reasoning; appending to it would move the new tool step backwards
+  // in time, so those get a fresh rail in their real position.
   if (last?.classList.contains('tool-steps')) return last;
   const host = document.createElement('div');
   host.className = 'tool-steps activity-list';
@@ -424,6 +459,9 @@ function handleToolStart(id, name) {
   // Keep a direct reference so completion always stops this turn's spinner.
   currentTaskSummary = summary;
   host.appendChild(block);
+  // A new tool makes its rail the current activity again. Use the rail API so
+  // the transcript harness can run this function without the whole module.
+  window.IexaToolRail?.expand?.(host);
   currentTaskToolCount += 1;
   beginTaskSummary(toolDisplayName(name));
   refreshToolGroupSummary(host);
