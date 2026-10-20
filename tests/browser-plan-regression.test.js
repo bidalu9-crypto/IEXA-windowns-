@@ -51,6 +51,25 @@ test('real browser: archive, independent panels, folding, FLIP send and streamin
   await evaluate("document.getElementById('leftPanelToggle').click()");assert.deepEqual(await panelState(),{left:true,right:false});
   await settleLayout();
   assert.ok(await composerWidth()<widthNone-20,'reopening a panel narrows the composer again');
+
+  // New-task entry follows the DeepSeek-style new-session button: tonal fill,
+  // centered icon + label, 10px radius, muted text.
+  const newTask = await evaluate(`(() => {
+    const b = document.getElementById('shellNewThread');
+    const s = getComputedStyle(b);
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--bg-tertiary)';
+    document.body.appendChild(probe);
+    const tone = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { justify: s.justifyContent, radius: s.borderRadius, bg: s.backgroundColor, tone,
+      icon: b.querySelector('svg use').getAttribute('href'), height: Math.round(b.getBoundingClientRect().height) };
+  })()`);
+  assert.equal(newTask.justify, 'center');
+  assert.equal(newTask.radius, '10px');
+  assert.equal(newTask.bg, newTask.tone, 'the button uses the tonal surface, not a white card');
+  assert.equal(newTask.icon, '#ui-new-session');
+  assert.ok(newTask.height >= 40 && newTask.height <= 44, 'taller than the old 36px card: ' + newTask.height);
   await evaluate("window.__beforeReload=true");
   await cdp('Page.reload');await wait("!window.__beforeReload && typeof currentSessionId !== 'undefined' && currentSessionId && document.getElementById('rightPanelToggle')?.getAttribute('aria-expanded') === 'false'");
   assert.deepEqual(await panelState(),{left:true,right:false});

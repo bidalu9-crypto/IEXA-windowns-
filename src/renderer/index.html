@@ -74,6 +74,7 @@
     <symbol id="ui-box" viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/></symbol>
     <symbol id="ui-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 16h4"/></symbol>
     <symbol id="ui-edit" viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/><path d="m14.5 6.5 3 3"/></symbol>
+    <symbol id="ui-new-session" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4" fill="none"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></symbol>
     <symbol id="ui-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.8 12h16.4M12 3.5c2.3 2.4 3.3 5.2 3.3 8.5S14.3 18.1 12 20.5c-2.3-2.4-3.3-5.2-3.3-8.5S9.7 5.9 12 3.5Z"/></symbol>
     <symbol id="ui-memory" viewBox="0 0 24 24"><path d="M7 7V5h10v2M6 9H4v6h2M18 9h2v6h-2M7 17v2h10v-2M7 8h10v8H7z"/><path d="M10 11h4M10 14h4"/></symbol>
     <symbol id="ui-check" viewBox="0 0 24 24"><path d="m5 12 4.2 4.2L19 6.7"/></symbol>
@@ -100,7 +101,7 @@
           <span class="version" id="sysVersion">Windows</span>
         </div>
       </div>
-      <button type="button" class="shell-new-thread" id="shellNewThread"><svg class="ui-icon" aria-hidden="true"><use href="#ui-edit"/></svg><span data-i18n="nav.newTask">新建任务</span><kbd>Ctrl N</kbd></button>
+      <button type="button" class="shell-new-thread" id="shellNewThread" title="新建任务 (Ctrl N)"><svg class="ui-icon" aria-hidden="true"><use href="#ui-new-session"/></svg><span data-i18n="nav.newTask">新建任务</span><kbd>Ctrl N</kbd></button>
     </div>
     <nav class="sidebar-nav" aria-label="工作区导航">
       <div class="sidebar-primary"><button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span data-i18n="nav.chat">对话</span></button>
