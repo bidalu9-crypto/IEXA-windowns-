@@ -442,11 +442,26 @@
             <button type="button" class="btn-primary btn-sm" id="pluginInstallBtn"><svg class="ui-icon"><use href="#ui-upload"/></svg><span>添加插件</span></button>
           </div>
         </div>
-        <div class="plugin-summary" id="pluginSummary">
-          <span><b id="pluginCount">0</b> 个插件</span><span><b id="pluginEnabledCount">0</b> 个启用</span><span><b id="pluginToolCount">0</b> 个工具</span>
+        <div class="plugin-summary" id="pluginSummary" aria-label="插件概览">
+          <span class="plugin-stat"><b id="pluginCount">0</b><small>已安装</small></span>
+          <span class="plugin-stat"><b id="pluginEnabledCount">0</b><small>已启用</small></span>
+          <span class="plugin-stat"><b id="pluginToolCount">0</b><small>可用工具</small></span>
+          <span class="plugin-stat"><b id="pluginPanelCount">0</b><small>可视化面板</small></span>
+          <span class="plugin-sandbox-note"><svg class="ui-icon"><use href="#ui-code"/></svg><span>子进程隔离 · iframe 沙箱</span></span>
         </div>
-        <div class="plugin-list" id="pluginList"><div class="profile-empty">正在读取插件…</div></div>
-        <pre class="plugin-output" id="pluginOutput" aria-live="polite">打开拓展工作台使用面板，或选择工具进入表单调试。</pre>
+        <div class="plugin-list" id="pluginList"></div>
+        <section class="plugin-console" id="pluginConsole" aria-label="运行输出" hidden>
+          <header class="plugin-console-head"><span>运行输出</span><button type="button" class="plugin-console-clear" id="pluginConsoleClear">清空</button></header>
+          <pre class="plugin-output" id="pluginOutput" aria-live="polite"></pre>
+        </section>
+        <details class="plugin-notes">
+          <summary><svg class="ui-icon"><use href="#ui-info"/></svg><span>插件如何被隔离，又如何变成界面</span></summary>
+          <ul>
+            <li><b>工具</b>：清单里的 JSON Schema 在宿主机生成表单，参数校验后才交给插件子进程执行，插件代码不在界面线程里运行。</li>
+            <li><b>面板</b>：每个面板是 <code>sandbox="allow-scripts"</code> 的 iframe，一次性授权令牌换 postMessage 通道，无法读取宿主 DOM。</li>
+            <li><b>可视化</b>：工具返回的 <code>ui</code> 卡片由宿主校验并渲染成聊天卡片，插件只能提供数据，不能注入标记。</li>
+          </ul>
+        </details>
       </div>
     </div>
 
