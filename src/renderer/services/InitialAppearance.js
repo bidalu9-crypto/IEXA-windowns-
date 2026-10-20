@@ -12,5 +12,10 @@
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-accent', accent);
     document.documentElement.setAttribute('data-collapse-tools', (saved && saved.collapseConsecutiveTools === true) || localStorage.getItem('iexa-collapse-tools') === 'on' ? 'on' : 'off');
+    // A saved skin must paint before the first frame, or the app flashes the
+    // default palette on every launch.
+    var skin = null;
+    try { skin = JSON.parse(localStorage.getItem('iexa-skin') || 'null'); } catch (_) { skin = null; }
+    if (skin && window.IexaSkins) window.IexaSkins.load(skin);
   } catch (_) {}
 })();

@@ -14,7 +14,7 @@ test('prepaint uses persisted desktop size, browser fallback and defaults withou
  w.iexaDesktop.initialAppearance={fontScale:100,iconScale:100};w.eval(initial);assert.equal(w.document.documentElement.dataset.uiScaled,'false');
 });
 test('server migrates old preferences to 100 percent and independently bounds both settings',()=>{
- const s=fs.readFileSync(path.join(root,'src/main/server.ts'),'utf8');const part=s.slice(s.indexOf('interface AppearanceSettings {'),s.indexOf('function loadAppearance()'));const c={};vm.runInNewContext(ts.transpile(part+'\nglobalThis.normalize=normalizeAppearance;', {target:ts.ScriptTarget.ES2022}),c);
+ const part=fs.readFileSync(path.join(root,'src/main/appearance/AppearanceSchema.ts'),'utf8').replace(/^export\s+/gm,'');const c={};vm.runInNewContext(ts.transpile(part+'\nglobalThis.normalize=normalizeAppearance;', {target:ts.ScriptTarget.ES2022}),c);
  assert.equal(c.normalize({}).fontScale,100);assert.equal(c.normalize({}).iconScale,100);
  assert.equal(c.normalize({fontScale:1000,iconScale:999}).fontScale,180);assert.equal(c.normalize({fontScale:1000,iconScale:999}).iconScale,160);
  assert.equal(c.normalize({fontScale:'bad',iconScale:'bad'}).fontScale,100);assert.equal(c.normalize({fontScale:130,iconScale:140}).iconScale,140);

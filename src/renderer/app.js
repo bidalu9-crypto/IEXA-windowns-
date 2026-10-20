@@ -2259,17 +2259,20 @@ async function loadSystemInfo() {
 
 const ACCENT_PRESETS = [
   { id: 'amber', label: '琥珀', color: '#c4841d' },
-  { id: 'violet', label: '紫罗兰', color: '#6c63ff' },
-  { id: 'blue', label: '蓝', color: '#2563eb' },
+  { id: 'violet', label: '天蓝', color: '#60a5fa' },
+  { id: 'blue', label: '深蓝', color: '#2563eb' },
   { id: 'green', label: '绿', color: '#16a34a' },
   { id: 'rose', label: '玫红', color: '#e11d48' },
   { id: 'mono', label: '灰色', color: '#4b4646' },
 ];
 let appearanceSaveTimer = null;
+/** True while the server value is being hydrated; stops a load from re-saving. */
+let appearanceHydrating = false;
 
 function currentAppearance() {
   return {
     ...(window.IexaUiScale?.current() || {fontScale:100,iconScale:100}),
+    ...(window.IexaSkins?.snapshot() || {}),
     theme: getThemeMode(),
     motion: getMotionMode(),
     accent: getAccent(),
@@ -2293,14 +2296,18 @@ function scheduleAppearanceSave() {
   appearanceSaveTimer = window.setTimeout(async () => {
     appearanceSaveTimer = null;
     try {
+      const snapshot = currentAppearance();
       await fetch(`${API_BASE}/api/appearance`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentAppearance()),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snapshot),
       });
+      try { localStorage.setItem('iexa-skin', JSON.stringify(window.IexaSkins?.snapshot() || {})); } catch { /* quota */ }
+      window.IexaAppearanceView?.flashSaved?.();
     } catch { /* localStorage remains the browser fallback */ }
   }, 180);
 }
 
 async function loadAppearanceSettings() {
+  appearanceHydrating = true;
   try {
     const response = await fetch(`${API_BASE}/api/appearance`, { cache: 'no-store' });
     const value = await response.json();
@@ -2311,6 +2318,9 @@ async function loadAppearanceSettings() {
     applyMotionMode(value.motion);
     window.IexaUiScale?.apply(value);
     document.documentElement.setAttribute('data-accent', accent);
+    // The skin paints over theme and accent; load it before the first sync so
+    // the page never shows the default palette for a frame.
+    window.IexaSkins?.load({ skinPreset: value.skinPreset, customSkin: value.customSkin });
     applyConsecutiveToolFoldSetting(value.collapseConsecutiveTools === true);
     if (window.IexaPanelWidths) {
       // The panel module owns these properties once it has run. Writing them on
@@ -2325,9 +2335,12 @@ async function loadAppearanceSettings() {
       document.documentElement.style.setProperty('--files-panel-width', `${value.filesPanelWidth || 300}px`);
     }
     try { localStorage.setItem('iexa-theme', mode); localStorage.setItem('iexa-accent', accent); } catch { /* */ }
+    try { localStorage.setItem('iexa-skin', JSON.stringify(window.IexaSkins?.snapshot() || {})); } catch { /* quota */ }
     applyHighlightTheme(mode);
     syncThemeUI();
+    window.IexaAppearanceView?.sync?.();
   } catch { /* keep preload/localStorage appearance */ }
+  finally { appearanceHydrating = false; }
 }
 
 function getMotionMode() {
@@ -2377,9 +2390,12 @@ function getAccent() {
 function setThemeMode(mode) {
   const m = mode === 'dark' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', m);
+  // A skin has a light and a dark palette; repaint before the next frame.
+  window.IexaSkins?.apply();
   try { localStorage.setItem('iexa-theme', m); } catch { /* */ }
   applyHighlightTheme(m);
   syncThemeUI();
+  window.IexaAppearanceView?.sync?.();
   scheduleAppearanceSave();
 }
 
@@ -2450,6 +2466,26 @@ function initTheme() {
   if (motionQuery?.addEventListener) motionQuery.addEventListener('change', syncMotionHint);
   else motionQuery?.addListener?.(syncMotionHint);
   document.getElementById('collapseToolsToggle')?.addEventListener('change', (event) => setConsecutiveToolFold(event.target.checked));
+
+  // Skins own their own controls; the page module keeps them in sync with the
+  // engine, while persistence stays here with the rest of the appearance state.
+  window.IexaAppearanceView?.init?.();
+  window.IexaSkins?.onChange(() => {
+    if (appearanceHydrating) return;
+    window.IexaAppearanceView?.sync?.();
+    scheduleAppearanceSave();
+  });
+  document.getElementById('appearanceResetAll')?.addEventListener('click', () => {
+    appearanceHydrating = true;
+    window.IexaSkins?.restoreDefault();
+    appearanceHydrating = false;
+    setUiScale({fontScale:100,iconScale:100});
+    setMotionMode('system');
+    setAccent('violet');
+    window.IexaAppearanceView?.sync?.();
+    scheduleAppearanceSave();
+  });
+
   let accent = getAccent();
   if (accent === 'opencode') accent = 'violet';
   if (!document.documentElement.getAttribute('data-theme')) setThemeMode('light');
@@ -2471,6 +2507,9 @@ async function init() {
   initPermissionModeUI();
   await loadPermissionMode();
   initPanelResizers();
+  // Readiness marker: panel drag only works from here on, so tests and the
+  // shell's own restore logic can tell "laid out" from "interactive".
+  document.body.dataset.panelResize = 'ready';
   initSessionListModule();
   initTranscriptScroll();
   initImageGallery();

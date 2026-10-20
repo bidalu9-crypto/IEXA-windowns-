@@ -7,6 +7,7 @@ import { controlNativeIsolatedWorkspaces } from './tools/desktop/NativeIsolatedW
 import { SubAgentManager } from './runtime/SubAgentManager';
 import { ShellSessionTools } from './tools/ShellSessionTools';
 import { GoalStore } from './agent/GoalStore';
+import { AppearanceSettings, normalizeAppearance } from './appearance/AppearanceSchema';
 import type { JobBridge, JobSummary } from './runtime/ToolRuntime';
 // =============================================================================
 // IEXA PC - HTTP Server (multi-model profiles)
@@ -189,36 +190,6 @@ const projectScopeStore = new ProjectScopeStore(path.join(WORKSPACE_DIR, '.iexa-
 const promptPreviewStore = new PromptPreviewStore(() => loadSettings().profiles.map(profile => profile.apiKey));
 const sessionSearchIndex = new SessionSearchIndex(path.join(WORKSPACE_DIR, '.iexa-search-index'));
 const sessionEventClients = new Map<http.ServerResponse, string>();
-
-interface AppearanceSettings {
-  fontScale: number;
-  iconScale: number;
-  motion: 'system' | 'full' | 'reduced';
-  theme: 'light' | 'dark';
-  accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
-  sidebarWidth: number;
-  filesPanelWidth: number;
-  collapseConsecutiveTools: boolean;
-}
-
-function normalizeAppearance(value: unknown): AppearanceSettings {
-  const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const accents = ['amber', 'violet', 'blue', 'green', 'rose', 'mono'];
-  const width = (raw: unknown, fallback: number, min: number, max: number) => {
-    const number = Number(raw);
-    return Number.isFinite(number) ? Math.round(Math.min(max, Math.max(min, number))) : fallback;
-  };
-  return {
-    fontScale: width(source.fontScale, 100, 100, 180),
-    iconScale: width(source.iconScale, 100, 100, 160),
-    theme: source.theme === 'dark' ? 'dark' : 'light',
-    motion: source.motion === 'full' || source.motion === 'reduced' ? source.motion : 'system',
-    accent: accents.includes(String(source.accent)) ? String(source.accent) as AppearanceSettings['accent'] : 'violet',
-    sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
-    filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
-    collapseConsecutiveTools: source.collapseConsecutiveTools === true,
-  };
-}
 
 function loadAppearance(): AppearanceSettings {
   return normalizeAppearance(new JsonStore<unknown>(APPEARANCE_FILE, () => ({})).loadSync());

@@ -16,11 +16,13 @@
 <link rel="stylesheet" href="vendor/github.min.css" id="hljs-theme-light">
 <link rel="stylesheet" href="vendor/github-dark.min.css" id="hljs-theme-dark" disabled>
 <script src="services/UiScale.js"></script>
+<script src="services/SkinEngine.js"></script>
 <script src="services/InitialAppearance.js"></script>
 <script src="services/LabelGlow.js"></script>
 <link rel="stylesheet" href="components/AppDialogs.css">
 <link rel="stylesheet" href="components/QuestionCard.css">
 <link rel="stylesheet" href="components/ScheduledTasks.css">
+<link rel="stylesheet" href="components/Appearance.css">
 <style>
 .prompt-settings-panel { margin-top: 20px; }
 .prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
@@ -917,53 +919,156 @@ version: 1.0.0
 
     <!-- Appearance View -->
     <div class="view" id="view-appearance">
-      <div class="settings-container">
-        <h2>外观</h2>
-        <p class="sync-desc">调整界面明暗与主题色，设置会自动保存。</p>
-        <div class="theme-panel">
-          <div class="theme-panel-row">
-            <span>显示模式</span>
-            <div class="theme-seg" id="themeSeg">
-              <button type="button" data-theme-set="light">浅色</button>
-              <button type="button" data-theme-set="dark">深色</button>
+      <div class="appearance-page">
+        <header class="appearance-head">
+          <div class="appearance-head-copy">
+            <h2>外观</h2>
+            <p>让界面贴合你的习惯。改动即时生效，并自动保存。</p>
+          </div>
+          <button type="button" class="appearance-quiet-btn" id="appearanceResetAll">恢复默认外观</button>
+        </header>
+
+        <div class="appearance-grid">
+          <div class="appearance-column">
+            <section class="appearance-card" aria-labelledby="appearanceDisplayTitle">
+              <div class="appearance-card-head">
+                <h3 id="appearanceDisplayTitle">显示</h3>
+                <p>明暗、字号与图标尺度。</p>
+              </div>
+              <div class="appearance-row">
+                <span class="appearance-row-label" id="themeLabel">明暗模式</span>
+                <div class="appearance-seg" id="themeSeg" role="group" aria-labelledby="themeLabel">
+                  <button type="button" data-theme-set="light">浅色</button>
+                  <button type="button" data-theme-set="dark">深色</button>
+                </div>
+              </div>
+              <div class="appearance-field">
+                <div class="appearance-field-head"><label for="uiFontScale">字体大小</label><output id="uiFontScaleValue" for="uiFontScale">100%</output></div>
+                <input id="uiFontScale" type="range" min="100" max="180" step="10" value="100" aria-describedby="uiFontScaleHelp">
+                <p class="appearance-help" id="uiFontScaleHelp">放大聊天正文、侧栏与设置文字，不改变图标。</p>
+              </div>
+              <div class="appearance-field">
+                <div class="appearance-field-head"><label for="uiIconScale">图标大小</label><output id="uiIconScaleValue" for="uiIconScale">100%</output></div>
+                <input id="uiIconScale" type="range" min="100" max="160" step="10" value="100" aria-describedby="uiIconScaleHelp">
+                <p class="appearance-help" id="uiIconScaleHelp">独立放大界面图标，不影响图片与文件预览。</p>
+              </div>
+              <div class="appearance-inline-actions">
+                <button type="button" class="appearance-quiet-btn" id="uiScaleReset">恢复默认字号</button>
+              </div>
+            </section>
+
+            <section class="appearance-card" aria-labelledby="appearanceMotionTitle">
+              <div class="appearance-card-head">
+                <h3 id="appearanceMotionTitle">动效</h3>
+                <p>控制过渡、思考扫光与加载反馈。</p>
+              </div>
+              <div class="appearance-seg appearance-seg-wide" id="motionSeg" role="group" aria-label="界面动效" aria-describedby="motionHelp">
+                <button type="button" data-motion-set="system">跟随系统</button>
+                <button type="button" data-motion-set="full">完整动效</button>
+                <button type="button" data-motion-set="reduced">减少动效</button>
+              </div>
+              <p class="appearance-help" id="motionHelp">完整动效保留思考扫光、加载旋转与图标反馈；减少动效只保留状态文字。</p>
+              <label class="appearance-switch" for="collapseToolsToggle">
+                <span class="appearance-switch-copy">
+                  <span class="appearance-switch-title">连续工具折叠</span>
+                  <span class="appearance-switch-help" id="collapseToolsHelp">相邻工具调用收成一条，显示次数、报错和实时秒数。</span>
+                </span>
+                <span class="appearance-switch-state" data-off="关闭" data-on="开启">关闭</span>
+                <span class="appearance-switch-control">
+                  <input id="collapseToolsToggle" type="checkbox" role="switch" aria-describedby="collapseToolsHelp">
+                  <span aria-hidden="true"></span>
+                </span>
+              </label>
+            </section>
+
+            <section class="appearance-card appearance-skin-card" aria-labelledby="appearanceSkinTitle">
+              <div class="appearance-card-head">
+                <h3 id="appearanceSkinTitle">皮肤</h3>
+                <p>整套配色与圆角。选一个起点，再按你的喜好微调。</p>
+              </div>
+              <div class="appearance-skin-grid" id="skinGrid" role="group" aria-label="皮肤预设"></div>
+
+              <div class="appearance-skin-editor" id="skinEditor">
+                <div class="appearance-editor-head">
+                  <h4>配色</h4>
+                  <span class="appearance-editor-mode" id="skinEditorMode">正在编辑浅色配色</span>
+                </div>
+                <div class="appearance-swatches">
+                  <label class="appearance-swatch" for="skinAccent">
+                    <span class="appearance-swatch-label">强调色<small>按钮、链接、进度</small></span>
+                    <span class="appearance-swatch-control">
+                      <input type="color" id="skinAccent" value="#6c63ff" aria-label="强调色">
+                      <input type="text" id="skinAccentHex" class="appearance-hex" value="#6c63ff" spellcheck="false" aria-label="强调色十六进制值">
+                    </span>
+                  </label>
+                  <label class="appearance-swatch" for="skinCanvas">
+                    <span class="appearance-swatch-label">画布<small>页面底色</small></span>
+                    <span class="appearance-swatch-control">
+                      <input type="color" id="skinCanvas" value="#f1ecec" aria-label="画布颜色">
+                      <input type="text" id="skinCanvasHex" class="appearance-hex" value="#f1ecec" spellcheck="false" aria-label="画布十六进制值">
+                    </span>
+                  </label>
+                  <label class="appearance-swatch" for="skinSurface">
+                    <span class="appearance-swatch-label">面板<small>卡片与输入框</small></span>
+                    <span class="appearance-swatch-control">
+                      <input type="color" id="skinSurface" value="#faf7f7" aria-label="面板颜色">
+                      <input type="text" id="skinSurfaceHex" class="appearance-hex" value="#faf7f7" spellcheck="false" aria-label="面板十六进制值">
+                    </span>
+                  </label>
+                </div>
+                <div class="appearance-field appearance-radius-field">
+                  <div class="appearance-field-head"><label for="skinRadius">圆角</label><output id="skinRadiusValue" for="skinRadius">12px</output></div>
+                  <input id="skinRadius" type="range" min="6" max="20" step="1" value="12">
+                </div>
+                <div class="appearance-editor-actions">
+                  <button type="button" class="appearance-quiet-btn" id="skinExport">导出皮肤</button>
+                  <button type="button" class="appearance-quiet-btn" id="skinImport">导入皮肤</button>
+                  <button type="button" class="appearance-quiet-btn" id="skinReset">恢复本模式配色</button>
+                  <input type="file" id="skinImportFile" accept="application/json,.json" hidden>
+                </div>
+              </div>
+
+              <div class="appearance-accent-row" id="accentPresetRow">
+                <span class="appearance-row-label">强调色</span>
+                <div class="accent-picker" id="accentPicker"></div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="appearance-preview" aria-label="外观实时预览">
+            <div class="appearance-preview-head">
+              <span>实时预览</span>
+              <span class="appearance-saved" id="appearanceSaved" role="status" hidden>已保存</span>
             </div>
-          </div>
-          <div class="theme-panel-row theme-panel-row-block appearance-scale-setting">
-            <div class="appearance-scale-label"><label for="uiFontScale">字体大小</label><output id="uiFontScaleValue" for="uiFontScale">100%</output></div>
-            <input id="uiFontScale" type="range" min="100" max="180" step="10" value="100" aria-describedby="uiFontScaleHelp">
-            <p class="motion-help" id="uiFontScaleHelp">100%–180%，放大聊天正文、侧栏和设置文字，不改变图标大小。</p>
-          </div>
-          <div class="theme-panel-row theme-panel-row-block appearance-scale-setting">
-            <div class="appearance-scale-label"><label for="uiIconScale">SVG 图标大小</label><output id="uiIconScaleValue" for="uiIconScale">100%</output></div>
-            <input id="uiIconScale" type="range" min="100" max="160" step="10" value="100" aria-describedby="uiIconScaleHelp">
-            <p class="motion-help" id="uiIconScaleHelp">100%–160%，独立放大界面图标；不会缩放图片或文件预览。</p>
-          </div>
-          <div class="appearance-scale-preview" aria-label="字体和图标预览"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span>预览：让文字和图标更清楚。IEXA 123</span></div>
-          <button type="button" class="btn-secondary appearance-scale-reset" id="uiScaleReset">恢复默认大小</button>
-          <div class="theme-panel-row theme-panel-row-block">
-            <span id="motionLabel">界面动效</span>
-            <div class="theme-seg" id="motionSeg" role="group" aria-labelledby="motionLabel" aria-describedby="motionHelp">
-              <button type="button" data-motion-set="system">跟随系统</button>
-              <button type="button" data-motion-set="full">完整动效</button>
-              <button type="button" data-motion-set="reduced">减少动效</button>
+            <div class="appearance-preview-window">
+              <div class="preview-chrome" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="preview-body">
+                <div class="preview-user">把登录页的错误提示改成行内显示</div>
+                <div class="preview-answer">已改好，错误信息现在跟随输入框出现。</div>
+                <div class="preview-tool">
+                  <svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg>
+                  <span>file_edit</span>
+                  <em>已完成</em>
+                </div>
+                <div class="preview-plan">
+                  <div class="preview-plan-head">
+                    <b>任务计划</b>
+                    <span class="preview-rail" aria-hidden="true"><i class="is-done"></i><i class="is-done"></i><i class="is-active"></i></span>
+                    <span class="preview-count">2/3</span>
+                  </div>
+                  <div class="preview-plan-row is-done">调整错误提示位置</div>
+                  <div class="preview-plan-row is-done">补充输入校验</div>
+                  <div class="preview-plan-row is-active"><i class="preview-spin" aria-hidden="true"></i>回归测试</div>
+                </div>
+                <div class="preview-composer">
+                  <span>描述任务…</span>
+                  <i class="preview-send" aria-hidden="true"></i>
+                </div>
+              </div>
             </div>
-            <p class="motion-help" id="motionHelp">完整动效保留思考扫光、加载旋转及图标反馈；减少动效保留文字状态，关闭动画。</p>
-          </div>
-          <label class="appearance-switch" for="collapseToolsToggle">
-            <span class="appearance-switch-copy">
-              <span class="appearance-switch-title">连续工具折叠</span>
-              <span class="appearance-switch-help" id="collapseToolsHelp">相邻工具调用收成一条，显示次数、报错和实时秒数。</span>
-            </span>
-            <span class="appearance-switch-state" data-off="关闭" data-on="开启">关闭</span>
-            <span class="appearance-switch-control">
-              <input id="collapseToolsToggle" type="checkbox" role="switch" aria-describedby="collapseToolsHelp">
-              <span aria-hidden="true"></span>
-            </span>
-          </label>
-          <div class="theme-panel-row theme-panel-row-block">
-            <span>主题色</span>
-            <div class="accent-picker" id="accentPicker"></div>
-          </div>
+            <div class="appearance-contrast" id="contrastReport"></div>
+            <p class="appearance-preview-note">预览使用当前皮肤与字号，不产生任何真实对话。</p>
+          </aside>
         </div>
       </div>
     </div>
@@ -1146,6 +1251,7 @@ version: 1.0.0
 <script src="services/TurnSummaryView.js"></script>
 <script src="services/Checkpoints.js"></script>
 <script src="services/GoalBanner.js"></script>
+<script src="services/AppearanceView.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 <script src="services/WindowChrome.js"></script>

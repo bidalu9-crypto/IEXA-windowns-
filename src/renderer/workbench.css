@@ -833,16 +833,10 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 [data-window-expanded="true"] .window-resize-handle { display:none; }
 
 /* Accessibility scale controls and growth allowances. Default geometry stays unchanged. */
-.appearance-scale-setting { width:100%; }
-.appearance-scale-label { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; }
-.appearance-scale-label output { font-variant-numeric:tabular-nums; color:var(--text-primary); }
-.appearance-scale-setting input[type="range"] { width:100%; min-height:32px; cursor:pointer; accent-color:var(--text-primary); }
-.appearance-scale-preview { display:flex; align-items:center; gap:12px; padding:14px; border:1px solid var(--border); border-radius:9px; background:var(--bg-primary); font-size:calc(14px * var(--ui-font-scale,1)); line-height:1.7; overflow-wrap:anywhere; }
-.appearance-scale-reset { align-self:flex-start; }
 [data-ui-scaled="true"] :is(svg.ui-icon,.window-control svg,.voice-icon,.thinking-level-icon svg,.send-icon) { zoom:var(--ui-icon-scale,1); }
 [data-ui-scaled="true"] .workbench-shell { --control-size:calc(32px * var(--ui-icon-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.shell-new-thread,.shell-project-button,.session-item,.quick-btn,.files-item) { height:auto; min-height:calc(34px * var(--ui-font-scale,1)); }
-[data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.quick-btn,.theme-seg button) { white-space:normal; }
+[data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.quick-btn) { white-space:normal; }
 [data-ui-scaled="true"] .workbench-shell .sidebar-nav { max-height:46%; }
 [data-ui-scaled="true"] .workbench-shell .shell-toolbar-button { min-height:calc(32px * var(--ui-icon-scale,1)); min-width:calc(32px * var(--ui-icon-scale,1)); padding:0 8px; }
 [data-ui-scaled="true"] .workbench-shell :is(#sendBtn,#voiceBtn) { width:calc(32px * var(--ui-icon-scale,1)); height:calc(32px * var(--ui-icon-scale,1)); flex-shrink:0; }

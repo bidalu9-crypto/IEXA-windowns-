@@ -489,33 +489,7 @@
 .token-calculator-footnote { margin-top: 12px; color: var(--text-muted); font-size: calc(.75rem * var(--ui-font-scale, 1)); line-height: 1.5; }
 @media (max-width: 620px) { .token-usage-model-stats { grid-template-columns: repeat(2, 1fr); } }
 
-/* Theme panel (About) */
-.theme-panel {
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.theme-panel-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: calc(0.88rem * var(--ui-font-scale, 1));
-  color: var(--text-secondary);
-}
-
-.theme-panel-row-block {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.appearance-switch {
+/* Appearance switch (shared by the appearance page) */.appearance-switch {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
@@ -545,30 +519,6 @@
 .appearance-switch-control input:checked + span::after { transform: translateX(20px); }
 html[data-motion="reduced"] .appearance-switch-control span,
 html[data-motion="reduced"] .appearance-switch-control span::after { transition: none; }
-
-.theme-seg {
-  display: flex;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: 9999px;
-  overflow: hidden;
-  background: var(--bg-input);
-}
-
-.theme-seg button {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  padding: 6px 14px;
-  font-size: calc(0.8rem * var(--ui-font-scale, 1));
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.theme-seg button.active {
-  background: var(--accent);
-  color: var(--on-accent);
-}
 
 .accent-picker {
   display: flex;

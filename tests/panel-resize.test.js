@@ -96,7 +96,7 @@ test('real browser: panel drag writes stay scoped and commit once', { skip: !bro
   await cdp('Page.enable');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1175, height: 839, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
-  await wait("document.body && document.body.dataset.mobileClient === 'desktop'", 'app shell');
+  await wait("document.body && document.body.dataset.mobileClient === 'desktop' && document.body.dataset.panelResize === 'ready'", 'app shell');
 
   const start = await evaluate(`(() => {
     const handle = document.getElementById('sidebarResizer');

@@ -36,8 +36,7 @@ test('motion can still change when browser storage is unavailable',t=>{
  assert.doesNotThrow(()=>w.applyMotionMode('reduced'));assert.equal(w.getMotionMode(),'reduced');
 });
 test('actual server normalizer preserves known modes and migrates old preferences to system',()=>{
- const server=fs.readFileSync(path.join(root,'src/main/server.ts'),'utf8').replace(/\r\n/g,'\n');
- const source=server.slice(server.indexOf('interface AppearanceSettings {'),server.indexOf('function loadAppearance()'));
+ const source=fs.readFileSync(path.join(root,'src/main/appearance/AppearanceSchema.ts'),'utf8').replace(/\r\n/g,'\n').replace(/^export\s+/gm,'');
  const code=ts.transpile(source+'\n globalThis.normalize = normalizeAppearance;', {target:ts.ScriptTarget.ES2022});const c={};vm.runInNewContext(code,c);
  for(const motion of ['system','full','reduced'])assert.equal(c.normalize({motion}).motion,motion);
  assert.equal(c.normalize({}).collapseConsecutiveTools,false);
@@ -61,8 +60,7 @@ test('consecutive tool groups collapse only when enabled and report calls, error
  w.setConsecutiveToolFold(false);assert.equal(host.classList.contains('is-collapsed'),false);assert.equal(summary.hidden,true);
 });
 test('actual server normalizer rejects invalid values',()=>{
- const server=fs.readFileSync(path.join(root,'src/main/server.ts'),'utf8').replace(/\r\n/g,'\n');
- const source=server.slice(server.indexOf('interface AppearanceSettings {'),server.indexOf('function loadAppearance()'));
+ const source=fs.readFileSync(path.join(root,'src/main/appearance/AppearanceSchema.ts'),'utf8').replace(/\r\n/g,'\n').replace(/^export\s+/gm,'');
  const code=ts.transpile(source+'\n globalThis.normalize = normalizeAppearance;', {target:ts.ScriptTarget.ES2022});const c={};vm.runInNewContext(code,c);
  for(const value of [{},null,{motion:'unrecognized'},{motion:{}}])assert.equal(c.normalize(value).motion,'system');
  assert.equal(c.normalize({motion:'full',theme:'dark',accent:'blue',sidebarWidth:280}).sidebarWidth,280);
