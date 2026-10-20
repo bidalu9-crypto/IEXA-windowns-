@@ -254,7 +254,7 @@ export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfa
     {
       name: 'file_edit',
       description:
-        'Make targeted edits to an existing file using exact string replacement. ALWAYS use file_read first to see the current file contents before editing. Prefer file_edit over file_write when modifying existing files. The old_string must match exactly one location in the file (including whitespace/indentation), unless replace_all is true.',
+        'Make targeted edits to an existing file using exact string replacement. ALWAYS use file_read first to see the current file contents before editing. Prefer file_edit over file_write when modifying existing files. The old_string must match exactly one location in the file (including whitespace/indentation), unless replace_all is true. The tool name is exactly file_edit (never edit).',
       parameters: {
         tool_title: {
           type: 'string',

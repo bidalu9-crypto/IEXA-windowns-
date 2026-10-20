@@ -13,6 +13,18 @@ const MAX_ARGUMENT_DEPTH = 12;
 const MAX_ARGUMENT_NODES = 20_000;
 const own = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
 
+// Models frequently reach for `edit` / `edit_file` from other harnesses. The
+// arguments already match file_edit, so resolve the name before validation,
+// permissions, fingerprinting and execution.
+const TOOL_ALIASES: Record<string, string> = {
+  edit: 'file_edit',
+  edit_file: 'file_edit',
+  fileedit: 'file_edit',
+};
+export function canonicalToolName(name: string): string {
+  return TOOL_ALIASES[name] || name;
+}
+
 function validateValue(value: unknown, schema: AgentToolParam, location: string, depth: number, state: { nodes: number }): void {
   state.nodes++;
   if (state.nodes > MAX_ARGUMENT_NODES) throw new Error(`Tool arguments exceed the maximum complexity at ${location}.`);
@@ -77,8 +89,8 @@ function validateOpenValue(value: unknown, location: string, depth: number, stat
 export class ToolRegistry {
   private definitions = new Map<string, ToolDefinition>();
   register(tool: ToolDefinition): void { if (this.definitions.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`); this.definitions.set(tool.name, tool); }
-  get(name: string): ToolDefinition | undefined { return this.definitions.get(name); }
-  has(name: string): boolean { return this.definitions.has(name); }
+  get(name: string): ToolDefinition | undefined { return this.definitions.get(canonicalToolName(name)); }
+  has(name: string): boolean { return this.definitions.has(canonicalToolName(name)); }
   list(): ToolDefinition[] { return [...this.definitions.values()]; }
   validate(name: string, args: Record<string, unknown>): void {
     const tool = this.get(name); if (!tool) throw new Error(`Unknown tool: ${name}`);

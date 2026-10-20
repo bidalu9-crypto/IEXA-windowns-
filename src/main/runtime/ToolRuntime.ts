@@ -6,7 +6,7 @@ import { SearchTools } from '../tools/SearchTools';
 import { PathSandbox, PathPolicy } from '../security/PathSandbox';
 import { PermissionManager, PermissionMode } from '../security/PermissionManager';
 import { BudgetManager } from './BudgetManager';
-import { ToolDefinition, ToolExecutionContext, ToolRegistry } from './ToolRegistry';
+import { ToolDefinition, ToolExecutionContext, ToolRegistry, canonicalToolName } from './ToolRegistry';
 import { ToolScheduler } from './ToolScheduler';
 import { ToolLifecycle, ToolExecutionStatus } from './ToolLifecycle';
 import { LoopDetector } from './LoopDetector';
@@ -69,6 +69,9 @@ export class ToolRuntime {
   isParallelSafe(name: string): boolean { return this.registry.get(name)?.parallelSafe === true; }
   definitions(): AgentToolDefinition[] { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
   async execute(name: string, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    // Alias resolution happens before validation and fingerprinting so `edit`
+    // and `file_edit` share permissions, dedupe and execution semantics.
+    name = canonicalToolName(name);
     // Validate before fingerprinting/caching so malformed optional values cannot
     // collapse to the same JSON fingerprint as an omitted, valid argument.
     try { this.registry.validate(name, args); }

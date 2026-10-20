@@ -59,6 +59,23 @@ test('open object payloads remain supported but reject non-finite and excessivel
   assert.throws(() => registry.validate('fixture', { ...valid(), open: nested }), /nesting depth/);
 });
 
+test('runtime resolves the edit alias before validation, approvals and execution', async (t) => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-alias-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let approvals = 0;
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory'), permissionMode: 'full', permissionResolver: async () => { approvals++; return 'allow_once'; } });
+  runtime.registerDefaults();
+  fs.writeFileSync(path.join(root, 'sample.txt'), 'alpha\n', 'utf8');
+  const result = await runtime.execute('edit', { tool_title: 'fix sample', path: 'sample.txt', old_string: 'alpha', new_string: 'beta' },
+    { workspaceDir: root, sessionId: 'alias', toolCallId: 'alias-1', signal: new AbortController().signal });
+  assert.equal(result.success, true, result.output);
+  assert.equal(fs.readFileSync(path.join(root, 'sample.txt'), 'utf8'), 'beta\n');
+  const unknown = await runtime.execute('edit_file', { tool_title: 'x', path: 'sample.txt', old_string: 'beta', new_string: 'gamma' },
+    { workspaceDir: root, sessionId: 'alias', toolCallId: 'alias-2', signal: new AbortController().signal });
+  assert.equal(unknown.success, true, unknown.output);
+  assert.equal(approvals, 0, 'file edits stay on the low-risk path');
+});
+
 test('runtime rejects malformed calls before approvals or side effects across built-in tools', async (t) => {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-schema-')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
