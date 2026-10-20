@@ -36,6 +36,7 @@ const rendererActions = Object.freeze({
   deleteSession: (value) => deleteSession(value),
   archiveSession: (value) => setSessionArchived(value, true),
   toggleSessionPin: (value) => toggleSessionPin(value),
+  openSessionMenu: (value, control) => openSessionMenu(value, control),
   toggleToolBody: (value) => toggleToolBody(value),
   removeAttachment: (value) => removeAttachment(value),
   activateProfile: (value) => activateProfile(value),
@@ -53,7 +54,7 @@ document.addEventListener('click', (event) => {
   const action = Object.hasOwn(rendererActions, control.dataset.uiAction) && rendererActions[control.dataset.uiAction];
   if (!action) return;
   event.stopPropagation();
-  Promise.resolve().then(() => action(control.dataset.uiArg || '')).catch(console.error);
+  Promise.resolve().then(() => action(control.dataset.uiArg || '', control)).catch(console.error);
 }, true);
 document.addEventListener('change', (event) => {
   if (event.target.dataset.uiChange === 'select-profile-model' && event.target.value) {

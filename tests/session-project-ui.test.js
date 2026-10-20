@@ -17,7 +17,7 @@ function setup(t) {
     uiIcon: name => `<svg data-icon="${name}"></svg>`, formatTime: value => String(value),
     IexaDialogs: { alert: async () => {} },
   });
-  w.eval(functions(['renderSessionList', 'toggleSessionPin']));
+  w.eval(functions(['renderSessionList', 'toggleSessionPin', 'openSessionMenu', 'closeSessionMenu', 'sessionMenuOutside', 'sessionMenuKeyboard', 'sessionMenuViewportChanged']));
   return w;
 }
 
@@ -33,7 +33,16 @@ test('session list groups projects and sorts pinned conversations first', t => {
   assert.equal(groups.length, 2);
   assert.match(groups[0].querySelector('.session-project-heading').textContent, /alpha2/);
   assert.deepEqual([...groups[0].querySelectorAll('.session-item')].map(item => item.dataset.id), ['a-pin', 'a-new']);
-  assert.equal(groups[0].querySelector('.session-item-pin').getAttribute('aria-label'), '取消置顶');
+  const dots = groups[0].querySelector('.session-item-more');
+  assert.equal(dots.getAttribute('aria-label'), '更多操作');
+  assert.equal(dots.getAttribute('aria-expanded'), 'false');
+  assert.equal(groups[0].querySelectorAll('.session-item-pin, .session-item-archive, .session-item-delete').length, 0, 'old inline actions are gone');
+  w.openSessionMenu('a-pin', dots);
+  assert.equal(dots.getAttribute('aria-expanded'), 'true');
+  assert.deepEqual([...w.document.querySelectorAll('.session-menu-item span')].map(el => el.textContent), ['取消置顶', '存档会话', '删除会话']);
+  w.closeSessionMenu();
+  assert.equal(w.document.querySelector('.session-menu'), null);
+  assert.equal(dots.getAttribute('aria-expanded'), 'false');
   assert.match(groups[1].querySelector('.session-project-heading').textContent, /beta1/);
 });
 

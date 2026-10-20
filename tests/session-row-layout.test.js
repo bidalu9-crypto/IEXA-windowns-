@@ -124,6 +124,7 @@ test('real browser: session rows keep one width and ellipsise long titles', { sk
   await cdp('Runtime.enable');
   await cdp('Page.enable');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1400, height: 900, deviceScaleFactor: 1, mobile: false });
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
   await wait("document.body && document.body.dataset.mobileClient === 'desktop'", 'app shell');
   await wait("document.querySelectorAll('.session-item').length === 4", 'session rows');
@@ -186,6 +187,48 @@ test('real browser: session rows keep one width and ellipsise long titles', { sk
     assert.ok(short.titleScroll <= short.titleClient, `${context}: short title should not be truncated`);
     assert.equal(long.titleAttr, long.text, `${context}: truncated title must expose the full text as a tooltip`);
   }
+
+  // 6. Hovering a truncated title glides the text; leaving restores the ellipsis.
+  const marquee = await evaluate(`(() => {
+    const title = [...document.querySelectorAll('.session-item-title')].find(el => el.scrollWidth > el.clientWidth + 2);
+    if (!title) return null;
+    title.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    return { text: title.textContent, active: title.classList.contains('is-marquee'), shift: title.style.getPropertyValue('--marquee-shift'), animation: getComputedStyle(title).animationName, overflow: getComputedStyle(title).textOverflow };
+  })()`);
+  assert.ok(marquee, 'a truncated title exists to marquee');
+  assert.equal(marquee.active, true, 'hovering a truncated title starts the glide');
+  assert.match(marquee.shift, /^-\d+px$/, 'the glide distance is measured from the overflow');
+  assert.equal(marquee.animation, 'session-title-marquee');
+  assert.equal(marquee.overflow, 'clip', 'the ellipsis gives way while the text moves');
+  assert.equal(await evaluate(`(() => {
+    const title = [...document.querySelectorAll('.session-item-title')].find(el => el.classList.contains('is-marquee'));
+    title.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
+    return title.classList.contains('is-marquee');
+  })()`), false, 'leaving the title stops the glide');
+
+  // 7. The three row actions live behind one dots trigger.
+  await evaluate("document.querySelector('.session-item-more').click(); true");
+  await wait("!!document.querySelector('.session-menu')", 'session menu');
+  const menu = await evaluate(`(() => {
+    const el = document.querySelector('.session-menu');
+    const box = el.getBoundingClientRect();
+    const dots = document.querySelector('.session-item-more');
+    return {
+      labels: [...el.querySelectorAll('.session-menu-item span')].map(span => span.textContent),
+      role: el.getAttribute('role'),
+      expanded: dots.getAttribute('aria-expanded'),
+      inside: box.left >= 0 && box.top >= 0 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1,
+      focused: document.activeElement === el.querySelector('.session-menu-item'),
+    };
+  })()`);
+  assert.deepEqual(menu.labels, ['置顶会话', '存档会话', '删除会话']);
+  assert.equal(menu.role, 'menu');
+  assert.equal(menu.expanded, 'true');
+  assert.equal(menu.inside, true, 'the menu stays inside the viewport');
+  assert.equal(menu.focused, true, 'opening focuses the first action');
+  await evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+  assert.equal(await evaluate("!!document.querySelector('.session-menu')"), false, 'Escape closes the menu');
+  assert.equal(await evaluate("document.activeElement === document.querySelector('.session-item-more')"), true, 'focus returns to the trigger');
 
   assert.deepEqual(exceptions, [], 'no renderer exceptions while measuring');
 });

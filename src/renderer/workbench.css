@@ -667,10 +667,8 @@ html[data-motion="reduced"] .label-glow { display: none; }
   from { opacity: .45; }
   to { opacity: 1; }
 }
-.workbench-shell :is(.session-item-pin, .session-item-archive, .sessions-archive-manager) { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 4px; color: var(--text-muted); border: none; border-radius: 7px; background: transparent; cursor: pointer; }
-.workbench-shell :is(.session-item-pin, .session-item-archive) { opacity: 0; }
-.workbench-shell .session-item:is(:hover, :focus-within) :is(.session-item-pin, .session-item-archive), .workbench-shell .session-item.pinned .session-item-pin { opacity: 1; }
-.workbench-shell :is(.session-item-pin, .session-item-archive, .sessions-archive-manager):hover { background: var(--shell-hover); color: var(--text-primary); }
+.workbench-shell .sessions-archive-manager { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; padding: 4px; color: var(--text-muted); border: none; border-radius: 7px; background: transparent; cursor: pointer; }
+.workbench-shell .sessions-archive-manager:hover { background: var(--shell-hover); color: var(--text-primary); }
 .sessions-archive-manager { margin-left: auto; }
 .archive-manager { width: min(620px, calc(100vw - 32px)); max-height: 80vh; }
 .archive-manager h2 { margin: 0 0 18px; font-size: calc(18px * var(--ui-font-scale, 1)); }
@@ -686,7 +684,6 @@ html[data-motion="reduced"] .label-glow { display: none; }
 }
 @media (max-width: 760px) {
   #leftPanelToggle, #rightPanelToggle { display: none; }
-  .workbench-shell .session-item-archive { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   html:not([data-motion="full"]) .stream-reveal { animation: none; }
@@ -749,9 +746,9 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .workbench-shell .sessions-archive-manager { margin-left: 0; }
 .workbench-shell .session-item { gap: 2px; padding: 6px 6px 6px 10px; min-height: 48px; }
 .workbench-shell .session-item-info { min-width: 0; }
-.workbench-shell .session-item-delete { visibility: visible; opacity: 0; }
-.workbench-shell .session-item:is(:hover, :focus-within) :is(.session-item-delete, .session-item-pin, .session-item-archive) { opacity: 1; }
-.workbench-shell .session-item-delete:is(:hover, :focus-visible) { color: var(--error); }
+.workbench-shell .session-item-more { opacity: .55; }
+.workbench-shell .session-item:is(:hover, :focus-within) .session-item-more,
+.workbench-shell .session-item-more[aria-expanded="true"] { opacity: 1; }
 .workbench-shell .files-panel-header { padding: 8px 12px 0; }
 .workbench-shell .files-panel-title { min-height: 30px; margin-bottom: 4px; gap: 8px; font-size: calc(13px * var(--ui-font-scale, 1)); }
 .workbench-shell #filesPanelTitle { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: default; }
@@ -775,7 +772,7 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .workbench-shell .search-input { min-height: 34px; padding: 7px 32px 7px 10px; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove, .queued-remove-btn) > .ui-icon { width: 16px; height: 16px; display: block; stroke-width: var(--control-stroke); }
 .workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove):is(:hover, :active) > .ui-icon { transform: none; filter: none; }
-@media (hover: none) { .workbench-shell .session-item :is(.session-item-delete, .session-item-pin, .session-item-archive) { opacity: 1; } }
+@media (hover: none) { .workbench-shell .session-item-more { opacity: 1; } }
 @media (max-width: 760px) { .workbench-shell .ui-icon-button { --control-size: 36px; } }
 /* Form controls use the same neutral surfaces; semantic permission/status hues
    and existing native checkbox, select and range behavior stay intact. */

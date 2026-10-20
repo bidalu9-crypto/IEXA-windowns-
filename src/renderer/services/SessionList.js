@@ -234,6 +234,7 @@ function startConversationSync() {
 }
 
 function renderSessionList() {
+  document.querySelector('.session-menu')?.remove();
   const visibleSessions = sessionsCache.filter(session => session.archived !== true);
   if (visibleSessions.length === 0) {
     sessionsList.innerHTML = '<div class="sessions-empty">暂无会话</div>';
@@ -257,16 +258,13 @@ function renderSessionList() {
     const active = s.id === currentSessionId ? ' active' : '';
     const pinned = s.pinned === true ? ' pinned' : '';
     const timeStr = formatTime(s.updated);
-    const pinLabel = s.pinned === true ? '取消置顶' : '置顶会话';
     return `
       <div class="session-item${active}${pinned}" data-id="${escapeHtml(s.id)}">
         <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
           <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="${escapeHtml(s.title)}" aria-label="${escapeHtml(s.title)}，点击重命名">${escapeHtml(s.title)}</span>
           <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
         </div>
-        <button type="button" class="session-item-pin ui-icon-button" data-ui-action="toggleSessionPin" data-ui-arg="${escapeHtml(s.id)}" title="${pinLabel}" aria-label="${pinLabel}">${uiIcon('pin')}</button>
-        <button type="button" class="session-item-archive ui-icon-button" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(s.id)}" title="存档会话" aria-label="存档会话">${uiIcon('archive')}</button>
-        <button type="button" class="session-item-delete ui-icon-button" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(s.id)}" title="删除会话" aria-label="删除会话">${uiIcon('trash')}</button>
+        <button type="button" class="session-item-more" data-ui-action="openSessionMenu" data-session-menu="${escapeHtml(s.id)}" data-ui-arg="${escapeHtml(s.id)}" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${uiIcon('more')}</button>
       </div>`;
   };
   sessionsList.innerHTML = orderedGroups.map(group => {
@@ -276,6 +274,107 @@ function renderSessionList() {
       <div class="session-project-items">${sorted.map(renderItem).join('')}</div>
     </section>`;
   }).join('');
+}
+
+// One dots button per row replaces the old pin/archive/delete trio. The menu is
+// mounted on <body> with fixed coordinates so the scrolling sidebar cannot clip
+// it, and it always closes before the chosen action runs.
+function closeSessionMenu(restoreFocus = false) {
+  const menu = document.querySelector('.session-menu');
+  const trigger = document.querySelector('.session-item-more[aria-expanded="true"]');
+  if (menu) menu.remove();
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) trigger.focus({ preventScroll: true });
+  }
+  document.removeEventListener('pointerdown', sessionMenuOutside, true);
+  document.removeEventListener('keydown', sessionMenuKeyboard, true);
+  window.removeEventListener('resize', sessionMenuViewportChanged);
+  window.removeEventListener('scroll', sessionMenuViewportChanged, true);
+}
+
+function sessionMenuOutside(event) {
+  const menu = document.querySelector('.session-menu');
+  if (!menu) return;
+  if (menu.contains(event.target) || event.target.closest?.('.session-item-more')) return;
+  closeSessionMenu();
+}
+
+function sessionMenuKeyboard(event) {
+  if (!document.querySelector('.session-menu')) return;
+  if (event.key === 'Escape') { event.preventDefault(); closeSessionMenu(true); return; }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const items = [...document.querySelectorAll('.session-menu-item')];
+  if (!items.length) return;
+  const current = items.indexOf(document.activeElement);
+  const next = (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  event.preventDefault();
+  items[next].focus({ preventScroll: true });
+}
+
+function sessionMenuViewportChanged() { closeSessionMenu(); }
+
+function openSessionMenu(sessionId, trigger) {
+  const button = trigger || (typeof sessionId === 'string'
+    ? document.querySelector(`.session-item-more[data-session-menu="${sessionId.replace(/["\\]/g, '\\$&')}"]`)
+    : sessionId);
+  if (!button) return false;
+  if (button.getAttribute('aria-expanded') === 'true') { closeSessionMenu(true); return true; }
+  closeSessionMenu();
+  const session = sessionsCache.find(item => item.id === button.dataset.sessionMenu);
+  if (!session) return false;
+  const id = session.id;
+  const pinLabel = session.pinned === true ? '取消置顶' : '置顶会话';
+  const menu = document.createElement('div');
+  menu.className = 'session-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', '会话操作');
+  menu.innerHTML = `
+    <button type="button" role="menuitem" class="session-menu-item" data-ui-action="toggleSessionPin" data-ui-arg="${escapeHtml(id)}">${uiIcon('pin')}<span>${pinLabel}</span></button>
+    <button type="button" role="menuitem" class="session-menu-item" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('archive')}<span>存档会话</span></button>
+    <div class="session-menu-sep" role="separator"></div>
+    <button type="button" role="menuitem" class="session-menu-item is-danger" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('trash')}<span>删除会话</span></button>`;
+  document.body.appendChild(menu);
+  button.setAttribute('aria-expanded', 'true');
+
+  const rect = button.getBoundingClientRect();
+  const width = Math.min(184, window.innerWidth - 16);
+  menu.style.width = `${width}px`;
+  const height = menu.offsetHeight;
+  const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+  let top = rect.bottom + 6;
+  if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  menu.querySelector('.session-menu-item')?.focus({ preventScroll: true });
+
+  document.addEventListener('pointerdown', sessionMenuOutside, true);
+  document.addEventListener('keydown', sessionMenuKeyboard, true);
+  window.addEventListener('resize', sessionMenuViewportChanged);
+  window.addEventListener('scroll', sessionMenuViewportChanged, true);
+  return true;
+}
+
+// Titles truncate by default; on hover the text glides right-to-left so a long
+// name can be read in full. text-indent keeps the original text node intact,
+// which matters because clicking the title swaps in a rename input.
+function armSessionTitleMarquee(title) {
+  if (!title || title.classList.contains('is-marquee')) return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const overflow = title.scrollWidth - title.clientWidth;
+  if (overflow <= 2) return;
+  const distance = overflow + 12;
+  const duration = Math.max(4, Math.min(20, distance / 28 + 2));
+  title.style.setProperty('--marquee-shift', `-${distance}px`);
+  title.style.setProperty('--marquee-duration', `${duration.toFixed(2)}s`);
+  title.classList.add('is-marquee');
+}
+
+function disarmSessionTitleMarquee(title) {
+  if (!title) return;
+  title.classList.remove('is-marquee');
+  title.style.removeProperty('--marquee-shift');
+  title.style.removeProperty('--marquee-duration');
 }
 
 async function toggleSessionPin(sessionId) {
@@ -818,6 +917,24 @@ function showWelcome() {
 // Event: New session button
 function installSessionListControls() {
   newSessionBtn.addEventListener('click', () => createSession());
+  sessionsList?.addEventListener('pointerover', event => {
+    const title = event.target.closest?.('.session-item-title');
+    if (!title || !sessionsList.contains(title)) return;
+    if (event.relatedTarget && title.contains(event.relatedTarget)) return;
+    armSessionTitleMarquee(title);
+  });
+  sessionsList?.addEventListener('pointerout', event => {
+    const title = event.target.closest?.('.session-item-title');
+    if (!title) return;
+    if (event.relatedTarget && title.contains(event.relatedTarget)) return;
+    disarmSessionTitleMarquee(title);
+  });
+  sessionsList?.addEventListener('scroll', () => closeSessionMenu(), { passive: true });
+  // Runs after app.js's capture handler on the same node: the menu is removed
+  // before the queued action reads the session id it was clicked for.
+  document.addEventListener('click', event => {
+    if (event.target.closest?.('.session-menu [data-ui-action]')) closeSessionMenu();
+  }, true);
 }
 
 // Called once from app.js init(); the module installs no listeners on load.

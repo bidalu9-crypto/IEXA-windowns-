@@ -306,28 +306,83 @@
   50% { opacity: .42; transform: scale(.76); }
 }
 
-.session-item-delete,
-.session-item-pin {
+/* One dots trigger per row; the menu itself is mounted on <body>. */
+.session-item-more {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
   background: none;
-  border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: calc(1.1rem * var(--ui-font-scale, 1));
-  padding: 0 4px;
-  line-height: 1;
-  visibility: hidden;
-  transition: color 0.15s;
+  opacity: .55;
+  transition: opacity .15s ease, background .15s ease, color .15s ease;
 }
+.session-item-more .ui-icon { width: 15px; height: 15px; }
+.session-item:hover .session-item-more,
+.session-item.active .session-item-more,
+.session-item-more:focus-visible { opacity: 1; }
+.session-item-more:hover { background: var(--shell-hover, var(--bg-tertiary)); color: var(--text-primary); }
+.session-item-more[aria-expanded="true"] { opacity: 1; color: var(--accent); background: var(--accent-light); }
+@media (hover: none) { .session-item-more { opacity: 1; } }
 
-.session-item:hover :is(.session-item-delete, .session-item-pin),
-.session-item.active :is(.session-item-delete, .session-item-pin),
-.session-item.pinned .session-item-pin {
-  visibility: visible;
+.session-menu {
+  position: fixed;
+  z-index: 120;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .18);
+  animation: session-menu-in .12s ease-out;
 }
+@keyframes session-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+.session-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+}
+.session-menu-item .ui-icon { width: 15px; height: 15px; flex: 0 0 15px; }
+.session-menu-item:is(:hover, :focus-visible) {
+  background: var(--shell-hover, var(--bg-tertiary));
+  color: var(--text-primary);
+  outline: none;
+}
+.session-menu-item.is-danger:is(:hover, :focus-visible) {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+.session-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 
-.session-item.pinned .session-item-pin { color: var(--accent); }
-.session-item-delete:hover { color: var(--error); }
-.session-item-pin:hover { color: var(--accent); }
+.session-item-title.is-marquee {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+  animation: session-title-marquee var(--marquee-duration, 8s) linear infinite;
+}
+@keyframes session-title-marquee {
+  0%, 10% { text-indent: 0; }
+  90%, 100% { text-indent: var(--marquee-shift, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-item-title.is-marquee { animation: none; text-overflow: ellipsis; }
+}
 
 .session-item-rename-input {
   flex: 1;
