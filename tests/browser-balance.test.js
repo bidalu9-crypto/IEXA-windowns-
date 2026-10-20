@@ -36,6 +36,11 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
       res.end(JSON.stringify({ total_credits: 20, total_usage: 19.5 }));
       return;
     }
+    if ((url === '/relay/dashboard/billing/subscription' || url === '/relay/dashboard/billing/usage' || url === '/relay/v1/credits') && mode === 'error') {
+      res.statusCode = 500;
+      res.end('boom');
+      return;
+    }
     res.statusCode = 404;
     res.end('not found');
   });
@@ -170,9 +175,29 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
   // chip and closes the popover instead of leaving a dead control.
   await evaluate("void selectModelProfile('balance-off'); true");
   await wait("document.getElementById('balanceWrap').hidden === true");
+  assert.equal(await evaluate("getComputedStyle(document.getElementById('balanceWrap')).display"), 'none',
+    'the chip must actually leave the layout, not just carry the attribute');
   assert.equal(await evaluate("document.getElementById('balancePopover').hidden"), true);
 
   await evaluate("void selectModelProfile('balance-on'); true");
+  await wait("document.getElementById('balanceWrap').hidden === false");
+
+  // A probe that fails must not leave a lone dash in the model bar: the chip
+  // disappears entirely, and reopening a profile with a number brings it back.
+  mode = 'error';
+  await evaluate("void window.IexaBalance.refresh(true); true");
+  await wait("document.getElementById('balanceWrap').hidden === true");
+  assert.equal(await evaluate("getComputedStyle(document.getElementById('balanceWrap')).display"), 'none',
+    'a failed probe removes the chip instead of leaving a dash behind');
+  assert.equal(await evaluate("document.getElementById('balanceValue').textContent"), '', 'no placeholder text is left behind');
+
+  mode = 'billing';
+  await evaluate("void window.IexaBalance.refresh(true); true");
+  await wait("document.getElementById('balanceWrap').hidden === false");
+
+  await evaluate("fetch('/__mode?v=billing'); true");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  await evaluate("void window.IexaBalance.refresh(true); true");
   await wait("document.getElementById('balanceWrap').hidden === false");
 
   // The key is used server-side only.

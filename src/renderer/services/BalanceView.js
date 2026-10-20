@@ -59,6 +59,7 @@ function renderBalancePopover(data) {
   if (!popover) return;
   popover.replaceChildren();
   if (!data || data.status !== 'ok') {
+    // The chip is hidden in this state, so this is only a defensive path.
     const message = document.createElement('p');
     message.className = 'balance-empty';
     message.textContent = data?.message || '暂时无法读取余额。';
@@ -133,30 +134,27 @@ function renderBalanceChip() {
   const value = balanceElement('balanceValue');
   if (!wrap || !chip || !value) return;
   const data = balanceView.data;
+  const hasValue = Boolean(data) && data.status === 'ok' && Number.isFinite(Number(data.remaining));
 
-  if (!balanceView.profileId || (!balanceView.loading && (!data || data.status === 'unsupported'))) {
+  // No number, no chip. A provider without a balance route, a failed probe or a
+  // payload that never yielded an amount used to leave a lone dash sitting in
+  // the model bar, which reads as a broken control rather than "no balance here".
+  if (!balanceView.profileId || !hasValue) {
+    // Clear the stale number: a hidden node that still carries the last value
+    // would flash it back the moment anything unhides it.
+    value.textContent = '';
+    delete chip.dataset.state;
     wrap.hidden = true;
     closeBalancePopover();
     return;
   }
-  wrap.hidden = false;
 
-  let text = '—';
-  let state = 'loading';
-  let title = '正在读取账户余额';
-  if (balanceView.loading && !data) {
-    text = '余额';
-  } else if (data?.status === 'ok') {
-    text = formatBalanceMoney(data.remaining, data.currency);
-    state = balanceIsLow(data) ? 'low' : 'ok';
-    title = `账户余额 ${text}${balanceIsLow(data) ? ' · 余额偏低' : ''}，点击查看明细`;
-  } else if (data?.status === 'error') {
-    text = '余额';
-    state = 'error';
-    title = data.message || '余额读取失败，点击重试';
-  }
+  wrap.hidden = false;
+  const text = formatBalanceMoney(data.remaining, data.currency);
+  const low = balanceIsLow(data);
   value.textContent = text;
-  chip.dataset.state = state;
+  chip.dataset.state = low ? 'low' : 'ok';
+  const title = `账户余额 ${text}${low ? ' · 余额偏低' : ''}，点击查看明细`;
   chip.title = title;
   chip.setAttribute('aria-label', title);
   chip.setAttribute('aria-busy', String(balanceView.loading));

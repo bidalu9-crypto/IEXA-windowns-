@@ -999,6 +999,10 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   margin-left: auto;
 }
 
+/* `display: flex` above outranks the UA sheet's [hidden] rule, so hiding the
+   chip with the attribute alone left an empty control on screen. */
+.balance-wrap[hidden] { display: none; }
+
 .balance-chip {
   display: inline-flex;
   align-items: center;
@@ -1021,10 +1025,6 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
 .balance-chip[data-state="ok"] .balance-icon { color: color-mix(in srgb, var(--success) 76%, var(--text-muted)); }
 .balance-chip[data-state="low"] { color: var(--warning); }
 .balance-chip[data-state="low"] .balance-icon { color: var(--warning); }
-.balance-chip[data-state="error"] { color: var(--error); }
-.balance-chip[data-state="error"] .balance-icon { color: var(--error); }
-.balance-chip[data-state="loading"] .balance-icon { animation: balance-breathe 1.2s ease-in-out infinite; }
-@keyframes balance-breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 
 .balance-popover {
   position: absolute;
@@ -1063,5 +1063,4 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
 
 @media (prefers-reduced-motion: reduce) {
   .balance-popover { animation: none; }
-  .balance-chip[data-state="loading"] .balance-icon { animation: none; }
 }
