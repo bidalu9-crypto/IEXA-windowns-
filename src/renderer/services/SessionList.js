@@ -598,6 +598,8 @@ async function switchSession(id, updateList = true) {
           if (msg.usage || (msg.durationMs !== undefined && msg.durationMs !== null)) {
             const durationMs = Number(msg.durationMs);
             if (Number.isFinite(durationMs) && durationMs >= 0) el.dataset.durationMs = String(durationMs);
+            const generationMs = Number(msg.generationMs);
+            if (Number.isFinite(generationMs) && generationMs > 0) el.dataset.generationMs = String(generationMs);
             const usageEl = document.createElement('div');
             usageEl.className = 'message-usage';
             const footer = el.querySelector('.assistant-message-footer');

@@ -73,8 +73,18 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
     renderMessageUsage(el, 132225, 1198, 131328);
     const big = el.textContent.replace(/\\s+/g, ' ').trim();
     const bigHtml = el.innerHTML;
+    msg.dataset.generationMs = '8000';
+    renderMessageUsage(el, 1000, 380, 900);
+    const rated = el.textContent.replace(/\\s+/g, ' ').trim();
+    const ratedHtml = el.innerHTML;
+    msg.dataset.generationMs = '200';
+    renderMessageUsage(el, 1000, 380, 900);
+    const tooFast = el.textContent.replace(/\\s+/g, ' ').trim();
+    delete msg.dataset.generationMs;
+    renderMessageUsage(el, 1000, 380, 900);
+    const unrated = el.textContent.replace(/\\s+/g, ' ').trim();
     msg.remove();
-    return { withCache, withCacheHtml, withoutCache, zero, big, bigHtml };
+    return { withCache, withCacheHtml, withoutCache, zero, big, bigHtml, rated, ratedHtml, tooFast, unrated };
   })()`);
   assert.ok(line.withCache.includes('80.7K 入'), line.withCache);
   assert.ok(line.withCache.includes('19.4K 出'), line.withCache);
@@ -85,6 +95,11 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
   assert.ok(line.zero.includes('0 缓存'), line.zero);
   assert.ok(line.big.includes('132K 入') && line.big.includes('1.2K 出') && line.big.includes('131K 缓存'), line.big);
   assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens（占输入 99%）"'), line.bigHtml);
+  assert.ok(line.rated.includes('48 tok/s'), '380 tokens over 8s reads as 48 tok/s: ' + line.rated);
+  assert.ok(line.rated.includes('缓存'), 'the rate follows the cache receipt: ' + line.rated);
+  assert.ok(line.ratedHtml.includes('title="生成 380 tokens，用时 8.0 秒"'), line.ratedHtml);
+  assert.ok(!line.tooFast.includes('tok/s'), 'sub-second receipts do not invent a rate: ' + line.tooFast);
+  assert.ok(!line.unrated.includes('tok/s'), 'a turn without provider timing stays unchanged: ' + line.unrated);
   assert.ok(line.bigHtml.includes('(99%)'), 'the share is written after the label: ' + line.bigHtml);
 
   const tokenHtml = await evaluate(`(() => {

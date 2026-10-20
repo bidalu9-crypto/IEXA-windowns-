@@ -145,6 +145,17 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
       const share = input > 0 ? Math.round(Math.min(1, cache / input) * 100) : 0;
       parts.push(`<span class="message-usage-cache" title="缓存读取 ${cache.toLocaleString()} tokens（占输入 ${share}%）">${formatTokenCount(cache)} <em>缓存</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
     }
+    // Streaming rate, measured inside provider streams only: tool runs, approval
+    // waits and user pauses are not generation time.
+    const generationMs = Number(messageEl && messageEl.dataset.generationMs);
+    if (output > 0 && Number.isFinite(generationMs) && generationMs >= 500) {
+      const rate = output / (generationMs / 1000);
+      if (rate >= 0.05) {
+        const text = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
+        parts.push('<i aria-hidden="true"></i>');
+        parts.push(`<span class="message-usage-rate" title="生成 ${output.toLocaleString()} tokens，用时 ${(generationMs / 1000).toFixed(1)} 秒">${text} tok/s</span>`);
+      }
+    }
   }
   if (duration) {
     if (parts.length) parts.push('<i aria-hidden="true"></i>');

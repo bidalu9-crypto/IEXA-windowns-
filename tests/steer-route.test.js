@@ -126,6 +126,10 @@ test('a steer joins the in-flight turn and survives a reload', async () => {
     'the steer stays after the opening prompt',
   );
   assert.equal(steerCalls, 1, 'exactly one extra model step carried the steer');
+
+  const assistantTurn = messages.filter((message) => message.role === 'assistant').pop();
+  assert.ok(assistantTurn && Number(assistantTurn.generationMs) > 0,
+    'the turn records provider-stream time for the tok/s readout: ' + JSON.stringify(assistantTurn && assistantTurn.generationMs));
 });
 
 test('a steer aborts the in-flight completion instead of waiting for it', async () => {

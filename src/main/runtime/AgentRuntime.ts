@@ -88,6 +88,8 @@ export class AgentRuntime {
   }
   /** True while a turn is actually streaming (not merely cached). */
   isRunning(): boolean { return this.activeRun; }
+  /** Provider-stream time for this turn; tool and wait time excluded. */
+  getGenerationMs(): number { return this.loop.getGenerationMs(); }
   /** Inject a user message into the live turn; false when nothing is running. */
   steer(request: AgentSteerInput): boolean {
     if (!this.activeRun) return false;

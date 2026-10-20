@@ -526,6 +526,8 @@ interface ChatMessage {
   usage?: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; inputTokensAreFresh?: boolean };
   /** Wall-clock length of the turn that produced this reply, measured from the chat request to the final save. */
   durationMs?: number;
+  /** Wall-clock spent inside provider streams this turn (tool time excluded). */
+  generationMs?: number;
   /**
    * Set when `inputTokens` is the fresh, uncached part of the prompt.
    *
@@ -1341,6 +1343,7 @@ async function saveSessionMessages(
   transcript?: TranscriptEvents,
   startedAt?: number,
   steeredMessages: ChatMessage[] = [],
+  generationMs = 0,
 ): Promise<void> {
   const turnStartedAt = Number(startedAt) || Number(userMsg.timestamp) || 0;
   const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;
@@ -1358,6 +1361,7 @@ async function saveSessionMessages(
     deliverables: deliverables.length > 0 ? deliverables : undefined,
     usage: usage,
     durationMs,
+    ...(generationMs > 0 ? { generationMs } : {}),
     timestamp: Date.now(),
   };
   // Steered prompts happened between the opening prompt and the final reply;
@@ -2952,7 +2956,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
@@ -2962,9 +2966,9 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0);
             // Unlock UI first (iOS generates title async in background Task)
-            emitTurnEvent('done', { stopReason: sr });
+            emitTurnEvent('done', { stopReason: sr, generationMs: agent ? agent.getGenerationMs() : 0 });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => {
               try { res.end(); } catch { /* */ }
@@ -2976,7 +2980,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();

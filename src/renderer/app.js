@@ -2018,6 +2018,9 @@ window.addEventListener('resize', () => {
 
 function handleUsage(usage) {
   if (currentAssistantMsg) {
+    // Remembered so the completion handler can repaint the line once the
+    // provider-stream time is known.
+    currentAssistantMsg._usage = usage;
     let usageEl = currentAssistantMsg.querySelector('.message-usage');
     if (!usageEl) {
       usageEl = document.createElement('div');
@@ -2065,7 +2068,7 @@ function handleSessionTitle(sessionId, title, category) {
   }
 }
 
-function handleDone(stopReason, turnToken) {
+function handleDone(stopReason, turnToken, generationMs) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
@@ -2086,6 +2089,14 @@ function handleDone(stopReason, turnToken) {
 
   if (currentAssistantMsg) {
     finalizeAssistantMessage(currentAssistantMsg);
+    // Repaint with the streaming rate now that the provider time is final.
+    if (Number(generationMs) > 0) {
+      currentAssistantMsg.dataset.generationMs = String(generationMs);
+    }
+    const turnUsage = currentAssistantMsg._usage;
+    if (turnUsage) {
+      renderMessageUsage(ensureMessageUsage(currentAssistantMsg), turnUsage.inputTokens || 0, turnUsage.outputTokens || 0, turnUsage.cacheReadInputTokens);
+    }
     if (stopReason === 'maxTokens') {
       const notice = document.createElement('div');
       notice.className = 'error-message stream-limit-notice';

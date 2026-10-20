@@ -201,6 +201,13 @@ test('the turn start, freeze and persistence are wired into the real flows', () 
   assert.ok(server.includes('durationMs?: number;'), 'the message record stores the duration');
   assert.ok(server.includes('const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;'),
     'the server measures wall-clock time');
-  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt(?:, steeredMessages)?\)/g) || []).length, 3,
-    'done, error and cancelled all persist the duration');
+  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt, steeredMessages, agent \? agent\.getGenerationMs\(\) : 0\)/g) || []).length, 3,
+    'done, error and cancelled all persist the duration and the streaming time');
+  assert.ok(server.includes('generationMs?: number;'), 'the message record stores provider-stream time');
+  assert.ok(server.includes("emitTurnEvent('done', { stopReason: sr, generationMs:"),
+    'the completion event carries the streaming time for the live rate');
+  assert.ok(appSource.includes('currentAssistantMsg.dataset.generationMs = String(generationMs)'),
+    'the completion applies the provider time to the message');
+  assert.ok(appSource.includes('renderMessageUsage(ensureMessageUsage(currentAssistantMsg), turnUsage.inputTokens'),
+    'the completion repaints the usage line so the rate appears without a reload');
 });

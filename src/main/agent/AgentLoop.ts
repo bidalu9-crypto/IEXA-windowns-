@@ -183,6 +183,8 @@ export class AgentLoop {
   private pendingSteers: AgentSteerInput[] = [];
   /** Aborts only the in-flight completion when a steer arrives. */
   private completionAbort: AbortController | null = null;
+  /** Time spent inside provider streams this turn; tool execution excluded. */
+  private generationMs = 0;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -195,6 +197,14 @@ export class AgentLoop {
   cancel(): void {
     this.isCancelled = true;
     this.compactionController?.abort();
+  }
+
+  /**
+   * Time this turn spent inside provider streams. Tool execution, permission
+   * waits and user input are excluded, so tokens / seconds is a streaming rate.
+   */
+  getGenerationMs(): number {
+    return this.generationMs;
   }
 
   /**
@@ -463,6 +473,7 @@ export class AgentLoop {
   ): Promise<void> {
     this.callbacks = callbacks;
     this.isCancelled = false;
+    this.generationMs = 0;
     this.compactionController = new AbortController();
     const externalSignal = this.config.getAbortSignal();
     const signal = externalSignal
@@ -608,6 +619,7 @@ export class AgentLoop {
         // Stream from provider
         // Inspection is opt-in and must never change or break the actual request.
         try { this.config.onPromptRequest?.({ sessionId: this.config.sessionId, provider: this.config.provider.name, model: this.config.provider.model, systemPrompt, messages, tools }); } catch { /* diagnostic capture is best effort */ }
+        const generationStartedAt = Date.now();
         const stream = this.config.provider.streamMessage(
           messages,
           systemPrompt,
@@ -674,6 +686,7 @@ export class AgentLoop {
               break;
           }
         }
+        this.generationMs += Date.now() - generationStartedAt;
         if (this.isAborted) { callbacks.onCancelled(); return; }
         this.completionAbort = null;
         // A complete provider turn succeeded; transient retry budget is reset.
