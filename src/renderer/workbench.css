@@ -104,7 +104,7 @@
 .workbench-shell .quick-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 28px; }
 .workbench-shell .quick-btn { border: 1px solid var(--border); border-radius: 9px; background: transparent; box-shadow: none; padding: 10px 12px; font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--text-secondary); }
 .workbench-shell .quick-btn:hover { background: var(--bg-secondary); border-color: var(--border-strong); transform: none; }
-.workbench-shell .chat-input-area { max-width: 880px; width: calc(100% - 48px); margin: 0 auto 14px; padding: 12px 14px 7px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-input); box-shadow: 0 3px 12px #00000005; display: flex; flex-direction: column; position: relative; }
+.workbench-shell .chat-input-area { max-width: none; width: calc(100% - 48px); margin: 0 auto 14px; padding: 12px 14px 7px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-input); box-shadow: 0 3px 12px #00000005; display: flex; flex-direction: column; position: relative; }
 .workbench-shell .chat-input-area:focus-within { border-color: var(--text-muted); }
 .workbench-shell .chat-input-wrapper { order: 0; border: 0; border-radius: 0; padding: 0; min-height: 58px; box-shadow: none; background: transparent; overflow: visible; }
 .workbench-shell .chat-input-wrapper:focus-within { box-shadow: none; border: 0; }
