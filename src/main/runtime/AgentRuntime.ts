@@ -90,6 +90,8 @@ export class AgentRuntime {
   isRunning(): boolean { return this.activeRun; }
   /** Provider-stream time for this turn; tool and wait time excluded. */
   getGenerationMs(): number { return this.loop.getGenerationMs(); }
+  /** Prompt-prefill wait before the first token, summed over model steps. */
+  getTimeToFirstTokenMs(): number { return this.loop.getTimeToFirstTokenMs(); }
   /** Inject a user message into the live turn; false when nothing is running. */
   steer(request: AgentSteerInput): boolean {
     if (!this.activeRun) return false;

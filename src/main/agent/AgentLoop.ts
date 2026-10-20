@@ -16,6 +16,22 @@ import {
 } from '../providers/types';
 import { LLMProvider } from '../providers/ProviderFactory';
 import { ToolRuntime } from '../runtime/ToolRuntime';
+
+/**
+ * Version of the persisted streaming-rate bookkeeping. Version 1 divided output
+ * tokens by the whole stream (prefill included), so those records must not be
+ * rendered as a rate.
+ */
+export const STREAM_RATE_VERSION = 2;
+
+/** Events that carry model output; the first one ends the prefill wait. */
+function isStreamedToken(event: AgentStreamEvent): boolean {
+  return event.type === 'textDelta'
+    || event.type === 'thinkingDelta'
+    || event.type === 'reasoningContent'
+    || event.type === 'toolInputDelta'
+    || event.type === 'contentBlockStart';
+}
 import { buildSystemPrompt } from './SystemPrompt';
 import type { GoalStore } from './GoalStore';
 import { ProjectInstructions } from './ProjectInstructions';
@@ -183,8 +199,10 @@ export class AgentLoop {
   private pendingSteers: AgentSteerInput[] = [];
   /** Aborts only the in-flight completion when a steer arrives. */
   private completionAbort: AbortController | null = null;
-  /** Time spent inside provider streams this turn; tool execution excluded. */
+  /** Decode time only: first streamed token to stream end. Prefill excluded. */
   private generationMs = 0;
+  /** Sum of per-step waits before the first token (prompt prefill), in ms. */
+  private firstTokenMs = 0;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -200,11 +218,17 @@ export class AgentLoop {
   }
 
   /**
-   * Time this turn spent inside provider streams. Tool execution, permission
-   * waits and user input are excluded, so tokens / seconds is a streaming rate.
+   * Decode time this turn: from the first streamed token to the end of each
+   * stream. Prompt prefill, tool execution, permission waits and user input are
+   * excluded, so output tokens / seconds is the actual streaming rate.
    */
   getGenerationMs(): number {
     return this.generationMs;
+  }
+
+  /** Prompt-prefill wait this turn: stream start to first token, summed. */
+  getTimeToFirstTokenMs(): number {
+    return this.firstTokenMs;
   }
 
   /**
@@ -474,6 +498,7 @@ export class AgentLoop {
     this.callbacks = callbacks;
     this.isCancelled = false;
     this.generationMs = 0;
+    this.firstTokenMs = 0;
     this.compactionController = new AbortController();
     const externalSignal = this.config.getAbortSignal();
     const signal = externalSignal
@@ -620,6 +645,7 @@ export class AgentLoop {
         // Inspection is opt-in and must never change or break the actual request.
         try { this.config.onPromptRequest?.({ sessionId: this.config.sessionId, provider: this.config.provider.name, model: this.config.provider.model, systemPrompt, messages, tools }); } catch { /* diagnostic capture is best effort */ }
         const generationStartedAt = Date.now();
+        let firstTokenAt = 0;
         const stream = this.config.provider.streamMessage(
           messages,
           systemPrompt,
@@ -629,6 +655,7 @@ export class AgentLoop {
         );
 
         for await (const event of stream) {
+          if (!firstTokenAt && isStreamedToken(event)) firstTokenAt = Date.now();
           if (this.isAborted) {
             callbacks.onCancelled();
             return;
@@ -686,7 +713,10 @@ export class AgentLoop {
               break;
           }
         }
-        this.generationMs += Date.now() - generationStartedAt;
+        if (firstTokenAt) {
+          this.generationMs += Date.now() - firstTokenAt;
+          this.firstTokenMs += firstTokenAt - generationStartedAt;
+        }
         if (this.isAborted) { callbacks.onCancelled(); return; }
         this.completionAbort = null;
         // A complete provider turn succeeded; transient retry budget is reset.

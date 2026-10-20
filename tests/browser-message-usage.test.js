@@ -74,17 +74,25 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
     const big = el.textContent.replace(/\\s+/g, ' ').trim();
     const bigHtml = el.innerHTML;
     msg.dataset.generationMs = '8000';
+    msg.dataset.generationRateVersion = '2';
+    msg.dataset.firstTokenMs = '12400';
     renderMessageUsage(el, 1000, 380, 900);
     const rated = el.textContent.replace(/\\s+/g, ' ').trim();
     const ratedHtml = el.innerHTML;
     msg.dataset.generationMs = '200';
     renderMessageUsage(el, 1000, 380, 900);
     const tooFast = el.textContent.replace(/\\s+/g, ' ').trim();
+    // Version 1 records divided output by prefill too; they must not print a rate.
+    msg.dataset.generationMs = '8000';
+    delete msg.dataset.generationRateVersion;
+    delete msg.dataset.firstTokenMs;
+    renderMessageUsage(el, 1000, 380, 900);
+    const legacy = el.textContent.replace(/\\s+/g, ' ').trim();
     delete msg.dataset.generationMs;
     renderMessageUsage(el, 1000, 380, 900);
     const unrated = el.textContent.replace(/\\s+/g, ' ').trim();
     msg.remove();
-    return { withCache, withCacheHtml, withoutCache, zero, big, bigHtml, rated, ratedHtml, tooFast, unrated };
+    return { withCache, withCacheHtml, withoutCache, zero, big, bigHtml, rated, ratedHtml, tooFast, legacy, unrated };
   })()`);
   assert.ok(line.withCache.includes('80.7K 入'), line.withCache);
   assert.ok(line.withCache.includes('19.4K 出'), line.withCache);
@@ -97,8 +105,10 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
   assert.ok(line.bigHtml.includes('title="缓存读取 131,328 tokens（占输入 99%）"'), line.bigHtml);
   assert.ok(line.rated.includes('48 tok/s'), '380 tokens over 8s reads as 48 tok/s: ' + line.rated);
   assert.ok(line.rated.includes('缓存'), 'the rate follows the cache receipt: ' + line.rated);
-  assert.ok(line.ratedHtml.includes('title="生成 380 tokens，用时 8.0 秒"'), line.ratedHtml);
+  assert.ok(line.ratedHtml.includes('title="生成 380 tokens，解码 8.0 秒；首字等待合计 12.4 秒（预填充，不计入）"'),
+    'the tooltip separates decode time from prefill: ' + line.ratedHtml);
   assert.ok(!line.tooFast.includes('tok/s'), 'sub-second receipts do not invent a rate: ' + line.tooFast);
+  assert.ok(!line.legacy.includes('tok/s'), 'version 1 timings cannot produce an honest rate: ' + line.legacy);
   assert.ok(!line.unrated.includes('tok/s'), 'a turn without provider timing stays unchanged: ' + line.unrated);
   assert.ok(line.bigHtml.includes('(99%)'), 'the share is written after the label: ' + line.bigHtml);
 

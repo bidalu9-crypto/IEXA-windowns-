@@ -599,7 +599,11 @@ async function switchSession(id, updateList = true) {
             const durationMs = Number(msg.durationMs);
             if (Number.isFinite(durationMs) && durationMs >= 0) el.dataset.durationMs = String(durationMs);
             const generationMs = Number(msg.generationMs);
-            if (Number.isFinite(generationMs) && generationMs > 0) el.dataset.generationMs = String(generationMs);
+            if (Number.isFinite(generationMs) && generationMs > 0) {
+              el.dataset.generationMs = String(generationMs);
+              el.dataset.generationRateVersion = String(Number(msg.generationRateVersion) || 0);
+              if (Number(msg.firstTokenMs) > 0) el.dataset.firstTokenMs = String(msg.firstTokenMs);
+            }
             const usageEl = document.createElement('div');
             usageEl.className = 'message-usage';
             const footer = el.querySelector('.assistant-message-footer');

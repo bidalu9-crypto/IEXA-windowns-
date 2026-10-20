@@ -2068,7 +2068,7 @@ function handleSessionTitle(sessionId, title, category) {
   }
 }
 
-function handleDone(stopReason, turnToken, generationMs) {
+function handleDone(stopReason, turnToken, generationMs, generationRateVersion, firstTokenMs) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
@@ -2090,8 +2090,10 @@ function handleDone(stopReason, turnToken, generationMs) {
   if (currentAssistantMsg) {
     finalizeAssistantMessage(currentAssistantMsg);
     // Repaint with the streaming rate now that the provider time is final.
-    if (Number(generationMs) > 0) {
+    if (Number(generationRateVersion) === 2 && Number(generationMs) > 0) {
       currentAssistantMsg.dataset.generationMs = String(generationMs);
+      currentAssistantMsg.dataset.generationRateVersion = '2';
+      if (Number(firstTokenMs) > 0) currentAssistantMsg.dataset.firstTokenMs = String(firstTokenMs);
     }
     const turnUsage = currentAssistantMsg._usage;
     if (turnUsage) {

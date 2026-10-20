@@ -41,7 +41,11 @@ test.before(async () => {
       if (hasSteer) steerCalls++;
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       if (hasSteer) {
-        res.end(sse('STEERED_RESPONSE', false) + sse('', true) + 'data: [DONE]\n\n');
+        // Stream like a real provider: the first token now, the close later.
+        res.write(sse('STEERED_RESPONSE', false));
+        setTimeout(() => {
+          try { res.end(sse('', true) + 'data: [DONE]\n\n'); } catch { /* closed */ }
+        }, 60);
         return;
       }
       if (wantsAbort) {
@@ -126,10 +130,10 @@ test('a steer joins the in-flight turn and survives a reload', async () => {
     'the steer stays after the opening prompt',
   );
   assert.equal(steerCalls, 1, 'exactly one extra model step carried the steer');
-
   const assistantTurn = messages.filter((message) => message.role === 'assistant').pop();
   assert.ok(assistantTurn && Number(assistantTurn.generationMs) > 0,
-    'the turn records provider-stream time for the tok/s readout: ' + JSON.stringify(assistantTurn && assistantTurn.generationMs));
+    'the turn records decode time for the tok/s readout: ' + JSON.stringify(assistantTurn && assistantTurn.generationMs));
+  assert.equal(assistantTurn.generationRateVersion, 2, 'the record is marked decode-only');
 });
 
 test('a steer aborts the in-flight completion instead of waiting for it', async () => {

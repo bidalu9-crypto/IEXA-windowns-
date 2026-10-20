@@ -168,7 +168,7 @@ function handleSSEEvent(raw, turnToken) {
         handleSessionTitle(data.sessionId, data.title, data.category);
         break;
       case 'done':
-        handleDone(data.stopReason, turnToken, data.generationMs);
+        handleDone(data.stopReason, turnToken, data.generationMs, data.generationRateVersion, data.firstTokenMs);
         notifyIfHidden('IEXA 任务完成', data.stopReason === 'cancelled' ? '本轮任务已取消' : '本轮处理已完成');
         break;
       case 'cancelled':

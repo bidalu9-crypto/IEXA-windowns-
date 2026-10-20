@@ -147,13 +147,20 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
     }
     // Streaming rate, measured inside provider streams only: tool runs, approval
     // waits and user pauses are not generation time.
+    // Version 1 divided output by the whole stream, prefill included, so those
+    // records cannot produce an honest rate; they show none.
+    const rateVersion = Number(messageEl && messageEl.dataset.generationRateVersion);
     const generationMs = Number(messageEl && messageEl.dataset.generationMs);
-    if (output > 0 && Number.isFinite(generationMs) && generationMs >= 500) {
+    const firstTokenMs = Number(messageEl && messageEl.dataset.firstTokenMs);
+    if (rateVersion === 2 && output > 0 && Number.isFinite(generationMs) && generationMs >= 500) {
       const rate = output / (generationMs / 1000);
       if (rate >= 0.05) {
         const text = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
+        const prefill = Number.isFinite(firstTokenMs) && firstTokenMs > 0
+          ? `；首字等待合计 ${(firstTokenMs / 1000).toFixed(1)} 秒（预填充，不计入）`
+          : '';
         parts.push('<i aria-hidden="true"></i>');
-        parts.push(`<span class="message-usage-rate" title="生成 ${output.toLocaleString()} tokens，用时 ${(generationMs / 1000).toFixed(1)} 秒">${text} tok/s</span>`);
+        parts.push(`<span class="message-usage-rate" title="生成 ${output.toLocaleString()} tokens，解码 ${(generationMs / 1000).toFixed(1)} 秒${prefill}">${text} tok/s</span>`);
       }
     }
   }

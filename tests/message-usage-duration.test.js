@@ -201,11 +201,14 @@ test('the turn start, freeze and persistence are wired into the real flows', () 
   assert.ok(server.includes('durationMs?: number;'), 'the message record stores the duration');
   assert.ok(server.includes('const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;'),
     'the server measures wall-clock time');
-  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt, steeredMessages, agent \? agent\.getGenerationMs\(\) : 0\)/g) || []).length, 3,
-    'done, error and cancelled all persist the duration and the streaming time');
-  assert.ok(server.includes('generationMs?: number;'), 'the message record stores provider-stream time');
+  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt, steeredMessages, agent \? agent\.getGenerationMs\(\) : 0, agent \? agent\.getTimeToFirstTokenMs\(\) : 0\)/g) || []).length, 3,
+    'done, error and cancelled all persist decode time and prefill wait');
+  assert.ok(server.includes('generationMs?: number;'), 'the message record stores decode time');
+  assert.ok(server.includes('generationRateVersion?: number;'), 'the record marks which rate formula produced it');
   assert.ok(server.includes("emitTurnEvent('done', { stopReason: sr, generationMs:"),
     'the completion event carries the streaming time for the live rate');
+  assert.ok(appSource.includes("currentAssistantMsg.dataset.generationRateVersion = '2'"),
+    'the completion marks the decode-only rate');
   assert.ok(appSource.includes('currentAssistantMsg.dataset.generationMs = String(generationMs)'),
     'the completion applies the provider time to the message');
   assert.ok(appSource.includes('renderMessageUsage(ensureMessageUsage(currentAssistantMsg), turnUsage.inputTokens'),
