@@ -13,7 +13,7 @@ test('both project open controls are independent labelled SVG buttons, not text 
 });
 
 test('shared toolbar icon buttons have accessible names and all symbols resolve',t=>{
- const w=setup(t),d=w.document;const buttons=d.querySelectorAll('.ui-icon-button');assert.ok(buttons.length>=12);
+ const w=setup(t),d=w.document;const buttons=d.querySelectorAll('.ui-icon-button');assert.ok(buttons.length>=11);
  for(const b of buttons){assert.ok(b.getAttribute('aria-label')||b.textContent.trim(),b.id);assert.ok(b.querySelector('svg'),b.id);assert.doesNotMatch(b.textContent.trim(),/^[+×↻✕]$/,b.id);}
  for(const use of d.querySelectorAll('use'))assert.ok(d.querySelector(use.getAttribute('href')),use.getAttribute('href'));
 });

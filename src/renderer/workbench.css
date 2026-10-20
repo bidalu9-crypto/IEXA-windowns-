@@ -125,7 +125,7 @@
 .workbench-shell .model-bar { order: 1; padding: 10px 0 2px; margin: 0; border-top: 1px solid var(--border); gap: 5px; flex-wrap: wrap; }
 .workbench-shell .model-bar-label, .workbench-shell .input-hint { display: none; }
 .workbench-shell .attach-preview { order: -1; }
-.workbench-shell .model-selector, .workbench-shell .thinking-level-btn, .workbench-shell .context-compaction-btn, .workbench-shell .permission-mode-btn, .workbench-shell .model-bar-refresh { border-color: transparent; background: transparent; box-shadow: none; font-size: calc(11px * var(--ui-font-scale, 1)); transform: none; }
+.workbench-shell .model-selector, .workbench-shell .thinking-level-btn, .workbench-shell .context-compaction-btn, .workbench-shell .permission-mode-btn { border-color: transparent; background: transparent; box-shadow: none; font-size: calc(11px * var(--ui-font-scale, 1)); transform: none; }
 .workbench-shell .model-selector:hover, .workbench-shell .thinking-level-btn:hover, .workbench-shell .context-compaction-btn:hover, .workbench-shell .permission-mode-btn:hover { background: var(--shell-hover); box-shadow: none; transform: none; }
 .workbench-shell .model-selector-label { max-width: 180px; }
 .workbench-shell .input-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; position:relative; }

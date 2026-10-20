@@ -532,17 +532,70 @@
   left: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-width: 260px;
   max-width: min(420px, calc(100vw - 36px));
   max-height: 280px;
-  overflow-y: auto;
-  padding: 6px;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg-secondary);
   box-shadow: var(--shadow), 0 -8px 28px rgba(0, 0, 0, .08);
   z-index: 65;
+}
+
+/* The list scrolls, the refresh action stays pinned at the bottom. */
+.model-selector-list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.model-selector-footer {
+  flex: 0 0 auto;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--border);
+  /* Transparent: the menu paints its own popover surface, and nothing scrolls
+     under this row, so no second fill can drift away from it. */
+  background: transparent;
+}
+
+.model-selector-refresh {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(.76rem * var(--ui-font-scale, 1));
+  text-align: left;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+
+.model-selector-refresh .ui-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  stroke-width: var(--control-stroke, 1.75);
+}
+
+.model-selector-refresh:hover { background: var(--accent-light); color: var(--accent); }
+.model-selector-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.model-selector-refresh[data-busy="true"] { color: var(--text-muted); cursor: progress; }
+.model-selector-refresh[data-busy="true"] .ui-icon { animation: model-refresh-spin .8s linear infinite; }
+
+@keyframes model-refresh-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .model-selector-refresh[data-busy="true"] .ui-icon { animation: none; }
 }
 
 .model-selector-option {
@@ -638,41 +691,6 @@
 .fast-capability-setting { align-items: flex-start; gap: 14px; }
 .fast-capability-setting > div { min-width: 0; }
 .fast-capability-setting .setting-hint { max-width: 390px; }
-
-.model-bar-refresh {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color .15s ease, background .15s ease, border-color .15s ease, transform .2s ease;
-}
-
-.model-bar-refresh {
-  font-size: calc(17px * var(--ui-font-scale, 1));
-  line-height: 1;
-}
-
-.model-bar-refresh:hover {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.model-bar-refresh:active {
-  transform: rotate(180deg);
-}
-
-.model-bar-refresh:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 
 .context-progress {
   position: relative;

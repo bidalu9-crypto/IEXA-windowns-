@@ -239,13 +239,20 @@
             <div class="model-bar" id="modelBar">
               <span class="model-bar-label">模型：</span>
               <div class="model-selector-wrap" id="modelSelectorWrap">
-                <button type="button" id="modelSelector" class="model-selector" title="选择模型" aria-haspopup="listbox" aria-expanded="false">
+                <button type="button" id="modelSelector" class="model-selector" title="选择模型" aria-haspopup="dialog" aria-expanded="false">
                   <span class="model-selector-label" id="modelSelectorLabel">— 尚未配置模型 —</span>
                   <span class="model-selector-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="model-selector-menu" id="modelSelectorMenu" role="listbox" style="display:none;"></div>
+                <div class="model-selector-menu" id="modelSelectorMenu" role="dialog" aria-label="选择模型" style="display:none;">
+                  <div class="model-selector-list" id="modelSelectorList" role="listbox" aria-label="模型列表"></div>
+                  <div class="model-selector-footer">
+                    <button type="button" class="model-selector-refresh" id="modelSelectorRefresh" title="重新拉取模型列表">
+                      <svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg>
+                      <span>刷新列表</span>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <button type="button" class="model-bar-refresh ui-icon-button" data-ui-action="refreshModelSelector" title="刷新模型列表" aria-label="刷新模型列表"><svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg></button>
               <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
                 <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="dialog" aria-expanded="false" data-level="medium">

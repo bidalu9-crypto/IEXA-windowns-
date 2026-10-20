@@ -258,12 +258,13 @@ async function refreshModelSelector() {
   const btn = document.getElementById('modelSelector');
   const label = document.getElementById('modelSelectorLabel');
   const menu = document.getElementById('modelSelectorMenu');
+  const list = document.getElementById('modelSelectorList') || menu;
   const hint = document.getElementById('modelBarHint');
   const data = await fetchProfiles();
-  if (!btn || !label || !menu) return;
+  if (!btn || !label || !list) return;
 
   modelSelectorProfiles = data.profiles || [];
-  menu.innerHTML = '';
+  list.innerHTML = '';
   if (!modelSelectorProfiles.length) {
     label.textContent = '— 尚未配置模型 —';
     btn.disabled = true;
@@ -296,7 +297,7 @@ async function refreshModelSelector() {
     option.setAttribute('aria-selected', String(p.id === active.id));
     option.innerHTML = `<span class="model-selector-option-main"><span class="model-selector-option-title">${escapeHtml(p.name || (p.provider + '/' + p.model))}</span><span class="model-selector-option-desc">${escapeHtml(p.provider + ' · ' + p.model)}</span></span><span class="model-selector-option-check" aria-hidden="true"></span>`;
     option.addEventListener('click', () => selectModelProfile(p.id));
-    menu.appendChild(option);
+    list.appendChild(option);
   });
 }
 
@@ -305,6 +306,20 @@ function initModelSelectorControl() {
   const wrap = document.getElementById('modelSelectorWrap');
   if (!btn || !wrap) return;
   btn.addEventListener('click', () => setModelMenuOpen(btn.getAttribute('aria-expanded') !== 'true'));
+  // The refresh action lives inside the dropdown so the bar keeps one control
+  // per concern. The footer sits outside the scrolling list, so a rebuild of
+  // the options cannot detach the button the user just pressed.
+  const refresh = document.getElementById('modelSelectorRefresh');
+  refresh?.addEventListener('click', async () => {
+    if (refresh.dataset.busy === 'true') return;
+    refresh.dataset.busy = 'true';
+    try {
+      await refreshModelSelector();
+    } finally {
+      refresh.dataset.busy = 'false';
+      if (refresh.isConnected) refresh.focus({ preventScroll: true });
+    }
+  });
   document.addEventListener('click', (e) => {
     if (!wrap.contains(e.target)) setModelMenuOpen(false);
   });
