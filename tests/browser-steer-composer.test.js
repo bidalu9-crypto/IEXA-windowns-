@@ -82,6 +82,29 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
   await wait("typeof sendMessage === 'function' && typeof currentSessionId !== 'undefined'");
   await wait("currentSessionId");
 
+  // The primary action must follow the active accent, not a fixed black fill.
+  const accentFill = await evaluate(`(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { send: getComputedStyle(sendBtn).backgroundColor, expected };
+  })()`);
+  assert.equal(accentFill.send, accentFill.expected, 'send follows the theme accent');
+  await evaluate("document.documentElement.dataset.accent = 'green'");
+  const greenFill = await evaluate(`(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { send: getComputedStyle(sendBtn).backgroundColor, expected };
+  })()`);
+  assert.equal(greenFill.send, greenFill.expected, 'the button re-resolves with the accent');
+  assert.notEqual(greenFill.send, accentFill.send, 'changing the accent changes the button');
+  await evaluate("document.documentElement.dataset.accent = 'violet'");
+
   // Stub only the two turn endpoints; everything else hits the real server.
   await evaluate(String.raw`(() => {
     window.__realFetch = window.fetch;

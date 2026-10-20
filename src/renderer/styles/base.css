@@ -24,6 +24,10 @@
   --code-bg: #e8e2e2;
   --code-inline: rgba(33, 30, 30, 0.08);
   --on-accent: #ffffff;
+  /* Primary action fill. Light accents need the darker hover tone so a white
+     glyph still clears 3:1; dark accents are pastel and use the base tone. */
+  --action-bg: var(--accent-hover);
+  --action-bg-hover: color-mix(in srgb, var(--accent-hover) 86%, #000);
   --shadow: 0 4px 24px rgba(33, 30, 30, 0.08);
   --overlay: rgba(33, 30, 30, 0.45);
   /* ChatGPT-like user bubble: neutral gray, not accent fill */
@@ -59,6 +63,8 @@
   --code-bg: #181616;
   --code-inline: rgba(241, 236, 236, 0.1);
   --on-accent: #211e1e;
+  --action-bg: var(--accent);
+  --action-bg-hover: var(--accent-hover);
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   --overlay: rgba(0, 0, 0, 0.6);
   --bubble-user-bg: #303030;

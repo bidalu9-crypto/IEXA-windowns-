@@ -129,8 +129,8 @@
 .workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(2){animation-delay:-180ms}.workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(3){animation-delay:-360ms}.workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(4){animation-delay:-520ms}
 .workbench-shell #chatInput.is-voice-live { caret-color:#d97706; }
 @keyframes voice-level { from { transform:scaleY(.55); opacity:.6; } to { transform:scaleY(1.15); opacity:1; } }
-.workbench-shell #sendBtn { width: 32px; height: 32px; background: var(--text-primary); color: var(--bg-primary); box-shadow: none; transition: background 120ms ease; }
-.workbench-shell #sendBtn:hover { background: var(--text-secondary); }
+.workbench-shell #sendBtn { width: 32px; height: 32px; background: var(--action-bg); color: var(--on-accent); box-shadow: none; transition: background 120ms ease; }
+.workbench-shell #sendBtn:hover { background: var(--action-bg-hover); }
 .workbench-shell #sendBtn:disabled { background: var(--border-strong); color: var(--bg-input); }
 /* Absolute centering must survive every hover/pressed state. */
 .workbench-shell #sendBtn .send-icon, .workbench-shell #sendBtn:hover .send-icon, .workbench-shell #sendBtn:active .send-icon { width: 18px; height: 18px; transform: translate(-58%, -50%); filter: none; animation: none; transition: none; }
