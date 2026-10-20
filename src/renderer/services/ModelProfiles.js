@@ -498,13 +498,15 @@ async function renderProfileList() {
 
   list.innerHTML = data.profiles.map(p => `
     <div class="profile-card ${p.id === data.activeProfileId ? 'active' : ''}" data-ui-action="activateProfile" data-ui-arg="${escapeHtml(p.id)}">
-      <div class="profile-card-radio"></div>
+      <span class="profile-avatar" aria-hidden="true">${escapeHtml(String(p.provider || '?').slice(0, 1).toUpperCase())}</span>
       <div class="profile-card-info">
-        <div class="profile-card-name">${escapeHtml(p.name)}</div>
-        <div class="profile-card-detail">${escapeHtml(p.provider)} / ${escapeHtml(p.model)}</div>
-        ${p.baseURL ? `<div class="profile-card-detail">${escapeHtml(p.baseURL)}</div>` : ''}
+        <div class="profile-card-title">
+          <span class="profile-card-name">${escapeHtml(p.name)}</span>
+          ${p.id === data.activeProfileId ? '<span class="profile-active-chip">当前</span>' : ''}
+        </div>
+        <div class="profile-card-detail"><span class="profile-provider">${escapeHtml(p.provider)}</span><span class="profile-model">${escapeHtml(p.model)}</span></div>
+        ${p.baseURL ? `<div class="profile-card-url">${escapeHtml(p.baseURL)}</div>` : ''}
       </div>
-      <span class="profile-card-badge">${escapeHtml(p.provider)}</span>
       <div class="profile-card-actions" data-ui-action="stop">
         <button data-ui-action="editProfile" data-ui-arg="${escapeHtml(p.id)}" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
         <button class="danger" data-ui-action="deleteProfile" data-ui-arg="${escapeHtml(p.id)}" title="删除" aria-label="删除">${uiIcon('trash')}</button>

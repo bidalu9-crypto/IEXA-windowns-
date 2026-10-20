@@ -1,0 +1,75 @@
+/* ==========================================================================
+   Settings page — a sectioned card per topic, one aligned row per control.
+   The page keeps every control on a shared baseline instead of stacking
+   label-above-field for each item.
+   ========================================================================== */
+.settings-page { width: 100%; max-width: 900px; margin: 0 auto; padding: 34px 28px 72px; }
+.settings-intro { margin-bottom: 22px; }
+.settings-intro h1 { margin: 0 0 6px; font-size: 26px; font-weight: 620; letter-spacing: -.02em; }
+.settings-intro p { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.settings-card { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-secondary); overflow: hidden; }
+.settings-card-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px 12px; }
+.settings-card-heading { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.settings-card-head h2 { margin: 0; font-size: 14.5px; font-weight: 600; letter-spacing: -.005em; }
+.settings-card-note { color: var(--text-muted); font-size: 11.5px; }
+.setting-rows { padding: 0 20px; }
+.setting-row { display: grid; grid-template-columns: minmax(150px, 215px) minmax(0, 1fr); gap: 22px; padding: 14px 0; border-top: 1px solid var(--border); align-items: start; }
+.setting-row-text { min-width: 0; }
+.setting-row-text label { display: block; margin-bottom: 3px; font-size: 12.5px; font-weight: 550; }
+.setting-row-text .setting-hint { margin: 0; }
+.setting-row-control { min-width: 0; }
+.setting-row-control > select,
+.setting-row-control > input { width: 100%; }
+.setting-row-hint { grid-column: 2; margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.55; }
+.setting-row:has(.setting-row-hint) { row-gap: 7px; }
+.settings-page .profile-list { padding: 2px 12px 14px; gap: 4px; }
+
+/* Provider rows: avatar, name, endpoint, and hover-revealed actions. */
+.profile-avatar { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: 12px; font-weight: 650; }
+.settings-page .profile-card { gap: 12px; padding: 11px 12px; border: 1px solid transparent; border-radius: 12px; background: transparent; }
+.settings-page .profile-card:hover { border-color: var(--border); background: var(--bg-tertiary); }
+.settings-page .profile-card.active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: color-mix(in srgb, var(--accent) 7%, var(--bg-secondary)); }
+.profile-card.active .profile-avatar { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--accent-light); color: var(--accent); }
+.profile-card-title { display: flex; align-items: center; gap: 8px; margin-bottom: 1px; }
+.settings-page .profile-card-name { margin: 0; font-size: 13px; font-weight: 600; }
+.profile-active-chip { padding: 1px 7px; border-radius: 999px; background: var(--accent-light); color: var(--accent); font-size: 10px; font-weight: 600; }
+.settings-page .profile-card-detail { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); }
+.profile-card-detail .profile-provider { color: var(--text-secondary); font-weight: 550; }
+.profile-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-card-url { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
+.settings-page .profile-card-actions { opacity: 0; transition: opacity .15s ease; }
+.settings-page .profile-card:hover .profile-card-actions,
+.settings-page .profile-card.active .profile-card-actions,
+.settings-page .profile-card:focus-within .profile-card-actions { opacity: 1; }
+@media (hover: none) { .settings-page .profile-card-actions { opacity: 1; } }
+.settings-page .profile-empty { padding: 30px 16px 34px; color: var(--text-muted); font-size: 12.5px; text-align: center; }
+
+/* Model editor: fixed header and footer, grouped body. */
+/* Scoped to the model editor: the skill editor shares the overlay classes but
+   keeps its own single-column document layout. */
+#profileEditorOverlay .profile-editor { display: flex; flex-direction: column; width: min(660px, calc(100vw - 32px)); max-height: min(86vh, 820px); padding: 0; border-radius: 18px; overflow: hidden; }
+#profileEditorOverlay .profile-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+#profileEditorOverlay .profile-editor-head h3 { margin: 0 0 3px; font-size: 16px; font-weight: 620; }
+#profileEditorOverlay .profile-editor-sub { margin: 0; color: var(--text-muted); font-size: 11.5px; }
+#profileEditorOverlay .profile-editor-close { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-secondary); font-size: 18px; line-height: 1; cursor: pointer; }
+#profileEditorOverlay .profile-editor-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+#profileEditorOverlay .profile-editor-body { padding: 2px 22px 8px; overflow-y: auto; }
+#profileEditorOverlay .editor-section { padding: 14px 0 4px; border-top: 1px solid var(--border); }
+#profileEditorOverlay .editor-section:first-child { padding-top: 16px; border-top: 0; }
+#profileEditorOverlay .editor-section h4 { margin: 0 0 10px; color: var(--text-muted); font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
+#profileEditorOverlay .setting-group { margin-bottom: 14px; }
+#profileEditorOverlay .profile-editor-body .setting-group:last-child { margin-bottom: 6px; }
+#profileEditorOverlay .profile-editor-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 22px; border-top: 1px solid var(--border); background: var(--bg-secondary); }
+#profileEditorOverlay .profile-editor-actions .btn-primary,
+#profileEditorOverlay .profile-editor-actions .btn-secondary { flex: 0 0 auto; width: auto; padding: 9px 18px; }
+
+@media (max-width: 720px) {
+  .settings-page { padding: 24px 16px 56px; }
+  .setting-rows { padding: 0 16px; }
+  .setting-row { grid-template-columns: 1fr; gap: 8px; }
+  /* One column: every cell, including the hint, must stop claiming column 2. */
+  .setting-row-text, .setting-row-control, .setting-row-hint { grid-column: 1; }
+  .settings-card-head { padding: 14px 16px 10px; }
+  #profileEditorOverlay .profile-editor { width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; align-self: flex-end; }
+  #profileEditorOverlay { align-items: flex-end; }
+}
