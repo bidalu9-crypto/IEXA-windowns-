@@ -791,7 +791,7 @@ function showWelcome() {
   const template = document.createElement('template');
   template.innerHTML = `
     <div class="welcome">
-      <div class="welcome-icon">${uiIcon('brain')}</div>
+      <div class="welcome-icon"><img class="welcome-logo" src="mobile-pair-logo.png" width="52" height="52" alt="IEXA"></div>
       <h2>今天想构建什么？</h2>
       <p>从一个想法、一处问题，或一个项目开始。</p>
       <div class="quick-actions">

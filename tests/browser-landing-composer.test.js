@@ -86,18 +86,30 @@ test('real browser: the landing composer sits centred and glides to the dock', {
   await wait("document.getElementById('view-chat').classList.contains('is-welcome')");
   // Headless reports prefers-reduced-motion: reduce; opt into full motion.
   await evaluate("document.documentElement.dataset.motion = 'full'; true");
-  // Fonts change the hero height, which moves the group; measure only when settled.
+  // Fonts and the brand PNG both change the hero size; measure only when settled.
   await evaluate("document.fonts.ready.then(() => true)");
+  await wait("document.querySelector('.welcome-logo')?.naturalWidth > 0");
   await new Promise((resolve) => setTimeout(resolve, 200));
 
   const landing = await evaluate(`(() => {
-    const box = document.querySelector('.chat-input-area').getBoundingClientRect();
-    return { center: box.top + box.height / 2, vh: innerHeight, welcome: !!document.querySelector('.welcome') };
+    const area = document.querySelector('.chat-input-area');
+    const box = area.getBoundingClientRect();
+    const chat = document.querySelector('.chat-container').getBoundingClientRect();
+    const logo = document.querySelector('.welcome-icon img');
+    return { center: box.top + box.height / 2, vh: innerHeight, welcome: !!document.querySelector('.welcome'),
+      width: Math.round(box.width), chatWidth: Math.round(chat.width),
+      offset: Math.round((box.left + box.right) / 2 - (chat.left + chat.right) / 2),
+      logo: logo ? logo.getAttribute('src') : null, logoLoaded: logo ? logo.naturalWidth > 0 : false };
   })()`);
   assert.equal(landing.welcome, true);
   const landingRatio = landing.center / landing.vh;
   assert.ok(landingRatio > 0.55 && landingRatio < 0.78,
     'the landing composer sits in the middle of the page, not on the dock: ' + landingRatio.toFixed(3));
+  assert.ok(landing.width <= 800 && landing.width < landing.chatWidth - 60,
+    'the landing composer is a capped column, not the full transcript width: ' + landing.width + '/' + landing.chatWidth);
+  assert.ok(Math.abs(landing.offset) <= 2, 'the landing composer is centred in the chat column: ' + landing.offset);
+  assert.equal(landing.logo, 'mobile-pair-logo.png', 'the hero uses the gradient brand mark');
+  assert.equal(landing.logoLoaded, true);
 
   // Record the motion so the glide can be asserted rather than inferred.
   await evaluate(String.raw`(() => {
@@ -117,6 +129,9 @@ test('real browser: the landing composer sits centred and glides to the dock', {
     };
   })()`);
 
+  // Settings can finish loading after boot and re-apply the system motion mode;
+  // pin it again right before the move we are about to observe.
+  await evaluate("document.documentElement.dataset.motion = 'full'; true");
   await evaluate("chatInput.value = 'first message'; void sendMessage(); true");
   await wait("!document.getElementById('view-chat').classList.contains('is-welcome')");
   await wait("document.querySelector('.chat-input-area').getAnimations().length === 0");

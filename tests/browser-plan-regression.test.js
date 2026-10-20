@@ -37,6 +37,8 @@ test('real browser: archive, independent panels, folding, FLIP send and streamin
   const panelState=()=>evaluate("({left:getComputedStyle(document.getElementById('sidebar')).display!=='none',right:getComputedStyle(document.getElementById('filesPanel')).display!=='none'})");
   const composerWidth=()=>evaluate("document.querySelector('.chat-input-area').getBoundingClientRect().width");
   const settleLayout=()=>new Promise(r=>setTimeout(r,350));
+  // The landing composer is capped; the panel-follow rule applies to the dock.
+  await evaluate("window.dismissWelcome?.(); true");await settleLayout();
   assert.deepEqual(await panelState(),{left:true,right:true});
   const widthBoth=await composerWidth();
   await evaluate("document.getElementById('leftPanelToggle').click()");assert.deepEqual(await panelState(),{left:false,right:true});
