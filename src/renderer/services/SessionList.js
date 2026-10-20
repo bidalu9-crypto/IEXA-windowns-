@@ -594,7 +594,7 @@ async function switchSession(id, updateList = true) {
           }
           restoreTranscriptOrder(el, msg);
           const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
-          if (todoPlan) renderTodoPlan(el, todoPlan);
+          if (todoPlan) renderTodoPlan(el, todoPlan, { restored: true });
           el.dataset.transcriptTurnId = msg.transcript?.turnId || '';
           el._fileUndoPaths = msg.fileUndo?.paths || [];
           const recordedChanges = (msg.toolCalls || []).filter(call => call.result?.success && call.result.fileChange).map(call => call.result.fileChange);

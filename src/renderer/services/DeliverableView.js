@@ -110,40 +110,134 @@ async function copyArtifactImage(src, button) {
   }
 }
 
+/** Keep every valid row: a plan may legitimately repeat a line. */
 function normalizeTodoItems(todos) {
   if (!Array.isArray(todos)) return [];
-  const seen = new Set();
-  return todos.map((item) => ({
-    content: String(item?.content || '').trim(),
-    status: String(item?.status || ''),
-  })).filter((item) => item.content && ['pending', 'in_progress', 'completed'].includes(item.status) && !seen.has(item.content.toLowerCase()) && seen.add(item.content.toLowerCase()));
+  return todos.slice(0, 24).map((item) => {
+    const status = String(item?.status || '');
+    return {
+      content: String(item?.content || '').trim(),
+      status: status === 'completed' || status === 'in_progress' ? status : 'pending',
+    };
+  }).filter((item) => item.content);
 }
 
-function renderTodoPlan(messageEl, todos) {
+let todoPlanSeed = 0;
+
+function setTodoPlanCollapsed(panel, collapsed) {
+  panel.classList.toggle('is-collapsed', collapsed);
+  const head = panel.querySelector('.todo-plan-head');
+  if (!head) return;
+  head.setAttribute('aria-expanded', String(!collapsed));
+  head.title = collapsed ? '展开任务计划' : '收起任务计划';
+}
+
+function buildTodoPlanPanel() {
+  const panel = document.createElement('section');
+  panel.className = 'todo-plan';
+  panel.dataset.planId = 'todo-plan-' + (++todoPlanSeed);
+  panel.innerHTML =
+    '<button type="button" class="todo-plan-head" aria-expanded="true" aria-controls="' + panel.dataset.planId + '-items" title="收起任务计划">' +
+      '<span class="todo-plan-title">任务计划</span>' +
+      '<span class="todo-plan-rail" aria-hidden="true"></span>' +
+      '<span class="todo-plan-count"></span>' +
+      `<span class="todo-plan-chevron" aria-hidden="true">${uiIcon('chevron-right')}</span>` +
+    '</button>' +
+    `<div class="todo-plan-body" id="${panel.dataset.planId}-items"><ol class="todo-plan-items" role="list"></ol></div>` +
+    '<span class="todo-plan-sr" role="status" aria-live="polite"></span>';
+  panel.querySelector('.todo-plan-head').addEventListener('click', () => {
+    setTodoPlanCollapsed(panel, !panel.classList.contains('is-collapsed'));
+  });
+  return panel;
+}
+
+function buildTodoPlanRow() {
+  const row = document.createElement('li');
+  row.className = 'todo-plan-item is-pending';
+  row.innerHTML = '<span class="todo-plan-marker"></span><span class="todo-plan-text"></span>';
+  return row;
+}
+
+/** Repaint one row in place: rewriting the list would restart every spinner. */
+function paintTodoPlanRow(row, item) {
+  const changed = row.dataset.status !== item.status;
+  row.className = 'todo-plan-item is-' + item.status;
+  row.dataset.status = item.status;
+  const marker = row.querySelector('.todo-plan-marker');
+  const kind = item.status === 'completed' ? 'check' : item.status === 'in_progress' ? 'spinner' : 'dot';
+  if (marker.dataset.kind !== kind) {
+    marker.dataset.kind = kind;
+    marker.innerHTML = kind === 'check'
+      ? uiIcon('check')
+      : `<i class="todo-plan-${kind}" aria-hidden="true"></i>`;
+  }
+  const text = row.querySelector('.todo-plan-text');
+  if (text.textContent !== item.content) text.textContent = item.content;
+  text.title = item.content;
+  // A completed row earns one settling beat, then stays quiet.
+  if (changed && item.status === 'completed') {
+    row.classList.add('is-settling');
+    setTimeout(() => row.classList.remove('is-settling'), 640);
+  }
+}
+
+function paintTodoPlanSegment(segment, status) {
+  const previous = segment.dataset.status;
+  segment.dataset.status = status;
+  segment.className = status === 'completed' ? 'is-done' : status === 'in_progress' ? 'is-active' : '';
+  if (previous && previous !== 'completed' && status === 'completed') {
+    segment.classList.add('is-new');
+    setTimeout(() => segment.classList.remove('is-new'), 460);
+  }
+}
+
+function renderTodoPlan(messageEl, todos, options) {
   const items = normalizeTodoItems(todos);
   if (!messageEl || !items.length) return;
   let panel = messageEl.querySelector('.todo-plan');
   if (!panel) {
-    panel = document.createElement('section');
-    panel.className = 'todo-plan';
+    panel = buildTodoPlanPanel();
     const host = messageEl.querySelector('.tool-steps');
     const answer = messageEl.querySelector('.message-content.message-answer');
     if (answer) answer.before(panel);
     else if (host) host.after(panel);
     else messageEl.appendChild(panel);
   }
-  const done = items.filter((item) => item.status === 'completed').length;
-  const active = items.find((item) => item.status === 'in_progress');
-  panel.innerHTML = `<div class="todo-plan-heading">${uiIcon('check')}<span>任务计划</span><b>${done}/${items.length}</b></div><div class="todo-plan-items"></div>`;
+
   const list = panel.querySelector('.todo-plan-items');
-  for (const item of items) {
-    const row = document.createElement('div');
-    row.className = `todo-plan-item is-${item.status}`;
-    const marker = item.status === 'completed' ? uiIcon('check') : item.status === 'in_progress' ? '<i class="todo-plan-spinner" aria-hidden="true"></i>' : '<i class="todo-plan-dot" aria-hidden="true"></i>';
-    row.innerHTML = `<span class="todo-plan-marker">${marker}</span><span>${escapeHtml(item.content)}</span>`;
-    list.appendChild(row);
+  if (list.children.length !== items.length) {
+    list.replaceChildren(...items.map(() => buildTodoPlanRow()));
   }
-  panel.title = active ? `进行中：${active.content}` : done === items.length ? '计划已完成' : '等待下一步执行';
+  const rows = Array.from(list.children);
+  items.forEach((item, index) => paintTodoPlanRow(rows[index], item));
+
+  const done = items.filter((item) => item.status === 'completed').length;
+  const active = items.find((item) => item.status === 'in_progress') || null;
+
+  const rail = panel.querySelector('.todo-plan-rail');
+  if (rail.children.length !== items.length) {
+    rail.replaceChildren(...items.map(() => document.createElement('i')));
+  }
+  Array.from(rail.children).forEach((segment, index) => paintTodoPlanSegment(segment, items[index].status));
+
+  const count = panel.querySelector('.todo-plan-count');
+  const countText = done + '/' + items.length;
+  if (count.textContent !== countText) count.textContent = countText;
+  count.classList.toggle('is-complete', done === items.length);
+
+  // Announce state changes without turning every delta into speech.
+  const live = panel.querySelector('.todo-plan-sr');
+  const announcement = done === items.length
+    ? `任务计划：${items.length} 项全部完成`
+    : `任务计划：${done}/${items.length} 已完成${active ? `，正在进行：${active.content}` : ''}`;
+  if (live.textContent !== announcement) live.textContent = announcement;
+
+  // A finished plan folded away on restore keeps history compact; a live plan
+  // stays open so the user watches it advance.
+  if (!panel.dataset.seeded) {
+    panel.dataset.seeded = '1';
+    if (options && options.restored && done === items.length) setTodoPlanCollapsed(panel, true);
+  }
 }
 
 function latestTodoPlanFromCalls(calls) {

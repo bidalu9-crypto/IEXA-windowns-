@@ -243,22 +243,58 @@ html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-artifacts { disp
 .tool-artifact-action svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tool-artifact-file { color: var(--accent); font-size: calc(.8rem * var(--ui-font-scale, 1)); }
 .file-change-card { margin-top: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-secondary); }
-.todo-plan { width: min(100%, 680px); margin: 10px 0 4px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--accent-light) 35%, var(--bg-secondary)); }
-.todo-plan-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--text-primary); font-size: calc(.79rem * var(--ui-font-scale, 1)); font-weight: 650; }
-.todo-plan-heading > .ui-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--accent); }
-.todo-plan-heading b { margin-left: auto; color: var(--text-muted); font-size: calc(.72rem * var(--ui-font-scale, 1)); font-weight: 600; }
-.todo-plan-items { display: flex; flex-direction: column; gap: 5px; }
-.todo-plan-item { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-secondary); font-size: calc(.8rem * var(--ui-font-scale, 1)); line-height: 1.35; }
-.todo-plan-item > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-plan-marker { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex: 0 0 15px; color: var(--text-muted); }
-.todo-plan-marker .ui-icon { width: 14px; height: 14px; flex: 0 0 14px; stroke-width: 2.3; }
-.todo-plan-item.is-completed { color: var(--text-muted); }
-.todo-plan-item.is-completed > span:last-child { text-decoration: line-through; }
+/* Task plan: a quiet meta card. The segmented rail is the only accent, and
+   completed rows dim instead of striking through — a line over CJK text read as
+   "cancelled" and sank the contrast below comfortable reading. */
+.todo-plan { width: min(100%, 680px); margin: 12px 0 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); overflow: hidden; }
+.todo-plan-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; user-select: none; transition: border-color .26s ease; }
+.todo-plan.is-collapsed .todo-plan-head { border-bottom-color: transparent; }
+.todo-plan-head:hover .todo-plan-title { color: var(--accent); }
+.todo-plan-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 11px; }
+.todo-plan-title { flex: 0 0 auto; color: var(--text-primary); font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 650; letter-spacing: .01em; transition: color .18s ease; }
+.todo-plan-rail { display: flex; align-items: center; gap: 3px; flex: 0 1 auto; max-width: 220px; height: 4px; margin-right: 2px; }
+.todo-plan-rail i { flex: 0 1 18px; width: 18px; min-width: 3px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--border-strong) 45%, transparent); transition: background-color .3s ease; }
+.todo-plan-rail i.is-done { background: var(--success); }
+.todo-plan-rail i.is-active { background: var(--accent); }
+.todo-plan-rail i.is-new { animation: todoSegmentFill .46s cubic-bezier(.22,.9,.32,1.2); }
+.todo-plan-count { flex: 0 0 auto; color: var(--text-muted); font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .02em; transition: color .22s ease; }
+.todo-plan-count.is-complete { color: var(--success); }
+.todo-plan-chevron { display: inline-flex; flex: 0 0 auto; margin-left: auto; color: var(--text-muted); }
+.todo-plan-chevron .ui-icon { width: 14px; height: 14px; transform: rotate(90deg); transition: transform .24s cubic-bezier(.2,.7,.3,1), color .18s ease; }
+.todo-plan.is-collapsed .todo-plan-chevron .ui-icon { transform: rotate(0deg); }
+.todo-plan-head:hover .todo-plan-chevron { color: var(--text-secondary); }
+.todo-plan-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .3s cubic-bezier(.2,.7,.3,1); }
+.todo-plan.is-collapsed .todo-plan-body { grid-template-rows: 0fr; }
+.todo-plan-items { min-height: 0; margin: 0; padding: 7px 12px 10px; list-style: none; display: flex; flex-direction: column; gap: 1px; overflow: hidden; transition: padding .3s cubic-bezier(.2,.7,.3,1); }
+.todo-plan.is-collapsed .todo-plan-items { padding-top: 0; padding-bottom: 0; }
+.todo-plan-item { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 9px; margin: 0 -8px; padding: 4px 8px; border-radius: 8px; color: var(--text-secondary); font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.5; transition: color .22s ease, background-color .22s ease, box-shadow .22s ease; }
+.todo-plan-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.todo-plan-marker { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-top: 1px; color: var(--text-muted); }
+.todo-plan-marker .ui-icon { width: 14px; height: 14px; stroke-width: 2.4; }
+.todo-plan-item.is-pending .todo-plan-marker { color: color-mix(in srgb, var(--text-muted) 62%, transparent); }
+.todo-plan-item.is-completed { color: color-mix(in srgb, var(--text-secondary) 55%, var(--text-muted) 45%); }
 .todo-plan-item.is-completed .todo-plan-marker { color: var(--success); }
-.todo-plan-item.is-in_progress { color: var(--text-primary); font-weight: 560; }
+.todo-plan-item.is-in_progress { color: var(--text-primary); background: var(--accent-light); font-weight: 560; box-shadow: inset 2px 0 0 var(--accent); }
 .todo-plan-item.is-in_progress .todo-plan-marker { color: var(--accent); }
+.todo-plan-item.is-settling .todo-plan-marker .ui-icon { animation: todoSettle .5s cubic-bezier(.2,.9,.3,1.3); }
 .todo-plan-spinner { width: 12px; height: 12px; border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: taskSpin .72s linear infinite; }
 .todo-plan-dot { width: 7px; height: 7px; border: 1.5px solid currentColor; border-radius: 50%; }
+.todo-plan-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@keyframes todoSettle { 0% { transform: scale(.55); opacity: .35; } 62% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes todoSegmentFill { 0% { transform: scaleY(1); opacity: .6; } 45% { transform: scaleY(2.1); opacity: 1; } 100% { transform: scaleY(1); } }
+@media (max-width: 760px) {
+  .todo-plan-head { gap: 8px; padding: 8px 10px; }
+  .todo-plan-rail { max-width: 84px; }
+  .todo-plan-items { padding: 6px 10px 9px; }
+  .todo-plan-item { font-size: calc(12px * var(--ui-font-scale, 1)); }
+}
+html[data-motion="reduced"] .todo-plan-body,
+html[data-motion="reduced"] .todo-plan-items,
+html[data-motion="reduced"] .todo-plan-item,
+html[data-motion="reduced"] .todo-plan-rail i,
+html[data-motion="reduced"] .todo-plan-chevron .ui-icon { transition: none; }
+html[data-motion="reduced"] .todo-plan-item.is-settling .todo-plan-marker .ui-icon,
+html[data-motion="reduced"] .todo-plan-rail i.is-new { animation: none; }
 
 .turn-deliverables { margin: 12px 0 2px; padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--accent-light) 36%, var(--bg-secondary)); }
 .turn-deliverables-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--text-primary); font-size: calc(.78rem * var(--ui-font-scale, 1)); font-weight: 650; }
@@ -336,7 +372,7 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
 .tool-block[data-kind="mcp"] .tool-icon { color: #d2a8ff; }
 .tool-block[data-kind="web"] .tool-icon { color: #79c0ff; }
 .tool-block[data-kind="vision"] .tool-icon { color: #f2cc60; }
-.file-change-card, .turn-deliverables, .todo-plan { border-radius: 8px; box-shadow: none; }
+.file-change-card, .turn-deliverables { border-radius: 8px; box-shadow: none; }
 .file-change-card { background: var(--bg-secondary); }
 .file-change-diff { background: var(--code-bg); }
 .permission-dialog { border-radius: 10px; box-shadow: 0 18px 56px rgba(0,0,0,.2); }
