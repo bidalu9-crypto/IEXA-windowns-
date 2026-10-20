@@ -855,6 +855,12 @@
   color: var(--accent);
 }
 
+/* The glyph keeps the same ink as every other toolbar icon; only the label and
+   the pill carry the level's colour. */
+.workbench-shell .thinking-level-btn .thinking-level-icon {
+  color: var(--text-secondary);
+}
+
 .thinking-level-icon {
   display: inline-flex;
   width: 14px;

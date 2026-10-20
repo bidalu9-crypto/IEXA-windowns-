@@ -154,6 +154,17 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
   assert.equal(row.sameRow, true, 'the chip shares the model row');
   assert.ok(row.rightGap < 24, 'the chip is right-aligned: ' + row.rightGap);
 
+  // The usage ring travels with the balance: one right-aligned pair, not a ring
+  // stranded on the left of the row and a balance on the far right.
+  const pair = await evaluate(`(() => {
+    const ring = document.getElementById('contextProgress').getBoundingClientRect();
+    const chip = document.getElementById('balanceWrap').getBoundingClientRect();
+    const before = document.querySelector('.checkpoint-wrap').getBoundingClientRect();
+    return { gap: Math.round(chip.left - ring.right), ringAfterCheckpoint: ring.left >= before.right - 1 };
+  })()`);
+  assert.ok(pair.gap >= 0 && pair.gap < 14, 'the ring sits against the balance: ' + pair.gap);
+  assert.equal(pair.ringAfterCheckpoint, true, 'the pair stays after the checkpoint control');
+
   await evaluate("document.getElementById('balanceChip').click(); true");
   await wait("!document.getElementById('balancePopover').hidden");
   const receipt = await evaluate("document.getElementById('balancePopover').textContent.replace(/\\s+/g, ' ').trim()");

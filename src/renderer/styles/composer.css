@@ -999,6 +999,12 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   margin-left: auto;
 }
 
+/* Ring and balance read as one pair at the right edge: the ring absorbs the free
+   space, so the two stay glued together instead of drifting apart when a balance
+   is present. The balance keeps its own auto margin only where the ring is hidden. */
+.workbench-shell .model-bar > .context-progress { margin-left: auto; }
+.workbench-shell .model-bar > .balance-wrap { margin-left: 0; }
+
 /* `display: flex` above outranks the UA sheet's [hidden] rule, so hiding the
    chip with the attribute alone left an empty control on screen. */
 .balance-wrap[hidden] { display: none; }

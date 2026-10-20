@@ -1050,6 +1050,8 @@ body {
   .context-compaction-wrap,
   .permission-mode-wrap,
   .context-progress { display: none; }
+  /* The ring is gone, so the balance takes over the auto margin and stays right. */
+  .workbench-shell .model-bar > .balance-wrap { margin-left: auto; }
   .chat-input-wrapper { min-height: 48px; border-radius: 8px; }
   #chatInput { max-height: 128px; font-size: calc(16px * var(--ui-font-scale, 1)); }
   .settings-container, .about-container { width: 100%; margin: calc(60px + env(safe-area-inset-top)) auto 48px; padding: 0 16px; }

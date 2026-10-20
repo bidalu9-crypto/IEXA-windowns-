@@ -140,18 +140,70 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
   assert.equal(glyphs.reasoning.fill, 'none');
   // The spark dot is the only filled part; it must stay on currentColor.
   assert.deepEqual(glyphs.dot, { fill: 'currentColor', stroke: 'none' });
-  assert.equal(glyphs.reasoning.color, glyphs.buttonColor, 'the glyph follows the control state');
+  assert.equal(glyphs.reasoning.color, glyphs.buttonColor, 'at rest the glyph follows the control');
 
-  // Selecting the top level must tint the glyph through the same token.
+  // A coloured level tints the label, not the glyph: every icon in the bar keeps
+  // the same neutral ink so one pill can be highlighted without recolouring it.
   await evaluate("document.getElementById('thinkingLevelBtn').dataset.level = 'high'; true");
   const high = await evaluate(`(() => {
-    const svg = document.querySelector('#thinkingLevelBtn .ui-icon');
+    const btn = document.getElementById('thinkingLevelBtn');
     const probe = document.createElement('div');
     probe.style.cssText = 'position:absolute;left:-9999px;color:var(--accent)';
     document.body.appendChild(probe);
     const accent = getComputedStyle(probe).color;
     probe.remove();
-    return { icon: getComputedStyle(svg).color, accent };
+    return {
+      icon: getComputedStyle(btn.querySelector('.thinking-level-icon')).color,
+      label: getComputedStyle(document.getElementById('thinkingLevelLabel')).color,
+      peer: getComputedStyle(document.querySelector('.context-compaction-icon')).color,
+      accent,
+    };
   })()`);
-  assert.equal(high.icon, high.accent, 'the high level paints the glyph with the accent');
+  assert.equal(high.icon, high.peer, 'the reasoning glyph keeps the toolbar ink');
+  assert.equal(high.label, high.accent, 'the label carries the level colour');
+  await evaluate("document.getElementById('thinkingLevelBtn').dataset.level = 'medium'; true");
+
+  // The usage ring sits beside the balance; with no balance it takes that slot.
+  const slots = await evaluate(`(() => {
+    const bar = document.querySelector('.model-bar');
+    const ring = document.getElementById('contextProgress');
+    const visible = Array.from(bar.children).filter((el) => getComputedStyle(el).display !== 'none');
+    return {
+      betweenCheckpointAndBalance:
+        ring.previousElementSibling === document.querySelector('.checkpoint-wrap')
+        && ring.nextElementSibling === document.getElementById('balanceWrap'),
+      lastVisible: visible[visible.length - 1].id,
+    };
+  })()`);
+  assert.equal(slots.betweenCheckpointAndBalance, true, 'the ring sits between checkpoints and balance');
+  assert.equal(slots.lastVisible, 'contextProgress', 'without a balance the ring holds the right edge');
+
+  // Hovering any control lifts its glyph; only the transform changes.
+  for (const [button, icon] of [
+    ['#thinkingLevelBtn', '.thinking-level-icon'],
+    ['#contextCompactionBtn', '.context-compaction-icon'],
+    ['#permissionModeBtn', '.permission-mode-btn-icon'],
+    ['#checkpointBtn', 'svg.ui-icon'],
+    ['#contextProgress', '.context-progress-ring'],
+  ]) {
+    const center = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(button)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: center.x, y: center.y, button: 'none' });
+    await new Promise((r) => setTimeout(r, 260));
+    const transform = await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(button)}).querySelector(${JSON.stringify(icon)})).transform`);
+    assert.match(transform, /^matrix\(1\.16, 0, 0, 1\.16, 0, 0\)$/, `${button} lifts its glyph on hover: ${transform}`);
+  }
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2, button: 'none' });
+  await new Promise((r) => setTimeout(r, 260));
+  // The ring carries its own base transform, so the release is read on a plain glyph.
+  const parked = await evaluate("getComputedStyle(document.querySelector('#checkpointBtn svg.ui-icon')).transform");
+  assert.equal(parked, 'none', 'the lift is released when the pointer leaves');
+
+  // The app's own reduced-motion switch silences the lift.
+  await evaluate("document.documentElement.dataset.motion = 'reduced'; true");
+  const center = await evaluate(`(() => { const r = document.getElementById('checkpointBtn').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+  await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: center.x, y: center.y, button: 'none' });
+  await new Promise((r) => setTimeout(r, 260));
+  const reduced = await evaluate("getComputedStyle(document.querySelector('#checkpointBtn svg.ui-icon')).transform");
+  assert.equal(reduced, 'none', 'reduced motion keeps the glyph still');
+  await evaluate("document.documentElement.dataset.motion = 'full'; true");
 });

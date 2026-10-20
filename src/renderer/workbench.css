@@ -129,6 +129,19 @@
 .workbench-shell .model-selector:hover, .workbench-shell .thinking-level-btn:hover, .workbench-shell .context-compaction-btn:hover, .workbench-shell .permission-mode-btn:hover, .workbench-shell .checkpoint-btn:hover { background: var(--shell-hover); box-shadow: none; transform: none; }
 /* The open state is the only tinted variant, matching the other pills. */
 .workbench-shell .checkpoint-btn[aria-expanded="true"] { color: var(--accent); background: var(--accent-light); box-shadow: none; }
+/* Every glyph in the model bar lifts a little under the pointer. Transform only,
+   so the lift never triggers layout, and the reduced-motion switch silences it. */
+.workbench-shell .model-bar :is(.thinking-level-btn, .context-compaction-btn, .permission-mode-btn, .checkpoint-btn, .context-progress, .balance-chip) :is(.thinking-level-icon, .context-compaction-icon, .permission-mode-btn-icon, .ui-icon, .context-progress-ring) {
+  transform-origin: center;
+  transition: transform .18s cubic-bezier(.34, 1.56, .64, 1);
+}
+.workbench-shell .model-bar :is(.thinking-level-btn, .context-compaction-btn, .permission-mode-btn, .checkpoint-btn, .context-progress, .balance-chip):is(:hover, :focus-visible) :is(.thinking-level-icon, .context-compaction-icon, .permission-mode-btn-icon, .ui-icon, .context-progress-ring) {
+  transform: scale(1.16);
+}
+html[data-motion="reduced"] .workbench-shell .model-bar :is(.thinking-level-btn, .context-compaction-btn, .permission-mode-btn, .checkpoint-btn, .context-progress, .balance-chip) :is(.thinking-level-icon, .context-compaction-icon, .permission-mode-btn-icon, .ui-icon, .context-progress-ring) {
+  transform: none;
+  transition: none;
+}
 .workbench-shell .model-selector-label { max-width: 180px; }
 .workbench-shell .input-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; position:relative; }
 .workbench-shell #voiceBtn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border-strong); border-radius:50%; background:transparent; color:var(--text-secondary); transition:color 140ms ease, background 140ms ease, border-color 140ms ease; }
