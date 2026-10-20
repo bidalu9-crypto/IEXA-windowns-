@@ -145,6 +145,12 @@ function handleSSEEvent(raw, turnToken) {
       case 'job':
         applyJobUpdate(data);
         break;
+      case 'steer_applied':
+        markSteerApplied(data.id, data.timestamp);
+        break;
+      case 'steer_dropped':
+        demoteSteerToQueue(data.id, '', [], data.reason);
+        break;
       case 'retry':
         handleRetry(data);
         break;

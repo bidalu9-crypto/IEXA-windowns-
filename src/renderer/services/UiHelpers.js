@@ -11,17 +11,20 @@
 function addMessage(role, content, attachments, opts) {
   const queued = !!(opts && opts.queued);
   const queueId = (opts && opts.queueId) || '';
+  const steering = !!(opts && opts.steering);
+  const steerId = (opts && opts.steerId) || '';
   const timestamp = Number(opts && opts.timestamp) > 0 ? Number(opts.timestamp) : Date.now();
   const msg = document.createElement('div');
-  msg.className = 'message ' + role + (queued ? ' is-queued' : '');
+  msg.className = 'message ' + role + (queued ? ' is-queued' : '') + (steering ? ' is-steering' : '');
   if (queueId) msg.dataset.queueId = queueId;
-  if (!queued && (role === 'user' || role === 'assistant')) msg.dataset.timestamp = String(timestamp);
+  if (steerId) msg.dataset.steerId = steerId;
+  if (!queued && !steering && (role === 'user' || role === 'assistant')) msg.dataset.timestamp = String(timestamp);
   if (role === 'assistant') {
     msg._assistantText = String(content || '');
     if (opts && Number.isInteger(opts.messageIndex)) msg.dataset.messageIndex = String(opts.messageIndex);
     if (opts && opts.streaming) msg.classList.add('is-streaming');
   }
-  if (role === 'user' && !queued) {
+  if (role === 'user' && !queued && !steering) {
     // Index in the persisted session timeline, used by “重置到此处”.
     const messageIndex = opts && Number.isInteger(opts.messageIndex)
       ? opts.messageIndex
@@ -68,7 +71,12 @@ function addMessage(role, content, attachments, opts) {
     msg.appendChild(badge);
   }
 
-  // Attachments above message text
+  if (steering) {
+    const badge = document.createElement('div');
+    badge.className = 'steer-badge';
+    badge.innerHTML = '<span class="steer-badge-icon">↳</span><span class="steer-badge-text">插入中 · 当前步骤结束后接入本轮</span>';
+    msg.appendChild(badge);
+  }
   if (attachments && attachments.length) {
     const box = document.createElement('div');
     box.className = 'message-attachments';

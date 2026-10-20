@@ -160,6 +160,26 @@ let isDrainingQueue = false;
 /** When true, stop current turn and do not auto-drain remaining queue. */
 let suppressQueueDrain = false;
 
+// Codex-style follow-up routing while a turn is live:
+//   queue     → keep the bubble pending and run it after this turn
+//   steer     → append it to the running turn at the next step boundary
+//   interrupt → cancel this turn, then run the new prompt
+// VS Code Codex defaults to `queue`; Ctrl/Cmd+Shift+Enter flips it for one send.
+const FOLLOW_UP_MODES = ['queue', 'steer', 'interrupt'];
+const FOLLOW_UP_MODE_META = {
+  queue: { label: '队列', title: '队列：当前任务结束后执行（Ctrl+Shift+Enter 临时改为插入）' },
+  steer: { label: '插入', title: '插入：当前步骤结束后接入本轮（Ctrl+Shift+Enter 临时改为排队）' },
+  interrupt: { label: '中断', title: '中断：停止当前任务并立即执行（Ctrl+Shift+Enter 临时改为排队）' },
+};
+let followUpMode = localStorage.getItem('iexa-follow-up-mode') || 'queue';
+if (!FOLLOW_UP_MODES.includes(followUpMode)) followUpMode = 'queue';
+function oppositeFollowUpMode() {
+  return followUpMode === 'queue' ? 'steer' : 'queue';
+}
+function isFollowUpModifier(event) {
+  return !!(event && (event.ctrlKey || event.metaKey) && event.shiftKey);
+}
+
 // Session state
 let currentSessionId = '';
 // The conversation mounted in the visible chat area. Background SSE work may
@@ -895,13 +915,13 @@ searchResults.addEventListener('keydown', (event) => {
 const chatComposition = window.IexaComposerInput.bind(chatInput);
 chatInput.addEventListener('keydown', (e) => {
   if (chatComposition.isComposing(e)) return;
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter' && (!e.shiftKey || isFollowUpModifier(e))) {
     const menu = document.getElementById('slashMenu');
     if (menu && menu.style.display !== 'none' && menu.querySelector('.slash-item')) {
       return; // handled by slash menu listener
     }
     e.preventDefault();
-    sendMessage();
+    sendMessage(e);
   }
 });
 
@@ -964,6 +984,13 @@ chatInput.addEventListener('keydown', (e) => {
 })();
 
 sendBtn.addEventListener('click', sendMessage);
+document.getElementById('followUpModeBtn')?.addEventListener('click', () => {
+  const index = FOLLOW_UP_MODES.indexOf(followUpMode);
+  followUpMode = FOLLOW_UP_MODES[(index + 1) % FOLLOW_UP_MODES.length];
+  localStorage.setItem('iexa-follow-up-mode', followUpMode);
+  renderFollowUpMode();
+  updateComposerForQueue();
+});
 stopBtn.addEventListener('click', stopProcessing);
 
 function sendQuick(text) {
@@ -1198,7 +1225,7 @@ function cloneAttachments(list) {
 }
 
 /** Enqueue a user prompt while agent is busy — show dashed bubble, run later. */
-function enqueuePrompt() {
+function enqueuePrompt(opts) {
   const message = chatInput.value.trim();
   const attachments = cloneAttachments(pendingAttachments);
   if ((!message && attachments.length === 0) || !isProcessing) return;
@@ -1232,7 +1259,7 @@ function enqueuePrompt() {
     statusText.textContent = qn > 0 ? ('处理中…（已插入 ' + qn + ' 条）') : '处理中...';
   }
   console.log('[Queue] enqueued', id, 'size=', promptQueue.length);
-  requestImmediateQueueHandoff(currentSessionId);
+  if (opts && opts.interrupt) requestImmediateQueueHandoff(currentSessionId);
 }
 
 /**
@@ -1277,6 +1304,115 @@ function withdrawQueuedMessage(queueId) {
 }
 window.withdrawQueuedMessage = withdrawQueuedMessage;
 
+/**
+ * Insert a prompt into the running turn without cancelling it. The server
+ * commits it at the next model step, so completed tool work is preserved.
+ */
+async function steerPrompt() {
+  const message = chatInput.value.trim();
+  const attachments = cloneAttachments(pendingAttachments);
+  if ((!message && attachments.length === 0) || !isProcessing || !currentSessionId) return;
+  const sessionId = currentSessionId;
+  const displayText = message || (attachments.length
+    ? ('（附件：' + attachments.map((a) => a.name).join('、') + '）')
+    : '');
+  const steerId = 'steer_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  const steerEl = addMessage('user', displayText, attachments, { steering: true, steerId });
+  steerEl._steerPayload = { sessionId: sessionId, displayText: displayText, attachments: attachments };
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  clearAttachments();
+  scrollToBottom(false, true);
+  if (sessionId === visibleSessionId) statusText.textContent = '正在插入对话…';
+
+  try {
+    const prepared = await prepareAttachmentsForChat(attachments, sessionId, { forceUpload: true });
+    const response = await fetch(API_BASE + '/api/steer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId },
+      body: JSON.stringify({
+        sessionId: sessionId,
+        steerId: steerId,
+        message: message,
+        attachments: (prepared || []).map((a) => ({
+          name: a.name,
+          mime: a.mime,
+          kind: a.kind,
+          dataUrl: a.dataUrl || undefined,
+          text: a.text || undefined,
+          savedPath: a.savedPath || undefined,
+          size: a.size || undefined,
+        })),
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || ('插入失败：' + response.status));
+    }
+  } catch (error) {
+    console.warn('[Steer] falling back to queue', error);
+    demoteSteerToQueue(steerId, displayText, attachments, error.message);
+    if (sessionId === visibleSessionId) statusText.textContent = '插入未送达，已转为排队';
+  }
+}
+
+/**
+ * A pending steer bubble may have been moved into its session's detached
+ * fragment while the reader looked at another conversation. Find it there so
+ * the commit/fallback still lands on the right bubble.
+ */
+function findSteerElement(steerId) {
+  const selector = '.message.user.is-steering[data-steer-id="' + steerId + '"]';
+  const visible = chatMessages.querySelector(selector);
+  if (visible) return visible;
+  for (const runtime of sessionRuntimes.values()) {
+    const el = runtime.fragment?.querySelector?.(selector);
+    if (el) return el;
+  }
+  return null;
+}
+
+/** The server committed the steer into the live turn: drop the pending look. */
+function markSteerApplied(steerId, timestamp) {
+  const el = findSteerElement(steerId);
+  if (!el) return;
+  el.classList.remove('is-steering');
+  el.querySelector('.steer-badge')?.remove();
+  if (!el.dataset.messageIndex) {
+    const surface = el.parentNode || chatMessages;
+    el.dataset.messageIndex = String(surface.querySelectorAll('.message:not(.is-queued):not(.is-steering)').length);
+  }
+  el.dataset.timestamp = String(timestamp || Date.now());
+}
+
+/** A steer could not enter the running turn: keep it as a normal queue item. */
+function demoteSteerToQueue(steerId, displayText, attachments, reason) {
+  const el = findSteerElement(steerId);
+  const payload = el?._steerPayload || {};
+  const sessionId = payload.sessionId || currentSessionId;
+  if (!sessionId) return;
+  const text = displayText || payload.displayText || '';
+  const files = (attachments && attachments.length) ? attachments : (payload.attachments || []);
+  if (el) el.remove();
+  const queueId = makeQueueId();
+  // The owner may no longer be the visible conversation; keep the queue item
+  // on its own runtime instead of dropping it into whoever is on screen.
+  const runtime = runtimeForSession(sessionId);
+  (runtime.promptQueue || (runtime.promptQueue = [])).push({
+    id: queueId,
+    sessionId: sessionId,
+    text: text,
+    displayText: text,
+    attachments: files,
+  });
+  withSessionRuntime(sessionId, () => {
+    addMessage('user', text, files, { queued: true, queueId: queueId });
+  });
+  if (sessionId === currentSessionId) updateComposerForQueue();
+  if (reason) console.warn('[Steer] demoted to queue:', reason);
+  if (sessionId === currentSessionId && !isProcessing) scheduleQueueDrain(sessionId);
+}
+
 function markQueuedMessagesActive(ids) {
   const set = new Set(ids);
   chatMessages.querySelectorAll('.message.user.is-queued').forEach((el) => {
@@ -1304,12 +1440,17 @@ function updateComposerForQueue() {
     stopBtn.style.display = 'flex';
     sendBtn.disabled = false;
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
+    const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.queue;
     sendBtn.title = qn > 0
-      ? ('插入对话（正在接入 ' + qn + ' 条）')
-      : '插入对话（立即接入当前任务）';
-    sendBtn.setAttribute('aria-label', '插入对话');
+      ? ('已插入 ' + qn + ' 条 · ' + meta.label)
+      : meta.title;
+    sendBtn.setAttribute('aria-label', followUpMode === 'steer' ? '插入对话' : followUpMode === 'interrupt' ? '中断并发送' : '排队发送');
     sendBtn.classList.add('is-queue-mode');
-    chatInput.placeholder = '任务进行中，可插入对话，立即接入…';
+    chatInput.placeholder = followUpMode === 'steer'
+      ? '任务进行中，Enter 插入本轮（Ctrl+Shift+Enter 排队）'
+      : followUpMode === 'interrupt'
+        ? '任务进行中，Enter 中断并立即发送（Ctrl+Shift+Enter 排队）'
+        : '任务进行中，Enter 排队（Ctrl+Shift+Enter 插入本轮）';
     if (attachBtn) attachBtn.disabled = false;
     chatInput.disabled = false;
   } else {
@@ -1318,6 +1459,18 @@ function updateComposerForQueue() {
     sendBtn.setAttribute('aria-label', '发送');
     chatInput.placeholder = '有问题，随便问';
   }
+  renderFollowUpMode();
+}
+
+/** Show the active follow-up mode only while a turn can accept one. */
+function renderFollowUpMode() {
+  const btn = document.getElementById('followUpModeBtn');
+  if (!btn) return;
+  const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.queue;
+  btn.textContent = meta.label;
+  btn.title = meta.title;
+  btn.dataset.mode = followUpMode;
+  btn.hidden = !isProcessing;
 }
 
 /** After a turn ends, auto-run the next queued prompt(s). */
@@ -1384,13 +1537,22 @@ function scheduleQueueDrain(sessionId = currentSessionId) {
 // Send Message
 // =============================================================================
 
-async function sendMessage() {
+async function sendMessage(event) {
   const message = chatInput.value.trim();
   const attachments = cloneAttachments(pendingAttachments);
   if (!message && attachments.length === 0) return;
 
-  // Busy → insert into queue (iOS enqueuePrompt)
+  // Busy → route by the active follow-up mode (Codex parity: queue/steer/interrupt).
   if (isProcessing) {
+    const effective = isFollowUpModifier(event) ? oppositeFollowUpMode() : followUpMode;
+    if (effective === 'steer') {
+      await steerPrompt();
+      return;
+    }
+    if (effective === 'interrupt') {
+      enqueuePrompt({ interrupt: true });
+      return;
+    }
     enqueuePrompt();
     return;
   }
@@ -1458,10 +1620,11 @@ async function uploadLargeAttachment(attachment, sessionId) {
   return { name: attachment.name, mime: attachment.mime, kind: attachment.kind, size: attachment.size, savedPath: complete.savedPath, large: true };
 }
 
-async function prepareAttachmentsForChat(attachments, sessionId) {
+async function prepareAttachmentsForChat(attachments, sessionId, opts) {
+  const forceUpload = !!(opts && opts.forceUpload);
   const prepared = [];
   for (const attachment of (attachments || [])) {
-    prepared.push(attachment.file && attachment.file.size > MAX_ATTACH_BYTES
+    prepared.push(attachment.file && (forceUpload || attachment.file.size > MAX_ATTACH_BYTES)
       ? await uploadLargeAttachment(attachment, sessionId)
       : attachment);
   }

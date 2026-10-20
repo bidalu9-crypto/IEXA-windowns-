@@ -189,4 +189,8 @@ export interface AgentLoopCallbacks {
   onError: (error: string) => void;
   onDone: (stopReason: AgentStopReason) => void;
   onCancelled: () => void;
+  /** A steered user message was committed into the running turn's history. */
+  onSteerApplied?: (event: { id: string; text: string }) => void;
+  /** A steered message could not be committed before the turn settled. */
+  onSteerDropped?: (event: { id: string; reason: string }) => void;
 }

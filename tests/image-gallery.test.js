@@ -81,7 +81,14 @@ test('real browser: image lightbox pages through a conversation and zooms', { sk
     await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1500))]);
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+    // Chromium releases its profile handles shortly after exit; on Windows a
+    // recursive delete can still race that teardown. Cleanup must never turn a
+    // passing UI assertion into a failed test.
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (error) {
+      console.warn('[image-gallery] temp cleanup deferred:', error.message);
+    }
   });
 
   const wsUrl = await new Promise((resolve, reject) => {

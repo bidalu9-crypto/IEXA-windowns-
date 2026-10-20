@@ -89,6 +89,24 @@ function clipHistoryText(text: string, limit: number): string {
   return (text.slice(0, head) + marker + text.slice(-(available - head))).slice(0, limit);
 }
 
+export interface AgentAttachment {
+  name: string;
+  mime: string;
+  kind: 'image' | 'text' | 'file';
+  data?: Buffer;
+  text?: string;
+  savedPath?: string;
+  width?: number;
+  height?: number;
+}
+
+/** A user message injected into the turn that is already running. */
+export interface AgentSteerInput {
+  id: string;
+  text: string;
+  attachments?: AgentAttachment[];
+}
+
 export interface AgentLoopConfig {
   projectScope?: ProjectScope | null;
   onPromptRequest?: (request: PromptRequest) => void;
@@ -150,6 +168,8 @@ export class AgentLoop {
   /** Restored checkpoints must become model-visible once, not once per turn. */
   private restoredSummaryInjected = false;
   private compactionController: AbortController | null = null;
+  /** User messages waiting for the next model step inside the live turn. */
+  private pendingSteers: AgentSteerInput[] = [];
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -164,10 +184,96 @@ export class AgentLoop {
     this.compactionController?.abort();
   }
 
+  /**
+   * Queue a user message into the turn that is currently streaming. The
+   * message is committed at the next step boundary (after the in-flight
+   * completion and its tool results), so completed work is never discarded.
+   * Returns false when no turn is live.
+   */
+  steer(input: AgentSteerInput): boolean {
+    if (!this.callbacks || this.isCancelled) return false;
+    const text = String(input?.text ?? '');
+    if (!text.trim() && !(input?.attachments && input.attachments.length > 0)) return false;
+    this.pendingSteers.push({ id: String(input.id || ''), text, attachments: input.attachments });
+    return true;
+  }
+
+  getPendingSteerCount(): number { return this.pendingSteers.length; }
+
+  /** Settle a finished run: anything still queued can no longer be applied. */
+  endRun(): void {
+    this.dropPendingSteers('turn_ended');
+    this.callbacks = null;
+  }
+
+  private dropPendingSteers(reason: string): void {
+    if (this.pendingSteers.length === 0) return;
+    const pending = this.pendingSteers.splice(0);
+    for (const item of pending) {
+      try { this.callbacks?.onSteerDropped?.({ id: item.id, reason }); } catch { /* teardown must not throw */ }
+    }
+  }
+
+  /** Commit every waiting steer as a protocol-valid user message. */
+  private drainPendingSteers(): boolean {
+    if (this.pendingSteers.length === 0) return false;
+    const pending = this.pendingSteers.splice(0);
+    for (const item of pending) {
+      this.agentHistory.push({ role: 'user', parts: this.buildUserParts(item.text, item.attachments) });
+      try { this.callbacks?.onSteerApplied?.({ id: item.id, text: item.text }); } catch { /* observer must not break the turn */ }
+    }
+    return true;
+  }
+
+  /** Build a user message from text plus attachment notes (shared by run/steer). */
+  private buildUserParts(userMessage: string, attachments?: AgentAttachment[]): AgentContentPart[] {
+    const parts: AgentContentPart[] = [];
+    let text = userMessage || '';
+
+    if (attachments && attachments.length > 0) {
+      const notes: string[] = [];
+      for (const att of attachments) {
+        if (att.kind === 'image' && att.data) {
+          parts.push({ type: 'imageData', data: att.data, mimeType: att.mime || 'image/png' });
+          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+          notes.push(`[User image attached as original pixels: ${att.name}${dimensions}${att.savedPath ? `; saved as ${att.savedPath}` : ''}. Inspect the attached pixels, not a UI thumbnail. If you identify a point or region, use original-image coordinates with (0,0) at the top-left.]`);
+        } else if (att.kind === 'image') {
+          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+          notes.push(`[User image requires visual inspection: ${att.name}${dimensions}${att.savedPath ? `; absolute path: ${att.savedPath}` : ''}. Call read_image with this exact path before answering about the image. Do not guess from its filename, chat thumbnail, or an earlier image. Ask the vision tool to transcribe visible text and locate relevant regions using original-image coordinates from the top-left.]`);
+        } else if (att.kind === 'text' && att.text != null) {
+          const clipped = att.text.length > 80000
+            ? att.text.substring(0, 80000) + '\n\n... (truncated)'
+            : att.text;
+          notes.push(
+            `[Attached file: ${att.name}${att.savedPath ? ` → ${att.savedPath}` : ''}]\n` +
+            '```\n' + clipped + '\n```'
+          );
+        } else {
+          notes.push(
+            `[Attached binary file: ${att.name}` +
+            `${att.savedPath ? ` → saved to workspace as ${att.savedPath}` : ''}` +
+            ` (${att.mime || 'application/octet-stream'})]`
+          );
+        }
+      }
+      if (notes.length) {
+        text = (text ? text + '\n\n' : '') + notes.join('\n\n');
+      }
+    }
+
+    if (text) {
+      parts.unshift({ type: 'text', text });
+    } else if (parts.length === 0) {
+      parts.push({ type: 'text', text: '' });
+    }
+    return parts;
+  }
+
   private get isAborted(): boolean { return this.isCancelled || this.config.getAbortSignal()?.aborted === true; }
 
   reset(): void {
     this.agentHistory = [];
+    this.pendingSteers = [];
     this.isCancelled = false;
     this.compactor = null;
     this.pendingCompactorSummary = '';
@@ -335,16 +441,7 @@ export class AgentLoop {
     userMessage: string,
     tools: AgentToolDefinition[],
     callbacks: AgentLoopCallbacks,
-    attachments?: Array<{
-      name: string;
-      mime: string;
-      kind: 'image' | 'text' | 'file';
-      data?: Buffer;
-      text?: string;
-      savedPath?: string;
-      width?: number;
-      height?: number;
-    }>,
+    attachments?: AgentAttachment[],
   ): Promise<void> {
     this.callbacks = callbacks;
     this.isCancelled = false;
@@ -357,46 +454,7 @@ export class AgentLoop {
     // Carry forward the newest checkpoint, not just the one loaded at startup.
     if (this.compactor) this.pendingCompactorSummary = this.compactor.summary();
 
-    // Build user message parts (text + optional images / file notes)
-    const parts: AgentContentPart[] = [];
-    let text = userMessage || '';
-
-    if (attachments && attachments.length > 0) {
-      const notes: string[] = [];
-      for (const att of attachments) {
-        if (att.kind === 'image' && att.data) {
-          parts.push({ type: 'imageData', data: att.data, mimeType: att.mime || 'image/png' });
-          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
-          notes.push(`[User image attached as original pixels: ${att.name}${dimensions}${att.savedPath ? `; saved as ${att.savedPath}` : ''}. Inspect the attached pixels, not a UI thumbnail. If you identify a point or region, use original-image coordinates with (0,0) at the top-left.]`);
-        } else if (att.kind === 'image') {
-          const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
-          notes.push(`[User image requires visual inspection: ${att.name}${dimensions}${att.savedPath ? `; absolute path: ${att.savedPath}` : ''}. Call read_image with this exact path before answering about the image. Do not guess from its filename, chat thumbnail, or an earlier image. Ask the vision tool to transcribe visible text and locate relevant regions using original-image coordinates from the top-left.]`);
-        } else if (att.kind === 'text' && att.text != null) {
-          const clipped = att.text.length > 80000
-            ? att.text.substring(0, 80000) + '\n\n... (truncated)'
-            : att.text;
-          notes.push(
-            `[Attached file: ${att.name}${att.savedPath ? ` → ${att.savedPath}` : ''}]\n` +
-            '```\n' + clipped + '\n```'
-          );
-        } else {
-          notes.push(
-            `[Attached binary file: ${att.name}` +
-            `${att.savedPath ? ` → saved to workspace as ${att.savedPath}` : ''}` +
-            ` (${att.mime || 'application/octet-stream'})]`
-          );
-        }
-      }
-      if (notes.length) {
-        text = (text ? text + '\n\n' : '') + notes.join('\n\n');
-      }
-    }
-
-    if (text) {
-      parts.unshift({ type: 'text', text });
-    } else if (parts.length === 0) {
-      parts.push({ type: 'text', text: '' });
-    }
+    const parts = this.buildUserParts(userMessage, attachments);
 
     // A persisted checkpoint must be model-visible after restart, just as a
     // Harness compaction checkpoint replaces an older conversation surface.
@@ -509,6 +567,10 @@ export class AgentLoop {
         callbacks.onError(ProviderError.from(err).userMessage || 'Context compaction failed');
         return;
       }
+      // A steer belongs to the turn that is running: commit it after the
+      // previous completion (and any tool results) so the protocol stays
+      // toolUse → toolResult → user, never a splice inside a step.
+      this.drainPendingSteers();
       const messages = [...this.agentHistory];
 
       try {
@@ -619,6 +681,9 @@ export class AgentLoop {
         // The presence of a complete call is the authoritative execution
         // signal; do not silently discard it based on stopReason.
         if (toolCalls.length === 0) {
+          // A steer that arrived during the final completion must still be
+          // answered by the same running turn instead of being dropped.
+          if (this.drainPendingSteers()) continue;
           callbacks.onDone(stopReason);
           return;
         }

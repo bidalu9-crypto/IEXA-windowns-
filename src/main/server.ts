@@ -68,6 +68,7 @@ import { handleSkillRoute, SkillRouteContext } from './api/SkillRoutes';
 import { handleTerminalRoute, TerminalRouteContext } from './api/TerminalRoutes';
 import { handleMcpRoute, McpRouteContext } from './api/McpRoutes';
 import { handlePluginRoute, PluginRouteContext } from './api/PluginRoutes';
+import { handleSteerRoute } from './api/SteerRoutes';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { normalizeMcpToolResult } from './mcp/McpToolResult';
@@ -535,6 +536,8 @@ interface ChatMessage {
    */
   inputTokensAreFresh?: boolean;
   attachments?: ChatAttachmentMeta[];
+  /** A follow-up the user injected into the turn while it was still running. */
+  steered?: boolean;
   timestamp: number;
 }
 
@@ -957,6 +960,9 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
 
 // ---- Agent (per session) ----
 const agentCache = new Map<string, AgentRuntime>();
+/** Metadata for accepted-but-not-yet-committed steers, keyed by session+id. */
+const pendingSteerMeta = new Map<string, ChatMessage>();
+const steerMetaKey = (sessionId: string, steerId: string): string => `${sessionId}\u0000${steerId}`;
 const permissionBroker = new PermissionBroker();
 const permissionSubscriptions = new Map<string, () => void>();
 const questionBroker = new QuestionBroker();
@@ -1333,6 +1339,7 @@ async function saveSessionMessages(
   thinkingLevel = getThinkingLevel(),
   transcript?: TranscriptEvents,
   startedAt?: number,
+  steeredMessages: ChatMessage[] = [],
 ): Promise<void> {
   const turnStartedAt = Number(startedAt) || Number(userMsg.timestamp) || 0;
   const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;
@@ -1352,7 +1359,9 @@ async function saveSessionMessages(
     durationMs,
     timestamp: Date.now(),
   };
-  const updatedMessages = [...existingMessages, userMsg, assistantMsg];
+  // Steered prompts happened between the opening prompt and the final reply;
+  // keep them in that position so a reload never rewrites the user's sequence.
+  const updatedMessages = [...existingMessages, userMsg, ...steeredMessages, assistantMsg];
 
   // Limit to last 200 messages per session (prevent bloat)
   const trimmed = updatedMessages.length > 200
@@ -2410,6 +2419,43 @@ function createServer(auth: LocalApiAuth): http.Server {
     if (await uploads.handle(req, res, url, mobileDevice?.id || 'desktop')) return;
 
     // =====================================================================
+    // Steer: inject a user message into the turn that is already streaming
+    // =====================================================================
+    if (await handleSteerRoute(req, res, url, {
+      workspaceDir: WORKSPACE_DIR,
+      limits: {
+        maxBodyBytes: MAX_CHAT_BODY_BYTES,
+        maxAttachments: MAX_ATTACHMENTS,
+        maxUploadBytes: MAX_UPLOAD_BYTES,
+        maxVisionImageBytes: MAX_VISION_IMAGE_BYTES,
+        maxAttachmentTotalBytes: MAX_ATTACHMENT_TOTAL_BYTES,
+      },
+      isAgentRunning: (sessionId) => agentCache.get(sessionId)?.isRunning() === true,
+      usesVisionProxy: (sessionId) => {
+        const profile = profileForSession(sessionId);
+        if (!profile) return false;
+        const visionProfile = configuredVisionProfile(profile.id);
+        return Boolean(visionProfile && shouldUseVisionProxy(
+          profile.provider,
+          profile.model,
+          true,
+          visionProfile.id === profile.id,
+          profile.visionCapability,
+        ));
+      },
+      steer: (sessionId, input) => agentCache.get(sessionId)?.steer(input) === true,
+      rememberMeta: (sessionId, steerId, meta) => {
+        pendingSteerMeta.set(steerMetaKey(sessionId, steerId), {
+          role: 'user',
+          content: meta.content,
+          attachments: meta.attachments,
+          timestamp: Date.now(),
+          steered: true,
+        });
+      },
+    })) return;
+
+    // =====================================================================
     // Chat API
     // =====================================================================
     if (url.pathname === '/api/chat' && req.method === 'POST') {
@@ -2757,6 +2803,8 @@ ${recentMemories}
         let assistantThinkingText = '';
         const transcriptRecorder = new TranscriptRecorder();
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
+        /** Steered user prompts applied inside this turn, preserved in order. */
+        const steeredMessages: ChatMessage[] = [];
         let lastUsage: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number } | undefined;
         let titleJob: Promise<void> | null = null;
         const streamBatcher = new StreamBatcher((event: string, data: unknown) => {
@@ -2862,6 +2910,24 @@ ${recentMemories}
             });
           },
           onRetry: (attempt, delayMs, error) => emitTurnEvent('retry', { attempt, delayMs, error }),
+          onSteerApplied: ({ id, text }) => {
+            const key = steerMetaKey(sessionId, id);
+            const meta = pendingSteerMeta.get(key);
+            pendingSteerMeta.delete(key);
+            const steeredMsg: ChatMessage = {
+              role: 'user',
+              content: text,
+              attachments: meta?.attachments,
+              timestamp: Date.now(),
+              steered: true,
+            };
+            steeredMessages.push(steeredMsg);
+            emitTurnEvent('steer_applied', { id, timestamp: steeredMsg.timestamp });
+          },
+          onSteerDropped: ({ id, reason }) => {
+            pendingSteerMeta.delete(steerMetaKey(sessionId, id));
+            emitTurnEvent('steer_dropped', { id, reason });
+          },
           onUsage: (u: LLMUsage) => {
             lastUsage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens, ...(u.cacheReadInputTokens != null ? { cacheReadInputTokens: u.cacheReadInputTokens } : {}) };
             // Persist each provider usage receipt immediately; a turn can contain multiple model calls.
@@ -2877,7 +2943,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             titleJob = maybeAiTitle().finally(() => { try { res.end(); } catch { /* */ } });
@@ -2887,7 +2953,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -2901,7 +2967,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
-            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt);
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
             res.end();

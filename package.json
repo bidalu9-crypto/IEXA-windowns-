@@ -8,7 +8,7 @@
     "start": "npm run build && node dist/main/server.js",
     "electron": "npm run build && npm run electron:runtime && npm run electron:rebuild && electron .",
     "dev": "tsc && node dist/main/server.js",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test --test-concurrency=2 tests/*.test.js",
     "vendor:renderer": "node scripts/vendor-renderer.cjs",
     "vendor:check": "node scripts/vendor-renderer.cjs --check",
     "electron:runtime": "node download_electron.js --install",

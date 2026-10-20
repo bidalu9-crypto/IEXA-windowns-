@@ -201,6 +201,6 @@ test('the turn start, freeze and persistence are wired into the real flows', () 
   assert.ok(server.includes('durationMs?: number;'), 'the message record stores the duration');
   assert.ok(server.includes('const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;'),
     'the server measures wall-clock time');
-  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt\)/g) || []).length, 3,
+  assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt(?:, steeredMessages)?\)/g) || []).length, 3,
     'done, error and cancelled all persist the duration');
 });

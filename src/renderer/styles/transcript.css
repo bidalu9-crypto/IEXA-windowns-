@@ -739,6 +739,47 @@ body.chat-focus-mode .message.user {
   box-shadow: none !important;
 }
 
+/* Steered prompt: accepted into the live turn, waiting for the next step. */
+.message.user.is-steering {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  opacity: 0.95;
+}
+
+.message.user.is-steering .message-content {
+  background: transparent !important;
+  border: 1.5px dashed var(--accent) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: none !important;
+}
+
+.steer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0 0 6px auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--accent);
+  background: var(--bg-secondary);
+  color: var(--accent);
+  font-size: calc(0.72rem * var(--ui-font-scale, 1));
+  line-height: 1.2;
+}
+
+.steer-badge-icon {
+  font-size: calc(0.8rem * var(--ui-font-scale, 1));
+  opacity: 0.9;
+}
+
+.steer-badge-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queued-badge {
   display: inline-flex;
   align-items: center;

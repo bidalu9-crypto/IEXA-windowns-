@@ -1,4 +1,4 @@
-import { AgentLoop, AgentLoopConfig } from '../agent/AgentLoop';
+import { AgentLoop, AgentLoopConfig, AgentSteerInput } from '../agent/AgentLoop';
 import { AgentState } from '../agent/AgentState';
 import { AgentLoopCallbacks, AgentToolDefinition } from '../providers/types';
 import { BudgetManager } from './BudgetManager';
@@ -79,8 +79,19 @@ export class AgentRuntime {
         if (this.config.subAgentTree) await this.subAgents?.settleDescendants(this.config.sessionId);
         else await this.subAgents?.settleAll();
       }
-      this.activeRun = false; this.cancellation.finish(this.config.sessionId); terminal?.();
+      this.activeRun = false; this.cancellation.finish(this.config.sessionId);
+      // Anything still waiting was never committed; report it before the
+      // terminal frame so the renderer can fall back to its queue.
+      this.loop.endRun();
+      terminal?.();
     }
+  }
+  /** True while a turn is actually streaming (not merely cached). */
+  isRunning(): boolean { return this.activeRun; }
+  /** Inject a user message into the live turn; false when nothing is running. */
+  steer(request: AgentSteerInput): boolean {
+    if (!this.activeRun) return false;
+    return this.loop.steer(request);
   }
   cancel(): void {
     this.cancellation.cancel(this.config.sessionId); this.loop.cancel();

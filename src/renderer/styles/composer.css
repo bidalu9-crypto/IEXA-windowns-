@@ -950,6 +950,35 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   line-height: 0;
 }
 
+/* Follow-up routing chip: queue / steer / interrupt, only while a turn runs. */
+.input-actions button.follow-up-mode-btn {
+  width: auto;
+  min-width: 46px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: calc(0.72rem * var(--ui-font-scale, 1));
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.input-actions button.follow-up-mode-btn[data-mode="steer"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.input-actions button.follow-up-mode-btn[data-mode="interrupt"] {
+  color: #b42318;
+  border-color: #b42318;
+}
+
+.input-actions button.follow-up-mode-btn[hidden] {
+  display: none;
+}
+
 #sendBtn {
   background: var(--accent);
   color: var(--on-accent);
