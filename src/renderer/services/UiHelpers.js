@@ -375,7 +375,7 @@ async function retryAssistantMessage(messageEl, button) {
     if (!resetResponse.ok) throw new Error(resetData.error || '重试前重置会话失败');
 
     await reloadSessionView(sessionId);
-    chatMessages.querySelector('.welcome')?.remove();
+    window.dismissWelcome?.();
     addMessage('user', displayText, attachments, { timestamp: Date.now() });
     suppressQueueDrain = false;
     await runChatTurn(prompt || displayText, displayText, attachments, { fromRetry: true });
@@ -562,7 +562,7 @@ async function resendUserMessage(messageEl, button) {
     // the "正在加载对话…" placeholder and can strand it when a concurrent
     // metadata sync bumps the view epoch while the fetch is in flight.
     truncateTranscriptFrom(messageEl, false);
-    chatMessages.querySelector('.welcome')?.remove();
+    window.dismissWelcome?.();
     resetTurnBookkeeping();
     addMessage('user', displayText, attachments, { timestamp: Date.now() });
     suppressQueueDrain = false;

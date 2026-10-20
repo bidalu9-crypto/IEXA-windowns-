@@ -1258,8 +1258,7 @@ function enqueuePrompt(opts) {
   if ((!message && attachments.length === 0) || !isProcessing) return;
   if (!currentSessionId) return;
 
-  const welcome = chatMessages.querySelector('.welcome');
-  if (welcome) welcome.remove();
+  dismissWelcome();
 
   const displayText = message || (attachments.length
     ? ('（附件：' + attachments.map((a) => a.name).join('、') + '）')
@@ -1578,6 +1577,52 @@ function scheduleQueueDrain(sessionId = currentSessionId) {
 }
 
 // =============================================================================
+// Landing layout
+// =============================================================================
+
+/**
+ * While the empty-session hero is on screen the composer belongs with it in the
+ * page centre (DeepSeek-style landing). The moment a message exists the dock
+ * wins again. The class lives on the view so the CSS can scope everything.
+ */
+function syncWelcomeLayout() {
+  const view = document.getElementById('view-chat');
+  if (!view) return;
+  view.classList.toggle('is-welcome', !!chatMessages.querySelector('.welcome'));
+}
+
+/**
+ * Drop the hero and glide the composer down to its dock. The layout jump is
+ * inverted into a transform first (FLIP), so the move reads as one motion
+ * instead of a teleport.
+ */
+function dismissWelcome() {
+  const welcome = chatMessages.querySelector('.welcome');
+  if (!welcome) { syncWelcomeLayout(); return; }
+  const composer = document.querySelector('.chat-input-area');
+  const before = composer?.getBoundingClientRect();
+  welcome.remove();
+  syncWelcomeLayout();
+  const after = composer?.getBoundingClientRect();
+  if (!before || !after || typeof composer.animate !== 'function') return;
+  if (window.IexaChatPresentation?.reducedMotion?.()) return;
+  const dx = before.left - after.left;
+  const dy = before.top - after.top;
+  if (!dx && !dy) return;
+  composer.animate(
+    [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+    { duration: 420, easing: 'cubic-bezier(.22,.61,.36,1)' },
+  );
+}
+window.dismissWelcome = dismissWelcome;
+window.syncWelcomeLayout = syncWelcomeLayout;
+
+// Every path that builds or clears the transcript goes through chatMessages;
+// one observer keeps the landing class honest without touching each caller.
+new MutationObserver(syncWelcomeLayout).observe(chatMessages, { childList: true });
+syncWelcomeLayout();
+
+// =============================================================================
 // Send Message
 // =============================================================================
 
@@ -1607,8 +1652,7 @@ async function sendMessage(event) {
     if (!currentSessionId) return;
   }
 
-  const welcome = chatMessages.querySelector('.welcome');
-  if (welcome) welcome.remove();
+  dismissWelcome();
 
   const displayText = message || (attachments.length
     ? ('（附件：' + attachments.map((a) => a.name).join('、') + '）')
