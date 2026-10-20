@@ -114,7 +114,7 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
 
   assert.equal(glyphs.reasoning.href, '#ui-reasoning');
   assert.equal(glyphs.compact.href, '#ui-compact');
-  assert.equal(glyphs.checkpoint.href, '#ui-branch');
+  assert.equal(glyphs.checkpoint.href, '#ui-checkpoint');
   // Square boxes: a letterboxed box clips the path, which is exactly the bug
   // this test exists to catch.
   assert.deepEqual(glyphs.reasoning.box, [14, 14], 'reasoning glyph is square at 14px');
