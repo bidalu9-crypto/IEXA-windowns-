@@ -205,24 +205,37 @@ test('real browser: panel drag writes stay scoped and commit once', { skip: !bro
 
   // One divider per boundary: the panels own no side border and the resizer
   // draws the only hairline, so the two lines in the old layout cannot return.
+  // The hairline must also sit on the seam itself: a gutter that pushed the
+  // panels apart left a 4px strip of background between the grey sidebar and
+  // its line, which reads as a misaligned divider.
   const dividers = await evaluate(`(() => {
     const px = (el, side) => getComputedStyle(el)[side];
     const hairline = (el) => { const s = getComputedStyle(el, '::before'); return [s.width, s.left]; };
+    const box = (id) => document.getElementById(id).getBoundingClientRect();
+    const sidebar = box('sidebar'), chat = document.querySelector('.chat-container').getBoundingClientRect();
+    const files = box('filesPanel');
+    const leftResizer = box('sidebarResizer'), rightResizer = box('filesResizer');
     return {
       sidebar: px(document.getElementById('sidebar'), 'borderRightWidth'),
       chat: px(document.querySelector('.chat-container'), 'borderRightWidth'),
       files: px(document.getElementById('filesPanel'), 'borderLeftWidth'),
       leftLine: hairline(document.getElementById('sidebarResizer')),
       rightLine: hairline(document.getElementById('filesResizer')),
+      panelsAdjacent: Math.round(sidebar.right) === Math.round(chat.left),
+      leftSeam: [Math.round(sidebar.right), Math.round(leftResizer.left + 4), Math.round(chat.left)],
+      rightSeam: [Math.round(chat.right), Math.round(rightResizer.left + 4), Math.round(files.left)],
     };
   })()`);
-  assert.deepEqual(dividers, {
-    sidebar: '0px',
-    chat: '0px',
-    files: '0px',
-    leftLine: ['1px', '4px'],
-    rightLine: ['1px', '4px'],
-  }, 'each boundary draws exactly one hairline, from the resizer');
+  assert.equal(dividers.sidebar, '0px', 'sidebar draws no side border');
+  assert.equal(dividers.chat, '0px', 'chat draws no side border');
+  assert.equal(dividers.files, '0px', 'files panel draws no side border');
+  assert.deepEqual(dividers.leftLine, ['1px', '4px'], 'one hairline at the left boundary');
+  assert.deepEqual(dividers.rightLine, ['1px', '4px'], 'one hairline at the right boundary');
+  assert.equal(dividers.panelsAdjacent, true, 'no gutter between the panels');
+  // Sidebar edge, hairline and chat edge must all land on the same pixel; a
+  // gutter between them is what made the left divider look detached.
+  assert.equal(new Set(dividers.leftSeam).size, 1, `left divider sits on the seam: ${dividers.leftSeam}`);
+  assert.equal(new Set(dividers.rightSeam).size, 1, `right divider sits on the seam: ${dividers.rightSeam}`);
 
   assert.deepEqual(exceptions, [], 'no renderer exceptions during the drag');
 });

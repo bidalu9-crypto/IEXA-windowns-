@@ -689,16 +689,22 @@ html[data-motion="reduced"] .appearance-switch-control span::after { transition:
 .panel-resizer {
   position: relative;
   z-index: 20;
-  flex: 0 0 9px;
-  width: 9px;
+  /* The gutter straddles the boundary instead of sitting between the panels:
+     8px wide with -4px on each side nets out to zero layout width, so the two
+     panels stay adjacent and the hairline lands exactly on their shared edge.
+     The hit area still extends 4px into each side for dragging. */
+  flex: 0 0 8px;
+  width: 8px;
+  margin: 0 -4px;
   cursor: col-resize;
   outline: none;
   touch-action: none;
 }
 
-/* The single divider for both panel boundaries: one hairline, centred in the
-   gutter. Hovering or dragging thickens it in place instead of adding a
-   second line next to a panel border. */
+/* The single divider for both panel boundaries. It sits on the seam, not in the
+   middle of a gutter, so a grey panel meets its white neighbour without a
+   floating strip of background in between. Hovering or dragging thickens it in
+   place instead of adding a second line next to a panel border. */
 .panel-resizer::before {
   content: '';
   position: absolute;
