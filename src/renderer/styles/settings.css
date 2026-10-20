@@ -846,6 +846,19 @@
   flex-shrink: 0;
 }
 
+/* The shared sprite is 18px by default (and .workbench-shell .ui-icon is more
+   specific than a bare descendant selector, so it must be matched here). The
+   pill icons sit at 14px so the stroke keeps the same optical weight as the
+   label beside it. */
+.workbench-shell .thinking-level-icon .ui-icon,
+.workbench-shell .context-compaction-btn .ui-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  /* Same optical weight as the 16px toolbar glyphs beside them. */
+  stroke-width: var(--control-stroke, 1.75);
+}
+
 .thinking-level-label {
   font-weight: 500;
   letter-spacing: 0.01em;
