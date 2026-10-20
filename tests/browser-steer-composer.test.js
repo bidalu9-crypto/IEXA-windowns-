@@ -8,7 +8,7 @@ const browser = process.env.IEXA_TEST_BROWSER || [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find((file) => fs.existsSync(file));
 
-test('real browser: queue and steer follow-ups route without interrupting the turn', { skip: !browser, timeout: 60000 }, async (t) => {
+test('real browser: default immediate insert, plus queue and steer routing', { skip: !browser, timeout: 60000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-steer-ui-'));
   process.env.IEXA_WORKSPACE = path.join(dir, 'workspace');
   const backend = require('../dist/main/server');
@@ -105,6 +105,12 @@ test('real browser: queue and steer follow-ups route without interrupting the tu
           status: 202, headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (url.startsWith('/api/cancel')) {
+        window.__cancelCalls = (window.__cancelCalls || 0) + 1;
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return window.__realFetch(input, init);
     };
   })()`);
@@ -113,7 +119,13 @@ test('real browser: queue and steer follow-ups route without interrupting the tu
   await evaluate("chatInput.value='start a long task'; void sendMessage(); true");
   await wait("isProcessing === true && !!window.__chatPayload");
 
-  // queue (default): the bubble must stay pending and no steer is posted.
+  // Enter must insert immediately by default — the behaviour "插入对话" promises.
+  assert.equal(await evaluate("followUpMode"), 'interrupt');
+  assert.equal(await evaluate("document.getElementById('followUpModeSelect').value"), 'interrupt');
+  assert.equal(await evaluate("document.getElementById('followUpModeBtn') === null"), true,
+    'the composer has no mode chip');
+
+  // queue: the bubble must stay pending and no steer is posted.
   await evaluate("followUpMode='queue'; chatInput.value='QUEUED_FOLLOW_UP'; void sendMessage(); true");
   await wait("!!document.querySelector('.message.user.is-queued')");
   assert.equal(await evaluate("window.__steerPayload"), null, 'queue must not touch /api/steer');
@@ -138,8 +150,27 @@ test('real browser: queue and steer follow-ups route without interrupting the tu
   await wait(`visibleSessionId === '${originSessionId}'`);
   assert.equal(await evaluate("!!document.querySelector('.message.user.is-steering[data-steer-id]')"), false);
   assert.equal(await evaluate("!!document.querySelector('.message.user[data-steer-id]')"), true);
+  assert.match(
+    await evaluate("document.querySelector('.message.is-steer-applied .steer-badge-text')?.textContent || ''"),
+    /已插入本轮/,
+    'a committed steer still shows that it is waiting for a reply',
+  );
 
-  // Finish the turn: the queued bubble must now drain through /api/chat.
+  // interrupt: jumps the queue, stops the step, and runs as soon as the server
+  // confirms cancellation.
+  await evaluate("followUpMode='interrupt'; chatInput.value='INTERRUPT_FOLLOW_UP'; void sendMessage(); true");
+  await wait("window.__cancelCalls > 0 && document.querySelector('.message.user.is-interrupting')");
+  assert.equal(await evaluate("!!document.querySelector('.message.user.is-interrupting .queued-badge')"), false,
+    'an immediate insert is not a queued bubble');
+
+  await evaluate("window.__pushChat('event: cancelled\\ndata: {}\\n\\n'); true");
+  await wait("window.__chatPayload.message === 'INTERRUPT_FOLLOW_UP'");
+  assert.equal(await evaluate("!!document.querySelector('.message.user.is-interrupting')"), false,
+    'the bubble turns live once the turn is handed over');
+  assert.equal(await evaluate("!!document.querySelector('.message.is-steer-applied .steer-badge')"), false,
+    'ending the turn retires any stale waiting note');
+
+  // Finish that turn: the older queued bubble drains next, in FIFO order.
   await evaluate("window.__pushChat('event: done\\ndata: {\"stopReason\":\"endTurn\"}\\n\\n'); true");
   await wait("window.__chatPayload.message === 'QUEUED_FOLLOW_UP'");
   assert.equal(await evaluate("window.__steerPayload.message"), 'STEER_FOLLOW_UP');

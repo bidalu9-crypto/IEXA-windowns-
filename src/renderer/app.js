@@ -160,21 +160,42 @@ let isDrainingQueue = false;
 /** When true, stop current turn and do not auto-drain remaining queue. */
 let suppressQueueDrain = false;
 
-// Codex-style follow-up routing while a turn is live:
-//   queue     → keep the bubble pending and run it after this turn
-//   steer     → append it to the running turn at the next step boundary
-//   interrupt → cancel this turn, then run the new prompt
-// VS Code Codex defaults to `queue`; Ctrl/Cmd+Shift+Enter flips it for one send.
-const FOLLOW_UP_MODES = ['queue', 'steer', 'interrupt'];
+// Follow-up routing while a turn is live:
+//   interrupt → send what I just typed NOW (cancel this step first). Default:
+//               "插入对话" means the new message takes over, like pressing send
+//               in a chat app. This is the behaviour the app always had.
+//   steer     → keep the turn alive and append it at the next step boundary;
+//               completed tool calls stay in context.
+//   queue     → run it after the whole turn finishes.
+// Ctrl/Cmd+Shift+Enter flips the single send to queue (or back).
+const FOLLOW_UP_MODES = ['interrupt', 'steer', 'queue'];
 const FOLLOW_UP_MODE_META = {
-  queue: { label: '队列', title: '队列：当前任务结束后执行（Ctrl+Shift+Enter 临时改为插入）' },
-  steer: { label: '插入', title: '插入：当前步骤结束后接入本轮（Ctrl+Shift+Enter 临时改为排队）' },
-  interrupt: { label: '中断', title: '中断：停止当前任务并立即执行（Ctrl+Shift+Enter 临时改为排队）' },
+  interrupt: {
+    label: '立即插入',
+    title: '立即插入：停止当前步骤并马上执行这句（Ctrl+Shift+Enter 临时改为排队）',
+    aria: '立即插入并发送',
+    count: (n) => '正在接入插入的对话…（' + n + ' 条）',
+  },
+  steer: {
+    label: '本轮接入',
+    title: '本轮接入：当前步骤结束后并入本轮，不取消任务（Ctrl+Shift+Enter 临时改为排队）',
+    aria: '接入本轮对话',
+    count: (n) => '处理中…（本轮已接入 ' + n + ' 条）',
+  },
+  queue: {
+    label: '排队',
+    title: '排队：当前任务完全结束后再执行（Ctrl+Shift+Enter 临时改为立即插入）',
+    aria: '排队发送',
+    count: (n) => '处理中…（已排队 ' + n + ' 条）',
+  },
 };
-let followUpMode = localStorage.getItem('iexa-follow-up-mode') || 'queue';
-if (!FOLLOW_UP_MODES.includes(followUpMode)) followUpMode = 'queue';
+// Bumped when the meaning of the stored value changed: an old "queue" must not
+// silently keep overriding the new default.
+const FOLLOW_UP_MODE_KEY = 'iexa-follow-up-mode-v2';
+let followUpMode = localStorage.getItem(FOLLOW_UP_MODE_KEY) || 'interrupt';
+if (!FOLLOW_UP_MODES.includes(followUpMode)) followUpMode = 'interrupt';
 function oppositeFollowUpMode() {
-  return followUpMode === 'queue' ? 'steer' : 'queue';
+  return followUpMode === 'queue' ? 'interrupt' : 'queue';
 }
 function isFollowUpModifier(event) {
   return !!(event && (event.ctrlKey || event.metaKey) && event.shiftKey);
@@ -984,13 +1005,16 @@ chatInput.addEventListener('keydown', (e) => {
 })();
 
 sendBtn.addEventListener('click', sendMessage);
-document.getElementById('followUpModeBtn')?.addEventListener('click', () => {
-  const index = FOLLOW_UP_MODES.indexOf(followUpMode);
-  followUpMode = FOLLOW_UP_MODES[(index + 1) % FOLLOW_UP_MODES.length];
-  localStorage.setItem('iexa-follow-up-mode', followUpMode);
-  renderFollowUpMode();
-  updateComposerForQueue();
-});
+const followUpModeSelect = document.getElementById('followUpModeSelect');
+if (followUpModeSelect) {
+  followUpModeSelect.value = followUpMode;
+  followUpModeSelect.addEventListener('change', () => {
+    const next = followUpModeSelect.value;
+    followUpMode = FOLLOW_UP_MODES.includes(next) ? next : 'interrupt';
+    localStorage.setItem(FOLLOW_UP_MODE_KEY, followUpMode);
+    updateComposerForQueue();
+  });
+}
 stopBtn.addEventListener('click', stopProcessing);
 
 function sendQuick(text) {
@@ -1224,6 +1248,15 @@ function cloneAttachments(list) {
   return (list || []).map((a) => Object.assign({}, a));
 }
 
+/** Status line for whatever is waiting on this conversation. */
+function followUpStatusText() {
+  const waiting = promptQueue.filter((p) => p.sessionId === currentSessionId);
+  if (!waiting.length) return '处理中...';
+  const mode = waiting[waiting.length - 1].mode || followUpMode;
+  const meta = FOLLOW_UP_MODE_META[mode] || FOLLOW_UP_MODE_META.interrupt;
+  return meta.count(waiting.length);
+}
+
 /** Enqueue a user prompt while agent is busy — show dashed bubble, run later. */
 function enqueuePrompt(opts) {
   const message = chatInput.value.trim();
@@ -1237,6 +1270,8 @@ function enqueuePrompt(opts) {
   const displayText = message || (attachments.length
     ? ('（附件：' + attachments.map((a) => a.name).join('、') + '）')
     : '');
+  const interrupt = !!(opts && opts.interrupt);
+  const mode = interrupt ? 'interrupt' : (opts && opts.mode) || followUpMode;
 
   const id = makeQueueId();
   promptQueue.push({
@@ -1245,21 +1280,34 @@ function enqueuePrompt(opts) {
     text: message || displayText,
     displayText: displayText,
     attachments: attachments,
+    mode: mode,
   });
+  if (interrupt) {
+    // An immediate insert jumps ahead of anything already waiting.
+    const queued = promptQueue.pop();
+    if (queued) promptQueue.unshift(queued);
+  }
 
   const el = addMessage('user', displayText, attachments, { queued: true, queueId: id });
   el.dataset.queueId = id;
+  if (interrupt) {
+    // This bubble is not waiting for the turn to end; it is taking over.
+    el.classList.add('is-interrupting');
+    el.querySelector('.queued-badge')?.remove();
+    const badge = document.createElement('div');
+    badge.className = 'steer-badge';
+    badge.innerHTML = '<span class="steer-badge-icon">↳</span>'
+      + '<span class="steer-badge-text">立即插入 · 正在停止当前步骤</span>';
+    el.appendChild(badge);
+  }
 
   chatInput.value = '';
   chatInput.style.height = 'auto';
   clearAttachments();
   updateComposerForQueue();
-  if (isProcessing) {
-    const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    statusText.textContent = qn > 0 ? ('处理中…（已插入 ' + qn + ' 条）') : '处理中...';
-  }
-  console.log('[Queue] enqueued', id, 'size=', promptQueue.length);
-  if (opts && opts.interrupt) requestImmediateQueueHandoff(currentSessionId);
+  if (isProcessing) statusText.textContent = followUpStatusText();
+  console.log('[Queue] enqueued', id, 'mode=', mode, 'size=', promptQueue.length);
+  if (interrupt) requestImmediateQueueHandoff(currentSessionId);
 }
 
 /**
@@ -1276,16 +1324,25 @@ function requestImmediateQueueHandoff(sessionId = currentSessionId) {
   runtime.turnStopPending = true;
   runtime.suppressQueueDrain = false;
   snapshotActiveSessionRuntime();
-  statusText.textContent = '正在接入插入的对话…';
+  statusText.textContent = followUpStatusText();
+  hideWaitingIndicator();
   fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
     .then((response) => {
       if (!response.ok) throw new Error('当前任务未能中断');
+      // Normally the cancelled/done event drains. If that stream event is lost,
+      // do not leave the immediate insert sitting in the queue forever.
+      clearTimeout(runtime.handoffTimer);
+      runtime.handoffTimer = setTimeout(() => {
+        runtime.queueHandoffPending = false;
+        if (!runtime.isProcessing) scheduleQueueDrain(sessionId);
+      }, 6000);
     })
     .catch((error) => {
       runtime.queueHandoffPending = false;
       console.warn('[Queue] immediate handoff failed', error);
       // Keep the prompt queued; a normal completion can still drain it.
-      if (sessionId === currentSessionId) statusText.textContent = '插入的对话将在当前任务结束后执行';
+      if (sessionId === currentSessionId) statusText.textContent = '立即插入未成功，已转为排队';
+      if (!runtime.isProcessing) scheduleQueueDrain(sessionId);
       snapshotActiveSessionRuntime();
     });
 }
@@ -1296,10 +1353,7 @@ function withdrawQueuedMessage(queueId) {
   const el = chatMessages.querySelector('.message.user.is-queued[data-queue-id="' + queueId + '"]');
   if (el) el.remove();
   updateComposerForQueue();
-  if (isProcessing) {
-    const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    statusText.textContent = qn > 0 ? ('处理中…（已插入 ' + qn + ' 条）') : '处理中...';
-  }
+  if (isProcessing) statusText.textContent = followUpStatusText();
   console.log('[Queue] withdrew', queueId, 'size=', promptQueue.length);
 }
 window.withdrawQueuedMessage = withdrawQueuedMessage;
@@ -1372,17 +1426,29 @@ function findSteerElement(steerId) {
   return null;
 }
 
-/** The server committed the steer into the live turn: drop the pending look. */
+/** The server committed the steer into the live turn: it is no longer pending,
+ *  but it stays visibly "waiting for a reply" until the model answers. */
 function markSteerApplied(steerId, timestamp) {
   const el = findSteerElement(steerId);
   if (!el) return;
   el.classList.remove('is-steering');
-  el.querySelector('.steer-badge')?.remove();
+  el.classList.add('is-steer-applied');
+  const badge = el.querySelector('.steer-badge');
+  if (badge) {
+    badge.classList.add('is-applied');
+    const label = badge.querySelector('.steer-badge-text');
+    if (label) label.textContent = '已插入本轮 · 等待回复';
+  }
   if (!el.dataset.messageIndex) {
     const surface = el.parentNode || chatMessages;
     el.dataset.messageIndex = String(surface.querySelectorAll('.message:not(.is-queued):not(.is-steering)').length);
   }
   el.dataset.timestamp = String(timestamp || Date.now());
+}
+
+/** The model started answering: the "waiting for reply" note has served its purpose. */
+function clearSteerNotes() {
+  chatMessages.querySelectorAll('.message.is-steer-applied .steer-badge').forEach((badge) => badge.remove());
 }
 
 /** A steer could not enter the running turn: keep it as a normal queue item. */
@@ -1423,8 +1489,10 @@ function markQueuedMessagesActive(ids) {
         el.dataset.timestamp = String(Date.now());
       }
       el.classList.remove('is-queued');
+      el.classList.remove('is-interrupting');
       const badge = el.querySelector('.queued-badge');
       if (badge) badge.remove();
+      el.querySelector('.steer-badge')?.remove();
     }
   });
 }
@@ -1440,17 +1508,14 @@ function updateComposerForQueue() {
     stopBtn.style.display = 'flex';
     sendBtn.disabled = false;
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.queue;
-    sendBtn.title = qn > 0
-      ? ('已插入 ' + qn + ' 条 · ' + meta.label)
-      : meta.title;
-    sendBtn.setAttribute('aria-label', followUpMode === 'steer' ? '插入对话' : followUpMode === 'interrupt' ? '中断并发送' : '排队发送');
-    sendBtn.classList.add('is-queue-mode');
+    const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.interrupt;
+    sendBtn.title = qn > 0 ? meta.count(qn) : meta.title;
+    sendBtn.setAttribute('aria-label', meta.aria);
     chatInput.placeholder = followUpMode === 'steer'
-      ? '任务进行中，Enter 插入本轮（Ctrl+Shift+Enter 排队）'
+      ? '任务进行中，Enter 接入本轮（Ctrl+Shift+Enter 排队）'
       : followUpMode === 'interrupt'
-        ? '任务进行中，Enter 中断并立即发送（Ctrl+Shift+Enter 排队）'
-        : '任务进行中，Enter 排队（Ctrl+Shift+Enter 插入本轮）';
+        ? '任务进行中，Enter 立即插入（Ctrl+Shift+Enter 排队）'
+        : '任务进行中，Enter 排队（Ctrl+Shift+Enter 立即插入）';
     if (attachBtn) attachBtn.disabled = false;
     chatInput.disabled = false;
   } else {
@@ -1459,24 +1524,13 @@ function updateComposerForQueue() {
     sendBtn.setAttribute('aria-label', '发送');
     chatInput.placeholder = '有问题，随便问';
   }
-  renderFollowUpMode();
-}
-
-/** Show the active follow-up mode only while a turn can accept one. */
-function renderFollowUpMode() {
-  const btn = document.getElementById('followUpModeBtn');
-  if (!btn) return;
-  const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.queue;
-  btn.textContent = meta.label;
-  btn.title = meta.title;
-  btn.dataset.mode = followUpMode;
-  btn.hidden = !isProcessing;
 }
 
 /** After a turn ends, auto-run the next queued prompt(s). */
 async function drainQueuedPrompts(sessionId = currentSessionId) {
   if (!sessionId) return;
   const runtime = runtimeForSession(sessionId);
+  clearTimeout(runtime.handoffTimer);
   if (runtime.suppressQueueDrain) {
     console.log('[Queue] drain suppressed');
     return;
@@ -1553,7 +1607,7 @@ async function sendMessage(event) {
       enqueuePrompt({ interrupt: true });
       return;
     }
-    enqueuePrompt();
+    enqueuePrompt({ mode: 'queue' });
     return;
   }
 
@@ -1946,6 +2000,7 @@ function handleUsage(usage) {
 
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   protectLiveTurnDom();
   runtimeForSession(currentSessionId).turnStopPending = false;
@@ -1978,6 +2033,7 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   const followLatest = shouldFollowLatestMessage();
   const preserveScrollTop = visibleChatMessages.scrollTop;
@@ -2029,6 +2085,7 @@ function handleDone(stopReason, turnToken) {
 
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   window.IexaQuestionCard?.disableForSession?.(currentSessionId, 'cancelled');
   const followLatest = shouldFollowLatestMessage();

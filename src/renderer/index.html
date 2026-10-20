@@ -315,14 +315,10 @@
                   <svg class="voice-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
                   <span class="voice-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
                 </button>
-                <button type="button" id="followUpModeBtn" class="follow-up-mode-btn" title="插入方式" aria-label="插入方式" hidden>队列</button>
                 <button type="button" id="sendBtn" title="发送 (Enter)" aria-label="发送">
                   <svg class="send-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M22 2 11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M22 2 15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                  <svg class="queue-insert-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </button>
                 <button type="button" id="stopBtn" title="停止" aria-label="停止" style="display:none;"></button>
@@ -452,6 +448,15 @@
             <option value="zh-CN">简体中文</option>
             <option value="en-US">English</option>
           </select>
+        </div>
+        <div class="setting-group follow-up-setting">
+          <label for="followUpModeSelect">任务进行中的发送方式</label>
+          <select id="followUpModeSelect">
+            <option value="interrupt">立即插入：停止当前步骤，马上处理这句</option>
+            <option value="steer">接入本轮：当前步骤结束后并入本轮</option>
+            <option value="queue">排队：整个任务结束后再执行</option>
+          </select>
+          <span class="setting-hint">运行中按 Enter 按此方式发送。Ctrl/⌘+Shift+Enter 可将单次发送临时改为排队；按住时再按 Enter 即可。</span>
         </div>
         <div class="settings-header">
           <h2>AI 模型</h2>

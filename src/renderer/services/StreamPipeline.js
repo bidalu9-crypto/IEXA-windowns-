@@ -284,6 +284,8 @@ function handleTextDelta(fullText) {
   const followLatest = shouldFollowLatestMessage();
   hideWaitingIndicator();
   finishActiveThinkingBlock();
+  // The model is answering the inserted message: its "waiting" note is done.
+  if (String(fullText || '').trim()) window.clearSteerNotes?.();
   if (!currentAssistantMsg) return;
   // The answer is now the current activity; finished tool steps fold back.
   window.IexaToolRail?.collapseActive?.();

@@ -14,8 +14,6 @@
   transform: translate(-58%, -50%);
 }
 
-#sendBtn.is-queue-mode .send-icon { display: none; }
-
 #sendBtn:hover {
   background: var(--accent-hover);
 }

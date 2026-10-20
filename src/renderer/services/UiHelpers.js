@@ -74,7 +74,7 @@ function addMessage(role, content, attachments, opts) {
   if (steering) {
     const badge = document.createElement('div');
     badge.className = 'steer-badge';
-    badge.innerHTML = '<span class="steer-badge-icon">↳</span><span class="steer-badge-text">插入中 · 当前步骤结束后接入本轮</span>';
+    badge.innerHTML = '<span class="steer-badge-icon">↳</span><span class="steer-badge-text">插入中 · 正在接入本轮</span>';
     msg.appendChild(badge);
   }
   if (attachments && attachments.length) {

@@ -81,6 +81,17 @@ ${middle}
 ${tail}`.slice(0, MAX_TOOL_RESULT_CHARS);
 }
 
+/**
+ * Combine the run's abort signal with the per-completion one so a steer can
+ * stop the current answer without cancelling the turn. Runtimes without
+ * AbortSignal.any fall back to the run signal (steer then waits for the next
+ * step boundary, which is the old behaviour).
+ */
+function steerableSignal(run: AbortSignal, completion: AbortSignal): AbortSignal {
+  const factory = (AbortSignal as unknown as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  return factory ? factory([run, completion]) : run;
+}
+
 function clipHistoryText(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const marker = `\n\n[... historical text compacted from ${text.length.toLocaleString()} chars ...]\n\n`;
@@ -170,6 +181,8 @@ export class AgentLoop {
   private compactionController: AbortController | null = null;
   /** User messages waiting for the next model step inside the live turn. */
   private pendingSteers: AgentSteerInput[] = [];
+  /** Aborts only the in-flight completion when a steer arrives. */
+  private completionAbort: AbortController | null = null;
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
@@ -195,6 +208,9 @@ export class AgentLoop {
     const text = String(input?.text ?? '');
     if (!text.trim() && !(input?.attachments && input.attachments.length > 0)) return false;
     this.pendingSteers.push({ id: String(input.id || ''), text, attachments: input.attachments });
+    // Take effect now, not after a possibly minutes-long completion. The loop
+    // treats this abort as "append the message and continue", not as an error.
+    this.completionAbort?.abort();
     return true;
   }
 
@@ -202,6 +218,7 @@ export class AgentLoop {
 
   /** Settle a finished run: anything still queued can no longer be applied. */
   endRun(): void {
+    this.completionAbort = null;
     this.dropPendingSteers('turn_ended');
     this.callbacks = null;
   }
@@ -274,6 +291,7 @@ export class AgentLoop {
   reset(): void {
     this.agentHistory = [];
     this.pendingSteers = [];
+    this.completionAbort = null;
     this.isCancelled = false;
     this.compactor = null;
     this.pendingCompactorSummary = '';
@@ -573,15 +591,21 @@ export class AgentLoop {
       this.drainPendingSteers();
       const messages = [...this.agentHistory];
 
+      // A steer aborts only this completion, never the turn: the text already
+      // said is kept, the partial answer is not executed, and the next loop
+      // iteration commits the new user message.
+      let assistantText = '';
+      const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; parseError?: string }> = [];
+      let reasoningContent = '';
+      const thinkingBlocks: NonNullable<AgentMessage['thinkingBlocks']> = [];
+      let stopReason: AgentStopReason = 'endTurn';
+      let usage: LLMUsage | undefined;
+      const completionAbort = new AbortController();
+      this.completionAbort = completionAbort;
+      const streamSignal = steerableSignal(signal, completionAbort.signal);
+
       try {
         // Stream from provider
-        let assistantText = '';
-        const toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; parseError?: string }> = [];
-        let reasoningContent = '';
-        const thinkingBlocks: NonNullable<AgentMessage['thinkingBlocks']> = [];
-        let stopReason: AgentStopReason = 'endTurn';
-        let usage: LLMUsage | undefined;
-
         // Inspection is opt-in and must never change or break the actual request.
         try { this.config.onPromptRequest?.({ sessionId: this.config.sessionId, provider: this.config.provider.name, model: this.config.provider.model, systemPrompt, messages, tools }); } catch { /* diagnostic capture is best effort */ }
         const stream = this.config.provider.streamMessage(
@@ -589,7 +613,7 @@ export class AgentLoop {
           systemPrompt,
           tools,
           this.config.maxTokens || this.config.provider.defaultMaxTokens,
-          signal,
+          streamSignal,
         );
 
         for await (const event of stream) {
@@ -651,6 +675,7 @@ export class AgentLoop {
           }
         }
         if (this.isAborted) { callbacks.onCancelled(); return; }
+        this.completionAbort = null;
         // A complete provider turn succeeded; transient retry budget is reset.
         streamRetryAttempt = 0;
 
@@ -743,6 +768,18 @@ export class AgentLoop {
         // provider used a non-standard stop reason alongside the call.
       } catch (error: unknown) {
         const err = error as Error;
+        const steeredMidStream = completionAbort.signal.aborted && !this.isAborted;
+        this.completionAbort = null;
+        if (steeredMidStream) {
+          // Keep what the model had already said so the transcript and history
+          // agree, drop incomplete tool calls, and let the loop commit the
+          // steer at the top of the next iteration.
+          if (assistantText) {
+            this.agentHistory.push({ role: 'assistant', parts: [{ type: 'text', text: assistantText }] });
+          }
+          retryingTurn = true;
+          continue;
+        }
         if (this.isAborted) {
           callbacks.onCancelled();
           return;

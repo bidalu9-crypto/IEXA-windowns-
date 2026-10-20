@@ -754,6 +754,29 @@ body.chat-focus-mode .message.user {
   box-shadow: none !important;
 }
 
+/* Committed but not yet answered: a quiet note instead of a "pending" bubble. */
+.message.user.is-steer-applied .steer-badge {
+  border-style: solid;
+  opacity: 0.8;
+}
+
+/* Immediate insert: not queued — it is taking the turn over right now. */
+.message.user.is-interrupting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  opacity: 1;
+}
+
+.message.user.is-interrupting .message-content {
+  border: 1.5px solid var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent) !important;
+}
+
+.message.user.is-interrupting .steer-badge {
+  border-style: solid;
+}
+
 .steer-badge {
   display: inline-flex;
   align-items: center;
@@ -830,32 +853,6 @@ body.chat-focus-mode .message.user {
 
 /* Insert queued message: use a real SVG rather than layered CSS borders.
    It is a standard download/insert glyph: a precise down arrow and baseline. */
-.queue-insert-icon {
-  display: none;
-  width: 20px;
-  height: 20px;
-  overflow: visible;
-}
-
-#sendBtn.is-queue-mode {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-}
-
-/* Remove the normal send triangle completely before showing the SVG. */
-#sendBtn.is-queue-mode::before {
-  display: none;
-  content: none;
-}
-
-#sendBtn.is-queue-mode .queue-insert-icon { display: block; }
-
-#sendBtn.is-queue-mode:hover {
-  background-color: var(--accent-light);
-  color: var(--accent);
-  border-color: var(--accent);
-}
 /* User: soft gray rounded bubble like ChatGPT web */
 .message.user .message-content {
   background: var(--bubble-user-bg);

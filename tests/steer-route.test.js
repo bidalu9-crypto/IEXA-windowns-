@@ -13,6 +13,8 @@ let server, upstream, endpoint, token;
 
 let firstCallStarted;
 const firstCallReached = new Promise((resolve) => { firstCallStarted = resolve; });
+let abortCallStarted;
+const abortReached = new Promise((resolve) => { abortCallStarted = resolve; });
 let releaseFirst;
 const firstCallRelease = new Promise((resolve) => { releaseFirst = resolve; });
 let streamCalls = 0;
@@ -33,11 +35,20 @@ test.before(async () => {
         return;
       }
       streamCalls++;
-      const hasSteer = JSON.stringify(request.messages || []).includes('STEER_MARK');
+      const serialized = JSON.stringify(request.messages || []);
+      const hasSteer = serialized.includes('STEER_MARK');
+      const wantsAbort = serialized.includes('ABORT_ME');
       if (hasSteer) steerCalls++;
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       if (hasSteer) {
         res.end(sse('STEERED_RESPONSE', false) + sse('', true) + 'data: [DONE]\n\n');
+        return;
+      }
+      if (wantsAbort) {
+        // Stay open forever: only a real steer can finish this turn.
+        res.write(sse('PARTIAL_BEFORE_STEER', false));
+        abortCallStarted();
+        req.on('close', () => { try { res.end(); } catch { /* already closed */ } });
         return;
       }
       res.write(sse('FIRST_RESPONSE', false));
@@ -115,6 +126,31 @@ test('a steer joins the in-flight turn and survives a reload', async () => {
     'the steer stays after the opening prompt',
   );
   assert.equal(steerCalls, 1, 'exactly one extra model step carried the steer');
+});
+
+test('a steer aborts the in-flight completion instead of waiting for it', async () => {
+  const { session } = await api('/api/sessions', 'POST', {});
+  const chat = fetch(endpoint + '/api/chat', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: session.id, message: 'ABORT_ME now' }),
+  });
+  await abortReached;
+
+  const steerResponse = await fetch(endpoint + '/api/steer', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: session.id, steerId: 'steer-abort-1', message: 'STEER_MARK take over now' }),
+  });
+  assert.equal(steerResponse.status, 202, await steerResponse.text());
+
+  // The upstream never finishes on its own; only the abort can free the turn.
+  const streamed = await Promise.race([
+    chat.then((response) => response.text()),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('the steer waited for the hanging completion')), 5000)),
+  ]);
+  assert.match(streamed, /PARTIAL_BEFORE_STEER/, 'already-streamed text stays visible');
+  assert.match(streamed, /STEERED_RESPONSE/, 'the same turn answers the steer immediately');
 });
 
 test('a steer without a live turn is rejected instead of buffered', async () => {

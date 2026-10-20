@@ -436,12 +436,11 @@ a:active > .ui-icon,
 .welcome-icon .ui-icon { filter: drop-shadow(0 10px 18px var(--icon-glow)); animation: premium-icon-float 5s ease-in-out infinite; }
 .files-empty-icon .ui-icon { filter: drop-shadow(0 5px 10px var(--icon-glow)); animation: premium-icon-breathe 3.8s ease-in-out infinite; }
 
-.send-icon, .queue-insert-icon {
+.send-icon {
   transition: transform .28s var(--icon-ease), opacity .2s ease, filter .25s ease;
 }
 #sendBtn:hover .send-icon { transform: translate(1px, -1px) rotate(-4deg) scale(1.08); filter: drop-shadow(0 4px 8px var(--icon-glow)); }
 #sendBtn:active .send-icon { transform: translate(3px, -2px) rotate(-8deg) scale(.9); }
-#sendBtn.is-queued .queue-insert-icon { animation: premium-icon-pop .32s var(--icon-ease); }
 
 .tool-artifact-action svg,
 .message-action svg,
@@ -463,7 +462,7 @@ a:active > .ui-icon,
 
 @media (prefers-reduced-motion: reduce) {
   html:not([data-motion="full"]) :is(.ui-icon, .welcome-icon .ui-icon, .files-empty-icon .ui-icon,
-  .send-icon, .queue-insert-icon) { animation: none !important; transition: none !important; }
+  .send-icon) { animation: none !important; transition: none !important; }
   html:not([data-motion="full"]) :is(button:hover > .ui-icon, button:focus-visible > .ui-icon,
   a:hover > .ui-icon, a:focus-visible > .ui-icon) { transform: none; filter: none; }
 }
@@ -471,8 +470,7 @@ a:active > .ui-icon,
 .ui-icon-brain { stroke-width: 1.65; }
 .nav-btn .ui-icon-brain { stroke-width: 1.8; }
 /* Send button optical alignment: keep the plane centered while adding only a subtle lift. */
-#sendBtn .send-icon,
-#sendBtn .queue-insert-icon {
+#sendBtn .send-icon {
   transform: translate(-58%, -50%);
   transform-origin: center;
 }
@@ -481,10 +479,6 @@ a:active > .ui-icon,
 }
 #sendBtn:active .send-icon {
   transform: translate(-58%, -50%) translate(2px, -1px) rotate(-6deg) scale(.94);
-}
-#sendBtn.is-queue-mode .queue-insert-icon,
-#sendBtn.is-queue-mode:hover .queue-insert-icon {
-  transform: translate(0, 0) scale(1);
 }
 
 /* Session checkpoints: toolbar entry + upward popover.
