@@ -36,8 +36,6 @@ test('registry recursively enforces declared types, enums, required fields and u
     [{ ...valid(), mode: 'three' }, /mode.*one, two/],
     [{ ...valid(), count: 1.5 }, /count.*safe integer/],
     [{ ...valid(), count: Number.MAX_SAFE_INTEGER + 1 }, /count.*safe integer/],
-    [{ ...valid(), count: 0 }, /count.*minimum is 1/],
-    [{ ...valid(), count: 11 }, /count.*maximum is 10/],
     [{ ...valid(), enabled: 'false' }, /enabled.*boolean/],
     [{ ...valid(), items: ['a', 2] }, /items\[1\].*string/],
     [{ ...valid(), target: {} }, /target\.name/],
@@ -88,15 +86,11 @@ test('runtime rejects malformed calls before approvals or side effects across bu
   const context = id => ({ workspaceDir: root, sessionId: 'schema', toolCallId: id, signal: new AbortController().signal });
   const cases = [
     ['shell_execute', { tool_title: 'x', command: 'echo x', timeout: '1' }],
-    ['shell_execute', { tool_title: 'x', command: 'echo x', timeout: 3601 }],
     ['shell_execute', { tool_title: 'x', command: 'echo x', shell: 'bash' }],
     ['file_write', { tool_title: 'x', path: 'x.txt', content: 'x', append: 'false' }],
     ['file_read', { tool_title: 'x', path: 'x.txt', direction: 'sideways' }],
-    ['file_read', { tool_title: 'x', path: 'x.txt', offset: 0 }],
     ['browser_fetch', { tool_title: 'x', url: 'https://example.test', max_length: 1.5 }],
-    ['browser_fetch', { tool_title: 'x', url: 'https://example.test', max_length: 120001 }],
     ['web_search', { tool_title: 'x', query: 'query', limit: Number.NaN }],
-    ['web_search', { tool_title: 'x', query: 'query', limit: 13 }],
     ['memory_get', { tool_title: 'x', limit: '20' }],
     ['desktop_control', { tool_title: 'x', action: 'observe', background: 'false' }],
     ['todo_write', { todos: [{ content: 'x', status: 'running' }] }],
@@ -109,6 +103,32 @@ test('runtime rejects malformed calls before approvals or side effects across bu
   }
   assert.equal(shellCalls, 0); assert.equal(desktopCalls, 0); assert.equal(approvals, 0);
   assert.equal(fs.existsSync(path.join(root, 'x.txt')), false);
+});
+
+test('out-of-range numbers are clamped and the caller is told what changed', async (t) => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-clamp-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runtime = new ToolRuntime({ workspaceDir: root, memoryDir: path.join(root, 'memory'), permissionMode: 'full' });
+  runtime.registerDefaults();
+  const context = id => ({ workspaceDir: root, sessionId: 'clamp', toolCallId: id, signal: new AbortController().signal });
+
+  // The reported case: the model asks for more context than the schema allows.
+  fs.writeFileSync(path.join(root, 'sample.txt'), 'one\ntwo\nthree\n', 'utf8');
+  const grep = await runtime.execute('grep', { tool_title: 'grep sample', pattern: 'two', path: 'sample.txt', context_lines: 6 },
+    context('clamp-1'));
+  assert.equal(grep.success, true, grep.output);
+  assert.match(grep.output, /two/, 'the search still ran');
+  assert.match(grep.output, /arguments adjusted: context_lines 6 → 3 \(maximum is 3\)/);
+
+  // Registry-level contract: the value is normalised in place and reported.
+  const registry = new ToolRegistry(); registry.register(definition());
+  const args = { ...valid(), count: 99 };
+  const notes = registry.validate('fixture', args);
+  assert.equal(args.count, 10);
+  assert.deepEqual(notes, ['count 99 → 10 (maximum is 10)']);
+  const low = { ...valid(), count: 0 };
+  assert.deepEqual(registry.validate('fixture', low), ['count 0 → 1 (minimum is 1)']);
+  assert.equal(low.count, 1);
 });
 
 test('malformed optional values are rejected before call-id deduplication', async (t) => {

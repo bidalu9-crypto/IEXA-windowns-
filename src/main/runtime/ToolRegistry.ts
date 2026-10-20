@@ -25,7 +25,7 @@ export function canonicalToolName(name: string): string {
   return TOOL_ALIASES[name] || name;
 }
 
-function validateValue(value: unknown, schema: AgentToolParam, location: string, depth: number, state: { nodes: number }): void {
+function validateValue(value: unknown, schema: AgentToolParam, location: string, depth: number, state: { nodes: number; repairs: string[] }): unknown {
   state.nodes++;
   if (state.nodes > MAX_ARGUMENT_NODES) throw new Error(`Tool arguments exceed the maximum complexity at ${location}.`);
   if (depth > MAX_ARGUMENT_DEPTH) throw new Error(`Tool arguments exceed the maximum nesting depth at ${location}.`);
@@ -33,19 +33,30 @@ function validateValue(value: unknown, schema: AgentToolParam, location: string,
     case 'string':
       if (typeof value !== 'string') throw new Error(`Invalid argument ${location}: expected string.`);
       if (schema.enumValues && !schema.enumValues.includes(value)) throw new Error(`Invalid argument ${location}: expected one of ${schema.enumValues.join(', ')}.`);
-      return;
-    case 'integer':
+      return value;
+    case 'integer': {
       if (typeof value !== 'number' || !Number.isSafeInteger(value)) throw new Error(`Invalid argument ${location}: expected safe integer.`);
-      if (schema.minimum !== undefined && value < schema.minimum) throw new Error(`Invalid argument ${location}: minimum is ${schema.minimum}.`);
-      if (schema.maximum !== undefined && value > schema.maximum) throw new Error(`Invalid argument ${location}: maximum is ${schema.maximum}.`);
-      return;
+      // A number just outside a declared bound is a usable request, not a broken
+      // one: the tool implementation clamps anyway, and rejecting it costs a whole
+      // round trip. Clamp here and tell the caller what changed.
+      if (schema.minimum !== undefined && value < schema.minimum) {
+        state.repairs.push(`${location} ${value} → ${schema.minimum} (minimum is ${schema.minimum})`);
+        return schema.minimum;
+      }
+      if (schema.maximum !== undefined && value > schema.maximum) {
+        state.repairs.push(`${location} ${value} → ${schema.maximum} (maximum is ${schema.maximum})`);
+        return schema.maximum;
+      }
+      return value;
+    }
     case 'boolean':
       if (typeof value !== 'boolean') throw new Error(`Invalid argument ${location}: expected boolean.`);
-      return;
+      return value;
     case 'array':
       if (!Array.isArray(value)) throw new Error(`Invalid argument ${location}: expected array.`);
-      if (schema.items) value.forEach((item, index) => validateValue(item, schema.items!, `${location}[${index}]`, depth + 1, state));
-      return;
+      return schema.items
+        ? value.map((item, index) => validateValue(item, schema.items!, `${location}[${index}]`, depth + 1, state))
+        : value;
     case 'object': {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Invalid argument ${location}: expected object.`);
       const record = value as Record<string, unknown>;
@@ -55,13 +66,13 @@ function validateValue(value: unknown, schema: AgentToolParam, location: string,
       if (schema.properties) {
         for (const key of Object.keys(record)) if (!own(schema.properties, key)) throw new Error(`Unknown argument: ${location}.${key}`);
         for (const [key, childSchema] of Object.entries(schema.properties)) {
-          if (own(record, key)) validateValue(record[key], childSchema, `${location}.${key}`, depth + 1, state);
+          if (own(record, key)) record[key] = validateValue(record[key], childSchema, `${location}.${key}`, depth + 1, state);
         }
       } else {
         // Open objects are used deliberately for desktop batch steps and plugin payloads.
         for (const [key, child] of Object.entries(record)) validateOpenValue(child, `${location}.${key}`, depth + 1, state);
       }
-      return;
+      return record;
     }
   }
 }
@@ -92,14 +103,16 @@ export class ToolRegistry {
   get(name: string): ToolDefinition | undefined { return this.definitions.get(canonicalToolName(name)); }
   has(name: string): boolean { return this.definitions.has(canonicalToolName(name)); }
   list(): ToolDefinition[] { return [...this.definitions.values()]; }
-  validate(name: string, args: Record<string, unknown>): void {
+  /** Validate in place; returns the human-readable list of clamped arguments. */
+  validate(name: string, args: Record<string, unknown>): string[] {
     const tool = this.get(name); if (!tool) throw new Error(`Unknown tool: ${name}`);
     if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object.');
     for (const required of tool.required || []) if (!own(args, required) || args[required] === undefined || args[required] === null) throw new Error(`Missing required argument: ${required}`);
     for (const key of Object.keys(args)) if (!own(tool.parameters, key)) throw new Error(`Unknown argument: ${key}`);
-    const state = { nodes: 0 };
+    const state = { nodes: 0, repairs: [] as string[] };
     for (const [key, schema] of Object.entries(tool.parameters)) {
-      if (own(args, key)) validateValue(args[key], schema, key, 0, state);
+      if (own(args, key)) args[key] = validateValue(args[key], schema, key, 0, state);
     }
+    return state.repairs;
   }
 }

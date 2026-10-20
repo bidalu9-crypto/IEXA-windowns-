@@ -74,7 +74,8 @@ export class ToolRuntime {
     name = canonicalToolName(name);
     // Validate before fingerprinting/caching so malformed optional values cannot
     // collapse to the same JSON fingerprint as an omitted, valid argument.
-    try { this.registry.validate(name, args); }
+    let repairs: string[] = [];
+    try { repairs = this.registry.validate(name, args); }
     catch (error) { return { output: (error as Error).message || 'Invalid tool arguments.', success: false, executionStatus: 'failed' }; }
     // Retransmission of the same call ID must not execute a write/command twice.
     // Clone separately from the canonical fingerprint: JSON round-tripping used to
@@ -99,7 +100,14 @@ export class ToolRuntime {
     }
     if (this.executions.size >= 4096) return { output: 'Tool execution ledger limit reached.', success: false, executionStatus: 'failed' };
     this.activeExecutions++;
-    const result = Promise.resolve().then(() => this.executeOnce(name, snapshot, context)).finally(() => { this.activeExecutions--; });
+    const result = Promise.resolve()
+      .then(() => this.executeOnce(name, snapshot, context))
+      // Say what changed: a clamped value is still a request the caller should
+      // understand, and the note rides along with the cached result.
+      .then((value) => (repairs.length
+        ? { ...value, output: `${value.output}\n\n[arguments adjusted: ${repairs.join('; ')}]` }
+        : value))
+      .finally(() => { this.activeExecutions--; });
     this.executions.set(key, { fingerprint, result });
     return result;
   }

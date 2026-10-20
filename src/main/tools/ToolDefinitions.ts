@@ -293,7 +293,7 @@ export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfa
         glob: { type: 'string', description: "Only search files whose workspace-relative path matches this glob, e.g. '*.ts' or 'src/**/*.js'." },
         ignore_case: { type: 'boolean', description: 'Case-insensitive matching (default: false).' },
         fixed_strings: { type: 'boolean', description: 'Treat pattern as literal text instead of a regular expression (default: false).' },
-        context_lines: { type: 'integer', minimum: 0, maximum: 3, description: 'Lines of context before and after each match (default: 0).' },
+        context_lines: { type: 'integer', minimum: 0, maximum: 3, description: 'Lines of context before and after each match (default: 0, max: 3).' },
         max_results: { type: 'integer', minimum: 1, maximum: 500, description: 'Maximum matching lines to return (default: 100, max: 500).' },
       },
       required: ['tool_title', 'pattern'],
