@@ -285,6 +285,7 @@ async function refreshModelSelector() {
   syncFastModeUI();
   applyThinkingLevelUI(currentThinkingLevel);
   document.dispatchEvent(new Event('token-calculator-profile-change'));
+  document.dispatchEvent(new CustomEvent('iexa:active-profile', { detail: { id: active.id, provider: active.provider } }));
 
   modelSelectorProfiles.forEach((p) => {
     const option = document.createElement('button');

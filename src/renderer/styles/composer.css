@@ -990,3 +990,78 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   background: var(--accent);
   color: var(--on-accent);
 }
+
+/* ===== Account balance ===== */
+.balance-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.balance-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.balance-chip:hover { color: var(--text-primary); background: var(--shell-hover); }
+.balance-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.balance-icon { width: 12px; height: 12px; flex: 0 0 12px; color: var(--text-muted); }
+.balance-chip[data-state="ok"] .balance-icon { color: color-mix(in srgb, var(--success) 76%, var(--text-muted)); }
+.balance-chip[data-state="low"] { color: var(--warning); }
+.balance-chip[data-state="low"] .balance-icon { color: var(--warning); }
+.balance-chip[data-state="error"] { color: var(--error); }
+.balance-chip[data-state="error"] .balance-icon { color: var(--error); }
+.balance-chip[data-state="loading"] .balance-icon { animation: balance-breathe 1.2s ease-in-out infinite; }
+@keyframes balance-breathe { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+
+.balance-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: 236px;
+  padding: 12px 13px 11px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 16%, transparent);
+  animation: balance-pop-in .16s cubic-bezier(.22,.61,.36,1);
+}
+.balance-popover[hidden] { display: none; }
+@keyframes balance-pop-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.balance-pop-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.balance-pop-title { color: var(--text-secondary); font-size: calc(11px * var(--ui-font-scale, 1)); }
+.balance-source { overflow: hidden; color: var(--text-muted); font-size: calc(10px * var(--ui-font-scale, 1)); text-overflow: ellipsis; white-space: nowrap; }
+.balance-total { display: block; margin: 6px 0 9px; color: var(--text-primary); font-size: calc(20px * var(--ui-font-scale, 1)); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.balance-rows { display: flex; flex-direction: column; gap: 4px; margin: 0 0 9px; padding: 0; }
+.balance-rows > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.balance-rows dt { color: var(--text-muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
+.balance-rows dd { margin: 0; color: var(--text-secondary); font-size: calc(11px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.balance-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 9px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: calc(10px * var(--ui-font-scale, 1)); }
+.balance-refresh { padding: 2px 6px; border: 0; border-radius: 5px; color: var(--accent); background: transparent; font: inherit; font-size: calc(10.5px * var(--ui-font-scale, 1)); cursor: pointer; }
+.balance-refresh:hover { background: var(--accent-light); }
+.balance-refresh:disabled { color: var(--text-muted); cursor: default; background: transparent; }
+.balance-empty { margin: 2px 0 9px; color: var(--text-secondary); font-size: calc(11.5px * var(--ui-font-scale, 1)); line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .balance-popover { width: min(236px, calc(100vw - 32px)); }
+  .balance-chip { height: 20px; padding: 0 5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .balance-popover { animation: none; }
+  .balance-chip[data-state="loading"] .balance-icon { animation: none; }
+}

@@ -2069,6 +2069,7 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken, generationMs, generationRateVersion, firstTokenMs) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  document.dispatchEvent(new Event('iexa:turn-finished'));
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   const followLatest = shouldFollowLatestMessage();
@@ -2514,6 +2515,7 @@ async function init() {
   initTranscriptScroll();
   initImageGallery();
   initModelProfilesModule();
+  initBalanceView();
   initSidebarNavigationScroll();
   initMobileDrawers();
   initChatFocusMode();

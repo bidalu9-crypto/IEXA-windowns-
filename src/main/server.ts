@@ -65,6 +65,8 @@ import { isServableArtifact, isTransientArtifact } from './agent/ArtifactPolicy'
 import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
+import { handleBalanceRoute } from './api/BalanceRoutes';
+import { fetchProviderBalance } from './providers/BalanceService';
 import { handleFileRoute, FileRouteContext, MIME_TYPES, isPrivateFile, sanitizeFileName } from './api/FileRoutes';
 import { handleGitRoute, GitRouteContext } from './api/GitRoutes';
 import { handleSkillRoute, SkillRouteContext } from './api/SkillRoutes';
@@ -1900,6 +1902,11 @@ function createServer(auth: LocalApiAuth): http.Server {
       listSessions: () => loadSessionStore().sessions.map((session) => ({ id: session.id, title: session.title })),
       allowWrite: !mobileDevice || mobileDevice.capability === 'full',
       now: Date.now,
+    })) return;
+
+    if (await handleBalanceRoute(req, res, url, {
+      findProfile: (id) => loadSettings().profiles.find((profile) => profile.id === id) || null,
+      fetchBalance: (profile, options) => fetchProviderBalance(profile, options),
     })) return;
 
     if (await handleRuntimeRoute(req, res, url, {

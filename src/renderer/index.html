@@ -73,6 +73,7 @@
     <symbol id="ui-save" viewBox="0 0 24 24"><path d="M5 3.5h12l3 3v14H4v-15a2 2 0 0 1 1-2Z"/><path d="M8 3.5v5h8v-5M8 20.5v-7h8v7"/></symbol>
     <symbol id="ui-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
     <symbol id="ui-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c.8-3.5 3.1-5.3 7-5.3s6.2 1.8 7 5.3"/></symbol>
+    <symbol id="ui-wallet" viewBox="0 0 24 24"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 16.5v-9Z"/><path d="M4 8h14.5"/><path d="M15 12h4"/></symbol>
     <symbol id="ui-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3.5V7M9 12h.01M15 12h.01M8 15.5c2 1 6 1 8 0"/></symbol>
     <symbol id="ui-box" viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/></symbol>
     <symbol id="ui-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 16h4"/></symbol>
@@ -312,6 +313,13 @@
                   <div class="checkpoint-head"><strong data-i18n="checkpoint.title">检查点</strong><button type="button" id="checkpointRefresh" class="checkpoint-refresh" data-i18n="checkpoint.refresh">刷新</button></div>
                   <div class="checkpoint-list" id="checkpointList"></div>
                 </div>
+              </div>
+              <div class="balance-wrap" id="balanceWrap" hidden>
+                <button type="button" class="balance-chip" id="balanceChip" aria-haspopup="dialog" aria-controls="balancePopover" aria-expanded="false" title="账户余额">
+                  <svg class="ui-icon balance-icon" aria-hidden="true"><use href="#ui-wallet"/></svg>
+                  <span class="balance-value" id="balanceValue">—</span>
+                </button>
+                <div class="balance-popover" id="balancePopover" role="dialog" aria-label="账户余额" hidden></div>
               </div>
               <span class="model-bar-hint" id="modelBarHint"></span>
             </div>
@@ -554,6 +562,7 @@
             <div class="setting-group">
               <label for="profileEditorBaseURL">接口地址（可选，自定义端点用）</label>
               <input type="text" id="profileEditorBaseURL" placeholder="按服务商自动识别">
+              <span class="setting-hint">余额读取支持 DeepSeek、OpenRouter 与兼容 One API 账单接口的网关；服务商不提供该接口时，输入区不显示余额。</span>
             </div>
             <div class="setting-group">
               <label for="profileEditorUserAgent">自定义 User-Agent（可选）</label>
@@ -1252,6 +1261,7 @@ version: 1.0.0
 <script src="services/ImageGallery.js"></script>
 <script src="services/UiHelpers.js"></script>
 <script src="services/ModelProfiles.js"></script>
+<script src="services/BalanceView.js"></script>
 <script src="services/TerminalPanel.js"></script>
 <script src="services/McpPanel.js"></script>
 <script src="services/PluginPanel.js"></script>
