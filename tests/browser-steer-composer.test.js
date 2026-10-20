@@ -125,6 +125,13 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
   assert.equal(await evaluate("document.getElementById('followUpModeBtn') === null"), true,
     'the composer has no mode chip');
 
+  // One round button, like Codex: stop replaces send while the turn runs, and
+  // the composer carries no mode jargon.
+  assert.equal(await evaluate("getComputedStyle(stopBtn).display !== 'none'"), true, 'stop is the visible action');
+  assert.equal(await evaluate("getComputedStyle(sendBtn).display === 'none'"), true, 'send is not shown beside stop');
+  assert.equal(await evaluate("chatInput.placeholder"), '有问题，随便问');
+  assert.equal(await evaluate("document.querySelector('.input-actions').textContent.trim()"), '');
+
   // queue: the bubble must stay pending and no steer is posted.
   await evaluate("followUpMode='queue'; chatInput.value='QUEUED_FOLLOW_UP'; void sendMessage(); true");
   await wait("!!document.querySelector('.message.user.is-queued')");
@@ -178,4 +185,6 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
 
   await evaluate("window.__pushChat('event: done\\ndata: {\"stopReason\":\"endTurn\"}\\n\\n'); true");
   await wait("isProcessing === false");
+  assert.equal(await evaluate("getComputedStyle(sendBtn).display !== 'none'"), true, 'send returns when the turn ends');
+  assert.equal(await evaluate("getComputedStyle(stopBtn).display === 'none'"), true);
 });

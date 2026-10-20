@@ -134,8 +134,6 @@
 .workbench-shell #sendBtn:disabled { background: var(--border-strong); color: var(--bg-input); }
 /* Absolute centering must survive every hover/pressed state. */
 .workbench-shell #sendBtn .send-icon, .workbench-shell #sendBtn:hover .send-icon, .workbench-shell #sendBtn:active .send-icon { width: 18px; height: 18px; transform: translate(-58%, -50%); filter: none; animation: none; transition: none; }
-.workbench-shell #sendBtn.is-queue-mode { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-strong); }
-.workbench-shell #sendBtn.is-queue-mode .queue-insert-icon { transform: none; animation: none; }
 .workbench-shell .files-panel { background: var(--bg-primary); border-left: 1px solid var(--border); box-shadow: none; backdrop-filter: none; }
 .workbench-shell .files-panel-header { background: var(--bg-primary); box-shadow: none; padding: 16px 14px 0; }
 .workbench-shell .files-panel-title { font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 550; margin-bottom: 14px; }
@@ -827,7 +825,7 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .appearance-scale-setting input[type="range"] { width:100%; min-height:32px; cursor:pointer; accent-color:var(--text-primary); }
 .appearance-scale-preview { display:flex; align-items:center; gap:12px; padding:14px; border:1px solid var(--border); border-radius:9px; background:var(--bg-primary); font-size:calc(14px * var(--ui-font-scale,1)); line-height:1.7; overflow-wrap:anywhere; }
 .appearance-scale-reset { align-self:flex-start; }
-[data-ui-scaled="true"] :is(svg.ui-icon,.window-control svg,.voice-icon,.thinking-level-icon svg,.send-icon,.queue-insert-icon) { zoom:var(--ui-icon-scale,1); }
+[data-ui-scaled="true"] :is(svg.ui-icon,.window-control svg,.voice-icon,.thinking-level-icon svg,.send-icon) { zoom:var(--ui-icon-scale,1); }
 [data-ui-scaled="true"] .workbench-shell { --control-size:calc(32px * var(--ui-icon-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.shell-new-thread,.shell-project-button,.session-item,.quick-btn,.files-item) { height:auto; min-height:calc(34px * var(--ui-font-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.quick-btn,.theme-seg button) { white-space:normal; }

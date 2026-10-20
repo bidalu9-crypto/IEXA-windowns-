@@ -720,7 +720,7 @@ function setProcessing(processing) {
   // iOS: input stays editable while processing so user can insert follow-ups.
   // Stop is always available during a run; send becomes "queue" mode.
   stopBtn.style.display = processing ? 'flex' : 'none';
-  sendBtn.style.display = 'flex';
+  sendBtn.style.display = processing ? 'none' : 'flex';
   sendBtn.disabled = false;
   chatInput.disabled = false;
   if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
@@ -728,7 +728,7 @@ function setProcessing(processing) {
   if (processing) {
     statusDot.className = 'status-dot processing';
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    statusText.textContent = qn > 0 ? ('处理中…（已插入 ' + qn + ' 条）') : '处理中...';
+    statusText.textContent = qn > 0 ? ('处理中…（' + qn + ' 条待发送）') : '处理中...';
   } else {
     statusDot.className = 'status-dot';
     statusText.textContent = '就绪';

@@ -168,26 +168,13 @@ let suppressQueueDrain = false;
 //               completed tool calls stay in context.
 //   queue     → run it after the whole turn finishes.
 // Ctrl/Cmd+Shift+Enter flips the single send to queue (or back).
+// None of this is surfaced in the composer: like Codex, the preference lives in
+// settings, the round button is send while idle and stop while a turn runs.
 const FOLLOW_UP_MODES = ['interrupt', 'steer', 'queue'];
 const FOLLOW_UP_MODE_META = {
-  interrupt: {
-    label: '立即插入',
-    title: '立即插入：停止当前步骤并马上执行这句（Ctrl+Shift+Enter 临时改为排队）',
-    aria: '立即插入并发送',
-    count: (n) => '正在接入插入的对话…（' + n + ' 条）',
-  },
-  steer: {
-    label: '本轮接入',
-    title: '本轮接入：当前步骤结束后并入本轮，不取消任务（Ctrl+Shift+Enter 临时改为排队）',
-    aria: '接入本轮对话',
-    count: (n) => '处理中…（本轮已接入 ' + n + ' 条）',
-  },
-  queue: {
-    label: '排队',
-    title: '排队：当前任务完全结束后再执行（Ctrl+Shift+Enter 临时改为立即插入）',
-    aria: '排队发送',
-    count: (n) => '处理中…（已排队 ' + n + ' 条）',
-  },
+  interrupt: { count: (n) => '处理中…（' + n + ' 条待发送）' },
+  steer: { count: (n) => '处理中…（本轮已接入 ' + n + ' 条）' },
+  queue: { count: (n) => '处理中…（' + n + ' 条待发送）' },
 };
 // Bumped when the meaning of the stored value changed: an old "queue" must not
 // silently keep overriding the new default.
@@ -473,7 +460,7 @@ function syncActiveSessionUI() {
   const processing = runtime ? !!runtime.isProcessing : isProcessing;
   isProcessing = processing;
   stopBtn.style.display = processing ? 'flex' : 'none';
-  sendBtn.style.display = 'flex';
+  sendBtn.style.display = processing ? 'none' : 'flex';
   sendBtn.disabled = false;
   chatInput.disabled = false;
   if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
@@ -936,9 +923,16 @@ searchResults.addEventListener('keydown', (event) => {
 const chatComposition = window.IexaComposerInput.bind(chatInput);
 chatInput.addEventListener('keydown', (e) => {
   if (chatComposition.isComposing(e)) return;
+  const menu = document.getElementById('slashMenu');
+  const menuOpen = menu && menu.style.display !== 'none' && menu.querySelector('.slash-item');
+  // Esc stops a running turn, matching the stop button (and Codex).
+  if (e.key === 'Escape' && isProcessing && !menuOpen) {
+    e.preventDefault();
+    void stopProcessing();
+    return;
+  }
   if (e.key === 'Enter' && (!e.shiftKey || isFollowUpModifier(e))) {
-    const menu = document.getElementById('slashMenu');
-    if (menu && menu.style.display !== 'none' && menu.querySelector('.slash-item')) {
+    if (menuOpen) {
       return; // handled by slash menu listener
     }
     e.preventDefault();
@@ -1504,21 +1498,17 @@ function updateComposerForQueue() {
   // controls or steal typing focus from the selected conversation.
   if (currentSessionId !== visibleSessionId) return;
   if (isProcessing) {
-    sendBtn.style.display = 'flex';
+    // One round button, like Codex: send becomes stop while a turn runs. The
+    // follow-up mode is a setting, never a label in the composer.
+    sendBtn.style.display = 'none';
     stopBtn.style.display = 'flex';
     sendBtn.disabled = false;
-    const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    const meta = FOLLOW_UP_MODE_META[followUpMode] || FOLLOW_UP_MODE_META.interrupt;
-    sendBtn.title = qn > 0 ? meta.count(qn) : meta.title;
-    sendBtn.setAttribute('aria-label', meta.aria);
-    chatInput.placeholder = followUpMode === 'steer'
-      ? '任务进行中，Enter 接入本轮（Ctrl+Shift+Enter 排队）'
-      : followUpMode === 'interrupt'
-        ? '任务进行中，Enter 立即插入（Ctrl+Shift+Enter 排队）'
-        : '任务进行中，Enter 排队（Ctrl+Shift+Enter 立即插入）';
+    chatInput.placeholder = '有问题，随便问';
     if (attachBtn) attachBtn.disabled = false;
     chatInput.disabled = false;
   } else {
+    sendBtn.style.display = 'flex';
+    stopBtn.style.display = 'none';
     sendBtn.classList.remove('is-queue-mode');
     sendBtn.title = '发送 (Enter)';
     sendBtn.setAttribute('aria-label', '发送');
