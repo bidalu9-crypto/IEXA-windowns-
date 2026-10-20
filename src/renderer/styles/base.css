@@ -50,6 +50,12 @@
   /* Structural rails are accent-tinted, so switching theme or accent repaints
      them instead of leaving a neutral hairline behind. */
   --rail-line: color-mix(in srgb, var(--accent) 55%, var(--border));
+  /* Thinking slider: the top step switches to a violet material, so these are
+     deliberately outside the accent family. */
+  --thinking-track: #e4e4e7;
+  --thinking-max-a: #6d4aff;
+  --thinking-max-b: #c9b6ff;
+  --thinking-max-ink: #6d4aff;
 }
 
 [data-theme="dark"] {
@@ -83,6 +89,10 @@
   --thinking-sheen-soft: rgba(0, 0, 0, 0.2);
   /* Lighter blue keeps the bold system line legible on the dark sidebar. */
   --brand-system: #60a5fa;
+  --thinking-track: #3a3a3f;
+  --thinking-max-a: #7c5cff;
+  --thinking-max-b: #e9d5ff;
+  --thinking-max-ink: #c4b5fd;
 }
 
 /* Accent presets (override --accent*) */

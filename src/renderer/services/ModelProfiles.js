@@ -95,11 +95,14 @@ function applyThinkingLevelUI(level) {
     const slider = document.getElementById('thinkingLevelSlider');
     const value = document.getElementById('thinkingSliderValue');
     const ticks = document.getElementById('thinkingSliderTicks');
+    const track = document.getElementById('thinkingSliderTrack');
     const selected = THINKING_LEVEL_ORDER.indexOf(currentThinkingLevel);
     if (slider) {
       slider.max = String(maxIndex); slider.value = String(selected); slider.disabled = maxIndex === 0;
       slider.setAttribute('aria-valuetext', THINKING_LEVELS[currentThinkingLevel].label);
-      slider.style.setProperty('--thinking-fill', `${maxIndex ? selected / maxIndex * 100 : 0}%`);
+    }
+    if (track) {
+      track.style.setProperty('--thinking-fill', `${maxIndex ? selected / maxIndex * 100 : 0}%`);
     }
     if (value) {
       value.textContent = THINKING_LEVELS[currentThinkingLevel].label;
@@ -109,6 +112,12 @@ function applyThinkingLevelUI(level) {
       ticks.replaceChildren();
       for (let i = 0; i <= maxIndex; i++) { const dot = document.createElement('span'); dot.className = i <= selected ? 'is-filled' : ''; ticks.appendChild(dot); }
     }
+    // The top step is a different material: a violet shimmer with travelling
+    // sparks. Everything below it stays in the theme accent.
+    const atMax = maxIndex > 0 && selected === maxIndex;
+    if (track) track.dataset.atMax = String(atMax);
+    menu.dataset.atMax = String(atMax);
+    if (btn) btn.dataset.atMax = String(atMax);
     if (maxIndex === 0) setThinkingMenuOpen(false);
   }
 }

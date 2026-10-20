@@ -260,7 +260,10 @@
                     <span class="thinking-slider-value" id="thinkingSliderValue">标准<span aria-hidden="true"> ›</span></span>
                     <button type="button" class="thinking-slider-reset" id="thinkingSliderReset" title="恢复默认档位" aria-label="恢复默认思考档位"><svg class="ui-icon" aria-hidden="true"><use href="#ui-retry"/></svg></button>
                   </div>
-                  <div class="thinking-slider-track">
+                  <div class="thinking-slider-track" id="thinkingSliderTrack">
+                    <div class="thinking-slider-rail" aria-hidden="true">
+                      <span class="thinking-slider-fill"><span class="thinking-slider-sheen"></span><span class="thinking-slider-flow"></span></span>
+                    </div>
                     <input type="range" id="thinkingLevelSlider" min="0" max="4" step="1" value="2" aria-label="思考档位" aria-valuetext="标准">
                     <div class="thinking-slider-ticks" id="thinkingSliderTicks" aria-hidden="true"></div>
                   </div>
