@@ -110,6 +110,8 @@ test('real browser: settings rows, provider list and the sectioned editor hold t
         return hint && hint.getBoundingClientRect().left >= control.getBoundingClientRect().left - 1;
       })() : false,
       avatars: Array.from(document.querySelectorAll('.profile-avatar')).map((el) => el.textContent),
+      chips: Array.from(document.querySelectorAll('.profile-provider-chip')).map((el) => el.textContent),
+      rowBorder: getComputedStyle(document.querySelectorAll('.profile-card')[1]).borderTopWidth,
       activeChip: document.querySelector('.profile-card.active .profile-active-chip')?.textContent,
       activeActions: Number(getComputedStyle(document.querySelector('.profile-card.active .profile-card-actions')).opacity),
       idleActions: Number(getComputedStyle(document.querySelectorAll('.profile-card')[1].querySelector('.profile-card-actions')).opacity),
@@ -122,9 +124,11 @@ test('real browser: settings rows, provider list and the sectioned editor hold t
   assert.equal(page.twoColumns, true, 'label and control share one aligned row');
   assert.equal(page.hintUnderControl, true, 'hints sit with the control, not in the label column');
   assert.deepEqual(page.avatars, ['O', 'O']);
+  assert.deepEqual(page.chips, ['openai', 'openai'], 'each row names its provider');
+  assert.equal(page.rowBorder, '1px', 'idle rows keep a visible card edge');
   assert.equal(page.activeChip, '当前');
   assert.equal(page.activeActions, 1, 'the active row keeps its actions visible');
-  assert.equal(page.idleActions, 0, 'idle rows reveal actions on hover only');
+  assert.equal(page.idleActions >= 0.5, true, 'idle rows keep their actions legible: ' + page.idleActions);
   assert.ok(page.pageWidth >= 860, 'the page fills its column: ' + page.pageWidth);
 
   await evaluate("showProfileEditor({ id: 'p1', name: 'workbuddy-4.1', provider: 'openai', model: 'cn:deepseek-v4.1-flash', baseURL: 'https://relay.example/v1', apiMode: 'chat_completions' }); true");

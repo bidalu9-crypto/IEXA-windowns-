@@ -504,9 +504,10 @@ async function renderProfileList() {
           <span class="profile-card-name">${escapeHtml(p.name)}</span>
           ${p.id === data.activeProfileId ? '<span class="profile-active-chip">当前</span>' : ''}
         </div>
-        <div class="profile-card-detail"><span class="profile-provider">${escapeHtml(p.provider)}</span><span class="profile-model">${escapeHtml(p.model)}</span></div>
+        <div class="profile-card-detail"><span class="profile-model">${escapeHtml(p.model)}</span></div>
         ${p.baseURL ? `<div class="profile-card-url">${escapeHtml(p.baseURL)}</div>` : ''}
       </div>
+      <span class="profile-provider-chip">${escapeHtml(p.provider)}</span>
       <div class="profile-card-actions" data-ui-action="stop">
         <button data-ui-action="editProfile" data-ui-arg="${escapeHtml(p.id)}" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
         <button class="danger" data-ui-action="deleteProfile" data-ui-arg="${escapeHtml(p.id)}" title="删除" aria-label="删除">${uiIcon('trash')}</button>
