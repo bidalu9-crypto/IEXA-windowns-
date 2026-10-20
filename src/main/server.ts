@@ -59,6 +59,7 @@ import { resolveScopedPath } from './security/PathSandbox';
 import { groupFileChanges, undoFileChanges, undoUnavailable } from './session/FileChangeUndo';
 import { encodeRollbacks, hydrateRollbacks } from './session/RollbackStore';
 import { CheckpointStore, FileChange } from './session/CheckpointStore';
+import { isServableArtifact, isTransientArtifact } from './agent/ArtifactPolicy';
 import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
@@ -2168,12 +2169,17 @@ function createServer(auth: LocalApiAuth): http.Server {
         for (const message of msgs) {
           for (const call of message.toolCalls || []) {
             if (!call.result) continue;
-            for (const artifact of call.result.artifacts || []) {
+            const artifacts = call.result.artifacts || [];
+            // A card must not outlive its file: restoring a transcript after a
+            // scratch directory was cleaned would otherwise paint broken images.
+            const servable = artifacts.filter((artifact) => isServableArtifact(WORKSPACE_DIR, artifact.path));
+            if (servable.length !== artifacts.length) call.result.artifacts = servable;
+            for (const artifact of servable) {
               const id = `artifact_${require('crypto').createHash('sha256').update(artifact.path).digest('hex')}`;
               artifactRegistry.set(id, { path: artifact.path, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               artifact.url = `/api/artifacts/${id}`;
             }
-            if (call.result.output.length > 24000 && call.result.artifacts?.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {
+            if (call.result.output.length > 24000 && servable.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {
               call.result.output = call.result.output.slice(0, 16000) + '\n\n[完整输出见附件 / Full output in attachment]';
             }
           }
@@ -2891,7 +2897,10 @@ ${recentMemories}
               artifactRegistry.set(artifactId, { path: absolute, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               return { ...artifact, path: absolute, url: `/api/artifacts/${artifactId}` };
             });
-            if (entry) entry.result = { metadata: r.metadata?.desktop ? { desktop: r.metadata.desktop } : undefined, output: r.output, success: r.success, executionStatus: r.executionStatus, durationMs: r.durationMs, todos: r.todos, pluginUI: r.pluginUI, fileChange: r.fileChange, artifacts };
+            // Scratch files stay visible in this turn but are never persisted:
+            // cleaning .tmp must not leave a broken card in the transcript.
+            const persistedArtifacts = artifacts.filter((artifact) => !isTransientArtifact(WORKSPACE_DIR, artifact.path));
+            if (entry) entry.result = { metadata: r.metadata?.desktop ? { desktop: r.metadata.desktop } : undefined, output: r.output, success: r.success, executionStatus: r.executionStatus, durationMs: r.durationMs, todos: r.todos, pluginUI: r.pluginUI, fileChange: r.fileChange, artifacts: persistedArtifacts };
             const job = updateJob(sessionId, id, (item) => {
               item.status = r.executionStatus || (r.success ? 'completed' : 'failed'); item.success = r.success; item.finishedAt = Date.now();
               item.outputPreview = String(r.output || '').replace(/\s+/g, ' ').slice(0, 320);

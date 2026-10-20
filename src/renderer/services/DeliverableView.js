@@ -43,6 +43,12 @@ function renderToolArtifacts(host, artifacts) {
         if (event.target.closest('.tool-artifact-actions')) return;
         openImagePreview(src, rel, button.querySelector('img'));
       });
+      // A card whose bytes vanished must not stay behind as an empty frame.
+      const image = button.querySelector('img');
+      image.addEventListener('error', () => {
+        button.remove();
+        if (card.children.length === 0) card.remove();
+      });
       button.querySelector('.tool-artifact-copy').addEventListener('click', (event) => {
         event.stopPropagation();
         copyArtifactImage(src, event.currentTarget);

@@ -567,7 +567,12 @@ async function switchSession(id, updateList = true) {
                 body.appendChild(result);
                 setPagedText(result, tc.result.output || '');
                 if (tc.result.fileChange) renderFileChange(body, tc.result.fileChange);
-                if (tc.result.artifacts) renderToolArtifacts(el, tc.result.artifacts);
+                if (tc.result.artifacts && tc.result.artifacts.length) {
+                  // Mirror the live layout: a display_file card belongs beside
+                  // its step, not appended after the usage footer.
+                  if (tc.name === 'display_file') renderToolArtifactsAfterStep(block, tc.result.artifacts);
+                  else renderToolArtifacts(body, tc.result.artifacts);
+                }
               }
               window.IexaChatActivity.updateTool(block, tc.name, tc.args, tc.result);
               steps.appendChild(block);
