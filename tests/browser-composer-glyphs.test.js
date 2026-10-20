@@ -101,8 +101,14 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
     return {
       reasoning: read(button, '#thinkingLevelBtn .ui-icon'),
       compact: read(null, '.context-compaction-btn .ui-icon'),
-      checkpoint: read(null, '#checkpointBtn .ui-icon'),
       buttonColor: getComputedStyle(button).color,
+      checkpoint: { ...read(null, '#checkpointBtn .ui-icon'),
+        label: document.querySelector('.checkpoint-label')?.textContent,
+        labelBox: (() => { const r = document.querySelector('.checkpoint-label')?.getBoundingClientRect(); return r ? [Math.round(r.width), Math.round(r.height)] : null; })(),
+        pill: (() => { const b = document.getElementById('checkpointBtn'); const r = b.getBoundingClientRect(); const s = getComputedStyle(b); return { w: Math.round(r.width), h: Math.round(r.height), radius: s.borderRadius, font: s.fontSize }; })(),
+        iconButton: document.getElementById('checkpointBtn').classList.contains('ui-icon-button'),
+        peerHeight: Math.round(document.getElementById('contextCompactionBtn').getBoundingClientRect().height),
+      },
       dot: document.querySelector('#ui-reasoning circle')
         ? {
             fill: document.querySelector('#ui-reasoning circle').getAttribute('fill'),
@@ -119,7 +125,15 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
   // this test exists to catch.
   assert.deepEqual(glyphs.reasoning.box, [14, 14], 'reasoning glyph is square at 14px');
   assert.deepEqual(glyphs.compact.box, [14, 14], 'compaction glyph is square at 14px');
-  assert.deepEqual(glyphs.checkpoint.box, [16, 16], 'checkpoint glyph keeps the toolbar size');
+  assert.deepEqual(glyphs.checkpoint.box, [14, 14], 'checkpoint glyph matches the labelled pills at 14px');
+  // A lone flag read as decoration; the pill carries its own name like its peers.
+  assert.equal(glyphs.checkpoint.label, '检查点', 'the checkpoint control names itself');
+  assert.ok(glyphs.checkpoint.labelBox[0] > 20 && glyphs.checkpoint.labelBox[1] > 8, 'the label is actually painted');
+  assert.equal(glyphs.checkpoint.iconButton, false, 'it is a labelled pill, not an icon-only button');
+  assert.equal(glyphs.checkpoint.pill.radius, '9999px');
+  assert.equal(glyphs.checkpoint.pill.h, glyphs.checkpoint.peerHeight, 'same height as the neighbouring pills');
+  assert.equal(glyphs.checkpoint.pill.font, await evaluate("getComputedStyle(document.getElementById('contextCompactionBtn')).fontSize"),
+    'same type scale as the neighbouring pills');
   // One optical weight: all three inherit the same stroke, whatever the theme sets.
   assert.equal(glyphs.reasoning.stroke, glyphs.compact.stroke);
   assert.equal(glyphs.compact.stroke, glyphs.checkpoint.stroke);

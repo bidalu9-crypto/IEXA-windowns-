@@ -1200,6 +1200,51 @@
   margin-top: 0;
 }
 
+/* The checkpoint control sits in the same row as the labelled pills above, so it
+   carries its own name too: an unlabelled flag beside 高 / 1M / 完全访问 read as
+   decoration rather than a button. */
+.checkpoint-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: calc(0.78rem * var(--ui-font-scale, 1));
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background-color .15s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.workbench-shell .checkpoint-btn .ui-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  stroke-width: var(--control-stroke, 1.75);
+}
+
+.checkpoint-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.checkpoint-btn[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-light);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.checkpoint-btn:focus-visible {
+  outline: 2px solid var(--text-secondary);
+  outline-offset: 2px;
+}
+
 .context-compaction-icon {
   flex: 0 0 auto;
   opacity: 0.85;
