@@ -689,28 +689,31 @@ html[data-motion="reduced"] .appearance-switch-control span::after { transition:
 .panel-resizer {
   position: relative;
   z-index: 20;
-  flex: 0 0 7px;
-  width: 7px;
+  flex: 0 0 9px;
+  width: 9px;
   cursor: col-resize;
   outline: none;
   touch-action: none;
 }
 
+/* The single divider for both panel boundaries: one hairline, centred in the
+   gutter. Hovering or dragging thickens it in place instead of adding a
+   second line next to a panel border. */
 .panel-resizer::before {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 4px;
   width: 1px;
-  background: var(--border);
+  background: var(--border-strong);
   transition: background-color 0.15s, width 0.15s, left 0.15s;
 }
 
 .panel-resizer:hover::before,
 .panel-resizer:focus-visible::before,
 .panel-resizer.is-dragging::before {
-  left: 2px;
+  left: 3px;
   width: 3px;
   background: var(--accent);
 }

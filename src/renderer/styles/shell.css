@@ -7,7 +7,8 @@
 .sidebar {
   width: 240px;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
+  /* The divider is drawn once by .panel-resizer, so no border here. */
+  border-right: 0;
   display: flex;
   flex-direction: column;
   padding: 20px;

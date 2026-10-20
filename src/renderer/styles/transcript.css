@@ -105,7 +105,8 @@ body.chat-focus-mode .message.user {
   max-width: none;
   margin: 0;
   width: auto;
-  border-right: 1px solid var(--border);
+  /* The files boundary is drawn by .panel-resizer-files. */
+  border-right: 0;
 }
 
 /* Right: project files panel */

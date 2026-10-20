@@ -147,7 +147,7 @@
 .workbench-shell #sendBtn:disabled { background: var(--border-strong); color: var(--bg-input); }
 /* Absolute centering must survive every hover/pressed state. */
 .workbench-shell #sendBtn .send-icon, .workbench-shell #sendBtn:hover .send-icon, .workbench-shell #sendBtn:active .send-icon { width: 18px; height: 18px; transform: translate(-58%, -50%); filter: none; animation: none; transition: none; }
-.workbench-shell .files-panel { background: var(--bg-primary); border-left: 1px solid var(--border); box-shadow: none; backdrop-filter: none; }
+.workbench-shell .files-panel { background: var(--bg-primary); box-shadow: none; backdrop-filter: none; }
 .workbench-shell .files-panel-header { background: var(--bg-primary); box-shadow: none; padding: 16px 14px 0; }
 .workbench-shell .files-panel-title { font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 550; margin-bottom: 14px; }
 .workbench-shell .files-icon-btn { border-color: transparent; box-shadow: none; background: transparent; }

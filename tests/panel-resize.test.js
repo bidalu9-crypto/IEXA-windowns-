@@ -203,5 +203,26 @@ test('real browser: panel drag writes stay scoped and commit once', { skip: !bro
   })()`);
   assert.equal(restored, persisted.width, 'width is restored after reload');
 
+  // One divider per boundary: the panels own no side border and the resizer
+  // draws the only hairline, so the two lines in the old layout cannot return.
+  const dividers = await evaluate(`(() => {
+    const px = (el, side) => getComputedStyle(el)[side];
+    const hairline = (el) => { const s = getComputedStyle(el, '::before'); return [s.width, s.left]; };
+    return {
+      sidebar: px(document.getElementById('sidebar'), 'borderRightWidth'),
+      chat: px(document.querySelector('.chat-container'), 'borderRightWidth'),
+      files: px(document.getElementById('filesPanel'), 'borderLeftWidth'),
+      leftLine: hairline(document.getElementById('sidebarResizer')),
+      rightLine: hairline(document.getElementById('filesResizer')),
+    };
+  })()`);
+  assert.deepEqual(dividers, {
+    sidebar: '0px',
+    chat: '0px',
+    files: '0px',
+    leftLine: ['1px', '4px'],
+    rightLine: ['1px', '4px'],
+  }, 'each boundary draws exactly one hairline, from the resizer');
+
   assert.deepEqual(exceptions, [], 'no renderer exceptions during the drag');
 });
