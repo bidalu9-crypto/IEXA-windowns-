@@ -20,6 +20,25 @@
 .setting-row-control { min-width: 0; }
 .setting-row-control > select,
 .setting-row-control > input { width: 100%; }
+/* These fields sit outside `.setting-group`, so they need the same surface as
+   every other input. Without this they fell back to the native white control. */
+.setting-row-control :is(input[type="text"], input[type="password"], input[type="number"], select) {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(0.9rem * var(--ui-font-scale, 1));
+  line-height: 1.35;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+/* Keep the native arrow: Chromium paints it correctly once `color-scheme`
+   follows the theme, and it stays crisp at every zoom level. */
+.setting-row-control :is(input, select):hover { border-color: var(--border-strong); }
+.setting-row-control :is(input, select):focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+[data-theme="dark"] .setting-row-control select { color-scheme: dark; }
 .setting-row-hint { grid-column: 2; margin: 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.55; }
 .setting-row:has(.setting-row-hint) { row-gap: 7px; }
 .settings-page .profile-list { padding: 4px 14px 16px; gap: 8px; }

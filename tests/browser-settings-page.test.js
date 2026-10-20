@@ -131,6 +131,23 @@ test('real browser: settings rows, provider list and the sectioned editor hold t
   assert.equal(page.idleActions >= 0.5, true, 'idle rows keep their actions legible: ' + page.idleActions);
   assert.ok(page.pageWidth >= 860, 'the page fills its column: ' + page.pageWidth);
 
+  await evaluate("document.documentElement.dataset.theme = 'dark'; true");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const field = await evaluate(`(() => {
+    const select = document.getElementById('localeSelect');
+    const style = getComputedStyle(select);
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--bg-input)';
+    document.body.appendChild(probe);
+    const surface = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { background: style.backgroundColor, surface, color: style.color, radius: style.borderRadius, scheme: style.colorScheme };
+  })()`);
+  assert.equal(field.background, field.surface, 'settings selects use the themed input surface, not native white');
+  assert.notEqual(field.background, 'rgb(255, 255, 255)', 'no white control in the dark theme');
+  assert.equal(field.scheme, 'dark', 'the native arrow follows the theme');
+  await evaluate("document.documentElement.dataset.theme = 'light'; true");
+
   await evaluate("showProfileEditor({ id: 'p1', name: 'workbuddy-4.1', provider: 'openai', model: 'cn:deepseek-v4.1-flash', baseURL: 'https://relay.example/v1', apiMode: 'chat_completions' }); true");
   await wait("document.getElementById('profileEditorOverlay').style.display !== 'none'");
   const editor = await evaluate(`(() => {
