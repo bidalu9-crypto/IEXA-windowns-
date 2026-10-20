@@ -197,6 +197,11 @@ function startConversationSync() {
   if (conversationEventSource) return;
   conversationEventSource = new EventSource(`${API_BASE}/api/session-events?clientId=${encodeURIComponent(conversationClientId)}&stream=delta`);
   conversationEventSource.addEventListener('subagent_changed', event => { try { subAgentView?.event(JSON.parse(event.data)); } catch { /* Ignore malformed transport. */ } });
+  // A timed run happens without a renderer stream, so the server announces the
+  // change and the panel refreshes itself instead of waiting for a reopen.
+  conversationEventSource.addEventListener('scheduled_task_changed', () => {
+    if (typeof loadScheduledTasks === 'function' && scheduledTasksLoaded) void loadScheduledTasks();
+  });
   conversationEventSource.addEventListener('session_changed', (event) => {
     let payload;
     try { payload = JSON.parse(event.data || '{}'); } catch { return; }

@@ -11,7 +11,6 @@ function boot() {
   w.console = console;
   w.eval(`var API_BASE = ''; var currentSessionId = 's1';`);
   w.eval(fs.readFileSync('src/renderer/services/GoalBanner.js', 'utf8'));
-  w.eval(fs.readFileSync('src/renderer/services/JobsPanel.js', 'utf8'));
   return { dom, w };
 }
 
@@ -90,30 +89,5 @@ test('clearing from the bar sends DELETE and hides the row', async () => {
   const del = calls.find((call) => call.method === 'DELETE');
   assert.ok(del, 'clear must be a DELETE');
   assert.match(del.url, /\/api\/goal\?sessionId=s1/);
-  dom.window.close();
-});
-
-test('the task center lists persistent shells without rebuilding unchanged rows', () => {
-  const { dom, w } = boot();
-  const host = w.document.getElementById('shellSessionList');
-  const sessions = [
-    { id: 'aaaaaaaa-1', shell: 'cmd', cwd: 'E:\\repo', running: true, createdAt: 1 },
-    { id: 'bbbbbbbb-2', shell: 'powershell', cwd: 'C:\\Temp', running: false, createdAt: 2 },
-  ];
-  w.renderShellSessions(sessions);
-  assert.equal(host.hidden, false);
-  assert.equal(host.querySelectorAll('.shell-session-row').length, 2);
-  assert.equal(host.querySelector('.shell-session-id').textContent, 'aaaaaaaa');
-  assert.match(host.querySelector('.shell-session-meta').textContent, /cmd · E:\\repo/);
-  // Only a running shell offers the close action.
-  assert.equal(host.querySelectorAll('[data-close-session]').length, 1);
-
-  const firstRow = host.querySelector('.shell-session-row');
-  w.renderShellSessions(sessions);
-  assert.equal(host.querySelector('.shell-session-row'), firstRow, 'polling must not rebuild identical rows');
-
-  w.renderShellSessions([]);
-  assert.equal(host.hidden, true);
-  assert.equal(host.innerHTML, '');
   dom.window.close();
 });

@@ -20,6 +20,7 @@
 <script src="services/LabelGlow.js"></script>
 <link rel="stylesheet" href="components/AppDialogs.css">
 <link rel="stylesheet" href="components/QuestionCard.css">
+<link rel="stylesheet" href="components/ScheduledTasks.css">
 <style>
 .prompt-settings-panel { margin-top: 20px; }
 .prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
@@ -73,6 +74,10 @@
     <symbol id="ui-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3.5V7M9 12h.01M15 12h.01M8 15.5c2 1 6 1 8 0"/></symbol>
     <symbol id="ui-box" viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/></symbol>
     <symbol id="ui-terminal" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 16h4"/></symbol>
+    <symbol id="ui-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2.1"/></symbol>
+    <symbol id="ui-clock-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2.1"/><path d="M12 19.5v.5"/></symbol>
+    <symbol id="ui-repeat" viewBox="0 0 24 24"><path d="M4 9.5A4.5 4.5 0 0 1 8.5 5H17m0 0-3.2-3.2M17 5l-3.2 3.2"/><path d="M20 14.5a4.5 4.5 0 0 1-4.5 4.5H7m0 0 3.2 3.2M7 19l3.2-3.2"/></symbol>
+    <symbol id="ui-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5-10-6.5Z"/></symbol>
     <symbol id="ui-edit" viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16l-1 4Z"/><path d="m14.5 6.5 3 3"/></symbol>
     <symbol id="ui-new-session" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4" fill="none"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/></symbol>
     <symbol id="ui-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.8 12h16.4M12 3.5c2.3 2.4 3.3 5.2 3.3 8.5S14.3 18.1 12 20.5c-2.3-2.4-3.3-5.2-3.3-8.5S9.7 5.9 12 3.5Z"/></symbol>
@@ -106,7 +111,7 @@
     <nav class="sidebar-nav" aria-label="工作区导航">
       <div class="sidebar-primary"><button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span data-i18n="nav.chat">对话</span></button>
 <button class="nav-btn" data-view="skills"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span data-i18n="nav.skills">技能</span></button>
-<button class="nav-btn nav-btn-jobs" data-view="jobs"><svg class="ui-icon" aria-hidden="true"><use href="#ui-terminal"/></svg><span data-i18n="nav.jobs">任务中心</span><b class="nav-job-badge" id="navJobBadge" hidden>0</b></button></div>
+<button class="nav-btn nav-btn-scheduled" data-view="scheduled"><svg class="ui-icon" aria-hidden="true"><use href="#ui-clock"/></svg><span data-i18n="nav.scheduled">定时任务</span><b class="nav-task-badge" id="navScheduledBadge" hidden>0</b></button></div>
       <details class="sidebar-more" id="sidebarMore">
         <summary><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span data-i18n="nav.more">设置与拓展</span></summary>
         <div class="sidebar-secondary"><button class="nav-btn" data-view="appearance"><svg class="ui-icon" aria-hidden="true"><use href="#ui-palette"/></svg><span data-i18n="nav.appearance">外观</span></button>
@@ -797,17 +802,116 @@ version: 1.0.0
       </div>
     </div>
 
-    <!-- Background Task Center -->
-    <div class="view" id="view-jobs">
-      <div class="settings-container jobs-container">
-        <div class="settings-header"><h2>任务中心</h2><div class="jobs-actions"><button type="button" class="btn-secondary btn-sm" id="jobsRefreshBtn">刷新</button><button type="button" class="btn-secondary btn-sm" id="jobsClearBtn" title="清理已结束的任务记录">清理</button></div></div>
-        <p class="sync-desc" id="jobsRetentionHint">工具执行按会话独立记录。这里可查看后台会话正在运行、已完成或失败的任务。</p>
-        <div class="jobs-filter" id="jobsFilter">
-          <button type="button" data-jobs-filter="current" class="is-active">当前会话</button>
-          <button type="button" data-jobs-filter="all">全部会话</button>
+    <!-- Scheduled Tasks -->
+    <div class="view" id="view-scheduled">
+      <div class="settings-container scheduled-container">
+        <header class="scheduled-header">
+          <div class="scheduled-heading">
+            <h2>定时任务</h2>
+            <p class="scheduled-sub">按系统时间把保存好的提示词发送给模型。应用需要保持运行。</p>
+          </div>
+          <button type="button" class="scheduled-new-btn" id="scheduledNewBtn">
+            <svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg>
+            <span>新建定时任务</span>
+          </button>
+        </header>
+        <div class="scheduled-summary" id="scheduledSummary" hidden></div>
+        <p class="scheduled-live" id="scheduledLive" role="status" aria-live="polite"></p>
+        <div class="scheduled-list" id="scheduledList">
+          <div class="scheduled-loading">加载定时任务中…</div>
         </div>
-        <div class="shell-session-list" id="shellSessionList" hidden></div>
-      <div class="jobs-list" id="jobsList"><div class="profile-empty">加载任务中…</div></div>
+      </div>
+    </div>
+
+    <!-- Scheduled task editor -->
+    <div class="scheduled-overlay" id="scheduledEditor" hidden>
+      <div class="scheduled-editor" role="dialog" aria-modal="true" aria-labelledby="scheduledEditorTitle">
+        <header class="scheduled-editor-head">
+          <div class="scheduled-editor-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-clock"/></svg></div>
+          <div class="scheduled-editor-titles">
+            <h3 id="scheduledEditorTitle">新建定时任务</h3>
+            <p id="scheduledEditorSub">到点后自动发送提示词并开始一轮任务。</p>
+          </div>
+          <button type="button" class="scheduled-editor-close" id="scheduledEditorClose" aria-label="关闭">
+            <svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg>
+          </button>
+        </header>
+        <form id="scheduledForm" novalidate>
+          <label class="scheduled-field">
+            <span class="scheduled-label">名称 <em class="scheduled-optional">可选</em></span>
+            <input type="text" id="scheduledTitle" maxlength="80" placeholder="例如：每日仓库巡检">
+          </label>
+          <label class="scheduled-field">
+            <span class="scheduled-field-head">
+              <span class="scheduled-label">提示词</span>
+              <span class="scheduled-counter" id="scheduledPromptCount">0 字</span>
+            </span>
+            <textarea id="scheduledPrompt" rows="4" maxlength="20000" placeholder="例如：汇总今天仓库里所有未提交的改动，并给出风险排序。"></textarea>
+          </label>
+
+          <div class="scheduled-field-row">
+            <div class="scheduled-field scheduled-field-grow">
+              <span class="scheduled-label">重复</span>
+              <div class="scheduled-seg" id="scheduledFrequency" role="group" aria-label="重复频率">
+                <button type="button" data-freq="daily" class="is-active">每天</button>
+                <button type="button" data-freq="weekly">每周</button>
+                <button type="button" data-freq="monthly">每月</button>
+              </div>
+            </div>
+            <label class="scheduled-field scheduled-field-time">
+              <span class="scheduled-label">时间</span>
+              <input type="time" id="scheduledTime" value="09:00" step="60">
+            </label>
+          </div>
+
+          <div class="scheduled-field-row" id="scheduledWeekdayRow" hidden>
+            <label class="scheduled-field scheduled-field-grow">
+              <span class="scheduled-label">星期</span>
+              <select id="scheduledWeekday">
+                <option value="1">周一</option><option value="2">周二</option><option value="3">周三</option>
+                <option value="4">周四</option><option value="5">周五</option><option value="6">周六</option>
+                <option value="0">周日</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="scheduled-field-row" id="scheduledDayRow" hidden>
+            <label class="scheduled-field scheduled-field-grow">
+              <span class="scheduled-label">日期</span>
+              <select id="scheduledDay"></select>
+              <span class="scheduled-note">没有这一天的月份会落在当月最后一天。</span>
+            </label>
+          </div>
+
+          <label class="scheduled-field">
+            <span class="scheduled-label">模型</span>
+            <select id="scheduledModel"></select>
+          </label>
+
+          <div class="scheduled-field">
+            <span class="scheduled-label">会话</span>
+            <div class="scheduled-seg" id="scheduledTarget" role="group" aria-label="会话方式">
+              <button type="button" data-target="new" class="is-active">每次新建会话</button>
+              <button type="button" data-target="existing">使用已有会话</button>
+            </div>
+          </div>
+
+          <label class="scheduled-field" id="scheduledSessionField" hidden>
+            <span class="scheduled-label">选择会话</span>
+            <select id="scheduledSession"></select>
+            <span class="scheduled-note">复用会话会沿用它的上下文；所选模型会同步为该会话的模型。</span>
+          </label>
+
+          <p class="scheduled-error" id="scheduledError" role="alert" hidden></p>
+
+          <footer class="scheduled-editor-foot">
+            <span class="scheduled-preview" id="scheduledPreview"></span>
+            <div class="scheduled-editor-actions">
+              <button type="button" class="btn-secondary" id="scheduledCancel">取消</button>
+              <button type="submit" class="btn-primary" id="scheduledSave">保存</button>
+            </div>
+          </footer>
+        </form>
       </div>
     </div>
 
@@ -1031,7 +1135,8 @@ version: 1.0.0
 <script src="services/FilesPanel.js"></script>
 <script src="services/SkillsPanel.js"></script>
 <script src="services/TextContextMenu.js"></script>
-<script src="services/JobsPanel.js"></script>
+<script src="services/ScheduledTasksView.js"></script>
+<script src="services/PermissionModeUI.js"></script>
 <script src="services/ShellLayout.js"></script>
 <script src="services/MobileBridge.js"></script>
 <script src="services/StreamPipeline.js"></script>

@@ -502,7 +502,8 @@
 }
 
 .nav-btn { position: relative; }
-.nav-job-badge {
+.nav-job-badge,
+.nav-task-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;

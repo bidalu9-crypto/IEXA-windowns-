@@ -1,0 +1,699 @@
+/**
+ * Scheduled tasks.
+ *
+ * A quiet, list-first surface: one card per saved prompt, the schedule and the
+ * next run doing the explaining so the row needs no column headers. Everything
+ * reads from theme tokens, so light, dark and every accent repaint together.
+ */
+
+/* ---- Page shell ---------------------------------------------------------- */
+
+#view-scheduled > .scheduled-container {
+  width: min(100%, 720px);
+  margin: 0 auto;
+  padding: 30px 24px 56px;
+}
+
+/* The hidden attribute must win over the layout of each block: an invisible
+   fixed overlay would otherwise keep taking every click on the page. */
+.scheduled-overlay[hidden],
+.scheduled-summary[hidden],
+.scheduled-field[hidden],
+.scheduled-field-row[hidden],
+.scheduled-error[hidden] { display: none; }
+
+.scheduled-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.scheduled-heading h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--text-primary);
+}
+
+.scheduled-sub {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.scheduled-new-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.scheduled-new-btn .ui-icon { width: 15px; height: 15px; stroke-width: 2; }
+.scheduled-new-btn:hover { background: var(--bg-secondary); border-color: var(--border-strong); }
+.scheduled-new-btn:active { transform: scale(.975); }
+.scheduled-new-btn.is-primary {
+  border-color: transparent;
+  background: var(--action-bg);
+  color: var(--on-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .1);
+}
+.scheduled-new-btn.is-primary:hover { background: var(--action-bg-hover); }
+
+/* ---- Summary ------------------------------------------------------------- */
+
+.scheduled-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  margin: 0 2px 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.scheduled-summary strong { color: var(--text-primary); font-weight: 600; }
+.scheduled-summary-next { margin-left: auto; letter-spacing: .01em; }
+
+.scheduled-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- List ---------------------------------------------------------------- */
+
+.scheduled-list { display: flex; flex-direction: column; gap: 12px; }
+
+.scheduled-loading {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.scheduled-card {
+  position: relative;
+  padding: 16px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-input);
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.scheduled-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, .05);
+}
+
+.scheduled-card.is-off { background: color-mix(in srgb, var(--bg-input) 70%, var(--bg-primary)); }
+.scheduled-card.is-off .scheduled-card-mark { color: var(--text-muted); background: var(--bg-tertiary); }
+.scheduled-card.is-off .scheduled-card-title { color: var(--text-secondary); }
+.scheduled-card.has-error { border-color: color-mix(in srgb, var(--error) 34%, var(--border)); }
+
+.scheduled-card-top { display: flex; align-items: flex-start; gap: 12px; }
+
+.scheduled-card-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--accent-light);
+  color: var(--accent-hover);
+  transition: background .18s ease, color .18s ease;
+}
+
+.scheduled-card-mark .ui-icon { width: 18px; height: 18px; stroke-width: 1.7; }
+
+.scheduled-card-main { flex: 1 1 auto; min-width: 0; }
+
+.scheduled-card-title-row { display: flex; align-items: center; gap: 8px; min-height: 20px; }
+
+.scheduled-card-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduled-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 2px 7px 2px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.scheduled-state i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.scheduled-state.is-on { color: color-mix(in srgb, var(--success) 78%, var(--text-primary)); background: color-mix(in srgb, var(--success) 13%, transparent); }
+.scheduled-state.is-warn { color: color-mix(in srgb, var(--warning) 82%, var(--text-primary)); background: color-mix(in srgb, var(--warning) 15%, transparent); }
+.scheduled-state.is-error { color: color-mix(in srgb, var(--error) 84%, var(--text-primary)); background: color-mix(in srgb, var(--error) 13%, transparent); }
+.scheduled-state.is-off { color: var(--text-muted); background: var(--bg-tertiary); }
+
+.scheduled-card-prompt {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.scheduled-card-prompt.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.scheduled-prompt-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color .16s ease;
+}
+.scheduled-prompt-toggle:hover { color: var(--text-primary); }
+
+/* ---- Switch -------------------------------------------------------------- */
+
+.scheduled-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 21px;
+  margin-top: 6px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  transition: background .22s ease, border-color .22s ease;
+}
+
+.scheduled-switch[aria-checked="true"] { border-color: transparent; background: var(--action-bg); }
+
+.scheduled-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .28);
+  transition: transform .24s cubic-bezier(.34, 1.56, .64, 1), width .18s ease;
+}
+
+.scheduled-switch[aria-checked="true"] .scheduled-switch-knob { transform: translateX(15px); }
+.scheduled-switch:active .scheduled-switch-knob { width: 18px; }
+.scheduled-switch[aria-checked="true"]:active .scheduled-switch-knob { transform: translateX(12px); }
+
+/* ---- Chips --------------------------------------------------------------- */
+
+.scheduled-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 11px 0 0 46px;
+}
+
+.scheduled-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scheduled-chip .ui-icon { width: 12px; height: 12px; stroke-width: 1.9; }
+.scheduled-chip.is-accent {
+  background: var(--accent-light);
+  color: color-mix(in srgb, var(--accent-hover) 84%, var(--text-primary));
+}
+.scheduled-chip.is-warning {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: color-mix(in srgb, var(--warning) 86%, var(--text-primary));
+}
+
+/* ---- Footer -------------------------------------------------------------- */
+
+.scheduled-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 13px -16px 0;
+  padding: 9px 16px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.scheduled-next { display: inline-flex; align-items: baseline; gap: 6px; color: var(--text-secondary); white-space: nowrap; }
+.scheduled-next strong { font-weight: 500; color: var(--text-muted); }
+.scheduled-next em { font-style: normal; color: var(--text-muted); opacity: .85; }
+.scheduled-next em::before { content: '·'; margin-right: 5px; opacity: .6; }
+.scheduled-next.is-off { color: var(--text-muted); }
+
+.scheduled-last {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  opacity: .9;
+}
+
+.scheduled-card-actions { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+
+.scheduled-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, transform .16s ease;
+}
+
+.scheduled-action .ui-icon { width: 15px; height: 15px; stroke-width: 1.75; }
+.scheduled-action:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.scheduled-action:active { transform: scale(.92); }
+.scheduled-action.is-danger:hover { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--error); }
+.scheduled-action .ui-icon { transition: opacity .12s ease; }
+
+.scheduled-action.is-running::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: scheduled-spin .7s linear infinite;
+}
+.scheduled-action.is-running .ui-icon { display: none; }
+
+@keyframes scheduled-spin { to { transform: rotate(360deg); } }
+
+/* ---- Empty and error ----------------------------------------------------- */
+
+.scheduled-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 54px 28px 46px;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+}
+
+.scheduled-empty-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 20px;
+  color: var(--accent-hover);
+}
+
+.scheduled-empty-mark .ui-icon { width: 28px; height: 28px; stroke-width: 1.45; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .scheduled-empty-mark .ui-icon { animation: scheduled-breathe 4.8s ease-in-out infinite; }
+}
+
+@keyframes scheduled-breathe {
+  0%, 100% { opacity: .78; transform: scale(.97); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
+.scheduled-empty-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--rail-line);
+  background: radial-gradient(circle at 50% 45%, var(--accent-light), transparent 68%);
+}
+
+.scheduled-empty-ring::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.scheduled-empty h3 {
+  margin: 0 0 7px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scheduled-empty p {
+  margin: 0 0 18px;
+  max-width: 34ch;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.scheduled-error-state,
+.scheduled-load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 22px 20px;
+  border: 1px solid color-mix(in srgb, var(--error) 30%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--error) 6%, var(--bg-input));
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.scheduled-error-state strong { color: var(--text-primary); font-size: 13px; }
+
+/* ---- Editor -------------------------------------------------------------- */
+
+.scheduled-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--overlay);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+
+.scheduled-overlay.is-open { opacity: 1; }
+
+.scheduled-editor {
+  width: min(100%, 560px);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg-input);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .24);
+  transform: translateY(10px) scale(.985);
+  transition: transform .22s cubic-bezier(.22, .61, .36, 1);
+}
+
+.scheduled-overlay.is-open .scheduled-editor { transform: none; }
+
+.scheduled-editor-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--bg-input);
+}
+
+.scheduled-editor-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--accent-light);
+  color: var(--accent-hover);
+}
+.scheduled-editor-icon .ui-icon { width: 19px; height: 19px; stroke-width: 1.6; }
+
+.scheduled-editor-titles { flex: 1 1 auto; min-width: 0; }
+.scheduled-editor-titles h3 { margin: 2px 0 3px; font-size: 15.5px; font-weight: 600; letter-spacing: -0.008em; color: var(--text-primary); }
+.scheduled-editor-titles p { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text-muted); }
+
+.scheduled-editor-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: -2px -4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease;
+}
+.scheduled-editor-close .ui-icon { width: 16px; height: 16px; stroke-width: 1.8; }
+.scheduled-editor-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+#scheduledForm { display: flex; flex-direction: column; gap: 15px; padding: 18px 20px 20px; }
+
+.scheduled-field { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.scheduled-field-row { display: flex; align-items: flex-start; gap: 12px; }
+.scheduled-field-grow { flex: 1 1 auto; }
+.scheduled-field-time { flex: 0 0 118px; }
+
+.scheduled-label { font-size: 11.5px; font-weight: 550; color: var(--text-secondary); letter-spacing: .01em; }
+.scheduled-optional { font-style: normal; font-weight: 400; color: var(--text-muted); }
+
+#scheduledForm input[type="text"],
+#scheduledForm textarea,
+#scheduledForm select,
+#scheduledForm input[type="time"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 9px 11px;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+
+#scheduledForm textarea { resize: vertical; min-height: 92px; }
+#scheduledForm input[type="time"] { font-variant-numeric: tabular-nums; }
+
+#scheduledForm textarea:focus,
+#scheduledForm select:focus,
+#scheduledForm input[type="time"]:focus {
+  outline: none;
+  border-color: var(--accent-hover);
+  background: var(--bg-input);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+.scheduled-counter {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scheduled-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scheduled-note { font-size: 10.5px; line-height: 1.5; color: var(--text-muted); }
+
+.scheduled-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+}
+
+.scheduled-seg button {
+  flex: 1 1 auto;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
+}
+
+.scheduled-seg button:hover { color: var(--text-primary); }
+.scheduled-seg button.is-active {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+}
+
+#scheduledTarget { display: flex; }
+#scheduledFrequency { display: flex; }
+
+.scheduled-error {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  color: color-mix(in srgb, var(--error) 88%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scheduled-editor-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 10px;
+  padding-bottom: 2px;
+  background: var(--bg-input);
+}
+
+.scheduled-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.scheduled-editor-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.scheduled-editor .scheduled-editor-actions button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 76px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 9px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.scheduled-editor .scheduled-editor-actions .btn-primary {
+  border-color: transparent;
+  background: var(--action-bg);
+  color: var(--on-accent);
+}
+.scheduled-editor .scheduled-editor-actions .btn-primary:hover { background: var(--action-bg-hover); }
+.scheduled-editor .scheduled-editor-actions .btn-primary.is-busy { opacity: .72; cursor: progress; }
+
+/* ---- Focus --------------------------------------------------------------- */
+
+#view-scheduled button:focus-visible,
+.scheduled-editor button:focus-visible,
+.scheduled-editor textarea:focus-visible,
+.scheduled-editor select:focus-visible,
+.scheduled-editor input:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+#scheduledForm textarea:focus-visible,
+#scheduledForm select:focus-visible,
+#scheduledForm input:focus-visible { outline: none; }
+
+body.is-scheduled-editor-open { overflow: hidden; }
+
+/* ---- Narrow -------------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  #view-scheduled > .scheduled-container { padding: 22px 16px 48px; }
+  .scheduled-header { flex-direction: column; align-items: stretch; gap: 14px; }
+  .scheduled-new-btn { height: 40px; }
+  .scheduled-card { padding: 14px 14px 0; }
+  .scheduled-card-chips { margin-left: 0; }
+  .scheduled-card-foot { margin: 12px -14px 0; padding: 9px 14px 10px; flex-wrap: wrap; gap: 8px; }
+  .scheduled-last { display: none; }
+  .scheduled-card-actions { margin-left: auto; }
+  .scheduled-overlay { padding: 0; place-items: end center; }
+  .scheduled-editor {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 18px 18px 0 0;
+    transform: translateY(18px);
+  }
+  /* A block row (not a column flex) so each field fills the sheet width; a
+     column flex let the segmented control shrink to its content. */
+  .scheduled-field-row { display: block; }
+  .scheduled-field-row > * + * { margin-top: 14px; }
+  .scheduled-field-time { flex-basis: auto; width: 100%; }
+  #scheduledFrequency { width: 100%; }
+  #scheduledFrequency button { flex: 1 1 0; }
+  .scheduled-editor-foot { flex-direction: column; align-items: stretch; gap: 10px; }
+  .scheduled-editor-actions { width: 100%; }
+  .scheduled-editor .scheduled-editor-actions button { flex: 1 1 0; min-width: 0; }
+  .scheduled-empty { padding: 40px 20px 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scheduled-overlay,
+  .scheduled-editor,
+  .scheduled-switch,
+  .scheduled-switch-knob,
+  .scheduled-card,
+  .scheduled-action { transition: none; }
+  .scheduled-action.is-running::after { animation-duration: 2.4s; }
+}

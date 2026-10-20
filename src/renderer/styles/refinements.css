@@ -683,7 +683,6 @@ body {
    it with the generic .view overflow rule. */
 #view-skills,
 #view-token-calculator,
-#view-jobs,
 #view-plugins {
   flex-direction: column;
   align-items: stretch;
@@ -695,7 +694,6 @@ body {
 
 #view-skills > .settings-container,
 #view-token-calculator > .settings-container,
-#view-jobs > .settings-container,
 #view-plugins > .settings-container {
   width: min(100%, 608px);
   max-width: none;
@@ -718,7 +716,6 @@ body {
 @media (max-width: 720px) {
   #view-skills > .settings-container,
   #view-token-calculator > .settings-container,
-  #view-jobs > .settings-container,
   #view-plugins > .settings-container {
     width: 100%;
     margin-top: 24px;

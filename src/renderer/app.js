@@ -540,7 +540,7 @@ const VIEW_REFRESH = {
   'token-calculator': () => loadTokenUsage(),
   // Paint the cached rows first; a response that matches what is already on
   // screen then changes no DOM at all.
-  jobs: () => { renderJobs(); loadJobs(); },
+  scheduled: () => { renderScheduledTasks(); loadScheduledTasks(); },
   mcp: () => loadMcpServers(),
   plugins: () => loadPlugins(),
   sync: () => loadMobileBridge(),
@@ -580,7 +580,6 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     }
     if (view === 'chat' && !chatWasActive) restoreChatViewScroll();
     closeMobileDrawers();
-    syncJobsPolling();
 
     // Load the pane's data. This stays in the click task on purpose: moving it
     // behind requestAnimationFrame was measured and changed nothing - the
@@ -2496,7 +2495,7 @@ const COMMAND_PALETTE_ACTIONS = [
   { id: 'new-session', key: 'palette.newSession', hint: 'Ctrl N', run: () => document.getElementById('newSessionBtn')?.click() },
   { id: 'chat', key: 'palette.chat', run: () => document.querySelector('.nav-btn[data-view="chat"]')?.click() },
   { id: 'skills', key: 'palette.skills', run: () => document.querySelector('.nav-btn[data-view="skills"]')?.click() },
-  { id: 'jobs', key: 'palette.jobs', run: () => document.querySelector('.nav-btn[data-view="jobs"]')?.click() },
+  { id: 'scheduled', key: 'palette.scheduled', run: () => document.querySelector('.nav-btn[data-view="scheduled"]')?.click() },
   { id: 'mcp', key: 'palette.mcp', run: () => document.querySelector('.nav-btn[data-view="mcp"]')?.click() },
   { id: 'plugins', key: 'palette.plugins', run: () => document.querySelector('.nav-btn[data-view="plugins"]')?.click() },
   { id: 'settings', key: 'palette.settings', run: () => document.querySelector('.nav-btn[data-view="settings"]')?.click() },
@@ -2623,7 +2622,7 @@ if (localeSelect) {
   initPluginPanel();
   initSkillsUI();
   initSoulUI();
-  initJobsUI();
+  initScheduledTasks();
   loadTokenUsage();
   await loadSoul();
   await loadSystemInfo();
@@ -2637,7 +2636,7 @@ if (localeSelect) {
   syncSubAgentView();
   initGoalBanner();
   void refreshGoalBanner();
-  loadJobs();
+  refreshScheduledBadge();
 }
 
 init();

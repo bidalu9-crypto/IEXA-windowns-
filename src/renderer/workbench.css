@@ -193,7 +193,8 @@
   .workbench-shell .model-selector-label { max-width: 130px; }
 }
 /* Respect semantic hidden attributes and keep secondary timestamps readable. */
-.workbench-shell .nav-job-badge[hidden] { display: none; }
+.workbench-shell .nav-job-badge[hidden],
+.workbench-shell .nav-task-badge[hidden] { display: none; }
 .workbench-shell .session-item-title { font-size: calc(12px * var(--ui-font-scale, 1)); }
 .workbench-shell .session-item-time { font-size: calc(10px * var(--ui-font-scale, 1)); margin-top: 2px; }
 /* Popovers open above the composer, including on the mobile layout. */

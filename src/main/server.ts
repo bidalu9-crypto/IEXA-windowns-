@@ -71,6 +71,8 @@ import { handleTerminalRoute, TerminalRouteContext } from './api/TerminalRoutes'
 import { handleMcpRoute, McpRouteContext } from './api/McpRoutes';
 import { handlePluginRoute, PluginRouteContext } from './api/PluginRoutes';
 import { handleSteerRoute } from './api/SteerRoutes';
+import { handleScheduledTaskRoute } from './api/ScheduledTaskRoutes';
+import { createTaskScheduler } from './tasks/TaskRuntime';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { normalizeMcpToolResult } from './mcp/McpToolResult';
@@ -96,6 +98,29 @@ const MAX_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 const WORKSPACE_DIR = (() => { const root = path.resolve(process.env.IEXA_WORKSPACE || path.join(process.cwd(), 'workspace')); fs.mkdirSync(root, { recursive: true }); return fs.realpathSync.native(root); })();
 const CHECKPOINTS = new CheckpointStore(path.join(WORKSPACE_DIR, '.iexa-checkpoints'));
 const DIAGNOSTICS_DIR = path.join(WORKSPACE_DIR, '.iexa-diagnostics');
+const SCHEDULED_TASKS_FILE = path.join(WORKSPACE_DIR, '.iexa-scheduled-tasks.json');
+
+/**
+ * The scheduler talks to the same `/api/chat` endpoint a person uses, so a
+ * timed run goes through exactly one code path: model routing, permissions,
+ * persistence and broadcast all behave the way they do for a typed message.
+ */
+let localApiEndpoint: { baseUrl: string; token: string } | null = null;
+
+const taskScheduler = createTaskScheduler({
+  file: SCHEDULED_TASKS_FILE,
+  endpoint: () => localApiEndpoint,
+  loadSettings, loadSessionStore, saveSessionStore, saveMessages,
+  getProjectRoot, modelBindingForProfile, broadcastSessionEvent,
+});
+// Any open client refreshes its badge and list when a task fires, flips or is
+// removed; a scheduled run has no renderer stream of its own to report through.
+taskScheduler.onChange((task) => broadcastSessionEvent('scheduled_task_changed', {
+  id: task.id,
+  enabled: task.enabled,
+  status: task.lastStatus || null,
+  nextRunAt: task.nextRunAt,
+}));
 const APP_VERSION = (() => {
   try { return String(JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8')).version || 'unknown'); }
   catch { return 'unknown'; }
@@ -1742,7 +1767,7 @@ function createServer(auth: LocalApiAuth): http.Server {
     }
     if (req.method === 'OPTIONS') throw new HttpError(405, '应用仅接受同源请求。');
     if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE'].includes(req.method || '') &&
-        !(req.method === 'PATCH' && /^\/api\/sessions\/[A-Za-z0-9_-]+$/.test(url.pathname))) throw new HttpError(405, '请求方法无效。');
+        !(req.method === 'PATCH' && /^\/(api\/sessions|api\/scheduled-tasks)\/[A-Za-z0-9_-]+$/.test(url.pathname))) throw new HttpError(405, '请求方法无效。');
     if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/desktop-live.html') && isLoopbackRequest(req) && !isTLS(req) && !desktopAuthenticated) {
       req.url = '/auth-login.html'; serveStatic(req, res); return;
     }
@@ -1896,6 +1921,14 @@ function createServer(auth: LocalApiAuth): http.Server {
       workspaceDir: WORKSPACE_DIR, sessionsDir: SESSIONS_DIR, settingsFile: SETTINGS_FILE, sessionsStoreFile: SESSIONS_FILE,
       maskPassword: maskKey, loadConfig, saveConfig, testConnection, syncAll,
       listConflicts: listSyncConflicts, previewConflict: previewSyncConflict, resolveConflict: resolveSyncConflict,
+    })) return;
+
+    if (await handleScheduledTaskRoute(req, res, url, {
+      scheduler: taskScheduler,
+      listProfiles: () => loadSettings().profiles.map((profile) => ({ id: profile.id, name: profile.name, model: profile.model })),
+      listSessions: () => loadSessionStore().sessions.map((session) => ({ id: session.id, title: session.title })),
+      allowWrite: !mobileDevice || mobileDevice.capability === 'full',
+      now: Date.now,
     })) return;
 
     if (await handleRuntimeRoute(req, res, url, {
@@ -3502,10 +3535,12 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
     const srv = createServer(auth);
     serverAuth.set(srv, auth);
     srv.once('error', reject);
-    srv.once('close', () => { closeDesktopHelpers(); void terminalManager.shutdown(); void shellSessions.shutdown(); });
+    srv.once('close', () => { taskScheduler.stop(); closeDesktopHelpers(); void terminalManager.shutdown(); void shellSessions.shutdown(); });
     srv.listen(port, host, () => {
       const actualPort = typeof srv.address() === 'object' && srv.address() ? (srv.address() as { port: number }).port : port;
       if (!mobileBridge.isEnabled()) mobileBridge.setPort(0);
+      localApiEndpoint = { baseUrl: `http://${host}:${actualPort}`, token: auth.token };
+      taskScheduler.start();
       console.log(`[IEXA] Server running at http://${host}:${actualPort}`);
       if (autoOpen) {
         const launchUrl = options.trustLoopback === true
