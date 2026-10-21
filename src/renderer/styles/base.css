@@ -37,6 +37,11 @@
   --success: #3d8b5a;
   --error: #c44b4b;
   --warning: #c48a1a;
+  /* Links and emphasis share one readable sky tone. #1760ad clears 4.5:1 on the
+     page, the assistant surface and the grey user bubble alike; hover deepens
+     instead of lightening. */
+  --link: #1760ad;
+  --link-hover: #12508f;
   --radius: 12px;
   --radius-sm: 8px;
   /* default accent: second preset light blue */
@@ -79,6 +84,9 @@
   --bubble-user-bg: #303030;
   --bubble-user-fg: #f1ecec;
   --attach-chip-bg: rgba(255, 255, 255, 0.08);
+  /* Pastel sky on the dark canvas: 8.6:1 on #1c1c1f. */
+  --link: #7fb8f5;
+  --link-hover: #a6cdfa;
   --success: #6bcf8e;
   --error: #e57373;
   --warning: #e6b84d;

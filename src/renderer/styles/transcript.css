@@ -1070,6 +1070,42 @@ body.chat-focus-mode .message.user {
 .permission-action-danger { color: var(--text-primary); }
 .permission-action-secondary { background: var(--accent-light); }
 
+/* Links and emphasis share one sky tone so a URL never reads as plain prose.
+   The globe is a mask, so it inherits the link colour in every theme. */
+.message-content {
+  --icon-globe: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cellipse cx='12' cy='12' rx='4.2' ry='9'/%3E%3Cpath d='M3.4 9h17.2M3.4 15h17.2'/%3E%3C/svg%3E");
+}
+.message-content a[href] {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-thickness: .06em;
+  text-underline-offset: .18em;
+  text-decoration-color: color-mix(in srgb, var(--link) 45%, transparent);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: color .14s ease, text-decoration-color .14s ease;
+}
+.message-content a[href]:hover { color: var(--link-hover); text-decoration-color: currentColor; }
+.message-content a[href^="http"]::before,
+.message-content a[href^="mailto:"]::before {
+  content: '';
+  display: inline-block;
+  width: .92em;
+  height: .92em;
+  margin-right: .34em;
+  vertical-align: -.1em;
+  background-color: currentColor;
+  -webkit-mask: var(--icon-globe) center / contain no-repeat;
+  mask: var(--icon-globe) center / contain no-repeat;
+}
+.message-content strong { color: var(--link); font-weight: 620; }
+.message-content mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 12%, transparent);
+}
+
 .message-content p { margin-bottom: 8px; }
 .message-content p:last-child { margin-bottom: 0; }
 

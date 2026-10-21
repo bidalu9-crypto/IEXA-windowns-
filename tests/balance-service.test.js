@@ -7,7 +7,7 @@ const http = require('node:http');
 const { fetchProviderBalance, clearBalanceCache } = require('../dist/main/providers/BalanceService');
 
 let server, base;
-const hits = { subscription: 0, usage: 0, deepseek: 0, credits: 0 };
+const hits = { subscription: 0, usage: 0, deepseek: 0, credits: 0, pool: 0 };
 
 test.before(async () => {
   server = http.createServer((req, res) => {
@@ -37,6 +37,27 @@ test.before(async () => {
       hits.credits++;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ data: { total_credits: 20, total_usage: 5 } }));
+      return;
+    }
+    if (url === '/wb/status') {
+      hits.pool++;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        total: 3,
+        healthy: 2,
+        cooling: 1,
+        disabled: 0,
+        accounts: [
+          { uid: 'a1', credits: 812, credits_total: 2000, cooling: false },
+          { uid: 'a2', credits: 150, credits_total: 500, cooling: true },
+          { uid: 'a3', credits: 40, cooling: false, disabled: true },
+        ],
+      }));
+      return;
+    }
+    if (url === '/plain/status') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, service: 'something-else' }));
       return;
     }
     res.statusCode = 404;
@@ -90,6 +111,27 @@ test('OpenRouter credits subtract usage from the purchased total', async () => {
   assert.equal(direct.remaining, 15);
   assert.equal(direct.used, 5);
   assert.equal(direct.total, 20);
+});
+
+test('a WorkBuddy pool gateway reports its pool credits as the balance', async () => {
+  const result = await fetchProviderBalance({
+    id: 'wb', provider: 'custom', apiKey: 'sk-wb', baseURL: `${base}/wb/v1`,
+  });
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.equal(result.currency, 'credits');
+  assert.equal(result.remaining, 1002, 'credits sum across the pool');
+  assert.equal(result.total, 2500);
+  assert.equal(result.used, 1498);
+  assert.match(result.source, /账号池/);
+  assert.match(result.source, /3 个账号/);
+  assert.match(result.source, /1 个可用/, 'cooling and disabled accounts are counted separately');
+});
+
+test('an unrelated 200 at /status is not mistaken for a pool', async () => {
+  const result = await fetchProviderBalance({
+    id: 'plain', provider: 'custom', apiKey: 'sk-plain', baseURL: `${base}/plain/v1`,
+  });
+  assert.equal(result.status, 'unsupported', 'no accounts array means no reading');
 });
 
 test('a gateway without a balance route stays unsupported instead of guessing', async () => {

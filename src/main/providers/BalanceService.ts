@@ -6,6 +6,7 @@
  *
  *   DeepSeek        GET {root}/user/balance
  *   OpenRouter      GET {origin}/api/v1/credits
+ *   WorkBuddy 系    GET {root}/status            (账号池：accounts[].credits)
  *   New API / One API relays, OpenAI-compatible gateways
  *                   GET {root}/dashboard/billing/subscription
  *                   GET {root}/dashboard/billing/usage
@@ -139,6 +140,53 @@ function fromBilling(subscription: any, usage: any): ProviderBalance | null {
   };
 }
 
+/**
+ * WorkBuddy / workbuddy2api style gateways rotate a pool of upstream accounts
+ * and publish that pool at GET {root}/status (Bearer auth). Each account carries
+ * `credits` (remaining) and `credits_total` (the quota it was granted), so the
+ * pool's numbers are the caller's real allowance on this kind of relay.
+ *
+ * The shape is distinctive enough to detect: no `accounts` array, or entries
+ * without numeric credits, means this is some other gateway and we return null
+ * so the remaining probes still run.
+ */
+function fromWorkbuddyPool(body: any): ProviderBalance | null {
+  const accounts = Array.isArray(body?.accounts) ? body.accounts : null;
+  if (!accounts || accounts.length === 0) return null;
+  let remaining = 0;
+  let total = 0;
+  let counted = 0;
+  let usable = 0;
+  for (const account of accounts) {
+    const credits = amount(account?.credits);
+    if (credits === undefined) continue;
+    counted += 1;
+    remaining += credits;
+    const quota = amount(account?.credits_total);
+    if (quota !== undefined && quota > 0) total += quota;
+    if (account?.cooling !== true && account?.disabled !== true) usable += 1;
+  }
+  if (!counted) return null;
+  const pooled = total > 0 ? total : undefined;
+  return {
+    status: 'ok',
+    currency: 'credits',
+    remaining: Math.max(0, remaining),
+    total: pooled,
+    used: pooled === undefined ? undefined : Math.max(0, pooled - remaining),
+    source: usable < counted
+      ? `WorkBuddy 账号池 · ${counted} 个账号（${usable} 个可用）`
+      : `WorkBuddy 账号池 · ${counted} 个账号`,
+    updatedAt: Date.now(),
+  };
+}
+
+async function tryWorkbuddyPool(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
+  const result = await readJson(`${rootOf(base)}/status`, profile.apiKey, profile.userAgent);
+  if (result?.status !== 200) return null;
+  return fromWorkbuddyPool(result.body);
+}
+
 async function tryDeepSeek(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
   const result = await readJson(`${rootOf(base)}/user/balance`, profile.apiKey, profile.userAgent);
   if (result?.status !== 200) return null;
@@ -181,6 +229,9 @@ export async function fetchProviderBalance(profile: ModelProfileLike, options: {
   } else if (host.endsWith('openrouter.ai')) {
     attempts.push(tryCredits(`${new URL(base).origin}/api/v1/credits`, profile, 'OpenRouter 信用额度'));
   } else {
+    // Pool gateways answer /status with a distinctive body; probing it first
+    // keeps a 404-heavy relay from burning the other three requests.
+    attempts.push(tryWorkbuddyPool(base, profile));
     attempts.push(tryBilling(base, profile));
     attempts.push(tryCredits(`${rootOf(base)}/v1/credits`, profile, '网关信用额度'));
     attempts.push(tryDeepSeek(base, profile));

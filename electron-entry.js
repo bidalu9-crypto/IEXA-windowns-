@@ -576,6 +576,27 @@ ipcMain.handle('iexa:pick-skill-file', async () => {
   return readSkillFromPath(result.filePaths[0]);
 });
 
+// Open a link from the transcript in the system browser. Only web and mail
+// schemes are allowed: a model can emit any href, and handing `file:` or
+// `javascript:` to the shell would escape the page's sandbox.
+ipcMain.handle('iexa:open-external', async (_evt, rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.length > 4096) {
+    return { ok: false, error: '链接无效' };
+  }
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch { return { ok: false, error: '链接无效' }; }
+  if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+    return { ok: false, error: '只支持 http、https 与 mailto 链接' };
+  }
+  if (parsed.username || parsed.password) return { ok: false, error: '链接无效' };
+  try {
+    await shell.openExternal(parsed.href);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || '打开失败' };
+  }
+});
+
 // Open a path in the OS file manager (for managing skills dir)
 ipcMain.handle('iexa:open-path', async (_evt, targetPath) => {
   if (!targetPath || typeof targetPath !== 'string') {

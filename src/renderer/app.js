@@ -62,6 +62,23 @@ document.addEventListener('change', (event) => {
   }
 });
 
+// Transcript anchors are plain links: the sanitizer strips `target`, and the
+// Electron navigation guard refuses to leave the app. Route the click to the
+// system browser instead of letting it die silently.
+document.addEventListener('click', (event) => {
+  const anchor = event.target.closest?.('.message-content a[href]');
+  if (!anchor) return;
+  const href = anchor.getAttribute('href') || '';
+  if (!/^(https?:|mailto:)/i.test(href)) return;
+  event.preventDefault();
+  const bridge = window.iexaDesktop;
+  if (bridge && typeof bridge.openExternal === 'function') {
+    Promise.resolve(bridge.openExternal(href)).catch(() => {});
+    return;
+  }
+  window.open(href, '_blank', 'noopener');
+}, true);
+
 // Post-process rendered markdown: wrap code blocks with a header (lang + copy button)
 function enhanceCodeBlocks(rootEl) {
   if (!rootEl) return;

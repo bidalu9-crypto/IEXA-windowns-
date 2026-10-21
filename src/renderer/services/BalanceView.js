@@ -26,6 +26,14 @@ function balanceElement(id) {
 function formatBalanceMoney(value, currency, compact = true) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
+  // Pool gateways meter in credits, not money: no symbol, and the unit is the
+  // word itself so "1,234 积分" reads correctly at any size.
+  if (currency === 'credits') {
+    const body = compact && Math.abs(number) >= 1000
+      ? (number / 1000).toFixed(1) + 'k'
+      : number.toLocaleString('zh-CN', { maximumFractionDigits: compact ? 0 : 2 });
+    return body + ' 积分';
+  }
   const symbol = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '';
   const absolute = Math.abs(number);
   const body = compact

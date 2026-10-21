@@ -41,6 +41,17 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
       res.end('boom');
       return;
     }
+    if (url === '/pool/status') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        total: 2, healthy: 1, cooling: 1, disabled: 0,
+        accounts: [
+          { uid: 'w1', credits: 812, credits_total: 2000, cooling: false },
+          { uid: 'w2', credits: 150, credits_total: 500, cooling: true },
+        ],
+      }));
+      return;
+    }
     res.statusCode = 404;
     res.end('not found');
   });
@@ -67,6 +78,7 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
   for (const profile of [
     { id: 'balance-on', name: 'relay-model', provider: 'custom', model: 'gpt-6-pro', apiKey: 'sk-test', baseURL: `${relay}/relay/v1` },
     { id: 'balance-off', name: 'dead-model', provider: 'custom', model: 'gpt-6-pro', apiKey: 'sk-dead', baseURL: 'http://127.0.0.1:9/v1' },
+    { id: 'pool-on', name: 'pool-model', provider: 'custom', model: 'gpt-6-pro', apiKey: 'sk-pool', baseURL: `${relay}/pool/v1` },
   ]) {
     const created = await api('/api/profiles', 'POST', { ...profile, contextWindow: 200000, maxOutputTokens: 1024, apiKey: profile.apiKey });
     assert.equal(created.status, 200, JSON.stringify(created.body));
@@ -210,6 +222,20 @@ test('real browser: balance chip reports, expands and hides when unsupported', {
   await new Promise((resolve) => setTimeout(resolve, 120));
   await evaluate("void window.IexaBalance.refresh(true); true");
   await wait("document.getElementById('balanceWrap').hidden === false");
+
+  // A WorkBuddy-style pool gateway meters in credits: the chip shows the unit
+  // instead of a currency symbol, and the receipt explains where it came from.
+  await evaluate("void selectModelProfile('pool-on'); true");
+  await wait("document.getElementById('balanceWrap').hidden === false && /积分/.test(document.getElementById('balanceValue').textContent)");
+  assert.equal(await evaluate("document.getElementById('balanceValue').textContent"), '962 积分');
+  const poolTitle = await evaluate("document.getElementById('balanceChip').title");
+  assert.match(poolTitle, /962 积分/);
+  await evaluate("document.getElementById('balanceChip').click(); true");
+  await wait("!document.getElementById('balancePopover').hidden");
+  const poolReceipt = await evaluate("document.getElementById('balancePopover').textContent.replace(/\\s+/g, ' ').trim()");
+  assert.match(poolReceipt, /962 积分/);
+  assert.match(poolReceipt, /账号池/);
+  assert.match(poolReceipt, /1 个可用/);
 
   // The key is used server-side only.
   const payload = await (await fetch(`${endpoint}/api/profiles/balance-on/balance`, {
