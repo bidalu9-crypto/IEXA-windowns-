@@ -3,7 +3,7 @@
 // Native desktop window using the local agent server
 // =============================================================================
 
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session, crashReporter } = require('electron');
+const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session, crashReporter, desktopCapturer } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { UpdateService } = require('./dist/main/update/UpdateService');
 const path = require('path');
@@ -644,6 +644,101 @@ function createUpdateService() {
   }
 }
 
+// ---- Screen capture ----
+// Chromium's own picker is not available in Electron: getDisplayMedia rejects
+// unless the main process supplies a source. This shows a small picker with the
+// available screens and windows, then hands the chosen source back.
+let capturePickerOpen = false;
+
+function pickCaptureSource() {
+  return new Promise((resolve) => {
+    if (capturePickerOpen) { resolve(null); return; }
+    capturePickerOpen = true;
+
+    let sources = [];
+    let settled = false;
+    let picker = null;
+
+    const finish = (source) => {
+      if (settled) return;
+      settled = true;
+      capturePickerOpen = false;
+      ipcMain.removeListener('iexa:capture-choose', onChoose);
+      ipcMain.removeListener('iexa:capture-cancel', onCancel);
+      if (picker && !picker.isDestroyed()) picker.destroy();
+      resolve(source || null);
+    };
+    const onChoose = (_event, id) => finish(sources.find((item) => item.id === String(id)) || null);
+    const onCancel = () => finish(null);
+
+    ipcMain.on('iexa:capture-choose', onChoose);
+    ipcMain.on('iexa:capture-cancel', onCancel);
+
+    desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 320, height: 200 },
+      fetchWindowIcons: false,
+    }).then((list) => {
+      if (settled) return;
+      sources = list;
+      if (!sources.length) { finish(null); return; }
+
+      picker = new BrowserWindow({
+        width: 760,
+        height: 560,
+        minWidth: 520,
+        minHeight: 380,
+        parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+        modal: true,
+        show: false,
+        title: '选择要截图的画面',
+        backgroundColor: '#14161c',
+        autoHideMenuBar: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: false,
+          preload: path.join(__dirname, 'resources', 'capture-picker-preload.js'),
+        },
+      });
+      picker.setMenuBarVisibility(false);
+      picker.on('closed', () => finish(null));
+      picker.once('ready-to-show', () => { if (!picker.isDestroyed()) picker.show(); });
+      // ipcMain.handle is refused for file:// senders ("Untrusted IPC sender"),
+      // so the list is injected once the page scripts are in place.
+      picker.webContents.on('did-finish-load', () => {
+        if (!picker || picker.isDestroyed()) return;
+        const payload = sources.map((item) => ({
+          id: item.id,
+          name: item.name || (item.id.startsWith('screen:') ? '屏幕' : '窗口'),
+          kind: item.id.startsWith('screen:') ? 'screen' : 'window',
+          thumbnail: item.thumbnail && !item.thumbnail.isEmpty() ? item.thumbnail.toDataURL() : '',
+        }));
+        picker.webContents.executeJavaScript(`window.__setSources(${JSON.stringify(payload)}); true`).catch(() => {});
+      });
+      picker.loadFile(path.join(__dirname, 'resources', 'capture-picker.html'));
+    }).catch(() => finish(null));
+  });
+}
+
+function installDisplayMediaHandler() {
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    // The callback is one-shot: a cancel plus a window close must not answer twice.
+    let answered = false;
+    const answer = (payload) => {
+      if (answered) return;
+      answered = true;
+      try { callback(payload); } catch { /* request already gone */ }
+    };
+    try {
+      const source = await pickCaptureSource();
+      answer(source ? { video: source } : {});
+    } catch {
+      answer({});
+    }
+  }, { useSystemPicker: false });
+}
+
 // ---- App Lifecycle ----
 // Scope Chromium cookies/cache to the same explicit workspace as the backend.
 ensureInstanceWorkspace();
@@ -664,6 +759,7 @@ app.whenReady().then(async () => {
 
     await startBackendServer();
     await waitForServer();
+    installDisplayMediaHandler();
     createWindow();
     if (!HEADLESS) createTray();
     createUpdateService();

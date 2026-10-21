@@ -85,6 +85,13 @@ test('real browser: resume unlocks the composer and screenshots annotate', { ski
   await wait("typeof currentSessionId !== 'undefined' && currentSessionId");
   await wait("typeof handlePaused === 'function' && typeof syncPausedBanner === 'function'");
 
+  // The camera sits left of the microphone, then send/stop at the edge.
+  assert.deepEqual(
+    await evaluate("Array.from(document.querySelectorAll('.input-actions > button')).map((b) => b.id)"),
+    ['screenshotBtn', 'voiceBtn', 'sendBtn', 'stopBtn'],
+    'action row order',
+  );
+
   // --- Pause parks the composer, resume must restore a live turn's controls ---
   await evaluate(`(() => {
     window.__realFetch = window.fetch;

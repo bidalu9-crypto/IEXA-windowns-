@@ -353,6 +353,9 @@
                 accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
               <textarea id="chatInput" placeholder="描述任务，使用 / 查看命令" rows="1"></textarea>
               <div class="input-actions">
+                <button type="button" id="screenshotBtn" class="screenshot-btn" title="截图标注 (Ctrl+Shift+S)" aria-label="截图标注">
+                  <svg class="screenshot-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="#ui-camera"/></svg>
+                </button>
                 <button type="button" id="voiceBtn" class="voice-btn" title="语音输入" aria-label="开始语音输入">
                   <svg class="voice-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <defs>
@@ -365,9 +368,6 @@
                     <rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>
                   </svg>
                   <span class="voice-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-                </button>
-                <button type="button" id="screenshotBtn" class="screenshot-btn" title="截图标注 (Ctrl+Shift+S)" aria-label="截图标注">
-                  <svg class="screenshot-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="#ui-camera"/></svg>
                 </button>
                 <button type="button" id="sendBtn" title="发送 (Enter)" aria-label="发送">
                   <svg class="send-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
