@@ -59,12 +59,27 @@ export class TranscriptRecorder {
     this.add({ type: 'tool', callId, name });
   }
   /** Marks the exact point where a checkpoint replaced older history. */
-  recordCompaction(before: number, after: number): void {
-    if (this.status !== 'running') return;
+  recordCompaction(before: number, after: number): void {    if (this.status !== 'running') return;
     const from = Math.max(0, Math.floor(Number(before) || 0));
     const to = Math.max(0, Math.floor(Number(after) || 0));
     this.closeThinking(); this.revision++;
     this.add({ type: 'compaction', before: from, after: to });
+  }
+  /**
+   * Adopt the events of an interrupted turn so continuing it keeps one
+   * transcript instead of starting a second one. `carried` must be the text the
+   * restored ranges were measured against, or later deltas would look replaced.
+   */
+  restore(events: TranscriptEvents | undefined, carried: { text?: string; thinking?: string } = {}): void {
+    if (!events || events.version !== 1 || !Array.isArray(events.items)) return;
+    this.text = String(carried.text || '');
+    this.thinking = String(carried.thinking || '');
+    for (const item of events.items) {
+      if (this.items.length >= this.maxItems) { this.invalidReason = 'event_limit'; break; }
+      this.items.push({ ...item, sequence: this.items.length + 1, id: `${this.turnId}:${this.items.length + 1}` } as TranscriptItem);
+      if (item.type === 'tool') this.toolIds.add(item.callId);
+    }
+    if (!events.valid) this.invalidReason = events.invalidReason || 'restored_invalid';
   }
   finish(status: Exclude<TranscriptEvents['status'], 'running'>): void {
     if (this.status !== 'running') return;

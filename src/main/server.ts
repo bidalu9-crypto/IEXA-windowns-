@@ -91,6 +91,9 @@ import { MobileBridgeDevice, MobileBridgeManager } from './mobile/MobileBridgeMa
 import * as QRCode from 'qrcode';
 import { StreamBatcher } from './api/StreamBatcher';
 import { TranscriptRecorder, TranscriptEvents } from './session/TranscriptRecorder';
+import { markInterruptedTurns } from './session/InterruptedTurns';
+import { createTurnCheckpoint, planResume } from './session/TurnDurability';
+import type { ChatMessage, ChatAttachmentMeta } from './session/ChatMessage';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -507,50 +510,6 @@ function maskKey(key: string): string {
 }
 
 // ---- Session Types ----
-interface ChatAttachmentMeta {
-  name: string;
-  mime: string;
-  kind: 'image' | 'text' | 'file';
-  savedPath?: string;
-  /** Small preview only for images (may be omitted for large files on reload) */
-  previewUrl?: string;
-}
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  thinking?: string;
-  transcript?: TranscriptEvents;
-  thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
-  toolCalls?: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; executionStatus?: import('./runtime/ToolLifecycle').ToolExecutionStatus; durationMs?: number; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[];
-  fileUndo?: { paths: string[]; timestamp: number };
-  /** Files changed successfully in this assistant turn, independent of final prose. */
-  deliverables?: { path: string; absolutePath?: string; added?: number; removed?: number }[];
-  usage?: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; inputTokensAreFresh?: boolean };
-  /** Wall-clock length of the turn that produced this reply, measured from the chat request to the final save. */
-  durationMs?: number;
-  /** Wall-clock spent inside provider streams this turn (tool time excluded). */
-  generationMs?: number;
-  /** Encoding of the rate bookkeeping; only version 2 is decode-only. */
-  generationRateVersion?: number;
-  /** Prompt-prefill wait before the first streamed token, summed over steps. */
-  firstTokenMs?: number;
-  /**
-   * Set when `inputTokens` is the fresh, uncached part of the prompt.
-   *
-   * Anthropic reports input_tokens that way; OpenAI, DeepSeek and Gemini report
-   * prompt_tokens as the WHOLE prompt with the cached span inside it. Records
-   * written before the adapters were normalised lack this marker and carry the
-   * inclusive figure, which made a fully cached turn read as 50% instead of
-   * 100% - see normalizeLegacyUsage.
-   */
-  inputTokensAreFresh?: boolean;
-  attachments?: ChatAttachmentMeta[];
-  /** A follow-up the user injected into the turn while it was still running. */
-  steered?: boolean;
-  timestamp: number;
-}
-
 interface IncomingAttachment {
   name?: string;
   mime?: string;
@@ -657,8 +616,12 @@ function bindSessionProject(sessionId: string, root: string | null): Session | n
   return session;
 }
 
-function loadMessages(sessionId: string): ChatMessage[] {
-  try {
+/**
+ * A turn left `running` or `paused` by a killed process can never finish on its
+ * own. `markInterruptedTurns` rewrites it to `interrupted` so reopening the app
+ * offers to continue it instead of presenting half a turn as if it completed.
+ */
+function loadMessages(sessionId: string): ChatMessage[] {  try {
     const messages = messageStore.loadSync(sessionId) || [];
     normalizeLegacyUsage(messages);
     return messages;
@@ -967,7 +930,6 @@ function recordTokenUsage(profile: ModelProfile, usage: LLMUsage): void {
   record.updatedAt = Date.now();
   new JsonStore<TokenUsageRecord[]>(TOKEN_USAGE_FILE, () => records).saveSync(records);
 }
-
 // ---- Agent (per session) ----
 const agentCache = new Map<string, AgentRuntime>();
 /** Metadata for accepted-but-not-yet-committed steers, keyed by session+id. */
@@ -1015,7 +977,6 @@ interface RegisteredArtifact { path: string; mimeType: string; size: number; cre
 const artifactRegistry = new class extends Map<string, RegisteredArtifact> {
   override set(id: string, value: RegisteredArtifact): this { super.delete(id); super.set(id, value); while (this.size > 512) super.delete(this.keys().next().value!); return this; }
 }();
-
 
 type JobStatus = import('./runtime/ToolLifecycle').ToolExecutionStatus;
 interface SessionJob {
@@ -1343,8 +1304,8 @@ async function saveSessionMessages(
   existingMessages: ChatMessage[],
   userMsg: ChatMessage,
   assistantText: string,
-  toolCalls: { id: string; name: string; args: Record<string, unknown>; result?: { metadata?: Record<string, unknown>; output: string; success: boolean; todos?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>; pluginUI?: import('./plugins/PluginPresentation').PluginPresentation; fileChange?: NonNullable<import('./providers/types').ToolExecutionResult['fileChange']>; artifacts?: NonNullable<import('./providers/types').ToolExecutionResult['artifacts']> } }[],
-  usage: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number; inputTokensAreFresh?: boolean } | undefined,
+  toolCalls: NonNullable<ChatMessage['toolCalls']>,
+  usage: ChatMessage['usage'],
   thinking = '',
   thinkingLevel = getThinkingLevel(),
   transcript?: TranscriptEvents,
@@ -1360,42 +1321,26 @@ async function saveSessionMessages(
     .map(call => call.result!.fileChange!))
     .map(file => ({ path: file.path, absolutePath: file.absolutePath, added: file.added, removed: file.removed }));
   const assistantMsg: ChatMessage = {
-    role: 'assistant',
-    content: assistantText,
-    thinking: thinking || undefined,
-    transcript,
+    role: 'assistant', content: assistantText, thinking: thinking || undefined, transcript,
     thinkingLevel: thinking ? normalizeThinkingLevel(thinkingLevel) : undefined,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
-    usage: usage,
-    durationMs,
+    usage, durationMs, timestamp: Date.now(),
     ...(generationMs > 0 ? {
-      generationMs,
-      generationRateVersion: STREAM_RATE_VERSION,
+      generationMs, generationRateVersion: STREAM_RATE_VERSION,
       ...(firstTokenMs > 0 ? { firstTokenMs } : {}),
     } : {}),
-    timestamp: Date.now(),
   };
-  // Steered prompts happened between the opening prompt and the final reply;
-  // keep them in that position so a reload never rewrites the user's sequence.
+  // Steered prompts keep their position between prompt and reply.
   const updatedMessages = [...existingMessages, userMsg, ...steeredMessages, assistantMsg];
-
-  // Limit to last 200 messages per session (prevent bloat)
-  const trimmed = updatedMessages.length > 200
-    ? updatedMessages.slice(updatedMessages.length - 200)
-    : updatedMessages;
+  const trimmed = updatedMessages.length > 200 ? updatedMessages.slice(updatedMessages.length - 200) : updatedMessages;
 
   await saveMessages(sessionId, trimmed);
 
-  // Grab the Codex-style compaction summary from the agent (if any)
-  const agent = agentCache.get(sessionId);
-  const summary = agent ? agent.getCompactorSummary() : '';
   // The usage record is resolved inside saveSessionContext, which owns the file
-  // format. Keeping it out of this call also keeps this function self-contained
-  // for tests that evaluate it in isolation.
-  saveSessionContext(sessionId, updatedMessages, summary);
+  // format; keeping it out of this call keeps this function self-contained.
+  saveSessionContext(sessionId, updatedMessages, agentCache.get(sessionId)?.getCompactorSummary() || '');
 
-  // Update session metadata
   const store = loadSessionStore();
   const sess = store.sessions.find(s => s.id === sessionId);
   if (sess) {
@@ -1416,20 +1361,14 @@ function backfillSessionContexts(): void {
     }
   } catch { /* best effort during startup */ }
 }
-
 // ---- Agent (per session) ----
 // Agents are now cached per session via getOrCreateAgent()/cancelSessionAgent()
 // See agentCache Map above.
-
 
 // 'wasm-unsafe-eval' lets the desktop pet's local u2netp inference compile its
 // wasm module. It is far narrower than 'unsafe-eval': it permits WebAssembly
 // instantiation only, never string-to-JS evaluation.
 const APP_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
-
-
-
-
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
   const pathname = new URL(req.url || '/', 'http://localhost').pathname;
@@ -1750,8 +1689,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       req.url = '/auth-login.html'; serveStatic(req, res); return;
     }
 
-
-    // Pairing is the only API reachable from an untrusted LAN client. Static
+// Pairing is the only API reachable from an untrusted LAN client. Static
     // assets remain public so the browser can render the pairing screen.
     if (url.pathname === '/api/mobile-bridge/client-status' && req.method === 'GET') {
       if (desktopAuthenticated) { jsonReply(res, 200, { local: true, authenticated: true, capability: 'full' }); return; }
@@ -2511,13 +2449,15 @@ function createServer(auth: LocalApiAuth): http.Server {
       let ownsSessionLock = false;
       try {
         const parsed = JSON.parse(body);
-        const message: string = parsed.message || '';
+        let message: string = parsed.message || '';
         const sessionId: string = parsed.sessionId || '';
         const sourceClientId = String(req.headers['x-iexa-client-id'] || parsed.clientId || '');
         if (req.headers['x-iexa-stream'] === 'delta') deltaClients.set(res, new Map());
         requestSessionId = sessionId;
         const rawAttachments: IncomingAttachment[] = Array.isArray(parsed.attachments) ? parsed.attachments : [];
-        if (!message && rawAttachments.length === 0) throw new Error('message required');
+        // A continuation carries no new prompt: the text it resumes already
+        // exists on disk and is replayed from there.
+        if (!message && rawAttachments.length === 0 && parsed.continueTurn !== true) throw new Error('message required');
         if (!sessionId) throw new Error('sessionId required');
 
         const profile = profileForSession(sessionId);
@@ -2769,14 +2709,34 @@ ${recentMemories}
           metaAttachments.push({ name: safeName, mime, kind, savedPath, previewUrl });
         }
 
-        // Save user message
-        const userMsg: ChatMessage = {
-          role: 'user',
-          content: message,
-          attachments: metaAttachments.length ? metaAttachments : undefined,
-          timestamp: Date.now(),
-        };
-        const existingMessages = loadMessages(sessionId);
+        // Continue a turn that was interrupted by a pause followed by a restart.
+        // The partial assistant message is already on disk: the model must see
+        // it, and the new reply replaces it instead of appending a second one.
+        const continueTurn = parsed.continueTurn === true;
+        let priorAssistantText = ''; // prose streamed before the restart
+        /** Steered user prompts applied inside this turn, preserved in order. */
+        const steeredMessages: ChatMessage[] = [];
+        let resumedAssistant: ChatMessage | undefined;
+        let userMsg: ChatMessage;
+        let existingMessages: ChatMessage[];
+        if (continueTurn) {
+          const plan = planResume(loadMessages(sessionId));
+          if (!plan) throw new Error('没有可继续的回合。');
+          userMsg = plan.userMsg;
+          existingMessages = plan.existingMessages;
+          resumedAssistant = plan.assistant;
+          priorAssistantText = plan.priorText;
+          steeredMessages.push(...plan.steeredMessages);
+          message = userMsg.content;
+        } else {
+          userMsg = {
+            role: 'user',
+            content: message,
+            attachments: metaAttachments.length ? metaAttachments : undefined,
+            timestamp: Date.now(),
+          };
+          existingMessages = loadMessages(sessionId);
+        }
 
         // Provisional sidebar title from first user message (like iOS pre-AI state)
         const store = loadSessionStore();
@@ -2844,9 +2804,19 @@ ${recentMemories}
         let assistantThinkingText = '';
         const transcriptRecorder = new TranscriptRecorder();
         let assistantToolCalls: ChatMessage['toolCalls'] = [];
-        /** Steered user prompts applied inside this turn, preserved in order. */
-        const steeredMessages: ChatMessage[] = [];
         let lastUsage: { inputTokens: number; outputTokens: number; cacheReadInputTokens?: number } | undefined;
+        // Continuing an interrupted turn keeps everything it already produced:
+        // the prose, the reasoning, the finished tool calls and their events.
+        if (resumedAssistant) {
+          assistantFullText = resumedAssistant.content || '';
+          assistantThinkingText = resumedAssistant.thinking || '';
+          assistantToolCalls = [...(resumedAssistant.toolCalls || [])];
+          lastUsage = resumedAssistant.usage;
+          transcriptRecorder.restore(resumedAssistant.transcript, {
+            text: assistantFullText,
+            thinking: assistantThinkingText,
+          });
+        }
         let titleJob: Promise<void> | null = null;
         const streamBatcher = new StreamBatcher((event: string, data: unknown) => {
           sendSSE(res, event, data);
@@ -2855,6 +2825,22 @@ ${recentMemories}
         const emitTurnEvent = (event: string, data: unknown) => streamBatcher.emit(event, data);
         // event: 'turn_started' carries the model-clamped level to paired clients.
         emitTurnEvent('turn_started', { timestamp: userMsg.timestamp, thinkingLevel: effectiveThinkingLevel, transcriptTurnId: transcriptRecorder.turnId });
+
+        // Crash-safe checkpoint: without it a turn killed mid-flight left only
+        // the user message on disk and every finished tool result was lost.
+        const checkpoint = createTurnCheckpoint<ChatMessage>({
+          snapshot: (status) => [...existingMessages, userMsg, ...steeredMessages, {
+            role: 'assistant',
+            content: assistantFullText,
+            thinking: assistantThinkingText || undefined,
+            transcript: transcriptRecorder.snapshot(),
+            toolCalls: assistantToolCalls.length ? assistantToolCalls : undefined,
+            usage: lastUsage,
+            status,
+            timestamp: Date.now(),
+          }],
+          save: (messages) => saveMessages(sessionId, messages.slice(-200)),
+        });
 
         // iOS: generateSessionTitleIfNeeded after each LLM stream completes
         const maybeAiTitle = async () => {
@@ -2880,9 +2866,13 @@ ${recentMemories}
         const runChanges: FileChange[] = [];
         const cb: AgentLoopCallbacks = {
           onTextDelta: (_t, ft) => {
-            assistantFullText = ft;
-            transcriptRecorder.recordText(ft);
-            emitTurnEvent('text', { content: ft });
+            // A resumed loop is a fresh instance: its display text starts empty,
+            // so the prose already streamed before the restart is prepended here
+            // instead of being lost when this callback overwrites the buffer.
+            assistantFullText = continueTurn ? priorAssistantText + ft : ft;
+            transcriptRecorder.recordText(assistantFullText);
+            checkpoint.schedule();
+            emitTurnEvent('text', { content: assistantFullText });
           },
           // Enforce the user's setting at the final transport boundary too.
           // This covers compatible gateways that emit reasoning despite an
@@ -2952,6 +2942,9 @@ ${recentMemories}
               imageData: r.imageData ? r.imageData.toString('base64') : undefined,
               imageMimeType: r.imageMimeType,
             });
+            // A finished tool result is the most valuable thing to keep if the
+            // process dies before the next step: flush it immediately.
+            void checkpoint.flush('running');
           },
           onRetry: (attempt, delayMs, error) => emitTurnEvent('retry', { attempt, delayMs, error }),
           onSteerApplied: ({ id, text }) => {
@@ -2975,6 +2968,9 @@ ${recentMemories}
           // Parked, not finished: the response stays open and the same turn
           // continues on resume, so nothing is persisted or finalised here.
           onPaused: () => {
+            // Parked, not finished: keep the partial turn on disk so a restart
+            // can continue it instead of losing every completed tool result.
+            void checkpoint.flush('paused');
             emitTurnEvent('paused', { sessionId, turn: agent ? agent.getState?.() : undefined });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_paused' }, sourceClientId);
           },
@@ -2995,6 +2991,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'failed'; item.success = false; item.finishedAt = Date.now(); item.outputPreview = String(e || '').slice(0, 320); });
             if (job) emitTurnEvent('job', job);
+            await checkpoint.settle();
             await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0, agent ? agent.getTimeToFirstTokenMs() : 0);
             emitTurnEvent('error', { message: e });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -3005,6 +3002,7 @@ ${recentMemories}
             clearPermissionSubscription(sessionId);
             const job = updateJobById(turnJob.id, (item) => { item.status = 'completed'; item.success = true; item.finishedAt = Date.now(); item.outputPreview = assistantFullText.replace(/\s+/g, ' ').slice(0, 320) || '模型已完成回复'; });
             if (job) emitTurnEvent('job', job);
+            await checkpoint.settle();
             await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0, agent ? agent.getTimeToFirstTokenMs() : 0);
             // Unlock UI first (iOS generates title async in background Task)
             emitTurnEvent('done', { stopReason: sr, generationMs: agent ? agent.getGenerationMs() : 0, generationRateVersion: STREAM_RATE_VERSION, firstTokenMs: agent ? agent.getTimeToFirstTokenMs() : 0 });
@@ -3019,6 +3017,7 @@ ${recentMemories}
             const job = updateJobById(turnJob.id, (item) => { item.status = 'cancelled'; item.finishedAt = Date.now(); });
             if (job) emitTurnEvent('job', job);
             cancelLiveJobs(sessionId);
+            await checkpoint.settle();
             await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText, assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel, transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages, agent ? agent.getGenerationMs() : 0, agent ? agent.getTimeToFirstTokenMs() : 0);
             emitTurnEvent('cancelled', {});
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_finished' }, sourceClientId);
@@ -3040,7 +3039,7 @@ ${recentMemories}
           };
         }
         try {
-          await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments });
+          await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments }, { continueTurn });
           await terminalWork;
         } finally {
           streamBatcher.flush();
@@ -3534,6 +3533,8 @@ export function startServer(port: number = PORT, autoOpen: boolean = true, host:
   return new Promise((resolve, reject) => {
     if (!['127.0.0.1', '::1', 'localhost'].includes(host)) { reject(new Error('Desktop listener must use loopback; use the HTTPS mobile bridge for LAN.')); return; }
     backfillSessionContexts();
+    const repairedTurns = markInterruptedTurns(WORKSPACE_DIR, messageStore);
+    if (repairedTurns > 0) console.log(`[IEXA] Marked ${repairedTurns} unfinished turn(s) as interrupted`);
     const auth = new LocalApiAuth(options.trustLoopback === true);
     const srv = createServer(auth);
     serverAuth.set(srv, auth);

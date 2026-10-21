@@ -1756,6 +1756,8 @@ async function runChatTurn(message, displayText, attachments, opts) {
   // Measured from the send, so attachment uploads count toward the turn timer.
   const turnStartedAt = Date.now();
   setProcessing(true);
+  const turnRuntime = runtimeForSession(sessionId);
+  if (turnRuntime) turnRuntime.interruptedTurn = null;
   snapshotActiveSessionRuntime();
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
@@ -1768,6 +1770,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
       body: JSON.stringify({
         message: message || displayText,
         sessionId: sessionId,
+        continueTurn: opts.continueTurn === true,
         attachments: (preparedAttachments || []).map(function (a) {
           return {
             name: a.name,
@@ -2170,9 +2173,20 @@ function syncPausedBanner() {
   if (!banner) return;
   const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
   const paused = runtime?.isPaused === true;
-  banner.hidden = !paused;
-  if (paused) {
-    statusText.textContent = '已暂停';
+  const interrupted = !paused && !!runtime?.interruptedTurn;
+  banner.hidden = !paused && !interrupted;
+  if (paused || interrupted) {
+    const title = banner.querySelector('.paused-banner-text strong');
+    const hint = banner.querySelector('.paused-banner-text small');
+    if (title) title.textContent = interrupted ? '任务已中断' : '任务已暂停';
+    if (hint) {
+      hint.textContent = interrupted
+        ? `已保留 ${runtime.interruptedTurn.toolCalls || 0} 次工具结果，继续后从断开处接着执行。`
+        : '工具结果与进度已保留，继续后从当前位置接着执行。';
+    }
+    const resume = document.getElementById('pausedResume');
+    if (resume && !resume.dataset.busy) resume.textContent = '继续';
+    statusText.textContent = interrupted ? '已中断' : '已暂停';
     statusDot.className = 'status-dot paused';
     // A parked turn cannot accept follow-ups: typing would queue against a
     // stream that is not consuming, so the composer waits with it. The banner
@@ -2242,9 +2256,22 @@ async function pauseProcessing() {
 async function resumeProcessing() {
   if (!currentSessionId) return;
   const runtime = runtimeForSession(currentSessionId);
-  if (!runtime.isPaused) return;
   const button = document.getElementById('pausedResume');
-  if (button) { button.disabled = true; button.textContent = '继续中…'; }
+  // An interrupted turn has no live stream to un-park: the work is on disk and
+  // continuing means asking the model to carry on from that history.
+  if (!runtime.isPaused && runtime.interruptedTurn) {
+    if (button) { button.disabled = true; button.dataset.busy = '1'; button.textContent = '继续中…'; }
+    runtime.interruptedTurn = null;
+    hidePausedBanner();
+    try {
+      await runChatTurn('', '', [], { continueTurn: true });
+    } finally {
+      if (button) { button.disabled = false; delete button.dataset.busy; button.textContent = '继续'; }
+    }
+    return;
+  }
+  if (!runtime.isPaused) return;
+  if (button) { button.disabled = true; button.dataset.busy = '1'; button.textContent = '继续中…'; }
   try {
     const response = await fetch(API_BASE + '/api/resume?sessionId=' + encodeURIComponent(currentSessionId), { method: 'POST' });
     if (!response.ok) throw new Error('任务已经结束，无法继续。');
@@ -2258,7 +2285,7 @@ async function resumeProcessing() {
     showWaitingIndicator();
     snapshotActiveSessionRuntime();
   } catch (error) {
-    if (button) { button.disabled = false; button.textContent = '继续'; }
+    if (button) { button.disabled = false; delete button.dataset.busy; button.textContent = '继续'; }
     addError(error.message || '继续失败。');
   }
 }

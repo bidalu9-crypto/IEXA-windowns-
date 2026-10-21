@@ -61,7 +61,7 @@ export class AgentRuntime {
     this.state = { sessionId: config.sessionId, status: 'idle', turn: 0, toolCalls: 0, startedAt: 0, updatedAt: Date.now(), budget: this.budget.snapshot() };
   }
   async initialize(): Promise<void> { await this.tools.initialize(); await this.loop.initialize(); }
-  async run(request: AgentRequest): Promise<void> {
+  async run(request: AgentRequest, options: { continueTurn?: boolean } = {}): Promise<void> {
     if (this.activeRun) throw new Error('This session already has a running or cancelling turn.');
     this.tools.beginRun(request.tools.map((tool) => tool.name)); const runSignal = this.cancellation.begin(this.config.sessionId); this.traceOffset = this.trace.cursor(); this.trace.event('run_started', { sessionId: this.config.sessionId }); this.metrics.increment('runs_started'); this.state = { ...this.state, status: 'running', turn: 0, toolCalls: 0, startedAt: Date.now(), updatedAt: Date.now(), budget: this.budget.snapshot() };
     let terminal: (() => void) | undefined;
@@ -76,7 +76,7 @@ export class AgentRuntime {
     };
     this.activeRun = true;
     try {
-      await this.loop.run(request.message, request.tools, callbacks, request.attachments);
+      await this.loop.run(request.message, request.tools, callbacks, request.attachments, options.continueTurn ? { resume: true } : undefined);
       // A paused turn keeps this run alive: the session lock, the SSE response
       // and the agent history all stay in place until resume or cancel.
       while (this.loop.isPaused()) {

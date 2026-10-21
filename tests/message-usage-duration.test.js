@@ -198,13 +198,15 @@ test('the turn start, freeze and persistence are wired into the real flows', () 
   assert.ok(appSource.includes('el.dataset.durationMs = String(durationMs)'), 'history restores the persisted duration');
 
   const server = fs.readFileSync(path.join(root, 'src/main/server.ts'), 'utf8');
-  assert.ok(server.includes('durationMs?: number;'), 'the message record stores the duration');
+  // The record shape lives in its own module so the server stays a bootstrap.
+  const messageRecord = fs.readFileSync(path.join(root, 'src/main/session/ChatMessage.ts'), 'utf8');
+  assert.ok(messageRecord.includes('durationMs?: number;'), 'the message record stores the duration');
   assert.ok(server.includes('const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;'),
     'the server measures wall-clock time');
   assert.equal((server.match(/transcriptRecorder\.snapshot\(\), chatTurnStartedAt, steeredMessages, agent \? agent\.getGenerationMs\(\) : 0, agent \? agent\.getTimeToFirstTokenMs\(\) : 0\)/g) || []).length, 3,
     'done, error and cancelled all persist decode time and prefill wait');
-  assert.ok(server.includes('generationMs?: number;'), 'the message record stores decode time');
-  assert.ok(server.includes('generationRateVersion?: number;'), 'the record marks which rate formula produced it');
+  assert.ok(messageRecord.includes('generationMs?: number;'), 'the message record stores decode time');
+  assert.ok(messageRecord.includes('generationRateVersion?: number;'), 'the record marks which rate formula produced it');
   assert.ok(server.includes("emitTurnEvent('done', { stopReason: sr, generationMs:"),
     'the completion event carries the streaming time for the live rate');
   assert.ok(appSource.includes("currentAssistantMsg.dataset.generationRateVersion = '2'"),

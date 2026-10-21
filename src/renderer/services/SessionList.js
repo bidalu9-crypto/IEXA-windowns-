@@ -727,6 +727,17 @@ async function switchSession(id, updateList = true) {
         }
       }
       targetRuntime.historyRenderedCount = msgs.length;
+      // A turn that was still running when the process died is now on disk as
+      // `interrupted`. Surface it so the user can continue instead of assuming
+      // the work was lost.
+      const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant');
+      const unfinished = lastAssistant && ['running', 'paused', 'interrupted'].includes(lastAssistant.status);
+      targetRuntime.interruptedTurn = unfinished ? {
+        status: lastAssistant.status,
+        toolCalls: (lastAssistant.toolCalls || []).filter((tc) => tc.result).length,
+        at: Number(lastAssistant.timestamp) || 0,
+      } : null;
+      window.syncPausedBanner?.();
     }
   } catch (err) {
     console.error('Failed to load messages:', err);
