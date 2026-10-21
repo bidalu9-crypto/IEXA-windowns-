@@ -18,42 +18,82 @@ const TOOL_LABELS = {
   grep: '搜索代码',
   glob: '查找文件',
   browser_fetch: '抓取网页',
+  web_search: '联网搜索',
   memory_write: '写入记忆',
   memory_get: '读取记忆',
   ask_user: '向用户提问',
+  desktop_control: '操作桌面',
+  display_file: '展示文件',
+  project_instructions: '项目规范',
+  read_image: '读取图片',
+  spawn_agent: '派生子代理',
+  send_input: '发送输入',
+  wait_agent: '等待代理',
+  close_agent: '关闭代理',
+  resume_agent: '恢复代理',
 };
 
+// One icon per tool. Duplicates here are what made two different calls look
+// identical in the transcript, so every entry must stay distinct.
 const TOOL_ICONS = {
-  spawn_agent: 'robot',
-  send_input: 'robot',
-  wait_agent: 'robot',
-  close_agent: 'robot',
-  resume_agent: 'robot',
   todo_write: 'check',
   shell_execute: 'terminal',
-  shell_session: 'terminal',
+  shell_session: 'terminal-session',
   job_list: 'menu',
-  job_output: 'file',
+  job_output: 'scroll',
   goal: 'pin',
   file_read: 'file',
-  file_write: 'edit',
+  file_write: 'file-plus',
   file_edit: 'edit',
   grep: 'search',
   glob: 'folder',
   browser_fetch: 'globe',
+  web_search: 'web-search',
   memory_write: 'memory',
-  memory_get: 'search',
+  memory_get: 'brain',
   ask_user: 'chat',
+  desktop_control: 'monitor',
+  display_file: 'image',
+  project_instructions: 'book',
+  read_image: 'eye',
+  spawn_agent: 'robot',
+  send_input: 'send',
+  wait_agent: 'clock',
+  close_agent: 'close',
+  resume_agent: 'play',
 };
 
+// The model sometimes calls a tool by a familiar alias; the card must show the
+// real tool, not the alias it guessed.
+const TOOL_ALIASES = {
+  edit: 'file_edit',
+  edit_file: 'file_edit',
+  fileedit: 'file_edit',
+  write_file: 'file_write',
+  read_file: 'file_read',
+  search: 'grep',
+  find: 'glob',
+};
+
+function canonicalToolName(name) {
+  const raw = String(name || '');
+  return TOOL_ALIASES[raw] || raw;
+}
+
 function toolDisplayName(name) {
-  const key = 'tool.' + name;
+  const canonical = canonicalToolName(name);
+  if (canonical.startsWith('mcp_')) return 'MCP · ' + canonical.slice(4);
+  const key = 'tool.' + canonical;
   const translated = IexaI18n.t(key);
-  return translated === key ? (TOOL_LABELS[name] || name) : translated;
+  if (translated !== key) return translated;
+  return TOOL_LABELS[canonical] || canonical;
 }
 
 function toolIcon(name) {
-  return uiIcon(TOOL_ICONS[name] || 'settings');
+  const canonical = canonicalToolName(name);
+  // MCP tools share one family icon; everything else has its own.
+  if (canonical.startsWith('mcp_')) return uiIcon('puzzle');
+  return uiIcon(TOOL_ICONS[canonical] || 'box');
 }
 
 function formatTaskElapsed(ms) {
@@ -385,29 +425,47 @@ function setToolStepStatus(block, status, label) {
 }
 
 function toolKind(name) {
-  if (name === 'shell_execute' || name === 'shell_session' || name.startsWith('terminal_')) return 'terminal';
-  if (name === 'file_read' || name === 'file_write' || name === 'file_edit' || name === 'display_file' || name === 'grep' || name === 'glob') return 'file';
-  if (name.startsWith('mcp_')) return 'mcp';
-  if (name === 'browser_fetch') return 'web';
-  if (name === 'read_image') return 'vision';
-  if (name.startsWith('memory_')) return 'memory';
+  const canonical = canonicalToolName(name);
+  if (canonical === 'shell_execute' || canonical === 'shell_session' || canonical.startsWith('terminal_')) return 'terminal';
+  if (['file_read', 'file_write', 'file_edit', 'grep', 'glob', 'project_instructions'].includes(canonical)) return 'file';
+  if (canonical.startsWith('mcp_')) return 'mcp';
+  if (canonical === 'browser_fetch' || canonical === 'web_search') return 'web';
+  if (canonical === 'read_image' || canonical === 'display_file') return 'vision';
+  if (canonical.startsWith('memory_')) return 'memory';
+  if (canonical === 'desktop_control') return 'desktop';
   return 'agent';
 }
 
 function toolMeta(name, args) {
   const source = args && typeof args === 'object' ? args : {};
-  if (name === 'shell_execute') return '工作区命令';
-  if (name === 'shell_session') return `${source.action || 'open'}${source.session_id ? ' · ' + String(source.session_id).slice(0, 8) : ''}`;
-  if (name === 'job_list') return '最近任务';
-  if (name === 'job_output') return String(source.job_id || '任务输出');
-  if (name === 'goal') return `${source.action || 'get'}${source.objective ? ' · ' + String(source.objective).slice(0, 40) : ''}`;
-  if (name.startsWith('mcp_')) return 'MCP 工具';
-  if (name === 'read_image') return '视觉代理';
-  if (name === 'browser_fetch') return '网页读取';
-  if (name === 'grep') return source.path ? `${source.path} · ${source.pattern || ''}` : String(source.pattern || '工作区');
-  if (name === 'glob') return String(source.pattern || '工作区');
+  const canonical = canonicalToolName(name);
+  if (canonical === 'shell_execute') return source.shell ? `${source.shell} · 工作区命令` : '工作区命令';
+  if (canonical === 'shell_session') return `${source.action || 'open'}${source.session_id ? ' · ' + String(source.session_id).slice(0, 8) : ''}`;
+  if (canonical === 'job_list') return '最近任务';
+  if (canonical === 'job_output') return String(source.job_id || '任务输出');
+  if (canonical === 'goal') return `${source.action || 'get'}${source.objective ? ' · ' + String(source.objective).slice(0, 40) : ''}`;
+  if (canonical.startsWith('mcp_')) return 'MCP 工具';
+  if (canonical === 'read_image') return String(source.path || '视觉代理');
+  if (canonical === 'display_file') return String(source.path || '交付物');
+  if (canonical === 'browser_fetch') return String(source.url || '网页读取');
+  if (canonical === 'web_search') return String(source.query || '公开资料');
+  if (canonical === 'desktop_control') return String(source.action || '桌面');
+  if (canonical === 'project_instructions') return String(source.path || source.kind || '项目根');
+  if (canonical === 'grep') return source.path ? `${source.path} · ${source.pattern || ''}` : String(source.pattern || '工作区');
+  if (canonical === 'glob') return String(source.pattern || '工作区');
+  if (canonical === 'memory_get') return String(source.keywords || '全部记忆');
+  if (canonical === 'memory_write') return String(source.content || '').slice(0, 40) || '长期记忆';
+  if (canonical === 'ask_user') return '等待你的选择';
+  if (canonical === 'todo_write') {
+    const count = Array.isArray(source.todos) ? source.todos.length : 0;
+    return count ? `${count} 项计划` : '任务计划';
+  }
+  if (canonical === 'spawn_agent') return String(source.nickname || '子代理');
+  if (canonical === 'send_input') return String(source.id || '子代理');
+  if (canonical === 'wait_agent') return Array.isArray(source.ids) ? `${source.ids.length} 个子代理` : '子代理';
+  if (canonical === 'close_agent' || canonical === 'resume_agent') return String(source.id || '子代理');
   if (source.path) return String(source.path);
-  return 'IEXA 工具';
+  return TOOL_LABELS[canonical] || 'IEXA 工具';
 }
 
 function handleToolStart(id, name) {

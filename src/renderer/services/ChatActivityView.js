@@ -133,15 +133,19 @@
     prepareDetail(block, name, input);
     const header = block.querySelector('.tool-header');
     if (Object.hasOwn(agentOperations, name)) {
-      // Shared by live messages, restored history and the child inspector.
+      // Shared by live messages, restored history and the child inspector; the
+      // glyph comes from the same map as every other tool so the five agent
+      // operations stay distinguishable.
       let icon = header.querySelector('.tool-icon');
       if (!icon) { icon = make('span', 'tool-icon'); header.prepend(icon); }
-      if (icon.querySelector('use')?.getAttribute('href') !== '#ui-robot') {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('class', 'ui-icon'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
-        const use = document.createElementNS('http://www.w3.org/2000/svg', 'use'); use.setAttribute('href', '#ui-robot');
-        svg.appendChild(use); icon.replaceChildren(svg);
-      }
+      const markup = typeof toolIcon === 'function'
+        ? toolIcon(name)
+        : '<svg class="ui-icon" aria-hidden="true"><use href="#ui-box"/></svg>';
+      // Compare the target symbol, not the serialized markup: jsdom normalises
+      // innerHTML, so a string compare would rebuild the node on every update.
+      const target = /href="#([^"]+)"/.exec(markup)?.[1] || 'ui-box';
+      const current = icon.querySelector('use')?.getAttribute('href');
+      if (current !== '#' + target) icon.innerHTML = markup;
     }
     header.querySelector('.activity-operation').textContent = agentOperations[name] || operations[name] || '调用';
     const title = header.querySelector('.tool-name'), meta = header.querySelector('.tool-meta');
