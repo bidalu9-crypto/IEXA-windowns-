@@ -2,7 +2,7 @@
    this module never guesses an event order or executes a tool during replay. */
 (() => {
   'use strict';
-  const contentSelector = '.message-content, .thinking-block, .tool-steps';
+  const contentSelector = '.message-content, .thinking-block, .tool-steps, .transcript-compaction';
   function lastNode(message) { return [...message.children].filter(node => node.matches(contentSelector)).at(-1) || null; }
   function append(message, node) {
     const footer = [...message.children].find(n => n.matches('.assistant-message-footer, .message-usage'));
@@ -33,6 +33,8 @@
         if (!Number.isSafeInteger(item.start) || !Number.isSafeInteger(item.end) || item.start !== previousEnd || item.end <= item.start || item.end > length ||
             (item.durationMs !== undefined && (!Number.isSafeInteger(item.durationMs) || item.durationMs < 0))) return null;
         if (item.type === 'text') textEnd = item.end; else thinkingEnd = item.end;
+      } else if (item.type === 'compaction') {
+        if (!Number.isSafeInteger(item.before) || item.before < 0 || !Number.isSafeInteger(item.after) || item.after < 0) return null;
       } else return null;
     }
     if (textEnd !== text.length || thinkingEnd !== thinking.length || toolIds.size !== calls.length) return null;
@@ -49,6 +51,7 @@
     try {
       prepared = items.map(item => ({ item, node: item.type === 'tool' ? toolRows.get(item.callId)
         : item.type === 'text' ? factories.text(String(message.content || '').slice(item.start, item.end), item)
+        : item.type === 'compaction' ? factories.compaction(item)
         : factories.thinking(String(message.thinking || '').slice(item.start, item.end), item) }));
     } catch { element.dataset.transcriptState = 'render-error'; return false; }
     const fragment = document.createDocumentFragment();
@@ -88,6 +91,8 @@
         rail.appendChild(node);
       } else {
         fragment.appendChild(node);
+        // A checkpoint ends the current chain: the next tool opens a fresh rail
+        // instead of appending behind the divider.
         rail = null;
       }
     }

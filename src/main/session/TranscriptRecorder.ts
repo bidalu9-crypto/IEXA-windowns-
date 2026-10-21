@@ -3,7 +3,9 @@ import { randomUUID } from 'crypto';
 export type TranscriptItem = {
   id: string; sequence: number; timestamp: number;
 } & ({ type: 'text' | 'thinking'; start: number; end: number; durationMs?: number }
-  | { type: 'tool'; callId: string; name: string });
+  | { type: 'tool'; callId: string; name: string }
+  /** A context checkpoint: older history was folded into a summary here. */
+  | { type: 'compaction'; before: number; after: number });
 export interface TranscriptEvents {
   version: 1; turnId: string; revision: number;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
@@ -23,7 +25,7 @@ export class TranscriptRecorder {
   private status: TranscriptEvents['status'] = 'running';
   private invalidReason?: string;
   constructor(private readonly clock: () => number = Date.now, private readonly maxItems = 8192) {}
-  private add(item: Omit<Extract<TranscriptItem, { type: 'tool' }>, 'id' | 'sequence' | 'timestamp'> | { type: 'text' | 'thinking'; start: number; end: number }): void {
+  private add(item: Omit<Extract<TranscriptItem, { type: 'tool' }>, 'id' | 'sequence' | 'timestamp'> | { type: 'text' | 'thinking'; start: number; end: number } | { type: 'compaction'; before: number; after: number }): void {
     if (this.items.length >= this.maxItems) { this.invalidReason = 'event_limit'; return; }
     this.items.push({ ...item, sequence: this.items.length + 1, id: `${this.turnId}:${this.items.length + 1}`, timestamp: this.clock() } as TranscriptItem);
   }
@@ -55,6 +57,14 @@ export class TranscriptRecorder {
     if (this.status !== 'running' || this.toolIds.has(callId)) return;
     this.closeThinking(); this.revision++; this.toolIds.add(callId);
     this.add({ type: 'tool', callId, name });
+  }
+  /** Marks the exact point where a checkpoint replaced older history. */
+  recordCompaction(before: number, after: number): void {
+    if (this.status !== 'running') return;
+    const from = Math.max(0, Math.floor(Number(before) || 0));
+    const to = Math.max(0, Math.floor(Number(after) || 0));
+    this.closeThinking(); this.revision++;
+    this.add({ type: 'compaction', before: from, after: to });
   }
   finish(status: Exclude<TranscriptEvents['status'], 'running'>): void {
     if (this.status !== 'running') return;

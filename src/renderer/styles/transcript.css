@@ -1524,3 +1524,47 @@ body.chat-focus-mode .message.user {
   margin: 8px 0 4px;
   width: 100%;
 }
+
+/* ---------------------------------------------------------------------------
+   Context checkpoint
+   Older history was folded into a summary at this exact point in the turn.
+   Codex prints the same boundary; without it a compaction silently changes what
+   the model can still see, and the user has no idea why earlier context "vanished".
+   --------------------------------------------------------------------------- */
+.transcript-compaction {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 12px 0 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+}
+
+.transcript-compaction .ui-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  color: var(--text-muted);
+}
+
+.transcript-compaction .compaction-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.transcript-compaction .compaction-delta {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* First marker in a turn does not need a second rule above it. */
+.transcript-compaction:first-child {
+  margin-top: 2px;
+  border-top: 0;
+  padding-top: 0;
+}

@@ -666,7 +666,17 @@ export class AgentLoop {
       // Compact completed transactions, retaining the latest user request and
       // a protocol-valid live tail, then continue this same agent turn.
       try {
-        this.agentHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status), signal);
+        const beforeCompaction = compactor.status(this.agentHistory);
+        const compactedHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status), signal);
+        // A real replacement is a visible checkpoint in the transcript; the
+        // unchanged path (below threshold) must not print one.
+        if (compactedHistory !== this.agentHistory) {
+          this.agentHistory = compactedHistory;
+          callbacks.onCompacted?.({
+            before: beforeCompaction.usedTokens,
+            after: compactor.status(compactedHistory).usedTokens,
+          });
+        }
         this.pendingCompactorSummary = compactor.summary();
         if (this.pendingCompactorSummary) this.restoredSummaryInjected = true;
         if (this.isAborted) { callbacks.onCancelled(); return; }
@@ -903,10 +913,15 @@ export class AgentLoop {
         if (this.isContextWindowExceededError(err) && contextOverflowRetryAttempt < 1 && !this.isCancelled) {
           const beforeHistory = this.agentHistory;
           try {
+            const beforeCompaction = compactor.status(beforeHistory);
             const compacted = await compactor.recover(beforeHistory, (status) => callbacks.onContext(status), signal);
             if (this.isAborted) { callbacks.onCancelled(); return; }
             if (compacted !== beforeHistory) {
               this.agentHistory = compacted;
+              callbacks.onCompacted?.({
+                before: beforeCompaction.usedTokens,
+                after: compactor.status(compacted).usedTokens,
+              });
               this.pendingCompactorSummary = compactor.summary();
               this.restoredSummaryInjected = true;
               contextOverflowRetryAttempt++;

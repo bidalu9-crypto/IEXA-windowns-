@@ -139,6 +139,9 @@ function handleSSEEvent(raw, turnToken) {
       case 'context':
         handleContextStatus(data, currentSessionId);
         break;
+      case 'compaction':
+        handleCompactionEvent(data);
+        break;
       case 'usage':
         handleUsage(data);
         break;
@@ -338,6 +341,19 @@ function updateThinkingTokenCount(thinkBlock, text) {
   }
 }
 
+function handleCompactionEvent(data) {
+  if (!currentAssistantMsg) return;
+  // The checkpoint lands where it happened: fold the running activity first so
+  // the divider is not swallowed by the rail it interrupts.
+  finishActiveThinkingBlock();
+  window.IexaToolRail?.collapseActive?.();
+  const marker = buildCompactionMarker(data?.before, data?.after, Date.now());
+  window.IexaTranscriptView.append(currentAssistantMsg, marker);
+  // A settled checkpoint means the rail that was open before it is history.
+  currentAssistantMsg.querySelectorAll('.tool-steps.is-active').forEach((rail) => rail.classList.remove('is-active'));
+  scrollToBottom(false, false);
+}
+
 function restoreTranscriptOrder(element, message) {
   return window.IexaTranscriptView.restore(element, message, {
     text(text, item) {
@@ -355,7 +371,32 @@ function restoreTranscriptOrder(element, message) {
       }
       return block;
     },
+    compaction(item) {
+      return buildCompactionMarker(item.before, item.after, item.timestamp);
+    },
   });
+}
+
+/**
+ * One line in the transcript where older history was folded into a checkpoint.
+ * Codex shows the same boundary; without it a compaction silently rewrites what
+ * the model can still see.
+ */
+function buildCompactionMarker(before, after, timestamp) {
+  const marker = document.createElement('div');
+  marker.className = 'transcript-compaction';
+  marker.setAttribute('role', 'note');
+  const from = Math.max(0, Math.floor(Number(before) || 0));
+  const to = Math.max(0, Math.floor(Number(after) || 0));
+  const detail = from > 0 && to > 0
+    ? `<span class="compaction-delta">${escapeHtml(formatTokenCount(from))} → ${escapeHtml(formatTokenCount(to))}</span>`
+    : '';
+  marker.innerHTML = `${uiIcon('compact')}<span class="compaction-label">上下文已自动压缩</span>${detail}`;
+  const at = Number(timestamp);
+  marker.title = at > 0
+    ? `上下文已自动压缩：${from > 0 ? from.toLocaleString() : '—'} → ${to > 0 ? to.toLocaleString() : '—'} tokens · ${new Date(at).toLocaleString()}`
+    : '上下文已自动压缩：较早的历史已折叠为摘要，工具结果与最近请求保留。';
+  return marker;
 }
 
 function stabilizeThinkingBlockWidth(thinkBlock) {

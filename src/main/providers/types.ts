@@ -195,4 +195,6 @@ export interface AgentLoopCallbacks {
   onSteerApplied?: (event: { id: string; text: string }) => void;
   /** A steered message could not be committed before the turn settled. */
   onSteerDropped?: (event: { id: string; reason: string }) => void;
+  /** Older history was replaced by a checkpoint; the transcript marks the spot. */
+  onCompacted?: (event: { before: number; after: number }) => void;
 }

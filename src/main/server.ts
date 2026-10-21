@@ -2991,6 +2991,8 @@ ${recentMemories}
             emitTurnEvent('context', context);
             rememberContextUsage(sessionId, context);
           },
+          // The transcript keeps the marker so a reopened turn shows the checkpoint.
+          onCompacted: (event) => { transcriptRecorder.recordCompaction(event.before, event.after); emitTurnEvent('compaction', event); },
           onError: async (e) => {
             transcriptRecorder.finish('failed');
             clearPermissionSubscription(sessionId);
