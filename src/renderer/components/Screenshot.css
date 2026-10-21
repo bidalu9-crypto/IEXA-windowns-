@@ -1,0 +1,180 @@
+/**
+ * Screenshot annotation overlay.
+ *
+ * One floating surface holds every control: tools, colours, actions. It sits on
+ * the captured frame without a second panel, so the eye stays on the selection.
+ */
+
+.shot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: grid;
+  place-items: center;
+  background: #05070b;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.shot-overlay.is-ready { opacity: 1; }
+
+.shot-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.shot-overlay.has-selection .shot-canvas { cursor: default; }
+
+.shot-hint {
+  position: absolute;
+  top: 22px;
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
+  max-width: calc(100vw - 48px);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgb(12 14 20 / 72%);
+  color: #e8eaf0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.shot-bar {
+  position: absolute;
+  bottom: 26px;
+  left: 0;
+  right: 0;
+  width: fit-content;
+  margin-inline: auto;
+  max-width: calc(100vw - 32px);
+  padding: 7px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 14px;
+  background: rgb(18 20 27 / 94%);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 48%);
+}
+
+.shot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shot-tools,
+.shot-colors,
+.shot-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.shot-tools,
+.shot-colors {
+  padding-right: 10px;
+  border-right: 1px solid rgb(255 255 255 / 10%);
+}
+
+.shot-tool {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #b7bcc9;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.shot-tool svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.shot-tool:hover { color: #f3f5fa; background: rgb(255 255 255 / 8%); }
+
+.shot-tool[aria-pressed="true"] {
+  color: #fff;
+  background: color-mix(in srgb, var(--accent) 78%, #000 22%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.shot-color {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--shot-color);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 22%);
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.shot-color:hover { transform: scale(1.12); }
+
+.shot-color[aria-pressed="true"] {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 22%);
+}
+
+.shot-action {
+  height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c3c8d4;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, opacity 120ms ease;
+}
+
+.shot-action:hover { color: #fff; background: rgb(255 255 255 / 8%); }
+
+.shot-action:disabled { opacity: .4; cursor: default; background: transparent; }
+
+.shot-primary {
+  color: #fff;
+  background: var(--accent);
+}
+
+.shot-primary:hover { background: var(--accent-hover); }
+
+.shot-overlay :is(.shot-tool, .shot-color, .shot-action):focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .shot-bar { bottom: 14px; padding: 6px; }
+  .shot-toolbar { flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .shot-tools, .shot-colors { padding-right: 6px; }
+  .shot-actions { flex-basis: 100%; justify-content: flex-end; padding-top: 6px; border-top: 1px solid rgb(255 255 255 / 10%); }
+  .shot-hint { top: 14px; font-size: 11.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shot-overlay { transition: none; }
+  .shot-tool, .shot-color, .shot-action { transition: none; }
+}

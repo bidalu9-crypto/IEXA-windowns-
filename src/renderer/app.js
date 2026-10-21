@@ -221,7 +221,8 @@ const visibleChatMessages = document.getElementById('chatMessages');
 let chatMessages = visibleChatMessages;
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
-  const voiceBtn = document.getElementById('voiceBtn');
+const voiceBtn = document.getElementById('voiceBtn');
+const screenshotBtn = document.getElementById('screenshotBtn');
 const stopBtn = document.getElementById('stopBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
@@ -1012,6 +1013,15 @@ if (followUpModeSelect) {
 stopBtn.addEventListener('click', () => { void stopProcessing(); });
 document.getElementById('pausedResume')?.addEventListener('click', () => { void resumeProcessing(); });
 document.getElementById('pausedEnd')?.addEventListener('click', () => { void stopProcessing({ hard: true }); });
+
+// Screenshot capture: the module owns the overlay, this only opens it.
+screenshotBtn?.addEventListener('click', () => { window.IexaScreenshot?.start(); });
+document.addEventListener('keydown', (event) => {
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.key.toLowerCase() !== 's') return;
+  if (!screenshotBtn || screenshotBtn.disabled) return;
+  event.preventDefault();
+  window.IexaScreenshot?.start();
+});
 
 function sendQuick(text) {
   pendingAttachments = [];
@@ -2148,30 +2158,38 @@ function syncPausedBanner() {
   banner.hidden = !paused;
   if (paused) {
     statusText.textContent = '已暂停';
+    statusDot.className = 'status-dot paused';
     // A parked turn cannot accept follow-ups: typing would queue against a
     // stream that is not consuming, so the composer waits with it. The banner
     // owns both actions, so the stop button would only compete with 继续.
     chatInput.disabled = true;
     sendBtn.disabled = true;
-    sendBtn.style.display = 'flex';
+    sendBtn.style.display = 'none';
     stopBtn.style.display = 'none';
-  } else {
-    chatInput.disabled = false;
-    sendBtn.disabled = false;
-    sendBtn.style.display = 'flex';
-    stopBtn.style.display = isProcessing ? 'flex' : 'none';
+    if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = true;
+    if (typeof screenshotBtn !== 'undefined' && screenshotBtn) screenshotBtn.disabled = true;
+    return;
+  }
+  // Leaving the parked state must restore the composer exactly as a live turn
+  // expects it: input unlocked, stop visible, send hidden while the turn runs.
+  chatInput.disabled = false;
+  sendBtn.disabled = false;
+  sendBtn.style.display = isProcessing ? 'none' : 'flex';
+  stopBtn.style.display = isProcessing ? 'flex' : 'none';
+  if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
+  if (typeof screenshotBtn !== 'undefined' && screenshotBtn) screenshotBtn.disabled = false;
+  if (!isProcessing) {
+    statusDot.className = 'status-dot';
+    statusText.textContent = '就绪';
   }
 }
 window.syncPausedBanner = syncPausedBanner;
 
 function hidePausedBanner() {
-  const banner = document.getElementById('pausedBanner');
-  if (banner) banner.hidden = true;
+  if (currentSessionId) runtimeForSession(currentSessionId).isPaused = false;
   const button = document.getElementById('pausedResume');
   if (button) { button.disabled = false; button.textContent = '继续'; }
-  chatInput.disabled = false;
-  sendBtn.disabled = false;
-  if (currentSessionId) runtimeForSession(currentSessionId).isPaused = false;
+  syncPausedBanner();
 }
 
 /** The server parked the turn: nothing is finalised, the stream stays open. */
@@ -2218,6 +2236,9 @@ async function resumeProcessing() {
     runtime.isPaused = false;
     const banner = document.getElementById('pausedBanner');
     if (banner) banner.hidden = true;
+    // Unpark the composer before the next stream event arrives: input, send and
+    // stop must match a live turn again, not the paused snapshot.
+    syncPausedBanner();
     statusText.textContent = '继续中…';
     showWaitingIndicator();
     snapshotActiveSessionRuntime();

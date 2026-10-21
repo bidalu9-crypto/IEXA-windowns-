@@ -153,17 +153,25 @@ html[data-motion="reduced"] .workbench-shell .model-bar :is(.thinking-level-btn,
 }
 .workbench-shell .model-selector-label { max-width: 180px; }
 .workbench-shell .input-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; position:relative; }
-.workbench-shell #voiceBtn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border-strong); border-radius:50%; background:transparent; color:var(--text-secondary); transition:color 140ms ease, background 140ms ease, border-color 140ms ease; }
-.workbench-shell #voiceBtn:hover { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--text-muted); }
+.workbench-shell #voiceBtn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:9px; background:transparent; color:var(--text-secondary); transition:color 140ms ease, background 140ms ease; }
+.workbench-shell #voiceBtn:hover { color:var(--text-primary); background:var(--bg-tertiary); }
 .workbench-shell #voiceBtn[hidden] { display:none; }
-.workbench-shell #voiceBtn .voice-icon { display:block; flex:0 0 18px; width:18px; height:18px; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
-.workbench-shell #voiceBtn .voice-level { position:absolute; bottom:4px; right:4px; display:flex; align-items:end; gap:1px; height:7px; opacity:0; transition:opacity 140ms ease; }
+.workbench-shell #voiceBtn .voice-icon { display:block; flex:0 0 18px; width:18px; height:18px; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; transition:filter 220ms ease; }
+.workbench-shell #voiceBtn .voice-level { position:absolute; bottom:3px; right:5px; display:flex; align-items:end; gap:1px; height:7px; opacity:0; transition:opacity 140ms ease; }
 .workbench-shell #voiceBtn .voice-level i { width:1.5px; height:3px; border-radius:2px; background:currentColor; }
 .workbench-shell #voiceBtn .voice-level i:nth-child(2){height:6px}.workbench-shell #voiceBtn .voice-level i:nth-child(3){height:4px}.workbench-shell #voiceBtn .voice-level i:nth-child(4){height:7px}
-.workbench-shell #voiceBtn.is-listening { color:#d97706; background:color-mix(in srgb, #f59e0b 12%, transparent); border-color:#f59e0b88; }
+/* Listening: the mic itself becomes the signal. Its stroke is painted with a
+   bottom-to-top gradient (accent → violet → fuchsia) plus a soft bloom, so the
+   state reads without a ring or a coloured chip behind it. */
+.workbench-shell #voiceBtn.is-listening { color:#d97706; }
+.workbench-shell #voiceBtn.is-listening .voice-icon { stroke:url(#voice-gradient); filter:drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent)); }
 .workbench-shell #voiceBtn.is-listening .voice-level { opacity:1; }
-.workbench-shell #voiceBtn.is-listening .voice-level i { animation:voice-level 720ms ease-in-out infinite alternate; }
+.workbench-shell #voiceBtn.is-listening .voice-level i { background:linear-gradient(to top, var(--accent), #8b7cf6 55%, #e879f9); animation:voice-level 720ms ease-in-out infinite alternate; }
 .workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(2){animation-delay:-180ms}.workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(3){animation-delay:-360ms}.workbench-shell #voiceBtn.is-listening .voice-level i:nth-child(4){animation-delay:-520ms}
+.workbench-shell .screenshot-btn { position:relative; width:32px; height:32px; display:flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:9px; background:transparent; color:var(--text-secondary); cursor:pointer; transition:color 140ms ease, background 140ms ease; }
+.workbench-shell .screenshot-btn:hover { color:var(--text-primary); background:var(--bg-tertiary); }
+.workbench-shell .screenshot-btn:disabled { opacity:.45; cursor:not-allowed; }
+.workbench-shell .screenshot-btn .screenshot-icon { width:18px; height:18px; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; fill:none; }
 .workbench-shell #chatInput.is-voice-live { caret-color:#d97706; }
 @keyframes voice-level { from { transform:scaleY(.55); opacity:.6; } to { transform:scaleY(1.15); opacity:1; } }
 .workbench-shell #sendBtn { width: 32px; height: 32px; background: var(--action-bg); color: var(--on-accent); box-shadow: none; transition: background 120ms ease; }

@@ -113,12 +113,13 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
     return {
       voice: box(voiceBtn), send: box(sendBtn),
       voiceGlyph: glyph(voiceBtn, '.voice-icon'), sendGlyph: glyph(sendBtn, '.send-icon'),
-      ring: getComputedStyle(voiceBtn).borderTopColor,
+      ring: getComputedStyle(voiceBtn).borderTopWidth,
     };
   })()`), {
     voice: [32, 32], send: [32, 32],
     voiceGlyph: [18, 18], sendGlyph: [18, 18],
-    ring: 'rgb(206, 206, 211)',
+    // The circle is gone: the voice control is a bare glyph like the camera.
+    ring: '0px',
   });
 
   // Stub only the two turn endpoints; everything else hits the real server.
