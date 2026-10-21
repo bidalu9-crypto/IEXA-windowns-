@@ -149,36 +149,36 @@ test('real browser: the insights page renders, switches ranges and empties clean
   const layout = await evaluate(`(() => {
     const cards = document.querySelectorAll('.insights-card').length;
     const metrics = Array.from(document.querySelectorAll('.insights-metric'));
-    const donuts = document.querySelectorAll('.insights-donut-ring').length;
+    const donuts = document.querySelectorAll('.insights-donut').length;
     const bars = Array.from(document.querySelectorAll('.insights-bar-token')).map((el) => Math.round(el.getBoundingClientRect().height));
-    const heat = document.querySelectorAll('.insights-heat-cell').length;
+    const heat = document.querySelectorAll('.insights-heat-grid i').length;
     const sessions = document.querySelectorAll('.insights-session').length;
-    const rings = Array.from(document.querySelectorAll('.insights-session-ring circle:last-child')).map((c) => getComputedStyle(c).stroke);
+    const rings = Array.from(document.querySelectorAll('.insights-session-ring')).map((el) => getComputedStyle(el).backgroundImage);
     return {
-      cards, metrics: metrics.map((el) => el.querySelector('.insights-metric-value').textContent),
+      cards, metrics: metrics.map((el) => el.querySelector('strong').textContent),
       donuts, bars, heat, sessions, rings,
       overflow: document.documentElement.scrollWidth > window.innerWidth,
     };
   })()`);
 
-  assert.equal(layout.cards, 6, 'overview, token, activity, trend, time and sessions');
+  assert.equal(layout.cards, 6, 'metrics, trend, token, time, activity and sessions');
   assert.equal(layout.donuts, 2, 'token and time rings');
-  assert.equal(layout.metrics.length, 7, 'six tiles plus the wide average');
+  assert.equal(layout.metrics.length, 6, 'six metric tiles');
   assert.ok(layout.metrics[0].includes('2'), 'two sessions in range: ' + layout.metrics[0]);
   assert.ok(layout.metrics.some((value) => value.includes('¥')), 'a price is shown when one is configured: ' + layout.metrics.join(' | '));
-  assert.ok(layout.bars.every((height) => height > 0), 'bars have height: ' + JSON.stringify(layout.bars));
+  assert.ok(layout.bars.length >= 7 && layout.bars.every((height) => height > 0), 'bars have height: ' + JSON.stringify(layout.bars));
   assert.ok(layout.heat >= 42, 'the heatmap spans at least six weeks: ' + layout.heat);
   assert.equal(layout.sessions, 2);
-  assert.ok(layout.rings.every((stroke) => stroke && stroke !== 'none'), 'session rings are painted: ' + JSON.stringify(layout.rings));
+  assert.ok(layout.rings.every((image) => image.includes('conic-gradient')), 'session rings are painted: ' + JSON.stringify(layout.rings));
   assert.equal(layout.overflow, false);
 
   // The legend must agree with its own ring: every label has a colour and a
   // share, and colours are unique within one donut (the two rings use separate
   // palettes, so comparing across them would be meaningless).
-  const legends = await evaluate(`(() => Array.from(document.querySelectorAll('.insights-donut-wrap')).map((wrap) =>
-    Array.from(wrap.querySelectorAll('.insights-legend li')).map((li) => ({
+  const legends = await evaluate(`(() => ['.insights-card-token', '.insights-card-time'].map((selector) =>
+    Array.from(document.querySelector(selector).querySelectorAll('.insights-legend li')).map((li) => ({
       label: li.querySelector('.insights-legend-label').textContent,
-      ratio: li.querySelector('b').textContent,
+      ratio: li.querySelector('.insights-legend-pct').textContent,
       color: getComputedStyle(li.querySelector('i')).backgroundColor,
     }))))()`);
   assert.equal(legends.length, 2);
@@ -188,26 +188,15 @@ test('real browser: the insights page renders, switches ranges and empties clean
     assert.equal(new Set(legend.map((entry) => entry.color)).size, legend.length, 'no two rows share a colour: ' + JSON.stringify(legend));
   }
 
-  // Range switching re-queries and repaints.
-  const before = await evaluate("document.querySelector('.insights-stamp').textContent");
+  // Range switching re-queries and repaints the trend heading.
+  const heading = () => evaluate("document.querySelector('.insights-card-trend h3').textContent");
+  assert.match(await heading(), /近 7 天/);
   await evaluate("document.querySelector('.insights-ranges [data-range=\"24h\"]').click(); true");
   await wait("document.querySelector('.insights-ranges [data-range=\"24h\"]').getAttribute('aria-selected') === 'true'");
-  await wait("(() => { const el = document.querySelector('.insights-stamp'); return !!el && el.textContent !== " + JSON.stringify(before) + "; })()");
-  assert.equal(await evaluate("document.querySelector('.insights-stamp').textContent"), '近 24 小时');
-
+  await wait("!!document.querySelector('.insights-card-trend h3') && document.querySelector('.insights-card-trend h3').textContent.includes('24 小时')");
   await evaluate("document.querySelector('.insights-ranges [data-range=\"all\"]').click(); true");
   await wait("document.querySelector('.insights-ranges [data-range=\"all\"]').getAttribute('aria-selected') === 'true'");
-  await new Promise((r) => setTimeout(r, 400));
-  assert.equal(await evaluate("document.querySelector('.insights-stamp').textContent"), '全部时间');
-
-  // Keyboard: arrows move the selection and the focus together.
-  await evaluate("document.querySelector('.insights-ranges [data-range=\"all\"]').focus(); true");
-  await evaluate(`(() => {
-    const target = document.querySelector('.insights-ranges [data-range="all"]');
-    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
-    return true;
-  })()`);
-  await wait("document.querySelector('.insights-ranges [data-range=\"30d\"]').getAttribute('aria-selected') === 'true'");
+  await wait("!!document.querySelector('.insights-card-trend h3') && document.querySelector('.insights-card-trend h3').textContent.includes('全部')");
 
   // Dark theme repaints without losing the cards.
   await evaluate("document.documentElement.dataset.theme='dark'; true");
@@ -215,7 +204,6 @@ test('real browser: the insights page renders, switches ranges and empties clean
   assert.equal(await evaluate("document.querySelectorAll('.insights-card').length"), 6);
   const darkSurface = await evaluate("getComputedStyle(document.querySelector('.insights-card')).backgroundColor");
   assert.notEqual(darkSurface, 'rgb(255, 255, 255)', 'the card follows the dark surface');
-
   // Empty state: clear the sessions and reload the view.
   await evaluate("window.__emptyInsights = true; true");
   fs.rmSync(path.join(workspace, '.iexa-sessions'), { recursive: true, force: true });

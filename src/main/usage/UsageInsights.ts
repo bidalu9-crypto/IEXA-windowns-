@@ -123,11 +123,29 @@ const RANGE_MS: Record<Exclude<UsageRange, 'all'>, number> = {
 };
 
 /** Local midnight, so a day bucket matches what the calendar shows. */
+/** Base prompt and tool schemas are roughly constant; only the rest is injected. */
+function splitOverhead(overhead: number): { system: number; tools: number; injected: number } {
+  const system = Math.min(overhead, 4200);
+  const tools = Math.min(Math.max(0, overhead - system), 16000);
+  return { system, tools, injected: Math.max(0, overhead - system - tools) };
+}
+
 function dayKey(ms: number): string {
   const date = new Date(ms);
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** Inclusive list of local calendar days, so charts never collapse to one column. */
+function dayAxis(startKey: string, endKey: string): string[] {
+  const start = new Date(`${startKey}T00:00:00`);
+  const end = new Date(`${endKey}T00:00:00`);
+  const days: string[] = [];
+  for (let cursor = start; cursor <= end && days.length < 400; cursor.setDate(cursor.getDate() + 1)) {
+    days.push(dayKey(cursor.getTime()));
+  }
+  return days.length ? days : [endKey];
 }
 
 /**
@@ -175,9 +193,10 @@ function breakdownFor(message: RawMessage): { parts: Record<string, number>; est
   // the prompt the transcript cannot see (system prompt, tool schemas, memory).
   const input = Number(message.usage?.inputTokens) || 0;
   const hidden = Math.max(0, input - parts.assistant - parts.toolResult);
-  parts.system = Math.round(hidden * 0.34);
-  parts.tools = Math.round(hidden * 0.52);
-  parts.injected = Math.max(0, hidden - parts.system - parts.tools);
+  const split = splitOverhead(hidden);
+  parts.system = split.system;
+  parts.tools = split.tools;
+  parts.injected = split.injected;
   return { parts, estimated: true };
 }
 
@@ -201,7 +220,13 @@ export interface CollectOptions {
 
 export function collectUsageInsights(options: CollectOptions): UsageInsights {
   const now = Date.now();
-  const since = options.range === 'all' ? 0 : now - RANGE_MS[options.range];
+  // Day-based ranges are inclusive (7 days = today + the six before it); the
+  // 24-hour range is a rolling window and must not be shifted forward.
+  const since = options.range === 'all'
+    ? 0
+    : options.range === '24h'
+      ? now - RANGE_MS['24h']
+      : now - RANGE_MS[options.range] + 86400000;
   const dir = path.join(options.workspaceDir, '.iexa-sessions');
 
   const totals = {
@@ -277,11 +302,10 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
       // Fixed overhead is whatever the provider counted beyond the history the
       // transcript can see: the system prompt, tool schemas and injected memory.
       const overhead = Math.max(0, input - (historyUser + historyAssistant + historyTool));
-      const system = Math.round(overhead * 0.34);
-      const tools = Math.round(overhead * 0.52);
-      parts.system += system;
-      parts.tools += tools;
-      parts.injected += Math.max(0, overhead - system - tools);
+      const split = splitOverhead(overhead);
+      parts.system += split.system;
+      parts.tools += split.tools;
+      parts.injected += split.injected;
       parts.user += historyUser;
       parts.assistant += historyAssistant;
       parts.toolResult += historyTool;
@@ -346,7 +370,7 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
       outputTokens: sessionOutput,
       cacheReadTokens: sessionCache,
       costUsd: sessionPriced ? sessionCost : null,
-      model: sessionModel || '未记录',
+      model: sessionModel || '',
       lastMessage: lastMessage.slice(0, 120),
     });
   }
@@ -357,6 +381,16 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
   const timeTotal = Object.values(times).reduce((sum, value) => sum + value, 0);
   const dayKeys = Array.from(daily.keys()).sort();
 
+  // Charts need a continuous axis: a range with activity on one day must still
+  // draw the other days, otherwise the trend and the calendar collapse into a
+  // single column.
+  const startKey = options.range === 'all'
+    ? (dayKeys[0] || dayKey(now))
+    : dayKey(Math.min(since || now, now));
+  const endKey = dayKey(now);
+  const axis = dayAxis(startKey, endKey);
+  const heatStart = dayKey(Math.min(new Date(startKey + 'T00:00:00').getTime(), now) - 41 * 86400000);
+
   return {
     range: options.range,
     generatedAt: now,
@@ -366,7 +400,7 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
       costUsd: totals.pricedSessions ? totals.costUsd : null,
       cacheHitRate: totals.inputTokens > 0 ? totals.cacheReadTokens / totals.inputTokens : 0,
     },
-    daily: dayKeys.map((key) => daily.get(key)!),
+    daily: axis.map((key) => daily.get(key) || { day: key, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 }),
     tokenBreakdown: TOKEN_LABELS.map(({ key, label }) => ({
       key, label,
       tokens: parts[key] || 0,
@@ -383,7 +417,7 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
       ms: times[key] || 0,
       ratio: timeTotal > 0 ? (times[key] || 0) / timeTotal : 0,
     })),
-    activity: Array.from(activity.keys()).sort().map((key) => activity.get(key)!),
+    activity: dayAxis(heatStart, endKey).map((key) => activity.get(key) || { day: key, tokens: 0, turns: 0 }),
     sessions,
     tokenBreakdownEstimated: estimated,
     costIncomplete,

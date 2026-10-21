@@ -920,10 +920,8 @@ version: 1.0.0
     <div class="view" id="view-token-calculator">
       <div class="insights-page">
         <header class="insights-head">
-          <div class="insights-head-text">
-            <h2>上下文洞察</h2>
-            <p>Token 来自模型 API 的 usage 回报。按来源拆分与费用为估算值，其余为实测。</p>
-          </div>
+          <h2>上下文洞察</h2>
+          <button type="button" class="insights-balance" id="insightsBalance" hidden></button>
           <div class="insights-ranges" role="tablist" aria-label="统计范围">
             <button type="button" role="tab" data-range="24h">近 24 小时</button>
             <button type="button" role="tab" data-range="7d" aria-selected="true">近 7 天</button>

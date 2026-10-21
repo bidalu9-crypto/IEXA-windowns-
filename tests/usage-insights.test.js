@@ -134,6 +134,9 @@ test('an empty workspace returns zeroed totals instead of throwing', (t) => {
   const root = fixture(t, {});
   const insights = collectUsageInsights({ workspaceDir: root, range: '7d', priceFor: () => null });
   assert.equal(insights.totals.turns, 0);
-  assert.deepEqual(insights.daily, []);
+  // The axis is still continuous so the chart draws empty days instead of
+  // collapsing to a single column.
+  assert.equal(insights.daily.length, 7, 'seven day buckets');
+  assert.ok(insights.daily.every((day) => day.inputTokens === 0 && day.outputTokens === 0));
   assert.equal(insights.tokenBreakdownEstimated, false);
 });

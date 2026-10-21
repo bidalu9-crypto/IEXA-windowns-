@@ -206,6 +206,46 @@ async function tryBilling(base: string, profile: ModelProfileLike): Promise<Prov
   return fromBilling(subscription.body, usage?.status === 200 ? usage.body : null);
 }
 
+/** Extract a balance from the shapes relays commonly expose. */
+function fromGeneric(body: any): ProviderBalance | null {
+  if (!body || typeof body !== 'object') return null;
+  const data = body.data && typeof body.data === 'object' ? body.data : body;
+  const num = (value: unknown): number | null => (Number.isFinite(Number(value)) ? Number(value) : null);
+  // New API / One API expose quota in 1/500000 USD units.
+  const quota = num(data.quota);
+  if (quota !== null) {
+    const used = num(data.used_quota) ?? 0;
+    const total = (quota + used) / 500000;
+    return { status: 'ok', currency: 'USD', remaining: quota / 500000, used: used / 500000, total, source: '站点额度接口', updatedAt: Date.now() };
+  }
+  const available = num(data.total_available) ?? num(data.available) ?? num(data.balance) ?? num(data.credits) ?? num(data.remain);
+  if (available === null) return null;
+  const currency = String(data.currency || body.currency || '').toUpperCase();
+  return {
+    status: 'ok',
+    currency: currency === 'CNY' || currency === 'USD' || currency === 'EUR' ? currency : 'credits',
+    remaining: available,
+    ...(num(data.used) !== null ? { used: num(data.used)! } : {}),
+    source: '站点余额接口',
+    updatedAt: Date.now(),
+  };
+}
+
+async function tryGeneric(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
+  const root = rootOf(base);
+  const paths = [
+    '/api/user/self', '/api/v1/user/self', '/v1/dashboard/billing/credit_grants',
+    '/dashboard/billing/credit_grants', '/api/credits', '/user/info',
+  ];
+  for (const path of paths) {
+    const result = await readJson(`${root}${path}`, profile.apiKey, profile.userAgent);
+    if (!result || result.status !== 200) continue;
+    const value = fromGeneric(result.body);
+    if (value) return value;
+  }
+  return null;
+}
+
 /** Resolve a balance for one profile. Never throws; failures become a status. */
 export async function fetchProviderBalance(profile: ModelProfileLike, options: { force?: boolean } = {}): Promise<ProviderBalance> {
   const key = cacheKey(profile);
@@ -235,6 +275,7 @@ export async function fetchProviderBalance(profile: ModelProfileLike, options: {
     attempts.push(tryBilling(base, profile));
     attempts.push(tryCredits(`${rootOf(base)}/v1/credits`, profile, '网关信用额度'));
     attempts.push(tryDeepSeek(base, profile));
+    attempts.push(tryGeneric(base, profile));
   }
 
   for (const attempt of attempts) {

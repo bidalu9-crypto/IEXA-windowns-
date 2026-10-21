@@ -60,6 +60,12 @@ test.before(async () => {
       res.end(JSON.stringify({ ok: true, service: 'something-else' }));
       return;
     }
+    if (url === '/generic/api/user/self') {
+      res.setHeader('Content-Type', 'application/json');
+      // New API reports quota in 1/500000 USD units.
+      res.end(JSON.stringify({ success: true, data: { quota: 2500000, used_quota: 500000 } }));
+      return;
+    }
     res.statusCode = 404;
     res.end('not found');
   });
@@ -132,6 +138,18 @@ test('an unrelated 200 at /status is not mistaken for a pool', async () => {
     id: 'plain', provider: 'custom', apiKey: 'sk-plain', baseURL: `${base}/plain/v1`,
   });
   assert.equal(result.status, 'unsupported', 'no accounts array means no reading');
+});
+
+test('a New API style quota endpoint is converted to dollars', async () => {
+  const result = await fetchProviderBalance({
+    id: 'generic', provider: 'custom', apiKey: 'sk-test', baseURL: `${base}/generic/v1`,
+  });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.currency, 'USD');
+  assert.equal(result.remaining, 5, '2,500,000 quota units = $5.00');
+  assert.equal(result.used, 1, '500,000 used units = $1.00');
+  assert.equal(result.total, 6);
+  assert.match(result.source, /额度接口/);
 });
 
 test('a gateway without a balance route stays unsupported instead of guessing', async () => {
