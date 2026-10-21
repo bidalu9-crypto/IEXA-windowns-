@@ -1009,7 +1009,9 @@ if (followUpModeSelect) {
     updateComposerForQueue();
   });
 }
-stopBtn.addEventListener('click', stopProcessing);
+stopBtn.addEventListener('click', () => { void stopProcessing(); });
+document.getElementById('pausedResume')?.addEventListener('click', () => { void resumeProcessing(); });
+document.getElementById('pausedEnd')?.addEventListener('click', () => { void stopProcessing({ hard: true }); });
 
 function sendQuick(text) {
   pendingAttachments = [];
@@ -2037,6 +2039,7 @@ function handleUsage(usage) {
 
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  hidePausedBanner();
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   protectLiveTurnDom();
@@ -2070,6 +2073,7 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken, generationMs, generationRateVersion, firstTokenMs) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  hidePausedBanner();
   document.dispatchEvent(new Event('iexa:turn-finished'));
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
@@ -2131,8 +2135,102 @@ function handleDone(stopReason, turnToken, generationMs, generationRateVersion, 
   scheduleQueueDrain();
 }
 
+// =============================================================================
+// Pause / Resume
+// =============================================================================
+
+/** The banner belongs to the live turn, not to the input box. */
+function syncPausedBanner() {
+  const banner = document.getElementById('pausedBanner');
+  if (!banner) return;
+  const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
+  const paused = runtime?.isPaused === true;
+  banner.hidden = !paused;
+  if (paused) {
+    statusText.textContent = '已暂停';
+    // A parked turn cannot accept follow-ups: typing would queue against a
+    // stream that is not consuming, so the composer waits with it. The banner
+    // owns both actions, so the stop button would only compete with 继续.
+    chatInput.disabled = true;
+    sendBtn.disabled = true;
+    sendBtn.style.display = 'flex';
+    stopBtn.style.display = 'none';
+  } else {
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    sendBtn.style.display = 'flex';
+    stopBtn.style.display = isProcessing ? 'flex' : 'none';
+  }
+}
+window.syncPausedBanner = syncPausedBanner;
+
+function hidePausedBanner() {
+  const banner = document.getElementById('pausedBanner');
+  if (banner) banner.hidden = true;
+  const button = document.getElementById('pausedResume');
+  if (button) { button.disabled = false; button.textContent = '继续'; }
+  chatInput.disabled = false;
+  sendBtn.disabled = false;
+  if (currentSessionId) runtimeForSession(currentSessionId).isPaused = false;
+}
+
+/** The server parked the turn: nothing is finalised, the stream stays open. */
+function handlePaused(turnToken) {
+  if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  const runtime = runtimeForSession(currentSessionId);
+  runtime.isPaused = true;
+  runtime.pausePending = false;
+  runtime.turnStopPending = false;
+  hideWaitingIndicator();
+  finishActiveThinkingBlock();
+  syncPausedBanner();
+  snapshotActiveSessionRuntime();
+}
+
+/** Ask the live turn to stop at the next safe boundary. */
+async function pauseProcessing() {
+  if (!currentSessionId) return;
+  const runtime = runtimeForSession(currentSessionId);
+  if (runtime.isPaused || runtime.pausePending) return;
+  runtime.pausePending = true;
+  hideWaitingIndicator();
+  statusText.textContent = '正在暂停…';
+  try {
+    const response = await fetch(API_BASE + '/api/pause?sessionId=' + encodeURIComponent(currentSessionId), { method: 'POST' });
+    if (!response.ok) throw new Error('暂停请求失败，请重试。');
+  } catch (error) {
+    runtime.pausePending = false;
+    statusText.textContent = isProcessing ? '处理中...' : '就绪';
+    addError(error.message || '暂停请求失败，请重试。');
+  }
+}
+
+/** Continue the parked turn from the exact step where it stopped. */
+async function resumeProcessing() {
+  if (!currentSessionId) return;
+  const runtime = runtimeForSession(currentSessionId);
+  if (!runtime.isPaused) return;
+  const button = document.getElementById('pausedResume');
+  if (button) { button.disabled = true; button.textContent = '继续中…'; }
+  try {
+    const response = await fetch(API_BASE + '/api/resume?sessionId=' + encodeURIComponent(currentSessionId), { method: 'POST' });
+    if (!response.ok) throw new Error('任务已经结束，无法继续。');
+    runtime.isPaused = false;
+    const banner = document.getElementById('pausedBanner');
+    if (banner) banner.hidden = true;
+    statusText.textContent = '继续中…';
+    showWaitingIndicator();
+    snapshotActiveSessionRuntime();
+  } catch (error) {
+    if (button) { button.disabled = false; button.textContent = '继续'; }
+    addError(error.message || '继续失败。');
+  }
+}
+
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  hidePausedBanner();
+  runtimeForSession(currentSessionId).pausePending = false;
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
   window.IexaQuestionCard?.disableForSession?.(currentSessionId, 'cancelled');
@@ -2178,7 +2276,7 @@ function clearContextBusy() {
 // Stop Processing
 // =============================================================================
 
-async function stopProcessing() {
+async function stopProcessing(options) {
   // Mirror iOS cancel(): stop current agent turn, but KEEP promptQueue and
   // resume draining remaining inserted messages after cleanup.
   // (Session switch/create sets suppressQueueDrain=true before calling this.)
@@ -2188,17 +2286,23 @@ async function stopProcessing() {
   // snapshot and wipe the streamed content from the screen.
   protectLiveTurnDom();
   const runtime = runtimeForSession(currentSessionId);
-  runtime.turnStopPending = true;
+  // Stopping a running turn parks it so the user can continue; stopping a turn
+  // that is already parked ends it for good.
+  const hard = options?.hard === true || runtime.isPaused === true;
+  if (hard) runtime.turnStopPending = true; else runtime.pausePending = true;
   // Remove the indicator synchronously; the cancellation SSE event may arrive
   // later, and late tool results are blocked from adding it back above.
   hideWaitingIndicator();
   try {
     const sid = currentSessionId || '';
-    const response = await fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sid), { method: 'POST' });
-    if (!response.ok) throw new Error('停止请求失败，请重试。');
-    if (runtime.turnStopPending) statusText.textContent = '正在停止，等待执行器清理…';
+    const route = hard ? '/api/cancel' : '/api/pause';
+    const response = await fetch(API_BASE + route + '?sessionId=' + encodeURIComponent(sid), { method: 'POST' });
+    if (!response.ok) throw new Error(hard ? '停止请求失败，请重试。' : '暂停请求失败，请重试。');
+    if (hard && runtime.turnStopPending) statusText.textContent = '正在停止，等待执行器清理…';
+    if (!hard && runtime.pausePending) statusText.textContent = '正在暂停…';
   } catch (e) {
     runtime.turnStopPending = false;
+    runtime.pausePending = false;
     addError(e.message || '停止请求失败，请重试。');
   }
   // Keep processing true until the terminal SSE event confirms actual cleanup.

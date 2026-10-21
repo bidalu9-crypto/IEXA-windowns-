@@ -35,14 +35,20 @@ test('unknown or malformed events are ignored without touching DOM',t=>{
  assert.equal(block.textContent,'');
 });
 function stopFixture(fetchImpl){
- const start=appSource.indexOf('async function stopProcessing() {');const end=appSource.indexOf('\n}\n',start)+2;assert.ok(start>=0&&end>start);
+ const start=appSource.indexOf('async function stopProcessing(options) {');const end=appSource.indexOf('\n}\n',start)+2;assert.ok(start>=0&&end>start);
  const runtime={};let processingCalls=0;const errors=[];const calls=[];
  const sandbox={protectLiveTurnDom(){},runtimeForSession:()=>runtime,currentSessionId:'s 1',hideWaitingIndicator(){},API_BASE:'',fetch:async(...args)=>{calls.push(args);return fetchImpl(...args);},statusText:{textContent:''},addError:e=>errors.push(e),setProcessing:()=>processingCalls++,finishTaskSummary:()=>assert.fail('cleanup not finished')};
  vm.createContext(sandbox);vm.runInContext(appSource.slice(start,end),sandbox);return {sandbox,runtime,errors,calls,get processingCalls(){return processingCalls;}};
 }
-test('actual stop button handler POSTs cancellation and waits for terminal SSE',async()=>{
- const f=stopFixture(async()=>({ok:true}));await f.sandbox.stopProcessing();assert.equal(f.calls[0][0],'/api/cancel?sessionId=s%201');assert.equal(f.calls[0][1].method,'POST');assert.equal(f.runtime.turnStopPending,true);assert.equal(f.processingCalls,0);assert.match(f.sandbox.statusText.textContent,/等待执行器/);
+test('the stop button parks the turn so it can be continued',async()=>{
+ const f=stopFixture(async()=>({ok:true}));await f.sandbox.stopProcessing();assert.equal(f.calls[0][0],'/api/pause?sessionId=s%201');assert.equal(f.calls[0][1].method,'POST');assert.equal(f.runtime.pausePending,true);assert.equal(f.runtime.turnStopPending,undefined,'pausing is not a cancellation');assert.equal(f.processingCalls,0);assert.match(f.sandbox.statusText.textContent,/正在暂停/);
+});
+test('ending a parked turn cancels instead of pausing again',async()=>{
+ const f=stopFixture(async()=>({ok:true}));f.runtime.isPaused=true;await f.sandbox.stopProcessing();assert.equal(f.calls[0][0],'/api/cancel?sessionId=s%201');assert.equal(f.runtime.turnStopPending,true);assert.match(f.sandbox.statusText.textContent,/等待执行器/);
+});
+test('an explicit hard stop always cancels',async()=>{
+ const f=stopFixture(async()=>({ok:true}));await f.sandbox.stopProcessing({hard:true});assert.equal(f.calls[0][0],'/api/cancel?sessionId=s%201');assert.equal(f.runtime.turnStopPending,true);
 });
 test('failed stop request clears the pending flag without pretending the run ended',async()=>{
- const f=stopFixture(async()=>({ok:false}));await f.sandbox.stopProcessing();assert.equal(f.runtime.turnStopPending,false);assert.equal(f.processingCalls,0);assert.equal(f.errors.length,1);
+ const f=stopFixture(async()=>({ok:false}));await f.sandbox.stopProcessing();assert.equal(f.runtime.pausePending,false);assert.equal(f.processingCalls,0);assert.equal(f.errors.length,1);
 });

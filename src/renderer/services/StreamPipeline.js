@@ -171,6 +171,10 @@ function handleSSEEvent(raw, turnToken) {
         handleDone(data.stopReason, turnToken, data.generationMs, data.generationRateVersion, data.firstTokenMs);
         notifyIfHidden('IEXA 任务完成', data.stopReason === 'cancelled' ? '本轮任务已取消' : '本轮处理已完成');
         break;
+      case 'paused':
+        handlePaused(turnToken);
+        notifyIfHidden('IEXA 任务已暂停', '点击继续即可从暂停处接着执行');
+        break;
       case 'cancelled':
         handleCancelled(turnToken);
         break;

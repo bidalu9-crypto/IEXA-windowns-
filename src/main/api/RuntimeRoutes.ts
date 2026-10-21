@@ -9,6 +9,11 @@ interface RuntimeAgent {
   getObservability(): unknown;
   setPermissionMode(mode: PermissionMode): void;
   grantPermission(toolName: string): void;
+  isRunning(): boolean;
+  cancel(): void;
+  pause(): boolean;
+  resume(): Promise<boolean>;
+  isPaused(): boolean;
 }
 
 export interface RuntimeRoutesContext {
@@ -170,6 +175,27 @@ export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.Se
       if (!agent || !toolName) jsonReply(res, 404, { error: '未找到活动会话或工具。' });
       else { agent.grantPermission(toolName); jsonReply(res, 200, { ok: true, sessionId, toolName }); }
     } catch (error: unknown) { jsonReply(res, 400, { error: (error as Error).message || '权限请求无效。' }); }
+    return true;
+  }
+  if (url.pathname === '/api/pause' && req.method === 'POST') {
+    let sessionId = url.searchParams.get('sessionId') || '';
+    if (!sessionId) {
+      try { sessionId = JSON.parse(await readBody(req)).sessionId || ''; } catch { /* optional body */ }
+    }
+    const agent = sessionId ? context.agents.get(sessionId) : undefined;
+    if (!agent || !agent.pause()) { jsonReply(res, 409, { error: 'no_live_turn' }); return true; }
+    jsonReply(res, 202, { ok: true, sessionId });
+    return true;
+  }
+  if (url.pathname === '/api/resume' && req.method === 'POST') {
+    let sessionId = url.searchParams.get('sessionId') || '';
+    if (!sessionId) {
+      try { sessionId = JSON.parse(await readBody(req)).sessionId || ''; } catch { /* optional body */ }
+    }
+    const agent = sessionId ? context.agents.get(sessionId) : undefined;
+    if (!agent) { jsonReply(res, 409, { error: 'no_live_turn' }); return true; }
+    const resumed = await agent.resume();
+    jsonReply(res, resumed ? 202 : 409, resumed ? { ok: true, sessionId } : { error: 'not_paused' });
     return true;
   }
   if (url.pathname === '/api/cancel' && req.method === 'POST') {

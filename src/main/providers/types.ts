@@ -189,6 +189,8 @@ export interface AgentLoopCallbacks {
   onError: (error: string) => void;
   onDone: (stopReason: AgentStopReason) => void;
   onCancelled: () => void;
+  /** The turn stopped at a safe boundary and can be resumed later. */
+  onPaused?: () => void;
   /** A steered user message was committed into the running turn's history. */
   onSteerApplied?: (event: { id: string; text: string }) => void;
   /** A steered message could not be committed before the turn settled. */

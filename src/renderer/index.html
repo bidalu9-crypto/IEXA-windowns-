@@ -41,6 +41,7 @@
     <symbol id="ui-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="ui-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="ui-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="ui-pause" viewBox="0 0 24 24"><path d="M9.4 5.6v12.8M14.6 5.6v12.8"/></symbol>
     <symbol id="ui-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
     <symbol id="ui-archive" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM6 8v12h12V8M10 12h4"/></symbol>
     <symbol id="ui-pin" viewBox="0 0 24 24"><path d="M9 3h6l-.8 5 3.3 3.3v1.7H6.5v-1.7L9.8 8 9 3Z"/><path d="M12 13v8"/></symbol>
@@ -238,6 +239,17 @@
             </div>
           </div>
           <aside id="subAgentPanel" aria-label="子代理调度" hidden></aside>
+          <div class="paused-banner" id="pausedBanner" role="region" aria-label="任务已暂停" hidden>
+            <span class="paused-banner-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-pause"/></svg></span>
+            <div class="paused-banner-text" role="status" aria-live="polite">
+              <strong>任务已暂停</strong>
+              <small>工具结果与进度已保留，继续后从当前位置接着执行。</small>
+            </div>
+            <div class="paused-banner-actions">
+              <button type="button" class="paused-banner-end" id="pausedEnd">结束任务</button>
+              <button type="button" class="paused-banner-resume" id="pausedResume">继续</button>
+            </div>
+          </div>
           <div class="chat-input-area">
             <div class="model-bar" id="modelBar">
               <span class="model-bar-label">模型：</span>

@@ -1472,6 +1472,8 @@ function routeAllowedForDevice(device: MobileBridgeDevice, url: URL, method: str
   const chatRoutes = pathname === '/api/chat'
     || pathname === '/api/session-events'
     || pathname === '/api/cancel'
+    || pathname === '/api/pause'
+    || pathname === '/api/resume'
     || pathname === '/api/sessions'
     || pathname.startsWith('/api/sessions/')
     || pathname === '/api/token-usage'
@@ -2962,6 +2964,12 @@ ${recentMemories}
             pendingSteerMeta.delete(steerMetaKey(sessionId, id));
             emitTurnEvent('steer_dropped', { id, reason });
           },
+          // Parked, not finished: the response stays open and the same turn
+          // continues on resume, so nothing is persisted or finalised here.
+          onPaused: () => {
+            emitTurnEvent('paused', { sessionId, turn: agent ? agent.getState?.() : undefined });
+            broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_paused' }, sourceClientId);
+          },
           onUsage: (u: LLMUsage) => {
             lastUsage = { inputTokens: u.inputTokens, outputTokens: u.outputTokens, ...(u.cacheReadInputTokens != null ? { cacheReadInputTokens: u.cacheReadInputTokens } : {}) };
             // Persist each provider usage receipt immediately; a turn can contain multiple model calls.
@@ -3007,6 +3015,12 @@ ${recentMemories}
             res.end();
           },
         };
+        // A parked turn produces no stream activity, so a vanished client would
+        // otherwise leave the session locked forever. Only pause needs this:
+        // a running turn already notices a closed socket.
+        res.on('close', () => {
+          if (!res.writableEnded && agent?.isPaused?.()) agent.cancel();
+        });
         let terminalWork: Promise<void> = Promise.resolve();
         for (const key of ['onDone', 'onError', 'onCancelled'] as const) {
           const original = cb[key] as (...args: any[]) => unknown;

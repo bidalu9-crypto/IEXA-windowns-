@@ -536,6 +536,7 @@ async function switchSession(id, updateList = true) {
   }
   currentSessionId = id;
   visibleSessionId = id;
+  window.syncPausedBanner?.();
   void refreshGoalBanner();
   syncSubAgentView();
   const targetRuntime = runtimeForSession(id);

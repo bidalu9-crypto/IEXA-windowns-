@@ -199,6 +199,12 @@ export class AgentLoop {
   private pendingSteers: AgentSteerInput[] = [];
   /** Aborts only the in-flight completion when a steer arrives. */
   private completionAbort: AbortController | null = null;
+  /** A pause was requested and has not been honoured yet. */
+  private pauseRequested = false;
+  /** The turn is parked at a safe boundary; its history is still live. */
+  private paused = false;
+  /** Display text and model-step count carried across a pause. */
+  private progress = { displayText: '', turnCount: 0 };
   /** Decode time only: first streamed token to stream end. Prefill excluded. */
   private generationMs = 0;
   /** Sum of per-step waits before the first token (prompt prefill), in ms. */
@@ -215,6 +221,42 @@ export class AgentLoop {
   cancel(): void {
     this.isCancelled = true;
     this.compactionController?.abort();
+  }
+
+  /**
+   * Park the turn at the next safe boundary. The in-flight completion is
+   * aborted (its partial text is discarded, since the step will be re-asked on
+   * resume), but completed tool results stay in history. Returns false when no
+   * turn is live or it is already parked.
+   */
+  pause(): boolean {
+    if (!this.callbacks || this.paused) return false;
+    this.pauseRequested = true;
+    // Stop the current stream now instead of waiting for a long completion.
+    // Tools keep running: their results are the state we must carry forward.
+    this.completionAbort?.abort();
+    return true;
+  }
+
+  isPaused(): boolean { return this.paused; }
+
+  /** True once cancel() has been called for the live turn. */
+  isCancelledNow(): boolean { return this.isCancelled; }
+
+  /** Continue a paused turn from the exact step where it stopped. */
+  async resume(tools: AgentToolDefinition[], callbacks: AgentLoopCallbacks): Promise<void> {
+    if (!this.paused) return;
+    this.paused = false;
+    this.pauseRequested = false;
+    await this.run('', tools, callbacks, undefined, { resume: true });
+  }
+
+  private enterPause(callbacks: AgentLoopCallbacks, displayText: string, turnCount: number): void {
+    this.progress = { displayText, turnCount };
+    this.paused = true;
+    this.pauseRequested = false;
+    this.completionAbort = null;
+    try { callbacks.onPaused?.(); } catch { /* observer must not break the pause */ }
   }
 
   /**
@@ -253,6 +295,9 @@ export class AgentLoop {
   /** Settle a finished run: anything still queued can no longer be applied. */
   endRun(): void {
     this.completionAbort = null;
+    this.paused = false;
+    this.pauseRequested = false;
+    this.progress = { displayText: '', turnCount: 0 };
     this.dropPendingSteers('turn_ended');
     this.callbacks = null;
   }
@@ -494,11 +539,16 @@ export class AgentLoop {
     tools: AgentToolDefinition[],
     callbacks: AgentLoopCallbacks,
     attachments?: AgentAttachment[],
+    options?: { resume?: boolean },
   ): Promise<void> {
+    const resuming = options?.resume === true;
     this.callbacks = callbacks;
     this.isCancelled = false;
-    this.generationMs = 0;
-    this.firstTokenMs = 0;
+    if (!resuming) {
+      this.generationMs = 0;
+      this.firstTokenMs = 0;
+      this.progress = { displayText: '', turnCount: 0 };
+    }
     this.compactionController = new AbortController();
     const externalSignal = this.config.getAbortSignal();
     const signal = externalSignal
@@ -508,36 +558,40 @@ export class AgentLoop {
     // Carry forward the newest checkpoint, not just the one loaded at startup.
     if (this.compactor) this.pendingCompactorSummary = this.compactor.summary();
 
-    const parts = this.buildUserParts(userMessage, attachments);
+    // A resumed turn continues the existing history: no new user message is
+    // appended, and the durable anchors were already delivered on the first
+    // run. Re-sending them would duplicate the request head.
+    if (!resuming) {
+      const parts = this.buildUserParts(userMessage, attachments);
 
-    // A persisted checkpoint must be model-visible after restart, just as a
-    // Harness compaction checkpoint replaces an older conversation surface.
-    // Prepend it once to the next user message, preserving valid role order.
-    if (this.pendingCompactorSummary && !this.restoredSummaryInjected) {
-      const checkpoint = `<context-summary>\n${this.pendingCompactorSummary}\n</context-summary>\n\nRestored context checkpoint; continue directly from the request below.\n\n`;
-      parts.unshift({ type: 'text', text: checkpoint });
-      this.restoredSummaryInjected = true;
+      // A persisted checkpoint must be model-visible after restart, just as a
+      // Harness compaction checkpoint replaces an older conversation surface.
+      // Prepend it once to the next user message, preserving valid role order.
+      if (this.pendingCompactorSummary && !this.restoredSummaryInjected) {
+        const checkpoint = `<context-summary>\n${this.pendingCompactorSummary}\n</context-summary>\n\nRestored context checkpoint; continue directly from the request below.\n\n`;
+        parts.unshift({ type: 'text', text: checkpoint });
+        this.restoredSummaryInjected = true;
+      }
+
+      // Durable session anchors ride the newest user message, never the system
+      // prompt: the request head must stay byte-identical across calls so
+      // provider-side prefix caching re-uses system+tools+history and only the
+      // genuinely new tail is billed at full rate.
+      //
+      // The goal follows the same rule for the same reason, and is re-read from
+      // the store on every turn so compaction can never age it out.
+      const goalBlock = this.config.goalStore?.promptBlock(this.config.sessionId) || '';
+      if (goalBlock) parts.unshift({ type: 'text', text: `<current-goal>\n${goalBlock}\n</current-goal>` });
+      if (this.sessionContext && this.sessionContextPlacement === 'message') {
+        parts.unshift({ type: 'text', text: `<durable-session-context>\n${this.sessionContext}\n</durable-session-context>` });
+      }
+
+      const userMsg: AgentMessage = {
+        role: 'user',
+        parts,
+      };
+      this.agentHistory.push(userMsg);
     }
-
-    // Durable session anchors ride the newest user message, never the system
-    // prompt: the request head must stay byte-identical across calls so
-    // provider-side prefix caching re-uses system+tools+history and only the
-    // genuinely new tail is billed at full rate.
-    //
-    // The goal follows the same rule for the same reason, and is re-read from
-    // the store on every turn so compaction can never age it out.
-    const goalBlock = this.config.goalStore?.promptBlock(this.config.sessionId) || '';
-    if (goalBlock) parts.unshift({ type: 'text', text: `<current-goal>\n${goalBlock}\n</current-goal>` });
-    if (this.sessionContext && this.sessionContextPlacement === 'message') {
-      parts.unshift({ type: 'text', text: `<durable-session-context>\n${this.sessionContext}\n</durable-session-context>` });
-    }
-
-    // Add user message to history
-    const userMsg: AgentMessage = {
-      role: 'user',
-      parts,
-    };
-    this.agentHistory.push(userMsg);
 
     let projectInstructions = '';
     if (this.config.hasProject) {
@@ -573,7 +627,10 @@ export class AgentLoop {
     const contextWindow = this.config.contextWindow != null
       ? this.config.contextWindow
       : contextWindowForModel(this.config.provider.model, this.config.provider.name);
-    const compactor = new ContextManager(
+    // A resumed turn reuses the live compactor: it already holds the summary
+    // and the measured request size, and rebuilding it would reset the context
+    // meter mid-turn.
+    const compactor = resuming && this.compactor ? this.compactor : new ContextManager(
       this.config.provider,
       contextWindow,
       tools,
@@ -581,12 +638,15 @@ export class AgentLoop {
       this.config.maxTokens || this.config.provider.defaultMaxTokens,
     );
     this.compactor = compactor;
-    if (this.pendingCompactorSummary) compactor.restoreSummary(this.pendingCompactorSummary);
-    if (this.pendingContextUsage > 0) compactor.restoreUsage(this.pendingContextUsage);
+    if (!resuming) {
+      if (this.pendingCompactorSummary) compactor.restoreSummary(this.pendingCompactorSummary);
+      if (this.pendingContextUsage > 0) compactor.restoreUsage(this.pendingContextUsage);
+    }
     // Display history spans all provider/tool cycles in this user run.
     // assistantText below stays per-provider-cycle for the model protocol.
-    let displayText = '';
-    let turnCount = 0;
+    // Both counters survive a pause so the resumed turn looks like one turn.
+    let displayText = this.progress.displayText;
+    let turnCount = this.progress.turnCount;
     let streamRetryAttempt = 0;
     let contextOverflowRetryAttempt = 0;
     let retryingTurn = false;
@@ -594,6 +654,9 @@ export class AgentLoop {
 
     const maxTurns = this.config.toolRuntime.getBudget().maxTurns;
     while ((turnCount < maxTurns || retryingTurn) && !this.isAborted) {
+      // Pause is honoured only at a step boundary: completed tool results are
+      // already in history, so resuming re-asks the model with full context.
+      if (this.pauseRequested) { this.enterPause(callbacks, displayText, turnCount); return; }
       if (!retryingTurn) {
         turnCount++;
         try { this.config.toolRuntime.beginTurn(); callbacks.onTurnStart?.(turnCount); } catch (error: unknown) { callbacks.onError((error as Error).message); return; }
@@ -717,6 +780,9 @@ export class AgentLoop {
           this.generationMs += Date.now() - firstTokenAt;
           this.firstTokenMs += firstTokenAt - generationStartedAt;
         }
+        // A pause aborts the stream; the half-written step is discarded and
+        // re-asked on resume, so history never holds a partial tool call.
+        if (this.pauseRequested) { this.enterPause(callbacks, displayText, turnCount); return; }
         if (this.isAborted) { callbacks.onCancelled(); return; }
         this.completionAbort = null;
         // A complete provider turn succeeded; transient retry budget is reset.
@@ -811,6 +877,11 @@ export class AgentLoop {
         // provider used a non-standard stop reason alongside the call.
       } catch (error: unknown) {
         const err = error as Error;
+        if (this.pauseRequested) {
+          this.completionAbort = null;
+          this.enterPause(callbacks, displayText, turnCount);
+          return;
+        }
         const steeredMidStream = completionAbort.signal.aborted && !this.isAborted;
         this.completionAbort = null;
         if (steeredMidStream) {

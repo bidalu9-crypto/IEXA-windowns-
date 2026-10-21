@@ -20,6 +20,8 @@ export interface AgentRequest { message: string; tools: AgentToolDefinition[]; c
 
 export class AgentRuntime {
   private readonly cancellation = new CancellationManager();
+  /** Resolves the parked run() when a paused turn is resumed or cancelled. */
+  private resumeWaiter: (() => void) | null = null;
   private readonly budget: BudgetManager;
   private readonly tools: ToolRuntime;
   private readonly loop: AgentLoop;
@@ -73,7 +75,16 @@ export class AgentRuntime {
       onDone: (reason) => { this.metrics.increment('runs_completed'); this.trace.event('run_completed', { reason }); terminal = () => { this.finish('completed'); request.callbacks.onDone(reason); }; }, onError: (error) => { this.metrics.increment('runs_failed'); this.trace.event('run_failed', { error }); terminal = () => { this.finish('failed'); request.callbacks.onError(error); }; }, onCancelled: () => { this.metrics.increment('runs_cancelled'); this.trace.event('run_cancelled'); terminal = () => { this.finish('cancelled'); request.callbacks.onCancelled(); }; },
     };
     this.activeRun = true;
-    try { await this.loop.run(request.message, request.tools, callbacks, request.attachments); }
+    try {
+      await this.loop.run(request.message, request.tools, callbacks, request.attachments);
+      // A paused turn keeps this run alive: the session lock, the SSE response
+      // and the agent history all stay in place until resume or cancel.
+      while (this.loop.isPaused()) {
+        await new Promise<void>((resolve) => { this.resumeWaiter = resolve; });
+        if (this.loop.isCancelledNow()) { callbacks.onCancelled(); break; }
+        await this.loop.resume(request.tools, callbacks);
+      }
+    }
     finally {
       if (runSignal.aborted) {
         if (this.config.subAgentTree) await this.subAgents?.settleDescendants(this.config.sessionId);
@@ -97,8 +108,22 @@ export class AgentRuntime {
     if (!this.activeRun) return false;
     return this.loop.steer(request);
   }
+  async resume(): Promise<boolean> {
+    if (!this.activeRun || !this.loop.isPaused()) return false;
+    this.resumeWaiter?.();
+    this.resumeWaiter = null;
+    return true;
+  }
+  isPaused(): boolean { return this.loop.isPaused(); }
+  pause(): boolean {
+    if (!this.activeRun) return false;
+    return this.loop.pause();
+  }
   cancel(): void {
     this.cancellation.cancel(this.config.sessionId); this.loop.cancel();
+    // A paused turn is parked inside run(); wake it so the cancellation can
+    // settle instead of leaving the session locked forever.
+    this.resumeWaiter?.(); this.resumeWaiter = null;
     if (this.config.subAgentTree) this.subAgents?.cancelDescendants(this.config.sessionId);
     else { this.subAgents?.cancelAll(); if (!this.activeRun) void this.subAgents?.settleAll(); }
   }
