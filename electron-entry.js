@@ -41,6 +41,7 @@ try {
 let PORT = null;let mainWindow = null;
 let resizeMainWindow = null;
 let desktopLiveWindow = null;
+let petWindow = null;
 let server = null;
 let tray = null;
 let updateService = null;
@@ -115,8 +116,8 @@ function saveDesktopLiveWindowState() {
 
 function trustedSender(event) {
   const contents = event.sender;
-  if (![mainWindow, desktopLiveWindow].some(win => win && !win.isDestroyed() && win.webContents === contents)) return false;
-  try { const url = new URL(event.senderFrame.url); return url.origin === `http://${LOOPBACK_HOST}:${PORT}` && ['/', '/index.html', '/desktop-live.html'].includes(url.pathname) && event.senderFrame === contents.mainFrame; } catch { return false; }
+  if (![mainWindow, desktopLiveWindow, petWindow].some(win => win && !win.isDestroyed() && win.webContents === contents)) return false;
+  try { const url = new URL(event.senderFrame.url); return url.origin === `http://${LOOPBACK_HOST}:${PORT}` && ['/', '/index.html', '/desktop-live.html', '/pet.html'].includes(url.pathname) && event.senderFrame === contents.mainFrame; } catch { return false; }
 }
 const registerHandle = ipcMain.handle.bind(ipcMain);
 ipcMain.handle = (channel, handler) => registerHandle(channel, (event, ...args) => {
@@ -237,6 +238,263 @@ ipcMain.handle('iexa:desktop-live-close', () => {
   if (desktopLiveWindow && !desktopLiveWindow.isDestroyed()) desktopLiveWindow.close();
   return { ok: true };
 });
+
+// ---- Desktop pet -------------------------------------------------------
+// A frameless, transparent, always-on-top surface the size of its sprite. All
+// state lives in the workspace (`.iexa-pet/`); this block only owns the window.
+const PET_PAD_X = 36;
+const PET_PAD_Y = 70;
+let petDrag = null;
+let petWanderTimer = null;
+let petMoveTimer = null;
+
+function petConfigFile() { return workspaceFile('.iexa-pet/config.json'); }
+function petPositionFile() { return workspaceFile('.iexa-pet/position.json'); }
+
+function readPetConfig() {
+  const raw = readJsonFile(petConfigFile(), {}) || {};
+  return {
+    visible: raw.visible === true,
+    scale: Math.min(2, Math.max(0.5, Number(raw.scale) || 1)),
+    alwaysOnTop: raw.alwaysOnTop !== false,
+    wander: raw.wander !== false,
+    shadow: raw.shadow !== false,
+    reactions: raw.reactions !== false,
+  };
+}
+
+/** Sprite pixel size straight from the PNG header. */
+function petSpriteSize() {
+  try {
+    const bytes = fs.readFileSync(workspaceFile('.iexa-pet/sprite.png'));
+    if (bytes.length < 24 || bytes.readUInt32BE(0) !== 0x89504e47) return null;
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20), stamp: `${bytes.length}-${Math.round(fs.statSync(workspaceFile('.iexa-pet/sprite.png')).mtimeMs)}` };
+  } catch { return null; }
+}
+
+function petWindowSize(size, config) {
+  const scale = config.scale || 1;
+  return {
+    width: Math.max(120, Math.round(size.width * scale) + PET_PAD_X),
+    height: Math.max(120, Math.round(size.height * scale) + PET_PAD_Y),
+  };
+}
+
+function defaultPetPosition(width, height) {
+  const display = screen.getPrimaryDisplay().workArea;
+  return { x: display.x + display.width - width - 48, y: display.y + display.height - height - 24 };
+}
+
+function readPetPosition(width, height) {
+  const saved = readJsonFile(petPositionFile(), null);
+  if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return defaultPetPosition(width, height);
+  const visible = screen.getAllDisplays().some((display) => {
+    const work = display.workArea;
+    return saved.x < work.x + work.width - 60 && saved.x + width > work.x + 60
+      && saved.y < work.y + work.height - 40 && saved.y + height > work.y + 40;
+  });
+  return visible ? { x: Math.round(saved.x), y: Math.round(saved.y) } : defaultPetPosition(width, height);
+}
+
+function savePetPosition() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const [x, y] = petWindow.getPosition();
+  writeJsonAtomic(petPositionFile(), { x, y });
+}
+
+/** Ask the surface to redraw from the current sprite and config. */
+function pushPetState(extra = {}) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const config = readPetConfig();
+  const size = petSpriteSize();
+  const bounds = petWindow.getBounds();
+  const wanted = size ? petWindowSize(size, config) : null;
+  if (wanted && (wanted.width !== bounds.width || wanted.height !== bounds.height)) {
+    petWindow.setBounds({ ...bounds, width: wanted.width, height: wanted.height }, false);
+  }
+  petWindow.setAlwaysOnTop(config.alwaysOnTop, 'floating');
+  petWindow.webContents.send('iexa:pet-state', {
+    spriteVersion: size ? size.stamp : '',
+    config,
+    ...extra,
+  });
+}
+
+function startPetWander() {
+  clearInterval(petWanderTimer);
+  petWanderTimer = null;
+  const config = readPetConfig();
+  if (!config.wander || !petWindow || petWindow.isDestroyed()) return;
+  petWanderTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed() || petDrag) return;
+    const display = screen.getDisplayMatching(petWindow.getBounds()).workArea;
+    const [x, y] = petWindow.getPosition();
+    const width = petWindow.getBounds().width;
+    const height = petWindow.getBounds().height;
+    const targetX = Math.round(display.x + 24 + Math.random() * Math.max(1, display.width - width - 48));
+    const targetY = Math.round(display.y + 24 + Math.random() * Math.max(1, display.height - height - 48));
+    if (Math.abs(targetX - x) < 40 && Math.abs(targetY - y) < 40) return;
+    glidePetTo(x, y, targetX, targetY);
+  }, 9000 + Math.random() * 6000);
+}
+
+/** 700ms ease-out glide; window moves are discrete, so we interpolate. */
+function glidePetTo(fromX, fromY, toX, toY) {
+  clearInterval(petMoveTimer);
+  const started = Date.now();
+  const duration = 700;
+  petMoveTimer = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed()) { clearInterval(petMoveTimer); return; }
+    const t = Math.min(1, (Date.now() - started) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    petWindow.setPosition(Math.round(fromX + (toX - fromX) * eased), Math.round(fromY + (toY - fromY) * eased));
+    if (t >= 1) { clearInterval(petMoveTimer); petMoveTimer = null; savePetPosition(); }
+  }, 16);
+}
+
+function createPetWindow() {
+  if (petWindow && !petWindow.isDestroyed()) return petWindow;
+  const config = readPetConfig();
+  const size = petSpriteSize();
+  if (!size) return null;
+  const { width, height } = petWindowSize(size, config);
+  const position = readPetPosition(width, height);
+  petWindow = new BrowserWindow({
+    x: position.x,
+    y: position.y,
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: config.alwaysOnTop,
+    show: false,
+    focusable: true,
+    title: 'IEXA 桌宠',
+    icon: path.join(__dirname, 'resources', 'icon.png'),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      backgroundThrottling: false,
+      preload: path.join(__dirname, 'resources', 'pet-preload.js'),
+    },
+  });
+  petWindow.setMenuBarVisibility(false);
+  petWindow.setAlwaysOnTop(config.alwaysOnTop, 'floating');
+  petWindow.once('ready-to-show', () => {
+    if (petWindow && !petWindow.isDestroyed()) petWindow.showInactive();
+  });
+  petWindow.on('moved', () => { if (!petDrag) savePetPosition(); });
+  petWindow.on('closed', () => {
+    clearInterval(petWanderTimer); petWanderTimer = null;
+    clearInterval(petMoveTimer); petMoveTimer = null;
+    petWindow = null;
+  });
+  secureNavigation(petWindow, ['/pet.html']);
+  petWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  petWindow.loadURL(`http://${LOOPBACK_HOST}:${PORT}/pet.html`);
+  startPetWander();
+  return petWindow;
+}
+
+ipcMain.on('iexa:pet-initial-state', (event) => {
+  if (!petWindow || event.sender !== petWindow.webContents) { event.returnValue = null; return; }
+  const size = petSpriteSize();
+  event.returnValue = { spriteVersion: size ? size.stamp : '', config: readPetConfig() };
+});
+
+ipcMain.on('iexa:pet-ready', () => pushPetState());
+
+ipcMain.on('iexa:pet-drag-start', () => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const [x, y] = petWindow.getPosition();
+  petDrag = { x, y };
+  clearInterval(petMoveTimer); petMoveTimer = null;
+});
+
+ipcMain.on('iexa:pet-drag-move', (_event, delta) => {
+  if (!petDrag || !petWindow || petWindow.isDestroyed()) return;
+  const dx = Number(delta?.dx) || 0;
+  const dy = Number(delta?.dy) || 0;
+  petWindow.setPosition(Math.round(petDrag.x + dx), Math.round(petDrag.y + dy));
+});
+
+ipcMain.on('iexa:pet-drag-end', () => {
+  petDrag = null;
+  savePetPosition();
+});
+
+ipcMain.on('iexa:pet-poked', () => { /* reserved for future reactions */ });
+
+ipcMain.on('iexa:pet-open-main', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+ipcMain.on('iexa:pet-set-wander', (_event, wander) => {
+  try {
+    const file = petConfigFile();
+    const raw = readJsonFile(file, {}) || {};
+    writeJsonAtomic(file, { ...raw, wander: Boolean(wander) });
+    if (wander) startPetWander(); else { clearInterval(petWanderTimer); petWanderTimer = null; }
+  } catch { /* the renderer can retry from settings */ }
+});
+
+ipcMain.on('iexa:pet-menu', (_event, action) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (action === 'hide') {
+    petWindow.hide();
+    try {
+      const file = petConfigFile();
+      const raw = readJsonFile(file, {}) || {};
+      writeJsonAtomic(file, { ...raw, visible: false });
+    } catch { /* best effort */ }
+    return;
+  }
+  if (action === 'quit') { petWindow.close(); return; }
+  if (action === 'main' && mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
+/** Let the HTTP server drive the pet surface (routes cannot open windows). */
+function installPetHost() {
+  try {
+    const { setPetWindowHost } = require('./dist/main/pet/PetWindowHost');
+    setPetWindowHost({
+      setVisible(visible) {
+        if (visible) {
+          const win = createPetWindow();
+          if (win) win.showInactive();
+        } else if (petWindow && !petWindow.isDestroyed()) {
+          petWindow.hide();
+        }
+      },
+      applyConfig() { pushPetState(); },
+      close() { if (petWindow && !petWindow.isDestroyed()) petWindow.close(); },
+      isOpen() { return !!petWindow && !petWindow.isDestroyed() && petWindow.isVisible(); },
+    });
+    // A pet that was on screen when the app closed comes back with it.
+    if (readPetConfig().visible && petSpriteSize()) {
+      const win = createPetWindow();
+      if (win) win.showInactive();
+    }
+  } catch (error) {
+    console.error('[IEXA] Pet host failed:', error.message);
+  }
+}
 
 // ---- Per-instance workspace ----
 // Each window is its own agent instance. Give it a unique workspace so
@@ -761,6 +1019,7 @@ app.whenReady().then(async () => {
     await waitForServer();
     installDisplayMediaHandler();
     createWindow();
+    installPetHost();
     if (!HEADLESS) createTray();
     createUpdateService();
     console.log('[IEXA] App ready!');

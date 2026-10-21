@@ -71,7 +71,7 @@ test('active raw and preview documents get response-level opaque sandbox and no 
   for(const route of ['/api/fs/raw?path=preview.html','/api/fs/preview/workspace/preview.html']){
     const r=await request(route);assert.equal(r.status,200,route+" "+r.body);assert.match(r.headers['content-security-policy'],/sandbox allow-scripts;/);assert.doesNotMatch(r.headers['content-security-policy'],/allow-same-origin/);assert.match(r.headers['content-security-policy'],/connect-src 'none'/);assert.equal(r.headers['x-content-type-options'],'nosniff');
   }
-  const app=await request('/');assert.match(app.headers['content-security-policy'],/script-src 'self';/);assert.doesNotMatch(app.body,/https:\/\/cdn/);
+  const app=await request('/');assert.match(app.headers['content-security-policy'],/script-src 'self' 'wasm-unsafe-eval';/);assert.doesNotMatch(app.body,/https:\/\/cdn/);
 });
 test('same-offset upload writes are serialized; identical retry is idempotent',async()=>{
   const initialized=await request('/api/uploads/init',{method:'POST',body:JSON.stringify({sessionId:'audit',name:'test.txt',size:8388609})});assert.equal(initialized.status,200);

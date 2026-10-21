@@ -1,0 +1,188 @@
+/* The whole document is the pet: no surface, no chrome, no scrollbars. */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.pet-stage {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 56px 18px 14px;
+  box-sizing: border-box;
+  /* Idle float. Kept on the stage so the sprite's own transforms stay free for
+     drag tilt and click squash. */
+  animation: pet-float 4.2s ease-in-out infinite;
+}
+
+.pet-sprite {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 92%;
+  /* A tiny breathing scale, out of phase with the float so it never looks
+     like one rigid bob. */
+  animation: pet-breathe 3.1s ease-in-out infinite;
+  filter: drop-shadow(0 10px 14px rgb(0 0 0 / 22%));
+  will-change: transform;
+}
+
+.pet-stage[data-shadow="off"] .pet-sprite { filter: none; }
+.pet-stage[data-shadow="off"] .pet-shadow { display: none; }
+
+.pet-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 58%;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgb(0 0 0 / 26%), transparent 70%);
+  animation: pet-shadow-breathe 3.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ---- interaction states ---- */
+.pet-stage[data-dragging="true"] { animation-play-state: paused; }
+.pet-stage[data-dragging="true"] .pet-sprite { animation-play-state: paused; }
+
+.pet-sprite.is-poked {
+  animation: pet-poke 460ms cubic-bezier(.34, 1.56, .64, 1);
+}
+
+.pet-stage[data-mood="happy"] .pet-sprite { animation: pet-happy 900ms ease-in-out; }
+
+/* ---- speech bubble ---- */
+.pet-bubble {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  max-width: calc(100% - 20px);
+  padding: 7px 11px;
+  transform: translate(-50%, 6px);
+  border: 1px solid var(--bubble-border, rgb(0 0 0 / 10%));
+  border-radius: 11px;
+  background: var(--bubble-bg, #ffffff);
+  color: var(--bubble-ink, #1f1f22);
+  font: 500 12px/1.45 "Microsoft YaHei", system-ui, sans-serif;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 16%);
+  opacity: 0;
+  transition: opacity 160ms ease, transform 200ms cubic-bezier(.34, 1.56, .64, 1);
+  pointer-events: none;
+}
+
+.pet-bubble.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.pet-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  transform: rotate(45deg);
+  border-right: 1px solid var(--bubble-border, rgb(0 0 0 / 10%));
+  border-bottom: 1px solid var(--bubble-border, rgb(0 0 0 / 10%));
+  background: var(--bubble-bg, #ffffff);
+}
+
+@media (prefers-color-scheme: dark) {
+  .pet-bubble {
+    --bubble-bg: #26262b;
+    --bubble-ink: #f0f0f3;
+    --bubble-border: rgb(255 255 255 / 12%);
+  }
+}
+
+/* ---- context menu ---- */
+.pet-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 148px;
+  padding: 5px;
+  border: 1px solid var(--menu-border, rgb(0 0 0 / 10%));
+  border-radius: 10px;
+  background: var(--menu-bg, #ffffff);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
+  font: 500 12px/1 "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.pet-menu[hidden] { display: none; }
+
+.pet-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--menu-ink, #26262b);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pet-menu button:hover { background: var(--menu-hover, rgb(0 0 0 / 6%)); }
+.pet-menu-sep { height: 1px; margin: 4px 6px; background: var(--menu-border, rgb(0 0 0 / 10%)); }
+
+@media (prefers-color-scheme: dark) {
+  .pet-menu {
+    --menu-bg: #26262b;
+    --menu-ink: #f0f0f3;
+    --menu-border: rgb(255 255 255 / 12%);
+    --menu-hover: rgb(255 255 255 / 8%);
+  }
+}
+
+/* ---- motion ---- */
+@keyframes pet-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes pet-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.012, 0.988); }
+}
+
+@keyframes pet-shadow-breathe {
+  0%, 100% { opacity: .9; transform: translateX(-50%) scaleX(1); }
+  50% { opacity: .62; transform: translateX(-50%) scaleX(.92); }
+}
+
+@keyframes pet-poke {
+  0% { transform: scale(1, 1); }
+  32% { transform: scale(1.08, .9); }
+  62% { transform: scale(.95, 1.06); }
+  100% { transform: scale(1, 1); }
+}
+
+@keyframes pet-happy {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  30% { transform: translateY(-9px) rotate(-3deg); }
+  65% { transform: translateY(-4px) rotate(3deg); }
+}
+
+/* The pet must stay still for users who asked the OS for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .pet-stage, .pet-sprite, .pet-shadow { animation: none; }
+  .pet-bubble { transition: opacity 120ms ease; }
+}

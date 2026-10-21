@@ -14,7 +14,7 @@ test('unique IDs, sprite references and original navigation destinations', t => 
   assert.equal(new Set(ids).size, ids.length);
   for (const use of d.querySelectorAll('use')) { const id = use.getAttribute('href'); if (id?.startsWith('#')) assert.ok(d.getElementById(id.slice(1)), id); }
   for (const b of d.querySelectorAll('.nav-btn')) assert.ok(d.getElementById(`view-${b.dataset.view}`));
-  assert.equal(d.querySelectorAll('.nav-btn').length, 11);
+  assert.equal(d.querySelectorAll('.nav-btn').length, 12);
 });
 test('new controls forward exactly once to existing handlers', t => {
   const w = fixture(t); const d = w.document;

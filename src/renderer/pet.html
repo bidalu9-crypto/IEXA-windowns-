@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IEXA 桌宠</title>
+<link rel="stylesheet" href="pet.css">
+</head>
+<body>
+  <!-- The window is transparent; only these layers paint. -->
+  <div class="pet-stage" id="stage" data-ready="false">
+    <div class="pet-bubble" id="bubble" role="status" aria-live="polite" hidden></div>
+    <div class="pet-shadow" id="shadow" aria-hidden="true"></div>
+    <img class="pet-sprite" id="sprite" alt="桌面宠物" draggable="false">
+  </div>
+
+  <div class="pet-menu" id="menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-action="main">回到 IEXA</button>
+    <button type="button" role="menuitem" data-action="toggle-wander">暂停走动</button>
+    <button type="button" role="menuitem" data-action="hide">隐藏桌宠</button>
+    <div class="pet-menu-sep" role="separator"></div>
+    <button type="button" role="menuitem" data-action="quit">关闭桌宠</button>
+  </div>
+
+<script src="pet.js"></script>
+</body>
+</html>

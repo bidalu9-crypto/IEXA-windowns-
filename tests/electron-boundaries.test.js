@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../electron-entry.js'),'utf8');
 test('Electron IPC accepts only the exact privileged top-level UI frame',()=>{
-  const frame={url:'http://127.0.0.1:12345/'};const contents={mainFrame:frame};const context={URL,PORT:12345,LOOPBACK_HOST:'127.0.0.1',mainWindow:{isDestroyed:()=>false,webContents:contents},desktopLiveWindow:null};vm.createContext(context);
+  const frame={url:'http://127.0.0.1:12345/'};const contents={mainFrame:frame};const context={URL,PORT:12345,LOOPBACK_HOST:'127.0.0.1',mainWindow:{isDestroyed:()=>false,webContents:contents},desktopLiveWindow:null,petWindow:null};vm.createContext(context);
   const a=source.indexOf('function trustedSender('),b=source.indexOf('const registerHandle',a);vm.runInContext(source.slice(a,b),context);
   assert.equal(context.trustedSender({sender:contents,senderFrame:frame}),true);
   for(const url of ['http://127.0.0.1:12345/api/fs/preview/workspace/x.html','http://127.0.0.1:12345.evil.invalid/','https://example.invalid/','file:///C:/fixture.html']){frame.url=url;assert.equal(context.trustedSender({sender:contents,senderFrame:frame}),false,url);}

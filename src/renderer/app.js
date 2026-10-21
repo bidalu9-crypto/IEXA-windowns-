@@ -545,6 +545,7 @@ const VIEW_REFRESH = {
   scheduled: () => { renderScheduledTasks(); loadScheduledTasks(); },
   mcp: () => loadMcpServers(),
   plugins: () => loadPlugins(),
+  pet: () => loadPetSnapshot().then(petRender),
   sync: () => loadMobileBridge(),
 };
 

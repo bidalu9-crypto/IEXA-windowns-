@@ -46,5 +46,23 @@
     "version": "11.12.0",
     "source": "LICENSE",
     "sha256": "6c081431591d9df696c82dc598fe1423765b8a299b200ed00b281afd0f64c490"
+  },
+  "ort.wasm.min.mjs": {
+    "package": "onnxruntime-web",
+    "version": "1.23.0",
+    "source": "dist/ort.wasm.min.mjs",
+    "sha256": "d27154a28588534b4343f9f935c1a555a1f84784e5677d9d356fcb732a815757"
+  },
+  "ort-wasm-simd-threaded.mjs": {
+    "package": "onnxruntime-web",
+    "version": "1.23.0",
+    "source": "dist/ort-wasm-simd-threaded.mjs",
+    "sha256": "c0bc2244e2c95fbf39a5eccb595bca31defb9eefdffa6f9ce0325a1c47524461"
+  },
+  "ort-wasm-simd-threaded.wasm": {
+    "package": "onnxruntime-web",
+    "version": "1.23.0",
+    "source": "dist/ort-wasm-simd-threaded.wasm",
+    "sha256": "3260fcdb33b4fc4ec33e89caf392e13625823e01049d3bf32c38464f9dbfe14c"
   }
 }

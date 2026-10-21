@@ -75,6 +75,8 @@ import { handleMcpRoute, McpRouteContext } from './api/McpRoutes';
 import { handlePluginRoute, PluginRouteContext } from './api/PluginRoutes';
 import { handleSteerRoute } from './api/SteerRoutes';
 import { handleScheduledTaskRoute } from './api/ScheduledTaskRoutes';
+import { handlePetRoute } from './api/PetRoutes';
+import { PetStore } from './pet/PetStore';
 import { createTaskScheduler } from './tasks/TaskRuntime';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
@@ -102,6 +104,7 @@ const WORKSPACE_DIR = (() => { const root = path.resolve(process.env.IEXA_WORKSP
 const CHECKPOINTS = new CheckpointStore(path.join(WORKSPACE_DIR, '.iexa-checkpoints'));
 const DIAGNOSTICS_DIR = path.join(WORKSPACE_DIR, '.iexa-diagnostics');
 const SCHEDULED_TASKS_FILE = path.join(WORKSPACE_DIR, '.iexa-scheduled-tasks.json');
+const PET_STORE = new PetStore(path.join(WORKSPACE_DIR, '.iexa-pet'));
 
 /**
  * The scheduler talks to the same `/api/chat` endpoint a person uses, so a
@@ -1418,7 +1421,10 @@ function backfillSessionContexts(): void {
 // See agentCache Map above.
 
 
-const APP_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+// 'wasm-unsafe-eval' lets the desktop pet's local u2netp inference compile its
+// wasm module. It is far narrower than 'unsafe-eval': it permits WebAssembly
+// instantiation only, never string-to-JS evaluation.
+const APP_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 
 
@@ -1742,7 +1748,7 @@ function createServer(auth: LocalApiAuth): http.Server {
     }
     if (req.method === 'OPTIONS') throw new HttpError(405, '应用仅接受同源请求。');
     if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE'].includes(req.method || '') &&
-        !(req.method === 'PATCH' && /^\/(api\/sessions|api\/scheduled-tasks)\/[A-Za-z0-9_-]+$/.test(url.pathname))) throw new HttpError(405, '请求方法无效。');
+        !(req.method === 'PATCH' && (/^\/(api\/sessions|api\/scheduled-tasks)\/[A-Za-z0-9_-]+$/.test(url.pathname) || url.pathname === '/api/pet'))) throw new HttpError(405, '请求方法无效。');
     if ((url.pathname === '/' || url.pathname === '/index.html' || url.pathname === '/desktop-live.html') && isLoopbackRequest(req) && !isTLS(req) && !desktopAuthenticated) {
       req.url = '/auth-login.html'; serveStatic(req, res); return;
     }
@@ -1896,6 +1902,11 @@ function createServer(auth: LocalApiAuth): http.Server {
       workspaceDir: WORKSPACE_DIR, sessionsDir: SESSIONS_DIR, settingsFile: SETTINGS_FILE, sessionsStoreFile: SESSIONS_FILE,
       maskPassword: maskKey, loadConfig, saveConfig, testConnection, syncAll,
       listConflicts: listSyncConflicts, previewConflict: previewSyncConflict, resolveConflict: resolveSyncConflict,
+    })) return;
+
+    if (await handlePetRoute(req, res, url, {
+      store: PET_STORE,
+      maxSpriteBytes: 8 * 1024 * 1024,
     })) return;
 
     if (await handleScheduledTaskRoute(req, res, url, {

@@ -25,6 +25,7 @@
 <link rel="stylesheet" href="components/Appearance.css">
 <link rel="stylesheet" href="components/SettingsPage.css">
 <link rel="stylesheet" href="components/Screenshot.css">
+<link rel="stylesheet" href="components/Pet.css">
 <style>
 .prompt-settings-panel { margin-top: 20px; }
 .prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
@@ -126,6 +127,7 @@
       <details class="sidebar-more" id="sidebarMore">
         <summary><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span data-i18n="nav.more">设置与拓展</span></summary>
         <div class="sidebar-secondary"><button class="nav-btn" data-view="appearance"><svg class="ui-icon" aria-hidden="true"><use href="#ui-palette"/></svg><span data-i18n="nav.appearance">外观</span></button>
+<button class="nav-btn" data-view="pet"><svg class="ui-icon" aria-hidden="true"><use href="#ui-robot"/></svg><span data-i18n="nav.pet">桌面宠物</span></button>
 <button class="nav-btn" data-view="soul"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg><span data-i18n="nav.soul">灵魂</span></button>
 <button class="nav-btn nav-btn-token-usage" data-view="token-calculator">
         <svg class="nav-token-usage-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -940,6 +942,65 @@ version: 1.0.0
       </div>
     </div>
 
+    <div class="view" id="view-pet">
+      <div class="pet-page">
+        <header class="pet-page-head">
+          <div>
+            <h1>桌面宠物</h1>
+            <p class="pet-page-sub">上传一张图，自动抠掉背景后放到桌面上。双击回到 IEXA，右键可以暂停走动或关闭。</p>
+          </div>
+          <div class="pet-page-head-actions">
+            <button type="button" class="btn-secondary" id="petClear" disabled>删除形象</button>
+          </div>
+        </header>
+
+        <div class="pet-stage-card">
+          <div class="pet-drop" id="petDrop">
+            <div class="pet-drop-empty">
+              <span class="pet-drop-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg></span>
+              <strong>拖一张图到这里</strong>
+              <small>照片、立绘、截图都可以。会本地抠掉背景；已经是透明 PNG 则原样保留。</small>
+              <button type="button" class="btn-secondary" id="petPick">选择图片</button>
+            </div>
+            <div class="pet-preview"><img id="petPreview" alt="桌宠预览"></div>
+            <div class="pet-busy" role="status" aria-live="polite">
+              <span class="pet-busy-bar" aria-hidden="true"><i></i></span>
+              <span id="petBusyLabel">正在处理…</span>
+            </div>
+            <input type="file" id="petFile" accept="image/*" hidden>
+          </div>
+
+          <aside class="pet-side">
+            <h2>行为</h2>
+            <div class="pet-field">
+              <label for="petScale">大小 <output id="petScaleValue">100%</output></label>
+              <input type="range" id="petScale" min="50" max="200" step="5" value="100">
+            </div>
+            <div class="pet-switch-row">
+              <div><span>总在最前</span><small>盖在其他窗口上方</small></div>
+              <input type="checkbox" class="pet-toggle" id="pet-alwaysOnTop" checked>
+            </div>
+            <div class="pet-switch-row">
+              <div><span>随机走动</span><small>隔一会儿换个位置</small></div>
+              <input type="checkbox" class="pet-toggle" id="pet-wander" checked>
+            </div>
+            <div class="pet-switch-row">
+              <div><span>投影</span><small>脚下的一层软阴影</small></div>
+              <input type="checkbox" class="pet-toggle" id="pet-shadow" checked>
+            </div>
+            <div class="pet-switch-row">
+              <div><span>点击反应</span><small>点一下会说话</small></div>
+              <input type="checkbox" class="pet-toggle" id="pet-reactions" checked>
+            </div>
+            <div class="pet-actions">
+              <button type="button" class="btn-primary" id="petSummon" disabled>召唤桌宠</button>
+            </div>
+            <p class="pet-note" id="petSizeHint">还没有形象</p>
+          </aside>
+        </div>
+      </div>
+    </div>
+
     <!-- Scheduled task editor -->
     <div class="scheduled-overlay" id="scheduledEditor" hidden>
       <div class="scheduled-editor" role="dialog" aria-modal="true" aria-labelledby="scheduledEditorTitle">
@@ -1357,6 +1418,7 @@ version: 1.0.0
 <script src="services/SkillsPanel.js"></script>
 <script src="services/TextContextMenu.js"></script>
 <script src="services/ScheduledTasksView.js"></script>
+<script src="services/PetView.js"></script>
 <script src="services/PermissionModeUI.js"></script>
 <script src="services/ShellLayout.js"></script>
 <script src="services/MobileBridge.js"></script>

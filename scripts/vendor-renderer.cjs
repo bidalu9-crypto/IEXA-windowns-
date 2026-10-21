@@ -15,6 +15,15 @@ const assets = [
   ['@highlightjs/cdn-assets', 'styles/github.min.css', 'github.min.css'],
   ['@highlightjs/cdn-assets', 'styles/github-dark.min.css', 'github-dark.min.css'],
   ['highlight.js', 'LICENSE', 'highlightjs-LICENSE'],
+  // The pet background remover runs u2netp through onnxruntime-web. Only the
+  // single-threaded wasm build ships; the webgl/webgpu variants would add ~30 MB
+  // for a model this small. The .mjs entry plus its glue module are loaded with
+  // a dynamic import, because the UMD wrapper cannot resolve the relative .mjs
+  // specifier under a plain <script>. The package carries no LICENSE file; ONNX
+  // Runtime is MIT (microsoft/onnxruntime), u2netp is Apache-2.0 (U-2-Net).
+  ['onnxruntime-web', 'dist/ort.wasm.min.mjs', 'ort.wasm.min.mjs'],
+  ['onnxruntime-web', 'dist/ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.mjs'],
+  ['onnxruntime-web', 'dist/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'],
 ];
 function vendor(check = false) {
   const manifest = {};
