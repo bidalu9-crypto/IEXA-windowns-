@@ -64,6 +64,25 @@ async function fileHashes(dir) {
   }
   await visit(dir); return hashes;
 }
+/**
+ * Windows refuses a directory rename while a scanner still holds a handle
+ * inside it. Huorong and Defender both scan a freshly written .exe for a few
+ * seconds, which turns a correct install into "EPERM: operation not permitted".
+ * Retry the transient sharing violations before giving up.
+ */
+const TRANSIENT_FS = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY', 'EEXIST']);
+async function retryFs(label, action, attempts = 14) {
+  let last;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await action(); }
+    catch (error) {
+      last = error;
+      if (!TRANSIENT_FS.has(error.code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1200, 120 * (attempt + 1))));
+    }
+  }
+  throw new Error(`${label} failed after ${attempts} attempts (${last.code}: ${last.message})`);
+}
 async function installRuntime(archive, expected, sumsURL) {
   if (process.platform !== 'win32' || process.arch !== 'x64') throw Error('This distribution targets Windows x64');
   const destination = assertInside(path.join(root, 'node_modules/electron'), runtimeDir());
@@ -75,6 +94,13 @@ async function installRuntime(archive, expected, sumsURL) {
       fs.writeFileSync(path.join(root, 'node_modules/electron/path.txt'), 'electron.exe');
       console.log(`Verified installed Electron ${electronVersion()}`); return;
     }
+  }
+  // A previous run killed mid-install leaves a dist.verified-* tree behind; it
+  // would also make the promote step fail, so clear them first.
+  for (const entry of fs.readdirSync(path.dirname(destination))) {
+    if (!entry.startsWith(`${path.basename(destination)}.verified-`)) continue;
+    try { fs.rmSync(path.join(path.dirname(destination), entry), { recursive: true, force: true }); }
+    catch { /* still held by a scanner; the retry below decides */ }
   }
   const staging = assertInside(path.join(root, 'node_modules/electron'), `${destination}.verified-${process.pid}`);
   if (fs.existsSync(staging)) throw Error(`Staging path already exists: ${staging}`);
@@ -94,11 +120,21 @@ async function installRuntime(archive, expected, sumsURL) {
     if (probe.status !== 0 || probe.stdout.trim() !== electronVersion()) throw Error(`Electron version probe failed: ${probe.stderr || probe.stdout}`);
     const manifest = { version: electronVersion(), archiveSHA256: expected, sumsURL, files: await fileHashes(staging) };
     fs.writeFileSync(path.join(staging, '.iexa-verified.json'), JSON.stringify(manifest, null, 2) + '\n');
-    fs.rmSync(destination, { recursive: true, force: true });
-    fs.renameSync(staging, destination);
+    await retryFs('removing the previous runtime', () => fs.rmSync(destination, { recursive: true, force: true }));
+    try {
+      await retryFs('promoting the verified runtime', () => fs.renameSync(staging, destination));
+    } catch (renameError) {
+      // A locked handle blocks the directory rename but not a per-file copy, so
+      // the install still finishes instead of leaving the user without Electron.
+      console.warn(`[Warn] Could not rename the runtime (${renameError.message}); copying instead.`);
+      await retryFs('copying the verified runtime', () => fs.cpSync(staging, destination, { recursive: true, force: true }));
+    }
     fs.writeFileSync(path.join(root, 'node_modules/electron/path.txt'), 'electron.exe');
     console.log(`Installed verified Electron ${electronVersion()}: ${destination}`);
-  } finally { fs.rmSync(staging, { recursive: true, force: true }); }
+  } finally {
+    try { fs.rmSync(staging, { recursive: true, force: true }); }
+    catch { console.warn(`[Warn] Staging tree left behind: ${staging}`); }
+  }
 }
 /** Reuse only a locally verified official archive + installed runtime.
  * A missing or mismatching checksum, archive, or file manifest falls back to
