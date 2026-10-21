@@ -1,256 +1,250 @@
+<div align="center">
+
+<img src="./resources/icon.png" width="96" alt="IEXA-WIN" />
+
 # IEXA-WIN
 
-![IEXA-WIN Logo](./resources/icon.png)
+**把 AI 代理放进 Windows 桌面。**
+模型在云端，手脚在本地：读写文件、执行命令、抓网页、操作桌面，全部在你的机器上完成。
 
-> IEXA-WIN 是 [IEXA](https://IEXA.app) iOS / Android 应用的 **Windows 桌面版本**，把主流 AI 模型带进原生桌面体验，支持真实 Shell、文件系统访问、网页抓取、跨会话记忆与多设备同步。
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)](#)
+[![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)](#)
+[![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022.13-339933?logo=node.js&logoColor=white)](#)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue)](#-许可证)
 
----
+</div>
 
-## 2026-09-13 安全与运行时更新
-
-本次修复说明见 [优化修复交付记录](docs/REMEDIATION_2026-09-13.md)，构建细节见 [可重复构建说明](docs/RENDERER_BUILD_REPRODUCIBILITY.md)。
-
-- `start.bat` / `npm start` 仅监听本机回环地址并直接打开工作台，不再要求输入一次性登录码；Electron 仍自动建立 HttpOnly 会话，程序化 API 与测试服务器仍使用显式 Bearer/Cookie 身份。
-- 默认 HTTP 仅监听回环地址。手机桥接单独开启 HTTPS；首次连接需在手机端信任工作区导出的 `iexa-bridge-certificate.crt`，或用 `IEXA_TLS_CERT` / `IEXA_TLS_KEY` 指定受信任证书。
-- 每个项目可以拥有多个独立对话；对话持久绑定项目工作目录并支持项目内置顶，后台并发任务不会因切换项目而改变工具工作目录。
-- 工作区与选定项目是文件权限边界；任意 Shell 在 risk 模式下每次审批。明确启用 full 模式才开放工具全路径访问。
-- 模型密钥/WebDAV 密码迁移为 OS 加密的本地 vault；普通同步只同步允许的偏好设置，不再复制密钥、端点或权限配置。
-- Markdown 依赖随包提供，主动文件预览使用隔离策略；界面无需 CDN 脚本。
-- Node.js 至少 22.13，推荐用本次验证的 Node 24；使用 `npm ci` 安装锁定依赖，`npm test` 自动先构建再运行回归。
-
-## ✨ 功能特性
-
-- 🔧 **真实 Shell 执行** — AI 可直接运行 `cmd.exe` / `bash` 命令，读写文件系统、执行脚本
-- 📁 **文件系统操作** — 读写、编辑、创建任意本地文件，支持二进制检测
-- 🌐 **网页内容抓取** — 内置 `browser_fetch` 工具，可直接抓取 URL 内容
-- 🧠 **跨会话持久记忆** — 基于文件系统的长效记忆，跨会话保持上下文
-- 🤖 **多模型 / 多配置档** — 支持 OpenAI、Anthropic、Gemini、DeepSeek、xAI(Grok)、自定义兼容端点，可配置多个模型配置档随时切换
-- 💡 **思考档位** — off / low / medium / high / xhigh / max / ultra 共 7 档，适配不同模型的 reasoning 能力
-- 📦 **Skills 系统** — Anthropic 风格 `SKILL.md` 渐进式能力加载，支持文件导入、粘贴创建、会话内注入
-- 💾 **Token 用量统计** — 基于 API 返回的真实 usage 累计，按模型分别统计
-- 🔄 **WebDAV 多设备同步** — 通过 NextCloud / ownCloud / NAS 等同步设置与对话历史
-- 🖥️ **Electron 桌面版** — 原生窗口管理，支持多实例独立窗口
-- 🎨 **深色 / 浅色主题 + 多色主题** — 视觉体验可按需定制
-- 📸 **图片附件与预览** — 支持图片上传、内联预览、拖拽操作
+![首页](./docs/screenshots/01-landing.png)
 
 ---
 
-## 🏗️ 技术栈
+## 它是什么
 
-| 层级 | 技术 |
-|------|------|
-| **运行时** | Node.js 22.13+ |
-| **桌面框架** | Electron 44.3.0 |
-| **语言** | TypeScript 5 (后端) / JavaScript (前端) |
-| **构建工具** | `tsc` + 自定义打包脚本 (`build-dist.js`) |
-| **Web 框架** | 原生 HTML / CSS / JS（无前端框架） |
-| **Markdown 渲染** | [marked](https://github.com/markedjs/marked) v18 |
-| **代码高亮** | [highlight.js](https://highlightjs.org/) v11 |
-| **图片处理** | [sharp](https://github.com/lovell/sharp) v35 |
-| **文件同步** | [webdav](https://github.com/perry-mitchell/webdav) v5 |
-| **AI 协议** | OpenAI Chat Completions API（SSE 流式） |
+一个本地优先的 AI 工作台。对话只是入口，真正干活的是它手上的工具：
+
+- **能改代码**：读取、搜索、编辑文件，跑构建和测试，改完告诉你改了什么
+- **能跑命令**：PowerShell / CMD / Bash / WSL，输出实时回传
+- **能看网页**：抓取页面正文、搜索公开资料，带链接的结果可以直接点开
+- **能操作桌面**：通过 Windows UI Automation 点击、输入、读屏
+- **能自己排班**：每天 / 每周 / 每月定时执行你写好的提示词
+
+所有能力都在你的机器上执行，密钥存在本地加密库里，不上传第三方服务器。
 
 ---
 
-## 🚀 快速开始
+## 界面
 
-### 前置条件
+<table>
+<tr>
+<td width="50%"><img src="./docs/screenshots/02-chat-light.png" alt="浅色对话" /></td>
+<td width="50%"><img src="./docs/screenshots/07-chat-dark.png" alt="深色对话" /></td>
+</tr>
+<tr>
+<td align="center">对话：思考过程、工具调用、任务计划、上下文压缩标记</td>
+<td align="center">同一段对话的深色主题</td>
+</tr>
+</table>
 
-- **Node.js ≥ 22.13**（建议 LTS 版本）
-- **npm**（随 Node.js 安装）
-- **Windows 10 / 11**
+<table>
+<tr>
+<td width="50%"><img src="./docs/screenshots/03-appearance.png" alt="外观与皮肤" /></td>
+<td width="50%"><img src="./docs/screenshots/04-scheduled.png" alt="定时任务" /></td>
+</tr>
+<tr>
+<td align="center">外观：8 套皮肤 + 自定义配色、圆角、字号</td>
+<td align="center">定时任务：按系统时间自动执行提示词</td>
+</tr>
+</table>
 
-### 一、克隆仓库
+<table>
+<tr>
+<td width="50%"><img src="./docs/screenshots/05-pet.png" alt="桌面宠物" /></td>
+<td width="50%"><img src="./docs/screenshots/06-settings.png" alt="配置" /></td>
+</tr>
+<tr>
+<td align="center">桌面宠物：一张图，本地抠图，拖到桌面上</td>
+<td align="center">配置：多模型、视觉代理、发送方式</td>
+</tr>
+</table>
+
+---
+
+## 能做什么
+
+### 对话与代理
+
+| 能力 | 说明 |
+|---|---|
+| 流式对话 | 思考过程实时展开，工具执行完自动折叠 |
+| 思考档位 | 标准 / 高 / 最高等档位，按模型能力自动切换 |
+| 工具可视化 | 每一步调用都有输入、输出、耗时和状态 |
+| 任务计划 | 模型自己列 TODO，完成一项划掉一项 |
+| 上下文压缩 | 压缩时在对话里留下标记，写明压缩前后大小 |
+| 暂停与继续 | 停下不丢进度，继续时从原来的步骤接着跑 |
+| 运行中插话 | 任务跑着也能补一句，不必等它结束 |
+| 检查点回退 | 回到任意一条消息重新开始 |
+
+### 本地能力
+
+| 工具 | 说明 |
+|---|---|
+| `shell_execute` | PowerShell / CMD / Bash / WSL，可设超时与工作目录 |
+| `file_read` / `file_write` / `file_edit` | 读取、写入、精确替换，自动检测二进制 |
+| `grep` / `glob` | 按内容和文件名搜索，支持上下文行 |
+| `browser_fetch` / `web_search` | 抓正文、搜公开资料 |
+| `desktop_control` | 真实窗口的点击、输入、读屏（Windows UIA） |
+| 截图标注 | 框选屏幕，画笔 / 箭头 / 矩形标注后直接发给模型 |
+| `memory_*` / Skills / MCP | 跨会话记忆、渐进式技能包、外部工具协议 |
+
+### 工作流
+
+- **定时任务**：每天 / 每周 / 每月，指定模型与会话，到点自动发送提示词；应用未运行时错过的时段会被标记而不是补发。
+- **会话管理**：按项目分组、置顶、归档、重命名、全文搜索；支持多窗口独立工作区。
+- **用量统计**：输入 / 输出 / 缓存命中、每秒生成速率、费用估算。
+- **WebDAV 同步**：NextCloud、ownCloud、NAS 等，同步偏好与会话。
+
+### 界面
+
+- 浅色 / 深色，8 套预设皮肤，也可以自己调配色、圆角和字号
+- 中文 / English / 日本語
+- 左右面板可拖动、可隐藏，输入框随可用宽度伸缩
+- 桌面宠物：上传一张图，本地抠图后放进一个透明置顶小窗
+
+---
+
+## 快速开始
+
+### 方式一：安装包
+
+从 [Releases](https://github.com/bidalu9-crypto/IEXA-windowns-/releases) 下载 `IEXA-WIN-Setup-x.y.z.exe`，双击安装即可，**不需要预装 Node.js**。
+
+也可以本地构建：
+
+```bat
+build-installer.bat
+```
+
+产物在 `release\IEXA-Setup.exe`。
+
+### 方式二：源码运行
+
+前置：**Node.js ≥ 22.13**（推荐 24）、Windows 10 / 11。
 
 ```bash
 git clone https://github.com/bidalu9-crypto/IEXA-windowns-.git
 cd IEXA-windowns-
-```
-
-### 二、安装依赖
-
-```bash
 npm ci
 ```
 
-直接双击下方任一 Windows 批处理入口时，脚本也会自动检查 Node.js、npm 和依赖完整性；缺少 `node_modules` 时会优先执行 `npm ci`，失败时保留锁文件并显示错误。
+然后双击 **`start-electron.bat`**。脚本会自动检查依赖、下载并校验 Electron 运行时、编译 TypeScript，再打开窗口。
 
-### 三、编译 TypeScript
-
-```bash
-npm run build
-```
-
-编译后输出在 `dist/` 目录下。
-
-### 四、启动应用
-
-#### 方式 1：双击启动（推荐）
+想在浏览器里用：
 
 ```bash
-start.bat
+npm start
 ```
 
-自动编译并启动 HTTP 服务（默认端口 `19840`），浏览器会自动打开应用界面。
-
-#### 方式 2：命令行启动
-
-```bash
-npm run dev
-```
-
-或分步执行：
-
-```bash
-npm run build
-node dist/main/server.js
-```
-
-#### 方式 3：Electron 桌面模式（可选）
-
-双击 `start-electron.bat`。首次运行会自动安装 Node 依赖，并在 Electron 运行时缺失时下载及解压 Electron 44.3.0；安装或编译失败时窗口会保留并显示具体错误。
+默认只监听 `127.0.0.1`，并自动打开工作台。
 
 ---
 
-## ⚙️ 配置 AI 模型
+## 配置模型
 
-启动后进入 **配置 → AI 模型 → ＋ 添加模型**，按需填写：
+进入 **配置 → AI 模型 → 添加模型**：
 
 | 字段 | 说明 |
-|------|------|
-| **显示名称** | 自定义配置档名称，如 "Claude 代码"、"GPT 写作" |
-| **服务商** | Anthropic / OpenAI / Google / DeepSeek / xAI / 自定义 |
-| **模型 ID** | 如 `claude-sonnet-4-20250514`、`gpt-5`、`gemini-2.5-pro` |
-| **API 密钥** | 对应平台的 API Key（`sk-...`） |
-| **接口地址** | 可选，自定义端点用；留空则按服务商自动识别 |
+|---|---|
+| 显示名称 | 自定义，例如「Claude 代码」 |
+| 服务商 | Anthropic / OpenAI / Google / DeepSeek / xAI / 自定义 |
+| 模型 ID | 例如 `claude-sonnet-4-6`、`gpt-5.1`、`deepseek-chat` |
+| API 密钥 | 对应平台的 Key，保存在本地加密库 |
+| 接口地址 | 中转站或自建网关填这里，留空则用官方端点 |
 
-也可点击 **「获取模型」** 按钮拉取该服务商的可用模型列表。
-
----
-
-## 📁 项目结构
-
-```
-IEXA-windowns-/
-├── src/
-│   ├── main/                          # 后端 (TypeScript)
-│   │   ├── agent/                     # Agent 循环 & 上下文管理
-│   │   │   ├── AgentLoop.ts           # 主推理循环，镜像 iOS 实现
-│   │   │   ├── ContextCompactor.ts    # 上下文压缩与窗口管理
-│   │   │   └── SystemPrompt.ts        # 系统提示词构建
-│   │   ├── providers/                 # AI 模型提供商
-│   │   │   ├── OpenAIProvider.ts      # OpenAI 兼容接口
-│   │   │   ├── AnthropicProvider.ts   # Anthropic Claude
-│   │   │   ├── GeminiProvider.ts      # Google Gemini
-│   │   │   ├── ProviderFactory.ts     # 厂商工厂
-│   │   │   ├── ModelCapabilities.ts   # 模型能力矩阵
-│   │   │   ├── stream-utils.ts        # SSE 流式工具
-│   │   │   └── types.ts               # 类型定义
-│   │   ├── skills/
-│   │   │   └── SkillStore.ts          # Skills 管理系统
-│   │   ├── tools/
-│   │   │   ├── ToolDefinitions.ts     # 工具定义 (Tool Calling)
-│   │   │   └── ToolExecutors.ts       # 工具执行器
-│   │   ├── server.ts                  # HTTP 服务主入口
-│   │   ├── session-title.ts           # 会话标题生成
-│   │   └── webdav-sync.ts             # WebDAV 同步模块
-│   └── renderer/                      # 前端 (原生 HTML/CSS/JS)
-│       ├── index.html                 # 页面骨架
-│       ├── app.js                     # 主交互逻辑 (~3500行)
-│       ├── styles.css                 # 样式与主题
-│       └── icon.png
-├── resources/                         # 图标资源
-├── scripts/                           # 开发辅助脚本
-├── package.json
-├── tsconfig.json
-├── .gitignore
-├── start.bat                          # 一键启动 (HTTP 模式)
-├── start-electron.bat                 # Electron 模式启动
-├── build-dist.js                      # 打包脚本
-├── download_electron.js               # Electron 下载工具
-└── 使用说明.md
-```
+- 点「获取模型」可以直接拉取该服务商的可用模型列表。
+- 支持配置多个档案，随时切换；每个会话会记住自己用的模型。
+- 部分中转站可以在输入框右下角显示账户余额（DeepSeek、OpenRouter、One API / New API 系、WorkBuddy 账号池）。
 
 ---
 
-## 📦 打包发布
+## 安全边界
 
-双击 `build-installer.bat` 可自动检查依赖和 Electron 运行时、编译项目并生成安装程序。`IEXA-Setup.exe` 会显示安装向导，安装目录可以直接编辑或通过“浏览”按钮选择，并会记住上一次安装位置。也可以手动运行自定义打包脚本，仅生成可分发的 Electron 应用目录：
+| 边界 | 做法 |
+|---|---|
+| 文件访问 | 以工作区和当前项目为根，越界路径直接拒绝 |
+| 命令执行 | 默认每次审批；只读模式禁止写操作；完全访问需显式开启 |
+| 密钥 | 存操作系统加密库，普通同步不会带出 |
+| 插件 | 工具在子进程执行、参数按 JSON Schema 校验；面板跑在 sandbox iframe 里 |
+| 网页内容 | Markdown 渲染前净化，模型不能自己开窗口或执行脚本 |
+| 桌面自动化 | 独立代理进程，需要 .NET 8 运行时 |
 
-不需要本地构建环境的用户可以直接下载最新的 [IEXA-Setup.exe](https://github.com/bidalu9-crypto/IEXA-windowns-/raw/refs/heads/main/release/IEXA-Setup.exe)。
+---
+
+## 快捷键
+
+| 快捷键 | 作用 |
+|---|---|
+| `Ctrl + N` | 新建任务 |
+| `Ctrl + K` | 命令面板 |
+| `Ctrl + Shift + S` | 截图并标注 |
+| `Ctrl + Shift + Enter` | 单次反转「运行中发送」的方式 |
+| `Esc` | 关闭面板 / 暂停当前回合 |
+
+---
+
+## 技术栈
+
+| 层 | 选择 |
+|---|---|
+| 运行时 | Node.js 22.13+ |
+| 桌面 | Electron 44（透明窗口、置顶、多实例） |
+| 语言 | TypeScript（主进程）/ 原生 JavaScript（渲染层，无框架） |
+| 渲染 | 原生 HTML / CSS / JS，无前端框架 |
+| Markdown | marked + DOMPurify |
+| 代码高亮 | highlight.js |
+| 图片处理 | sharp |
+| 本地推理 | onnxruntime-web（桌面宠物抠图） |
+| 同步 | webdav |
+| 测试 | `node --test` + 真实浏览器 / Electron 端到端 |
+
+---
+
+## 开发
 
 ```bash
-node build-dist.js
+npm run build          # 编译 TypeScript + 校验渲染资源
+npm test               # 全量回归（含真实浏览器与 Electron 用例）
+npm run dist:builder   # 生成 NSIS 安装包
 ```
 
-输出到 `release/IEXA/` 目录。
-
-> `build-installer.bat` 会自动准备 Electron 44.3.0；直接运行 `build-dist.js` 时仍需确保 `%LOCALAPPDATA%\electron\Cache\electron-v28.0.0-win32-x64\` 已存在。
-
----
-
-## 🔄 WebDAV 同步
-
-支持通过 WebDAV 将设置和会话同步到服务器：
-
-1. 进入 **设备** 页面
-2. 填写 WebDAV 服务器地址（如 `https://你的服务器/remote.php/dav/files/用户名/`）
-3. 填写用户名和密码
-4. 开启「每次对话后自动同步」
-5. 点击「立即同步」或「测试连接」
-
-支持 NextCloud、ownCloud、Synology NAS 等任何标准 WebDAV 服务。
-
----
-
-## 🛠️ 开发指南
-
-### 常用命令
-
-```bash
-npm run build       # 编译 TypeScript
-npm run dev         # 开发模式启动
-npm run start       # 编译 + 启动 HTTP 服务
-npm run electron    # 编译 + 启动 Electron 模式
-```
-
-### 端口
-
-- HTTP 模式默认端口：`19840`
-- Electron 模式使用动态端口
-
-### 工作区
-
-应用数据存储在 `workspace/` 目录下：
+目录概览：
 
 ```
-workspace/
-├── .iexa-settings.json    # 全局配置
-├── .iexa-memory/          # 跨会话记忆
-└── .iexa-sessions/        # 会话历史
+src/main/       主进程：Agent 循环、工具、会话、路由、调度
+src/renderer/   渲染层：视图、样式、组件
+desktop-agent/  Windows 桌面自动化代理（.NET）
+resources/      图标、插件宿主、宠物模型
+tests/          单元 + 端到端用例
+docs/           设计说明与截图
 ```
 
-可通过环境变量 `IEXA_WORKSPACE` 指定自定义工作区路径。
+---
+
+## 常见问题
+
+**双击 `start-electron.bat` 报 `EPERM: operation not permitted`**
+杀毒软件（如火绒、Defender）会在刚解压的 `electron.exe` 上短暂持有句柄，导致目录重命名被拒。安装脚本已内置重试与复制回退，更新到最新版本即可。
+
+**桌面自动化提示不可用**
+需要安装 .NET 8 运行时。其余能力（对话、文件、Shell、网页）不受影响。
+
+**截图按钮点了没反应**
+Electron 会先弹出画面选择器，选择屏幕或窗口后再框选。
+
+**端口被占用**
+多开时会自动分配空闲端口；单实例启动默认 `19840`。
 
 ---
 
-## 📄 许可证
+## 许可证
 
-本项目使用 [Apache License 2.0](./LICENSE) 开源许可证。
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m "Add amazing feature"`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 提交 Pull Request
-
----
-
-
-*Made with ❤️ by the IEXA team*
+[Apache License 2.0](./LICENSE)
