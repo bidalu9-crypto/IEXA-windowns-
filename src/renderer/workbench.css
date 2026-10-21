@@ -891,7 +891,7 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 [data-ui-scaled="true"] .workbench-shell :is(input:not([type="range"]):not([type="checkbox"]),select) { min-height:calc(32px * var(--ui-font-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell #chatInput { font-size:calc(14px * var(--ui-font-scale,1)); line-height:1.55; }
 [data-ui-scaled="true"] .workbench-shell .workbench-header { min-height:max(54px,calc(34px * var(--ui-font-scale,1)),calc(34px * var(--ui-icon-scale,1))); height:auto; flex-basis:max(54px,calc(34px * var(--ui-font-scale,1)),calc(34px * var(--ui-icon-scale,1))); }
-[data-ui-scaled="true"] .shell-new-thread kbd { display:none; }
+[data-ui-scaled="true"] .shell-new-thread kbd { flex: 0 0 auto; }
 [data-ui-scaled="true"] .workbench-shell .sessions-title { white-space:nowrap; padding-left:4px; }
 [data-ui-scaled="true"] .workbench-shell .sessions-header { height:auto; min-height:calc(32px * var(--ui-icon-scale,1)); flex-wrap:wrap; gap:4px; }
 [data-ui-scaled="true"] .workbench-shell .sidebar-sessions { margin-top:12px; }

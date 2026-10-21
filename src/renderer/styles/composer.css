@@ -623,6 +623,19 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
 
 .image-preview-counter[hidden] { display: none; }
 
+.image-preview-status {
+  flex: none;
+  max-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: calc(.72rem * var(--ui-font-scale, 1));
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity .18s ease, max-width .18s ease;
+}
+.image-preview-status.is-visible { max-width: 160px; opacity: 1; }
+.image-preview-status[data-tone="error"] { color: var(--error); }
+
 .image-preview-tools {
   display: flex;
   flex: none;

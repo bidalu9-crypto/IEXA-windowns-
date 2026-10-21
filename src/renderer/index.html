@@ -1369,6 +1369,11 @@ version: 1.0.0
     <div class="image-preview-header">
       <span class="image-preview-title" id="imagePreviewTitle"></span>
       <span class="image-preview-counter" id="imagePreviewCounter" hidden></span>
+      <div class="image-preview-tools" role="group" aria-label="图片操作">
+        <button type="button" class="image-preview-tool" id="imagePreviewDownload" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19h14"/></svg></button>
+        <button type="button" class="image-preview-tool" id="imagePreviewCopy" title="复制图片" aria-label="复制图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></button>
+      </div>
+      <span class="image-preview-status" id="imagePreviewStatus" role="status" aria-live="polite"></span>
       <div class="image-preview-tools" role="group" aria-label="缩放">
         <button type="button" class="image-preview-tool" id="imagePreviewZoomOut" title="缩小（-）" aria-label="缩小"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
         <button type="button" class="image-preview-tool image-preview-zoom" id="imagePreviewZoomReset" title="适应窗口（0）" aria-label="适应窗口"><span id="imagePreviewZoomLabel">100%</span></button>

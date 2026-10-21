@@ -24,6 +24,9 @@ const imagePreviewZoomIn = document.getElementById('imagePreviewZoomIn');
 const imagePreviewZoomOut = document.getElementById('imagePreviewZoomOut');
 const imagePreviewZoomReset = document.getElementById('imagePreviewZoomReset');
 const imagePreviewZoomLabel = document.getElementById('imagePreviewZoomLabel');
+const imagePreviewDownload = document.getElementById('imagePreviewDownload');
+const imagePreviewCopy = document.getElementById('imagePreviewCopy');
+const imagePreviewStatus = document.getElementById('imagePreviewStatus');
 
 const IMAGE_PREVIEW_MIN_ZOOM = 1;
 const IMAGE_PREVIEW_MAX_ZOOM = 8;
@@ -253,6 +256,102 @@ function openImagePreview(src, name, originImage) {
   if (imagePreviewClose) imagePreviewClose.focus({ preventScroll: true });
 }
 
+function imagePreviewCurrent() {
+  return imagePreviewState.items[imagePreviewState.index] || null;
+}
+
+/** Brief, non-blocking feedback in the header (screen readers get it too). */
+function flashImagePreviewStatus(text, tone = 'ok') {
+  if (!imagePreviewStatus) return;
+  imagePreviewStatus.textContent = text;
+  imagePreviewStatus.dataset.tone = tone;
+  imagePreviewStatus.classList.add('is-visible');
+  clearTimeout(flashImagePreviewStatus.timer);
+  flashImagePreviewStatus.timer = setTimeout(() => {
+    imagePreviewStatus.classList.remove('is-visible');
+  }, 1600);
+}
+
+function imagePreviewFileName(item) {
+  const raw = String(item?.name || imagePreviewTitle?.textContent || 'image').trim();
+  const base = raw.split(/[\\/]/).pop() || 'image';
+  if (/\.[a-z0-9]{2,5}$/i.test(base)) return base;
+  const src = String(item?.src || '');
+  const match = src.match(/^data:image\/([a-z0-9.+-]+)/i) || src.match(/\.(png|jpe?g|gif|webp|bmp|avif)(?:[?#]|$)/i);
+  const ext = (match?.[1] || 'png').toLowerCase().replace('jpeg', 'jpg');
+  return `${base}.${ext}`;
+}
+
+async function imagePreviewBlob(item) {
+  const src = String(item?.src || '');
+  if (!src) throw new Error('没有可用的图片');
+  // The page CSP allows connect-src 'self', so a data: URL cannot be fetched;
+  // decode it here instead of asking the network layer.
+  if (src.startsWith('data:')) {
+    const match = src.match(/^data:([^;,]*)(;base64)?,([\s\S]*)$/);
+    if (!match) throw new Error('图片数据无效');
+    const mime = match[1] || 'image/png';
+    if (match[2]) {
+      const binary = atob(match[3]);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    }
+    return new Blob([decodeURIComponent(match[3])], { type: mime });
+  }
+  const response = await fetch(src);
+  if (!response.ok) throw new Error('图片读取失败');
+  return response.blob();
+}
+
+/** Save the current image through a blob URL so the name and type are ours. */
+async function downloadCurrentImage() {
+  const item = imagePreviewCurrent();
+  if (!item) return;
+  try {
+    const blob = await imagePreviewBlob(item);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = imagePreviewFileName(item);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    flashImagePreviewStatus('已开始下载');
+  } catch (error) {
+    flashImagePreviewStatus('下载失败', 'error');
+  }
+}
+
+/** Copy as PNG; other types are re-encoded through a canvas. */
+async function copyCurrentImage() {
+  const item = imagePreviewCurrent();
+  if (!item) return;
+  try {
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') throw new Error('unsupported');
+    let blob = await imagePreviewBlob(item);
+    if (blob.type !== 'image/png') {
+      blob = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          canvas.getContext('2d').drawImage(image, 0, 0);
+          canvas.toBlob((out) => (out ? resolve(out) : reject(new Error('encode failed'))), 'image/png');
+        };
+        image.onerror = () => reject(new Error('decode failed'));
+        image.src = URL.createObjectURL(blob);
+      });
+    }
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    flashImagePreviewStatus('已复制到剪贴板');
+  } catch (error) {
+    flashImagePreviewStatus('复制失败，可先下载', 'error');
+  }
+}
+
 function closeImagePreview() {
   if (!imagePreviewState.open) return;
   imagePreviewState.open = false;
@@ -286,6 +385,8 @@ function closeImagePreview() {
 // app.js init() so evaluating this file has no side effects.
 function initImageGallery() {
   if (imagePreviewClose) imagePreviewClose.addEventListener('click', closeImagePreview);
+  if (imagePreviewDownload) imagePreviewDownload.addEventListener('click', () => { void downloadCurrentImage(); });
+  if (imagePreviewCopy) imagePreviewCopy.addEventListener('click', () => { void copyCurrentImage(); });
   if (imagePreviewOverlay) {
     imagePreviewOverlay.addEventListener('click', (e) => {
       if (e.target === imagePreviewOverlay) closeImagePreview();
