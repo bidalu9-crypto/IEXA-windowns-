@@ -42,8 +42,6 @@ const rendererActions = Object.freeze({
   activateProfile: (value) => activateProfile(value),
   editProfile: (value) => editProfile(value),
   deleteProfile: (value) => deleteProfile(value),
-  deleteTokenUsage: (value) => deleteTokenUsage(value),
-  clearTokenUsage: () => clearTokenUsage(),
   rewindCheckpoint: (value) => rewindCheckpoint(value),
   exportDiagnostics: () => exportDiagnostics(),
   stop: () => {},
@@ -556,7 +554,7 @@ const VIEW_REFRESH = {
   settings: () => loadSettings(),
   skills: () => loadSkillsList(),
   soul: () => loadSoul(),
-  'token-calculator': () => loadTokenUsage(),
+  'token-calculator': () => loadUsageInsights(),
   // Paint the cached rows first; a response that matches what is already on
   // screen then changes no DOM at all.
   scheduled: () => { renderScheduledTasks(); loadScheduledTasks(); },
@@ -2061,8 +2059,7 @@ function handleUsage(usage) {
     }
     renderMessageUsage(usageEl, usage.inputTokens || 0, usage.outputTokens || 0, usage.cacheReadInputTokens);
   }
-  // The server has already persisted this receipt; reload immediately for live totals.
-  loadTokenUsage();
+  // The insights page reloads on its next visit; nothing to refresh here.
 }
 
 function handleError(message, turnToken) {
@@ -2802,6 +2799,7 @@ if (localeSelect) {
   initTextContextMenu();
   initFilesPanel();
   initHeroWorkspace();
+  initUsageInsights();
   await loadProjectState();
   initTerminalPanel();
   initMcpPanel();
@@ -2809,7 +2807,6 @@ if (localeSelect) {
   initSkillsUI();
   initSoulUI();
   initScheduledTasks();
-  loadTokenUsage();
   await loadSoul();
   await loadSystemInfo();
   await refreshModelSelector();

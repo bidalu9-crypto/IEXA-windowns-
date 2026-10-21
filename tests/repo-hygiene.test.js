@@ -51,14 +51,18 @@ test('scripts/ only holds repeatable entry points', () => {
 });
 
 test('running the server from the repo root leaves no runtime state behind', () => {
-  // `dist/main/server` defaults its workspace to the process cwd, so a manual
-  // run writes sessions, skills and the mobile bridge into the checkout. They
-  // are not source: the real workspace is workspace/ (or IEXA_WORKSPACE).
-  const leaks = ['.iexa-memory', '.iexa-sessions', '.iexa-sessions.json', '.iexa-skills.json',
-    '.iexa-mobile-bridge.json', '.iexa-goals.json', '.iexa-session-context', '.iexa-traces',
-    '.iexa-plugins', '.iexa-token-usage.json', '.iexa-settings.json', '.iexa-appearance.json',
-    'skills']
-    .filter((name) => fs.existsSync(path.join(ROOT, name)));
+  // `dist/main/server` defaults its workspace to `<cwd>/workspace`, so a manual
+  // run must not drop state into the checkout. Checking git rather than the
+  // filesystem keeps this honest while tests run in parallel: ignored runtime
+  // directories are fine, untracked ones are not.
+  const { execFileSync } = require('node:child_process');
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: ROOT, encoding: 'utf8' });
+  const leaks = status
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.slice(2).trim())
+    .filter((file) => /^(\.iexa-|skills\/)/.test(file));
   assert.deepEqual(leaks, [],
     `runtime state in the repo root (${leaks.join(', ')}); run with IEXA_WORKSPACE pointing at workspace/ and delete these`);
 });

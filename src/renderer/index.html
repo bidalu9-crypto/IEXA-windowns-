@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="components/Screenshot.css">
 <link rel="stylesheet" href="components/Pet.css">
 <link rel="stylesheet" href="components/HeroWorkspace.css">
+<link rel="stylesheet" href="components/UsageInsights.css">
 <style>
 .prompt-settings-panel { margin-top: 20px; }
 .prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
@@ -138,7 +139,7 @@
           <rect x="10.5" y="8" width="3" height="11" rx="1" stroke="currentColor" stroke-width="1.8"/>
           <rect x="17" y="4" width="3" height="15" rx="1" stroke="currentColor" stroke-width="1.8"/>
         </svg>
-        <span data-i18n="nav.tokenUsage">Token 用量</span>
+        <span data-i18n="nav.tokenUsage">上下文洞察</span>
       </button>
 <button class="nav-btn" data-view="mcp"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span>MCP</span></button>
 <button class="nav-btn" data-view="plugins"><svg class="ui-icon" aria-hidden="true"><use href="#ui-box"/></svg><span data-i18n="nav.plugins">拓展</span></button>
@@ -915,22 +916,24 @@ version: 1.0.0
       </div>
     </div>
 
-    <!-- Token Calculator View -->
+    <!-- Context Insights View -->
     <div class="view" id="view-token-calculator">
-      <div class="settings-container token-calculator-container">
-        <h2>Token 用量</h2>
-        <p class="sync-desc">按模型分别统计 API 返回的实际 Token 用量。每次模型调用完成后自动累加，不是文本长度估算。</p>
-        <div class="token-usage-toolbar">
-          <span class="token-usage-live"><i></i> 实时统计</span>
-          <span class="token-usage-toolbar-end">
-            <span class="token-usage-updated" id="tokenUsageUpdated">等待首次调用</span>
-            <button type="button" class="token-usage-clear" id="tokenUsageClearAll" data-ui-action="clearTokenUsage" hidden>清空全部</button>
-          </span>
+      <div class="insights-page">
+        <header class="insights-head">
+          <div class="insights-head-text">
+            <h2>上下文洞察</h2>
+            <p>Token 来自模型 API 的 usage 回报。按来源拆分与费用为估算值，其余为实测。</p>
+          </div>
+          <div class="insights-ranges" role="tablist" aria-label="统计范围">
+            <button type="button" role="tab" data-range="24h">近 24 小时</button>
+            <button type="button" role="tab" data-range="7d" aria-selected="true">近 7 天</button>
+            <button type="button" role="tab" data-range="30d">近 30 天</button>
+            <button type="button" role="tab" data-range="all">全部</button>
+          </div>
+        </header>
+        <div class="insights-grid" id="insightsGrid" aria-live="polite">
+          <div class="insights-loading">正在汇总…</div>
         </div>
-        <div class="token-usage-list" id="tokenUsageList" aria-live="polite">
-          <div class="token-usage-empty">尚无模型用量记录，发送消息后会自动统计。</div>
-        </div>
-        <p class="token-calculator-footnote">Token 数来自模型 API 返回的 usage。费用是按配置单价计算的估算值，不等同于服务商账单；渠道折扣、动态价格及未配置单价的模型不会被猜算。</p>
       </div>
     </div>
 
@@ -1440,6 +1443,7 @@ version: 1.0.0
 <script src="services/ToolStreamView.js"></script>
 <script src="services/DeliverableView.js"></script>
 <script src="services/TurnUsageView.js"></script>
+<script src="services/UsageInsightsView.js"></script>
 <script src="services/TurnSummaryView.js"></script>
 <script src="services/Checkpoints.js"></script>
 <script src="services/GoalBanner.js"></script>

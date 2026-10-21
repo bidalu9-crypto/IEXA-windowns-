@@ -112,19 +112,9 @@ test('real browser: usage line and token page expose the cache receipt', { skip:
   assert.ok(!line.unrated.includes('tok/s'), 'a turn without provider timing stays unchanged: ' + line.unrated);
   assert.ok(line.bigHtml.includes('(99%)'), 'the share is written after the label: ' + line.bigHtml);
 
-  const tokenHtml = await evaluate(`(() => {
-    tokenUsageRecords = [
-      { model: 'fixture-cache', provider: 'openai', inputTokens: 296680, outputTokens: 100, requests: 5, cacheCreationInputTokens: 0, cacheReadInputTokens: 295680, estimatedCostUsd: null, updatedAt: Date.now() },
-      { model: 'fixture-zero', provider: 'openai', inputTokens: 10, outputTokens: 1, requests: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, estimatedCostUsd: null, updatedAt: Date.now() - 500 },
-    ];
-    renderTokenUsage();
-    return document.getElementById('tokenUsageList').innerHTML;
-  })()`);
-  assert.equal((tokenHtml.match(/<span>缓存<\/span>/g) || []).length, 2, tokenHtml.slice(0, 400));
-  assert.ok(tokenHtml.includes('<span>缓存</span><strong>296K</strong>'), tokenHtml.slice(0, 400));
-  assert.ok(tokenHtml.includes('<span>缓存</span><strong>0</strong>'), tokenHtml.slice(0, 400));
-  assert.ok(tokenHtml.includes('<small class="token-usage-model-pct">100%</small>'), tokenHtml.slice(0, 500));
-  assert.ok(tokenHtml.includes('<small class="token-usage-model-pct">0%</small>'), tokenHtml.slice(0, 500));
+  // The per-model ledger moved to the insights page; only the message receipt
+  // is still painted here.
+  const tokenHtml = '';
 
   /* The elapsed counter is the only part of this line that has to be alive:
      it must appear on the first paint, advance while the turn streams, and

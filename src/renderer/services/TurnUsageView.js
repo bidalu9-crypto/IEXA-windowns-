@@ -245,15 +245,6 @@ function handleContextStatus(context, sessionId) {
   contextProgressTooltip.textContent = detail;
 }
 
-let tokenUsageRecords = [];
-
-/**
- * Token counts are magnitudes, not ledger lines: "132K" is read at a glance
- * where "132,225" has to be parsed digit by digit. Three significant digits
- * is plenty to compare two turns, and the exact value stays in the hover
- * title, so nothing is lost. Every surface that prints a token count (message
- * receipt, thinking badge, context ring, token page) shares this rule.
- */
 function formatTokenCount(value) {
   const n = Math.max(0, Number(value) || 0);
   if (!Number.isFinite(n)) return '0';
@@ -290,63 +281,4 @@ function formatUsagePercent(part, whole) {
   const pct = (value / base) * 100;
   if (pct >= 10) return `${Math.round(pct)}%`;
   return `${pct.toFixed(1).replace(/\.0$/, '')}%`;
-}
-
-function renderTokenUsage() {
-  const list = document.getElementById('tokenUsageList');
-  const updated = document.getElementById('tokenUsageUpdated');
-  const clearAll = document.getElementById('tokenUsageClearAll');
-  if (!list) return;
-  const records = [...tokenUsageRecords].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  if (clearAll) clearAll.hidden = records.length === 0;
-  if (!records.length) {
-    list.innerHTML = '<div class="token-usage-empty">尚无模型用量记录，发送消息后会自动统计。</div>';
-    if (updated) updated.textContent = '等待首次调用';
-    return;
-  }
-  list.innerHTML = records.map((r) => {
-    const input = Number(r.inputTokens) || 0;
-    const output = Number(r.outputTokens) || 0;
-    const total = input + output;
-    const cache = (Number(r.cacheCreationInputTokens) || 0) + (Number(r.cacheReadInputTokens) || 0);
-    const key = escapeHtml(r.key || '');
-    return `<div class="token-usage-model-card">
-      <div class="token-usage-model-head">
-        <div class="token-usage-model-id"><strong>${escapeHtml(r.model || '未知模型')}</strong><span>${escapeHtml(r.provider || '')}${r.profileName ? ` · ${escapeHtml(r.profileName)}` : ''}</span></div>
-        <div class="token-usage-model-side"><b>${formatUsageNumber(total)}</b><button type="button" class="token-usage-model-delete" data-ui-action="deleteTokenUsage" data-ui-arg="${key}" title="删除该记录" aria-label="删除该记录">${uiIcon('trash')}</button></div>
-      </div>
-      <div class="token-usage-model-stats">
-        <div><span>输入</span><strong>${formatUsageNumber(input)}</strong></div>
-        <div><span>输出</span><strong>${formatUsageNumber(output)}</strong></div>
-        <div><span>调用次数</span><strong>${Number(r.requests || 0).toLocaleString()}</strong></div>
-        <div class="token-usage-model-stat-cache"><span>缓存</span><strong>${formatUsageNumber(cache)}</strong><small class="token-usage-model-pct">${formatUsagePercent(cache, input)}</small></div>
-      </div>
-      <div class="token-usage-model-time">费用估算：${formatEstimatedCost(r.estimatedCostUsd)} · 最近更新：${r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '—'}</div>
-    </div>`;
-  }).join('');
-  if (updated) updated.textContent = '刚刚自动更新';
-}
-
-async function loadTokenUsage() {
-  try {
-    const response = await fetch(`${API_BASE}/api/token-usage`);
-    const data = await response.json();
-    tokenUsageRecords = Array.isArray(data.records) ? data.records : [];
-    renderTokenUsage();
-  } catch (err) { console.error('Failed to load token usage:', err); }
-}
-
-async function deleteTokenUsage(key) {
-  if (!key) return;
-  if (!(await window.IexaDialogs.confirm('删除这个模型的 Token 用量记录？'))) return;
-  const response = await fetch(`${API_BASE}/api/token-usage/${encodeURIComponent(key)}`, { method: 'DELETE' });
-  if (!response.ok) { console.error('Failed to delete token usage:', response.status); return; }
-  await loadTokenUsage();
-}
-
-async function clearTokenUsage() {
-  if (!(await window.IexaDialogs.confirm('清空全部 Token 用量记录？此操作不可撤销。'))) return;
-  const response = await fetch(`${API_BASE}/api/token-usage`, { method: 'DELETE' });
-  if (!response.ok) { console.error('Failed to clear token usage:', response.status); return; }
-  await loadTokenUsage();
 }

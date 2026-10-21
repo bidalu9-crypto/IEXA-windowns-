@@ -73,6 +73,7 @@ import { handleSkillRoute, SkillRouteContext } from './api/SkillRoutes';
 import { handleTerminalRoute, TerminalRouteContext } from './api/TerminalRoutes';
 import { handleMcpRoute, McpRouteContext } from './api/McpRoutes';
 import { handlePluginRoute, PluginRouteContext } from './api/PluginRoutes';
+import { handleUsageInsightsRoute } from './api/UsageInsightsRoutes';
 import { handleSteerRoute } from './api/SteerRoutes';
 import { handleScheduledTaskRoute } from './api/ScheduledTaskRoutes';
 import { handlePetRoute } from './api/PetRoutes';
@@ -1566,10 +1567,6 @@ function broadcastSessionEvent(event: string, data: unknown, excludedClientId = 
     catch { sessionEventClients.delete(client); }
   }
 }
-
-
-
-
 
 /**
  * iOS-style auto title: JSON {title, category}, language injection, summary,
@@ -3459,6 +3456,7 @@ ${recentMemories}
     if (await handleTerminalRoute(req, res, url, terminalRouteContext)) return;
     if (await handleMcpRoute(req, res, url, mcpRouteContext)) return;
     if (await handlePluginRoute(req, res, url, pluginRouteContext, desktopAuthenticated)) return;
+    if (await handleUsageInsightsRoute(req, res, url, { workspaceDir: WORKSPACE_DIR, listProfiles: () => loadSettings().profiles, listSessions: () => loadSessionStore().sessions })) return;
 
     if (url.pathname === '/api/project' && req.method === 'GET') {
       jsonReply(res, 200, projectInfo());
