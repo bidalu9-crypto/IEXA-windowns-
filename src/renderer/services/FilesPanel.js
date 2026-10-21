@@ -442,6 +442,7 @@ async function openProjectPath(rootPath) {
     if (projectSession) await switchSession(projectSession.id);
     else await createSession();
     if (workbenchView === 'git') loadGitWorkbench();
+    window.syncHeroWorkspace?.();
   } catch (err) {
     addError('打开项目失败：' + (err.message || err));
   }
@@ -479,6 +480,7 @@ async function closeProject() {
     .filter(session => session.archived !== true && !session.projectRoot)
     .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
   if (unbound) await switchSession(unbound.id); else await createSession();
+  window.syncHeroWorkspace?.();
 }
 
 async function loadFilesList(relPath, silent) {

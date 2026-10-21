@@ -26,6 +26,7 @@
 <link rel="stylesheet" href="components/SettingsPage.css">
 <link rel="stylesheet" href="components/Screenshot.css">
 <link rel="stylesheet" href="components/Pet.css">
+<link rel="stylesheet" href="components/HeroWorkspace.css">
 <style>
 .prompt-settings-panel { margin-top: 20px; }
 .prompt-settings-panel summary { cursor: pointer; font-weight: 600; padding: 10px 0; }
@@ -43,6 +44,8 @@
     <symbol id="ui-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="ui-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
     <symbol id="ui-chevron-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="ui-chevron-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
+    <symbol id="ui-folder-plus" viewBox="0 0 24 24"><path d="M3.5 6.8A1.8 1.8 0 0 1 5.3 5h4.4l1.8 2h7.2a1.8 1.8 0 0 1 1.8 1.8v8.5a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V6.8Z"/><path d="M12 11.4v5.2M9.4 14h5.2"/></symbol>
     <symbol id="ui-pause" viewBox="0 0 24 24"><path d="M9.4 5.6v12.8M14.6 5.6v12.8"/></symbol>
     <symbol id="ui-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
     <symbol id="ui-archive" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM6 8v12h12V8M10 12h4"/></symbol>
@@ -228,8 +231,10 @@
           <div class="chat-messages-area">
             <div class="chat-messages" id="chatMessages">
               <div class="welcome">
-                <div class="welcome-icon"><img class="welcome-logo" src="mobile-pair-logo.png" width="52" height="52" alt="IEXA"></div>
-                <h2>今天想构建什么？</h2>
+                <div class="welcome-head">
+                  <img class="welcome-logo" src="mobile-pair-logo.png" width="34" height="34" alt="IEXA">
+                  <h2>今天想构建什么？</h2>
+                </div>
                 <p>从一个想法、一处问题，或一个项目开始。</p>
                 <div class="quick-actions">
                   <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="列出当前目录的文件"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span>列出文件</span></button>
@@ -253,6 +258,14 @@
               <button type="button" class="paused-banner-end" id="pausedEnd">结束任务</button>
               <button type="button" class="paused-banner-resume" id="pausedResume">继续</button>
             </div>
+          </div>
+          <div class="hero-workspace" id="heroWorkspace">
+            <button type="button" class="hero-workspace-chip" id="heroWorkspaceChip" aria-haspopup="menu" aria-expanded="false" title="切换或打开项目文件夹">
+              <svg class="ui-icon hero-workspace-folder" aria-hidden="true"><use href="#ui-folder"/></svg>
+              <span class="hero-workspace-label" id="heroWorkspaceLabel">打开项目文件夹</span>
+              <svg class="ui-icon hero-workspace-chevron" aria-hidden="true"><use href="#ui-chevron-down"/></svg>
+            </button>
+            <div class="hero-workspace-menu" id="heroWorkspaceMenu" role="menu" aria-labelledby="heroWorkspaceChip" hidden></div>
           </div>
           <div class="chat-input-area">
             <div class="model-bar" id="modelBar">
@@ -1415,6 +1428,7 @@ version: 1.0.0
 <script src="services/McpPanel.js"></script>
 <script src="services/PluginPanel.js"></script>
 <script src="services/FilesPanel.js"></script>
+<script src="services/HeroWorkspace.js"></script>
 <script src="services/SkillsPanel.js"></script>
 <script src="services/TextContextMenu.js"></script>
 <script src="services/ScheduledTasksView.js"></script>

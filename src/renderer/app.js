@@ -2801,6 +2801,7 @@ if (localeSelect) {
   initMobileBridge();
   initTextContextMenu();
   initFilesPanel();
+  initHeroWorkspace();
   await loadProjectState();
   initTerminalPanel();
   initMcpPanel();

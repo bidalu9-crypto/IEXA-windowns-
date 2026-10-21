@@ -95,7 +95,7 @@ test('real browser: the landing composer sits centred and glides to the dock', {
     const area = document.querySelector('.chat-input-area');
     const box = area.getBoundingClientRect();
     const chat = document.querySelector('.chat-container').getBoundingClientRect();
-    const logo = document.querySelector('.welcome-icon img');
+    const logo = document.querySelector('.welcome-head .welcome-logo');
     return { center: box.top + box.height / 2, vh: innerHeight, welcome: !!document.querySelector('.welcome'),
       width: Math.round(box.width), chatWidth: Math.round(chat.width),
       offset: Math.round((box.left + box.right) / 2 - (chat.left + chat.right) / 2),

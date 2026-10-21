@@ -116,15 +116,15 @@
   #view-chat.is-welcome .chat-messages-area { flex: 0 1 auto; }
   #view-chat.is-welcome .chat-messages { overflow: visible; padding-bottom: 0; }
   #view-chat.is-welcome .welcome { padding: 0 8px; }
-  #view-chat.is-welcome .chat-input-area { max-width: 780px; margin: 26px auto 10px; }
+  #view-chat.is-welcome .chat-input-area { max-width: 780px; margin: 0 auto 10px; }
 }
 
 .workbench-shell .welcome-icon .ui-icon { width: 38px; height: 38px; flex-basis: 38px; stroke-width: 1.35; filter: none; }
-.workbench-shell .welcome-icon .welcome-logo { display: block; width: 52px; height: 52px; filter: none; }
-.workbench-shell .welcome h2 { font-size: clamp(23px, 2.5vw, 30px); letter-spacing: -.8px; font-weight: 550; margin-bottom: 12px; }
+.workbench-shell .welcome-logo { display: block; width: 34px; height: 34px; flex: 0 0 34px; filter: none; }
+.workbench-shell .welcome h2 { font-size: clamp(22px, 2.1vw, 26px); letter-spacing: -.6px; font-weight: 550; margin-bottom: 12px; }
 .workbench-shell .welcome p { font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.7; color: var(--text-muted); }
-.workbench-shell .quick-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 28px; }
-.workbench-shell .quick-btn { border: 1px solid var(--border); border-radius: 9px; background: transparent; box-shadow: none; padding: 10px 12px; font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--text-secondary); }
+.workbench-shell .quick-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-top: 22px; }
+.workbench-shell .quick-btn { border: 1px solid var(--border); border-radius: 9px; background: transparent; box-shadow: none; padding: 8px 11px; font-size: calc(11.5px * var(--ui-font-scale, 1)); color: var(--text-secondary); }
 .workbench-shell .quick-btn:hover { background: var(--bg-secondary); border-color: var(--border-strong); transform: none; }
 .workbench-shell .chat-input-area { max-width: none; width: calc(100% - 48px); margin: 0 auto 14px; padding: 12px 14px 7px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-input); box-shadow: 0 3px 12px #00000005; display: flex; flex-direction: column; position: relative; }
 .workbench-shell .chat-input-area:focus-within { border-color: var(--text-muted); }
