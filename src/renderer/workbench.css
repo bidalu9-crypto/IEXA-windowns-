@@ -787,6 +787,10 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .workbench-shell .model-bar .ui-icon-button { --control-size: 28px; --control-icon-size: 16px; }
 .workbench-shell .search-clear { --control-size: 26px; --control-icon-size: 16px; }
 .workbench-shell .search-input { min-height: 34px; padding: 7px 32px 7px 10px; font-size: calc(12px * var(--ui-font-scale, 1)); }
+/* The field is exactly as wide as the sidebar's clip box, so the global focus
+   ring (drawn outside the border) was cut on both ends. Pin the width and draw
+   it inside so the clip box cannot reach it. */
+.workbench-shell .search-input:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: -2px; }
 .workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove, .queued-remove-btn) > .ui-icon { width: 16px; height: 16px; display: block; stroke-width: var(--control-stroke); }
 .workbench-shell :is(.user-message-action, .assistant-message-action, .attach-chip-remove):is(:hover, :active) > .ui-icon { transform: none; filter: none; }
 @media (hover: none) { .workbench-shell .session-item-more { opacity: 1; } }

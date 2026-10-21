@@ -829,10 +829,15 @@ function initSoulUI() {
 // Search
 // =============================================================================
 
+// Debounce handle for the live session search.
+let searchTimer = null;
+
 searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    performSearch();
+    // An explicit search must not wait for the debounce that is already queued.
+    clearTimeout(searchTimer);
+    void performSearch();
   }
 });
 
@@ -840,9 +845,15 @@ searchInput.addEventListener('input', () => {
   const q = searchInput.value.trim();
   searchClear.style.display = q ? 'flex' : 'none';
   if (!q) {
+    clearTimeout(searchTimer);
     searchResults.style.display = 'none';
     sessionsList.style.display = '';
+    return;
   }
+  // Filter while typing. Waiting for Enter made the field look inert: the only
+  // visible reaction to typing was the clear button appearing.
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { void performSearch(); }, 200);
 });
 
 searchClear.addEventListener('click', () => {
@@ -864,6 +875,9 @@ async function performSearch() {
   try {
     const resp = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
     const data = await resp.json();
+    // Typing continues while the request is in flight; a late answer for an
+    // older query must not overwrite the newer one.
+    if (searchInput.value.trim() !== q) return;
     const results = data.results || [];
 
     if (results.length === 0) {
