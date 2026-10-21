@@ -64,6 +64,22 @@ function formatInsightCost(value) {
   return '¥' + number.toFixed(2);
 }
 
+/**
+ * Account balance is not always money: pool gateways meter in credits and some
+ * relays answer in dollars. Format by the currency the probe reported instead of
+ * stamping every number with the cost symbol.
+ */
+function formatInsightBalance(value, currency) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  if (currency === 'credits') {
+    return (Math.abs(number) >= 1000 ? (number / 1000).toFixed(1) + 'k' : number.toLocaleString('zh-CN', { maximumFractionDigits: 0 })) + ' 积分';
+  }
+  if (currency === 'USD') return '$' + number.toFixed(2);
+  if (currency === 'CNY') return '¥' + number.toFixed(2);
+  return number.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+}
+
 function formatInsightPercent(ratio) {
   const value = Math.max(0, Number(ratio) || 0) * 100;
   if (value > 0 && value < 0.1) return '<0.1%';
@@ -356,7 +372,10 @@ async function loadInsightsBalance() {
   try {
     const profiles = await (await fetch(`${API_BASE}/api/profiles`)).json();
     const list = Array.isArray(profiles) ? profiles : (profiles.profiles || []);
-    const active = list.find((profile) => profile.id === profiles.activeId)
+    // The settings endpoint names the active profile `activeProfileId`; the
+    // older `activeId` is still accepted so a cached response keeps working.
+    const activeId = profiles.activeProfileId || profiles.activeId;
+    const active = list.find((profile) => profile.id === activeId)
       || list.find((profile) => profile.active)
       || list[0];
     if (!active) { chip.hidden = true; return; }
@@ -367,7 +386,7 @@ async function loadInsightsBalance() {
       return;
     }
     chip.hidden = false;
-    chip.textContent = `${active.model || active.provider || '余额'} 余额 ${formatInsightCost(data.remaining)}`;
+    chip.textContent = `${active.model || active.provider || '余额'} · ${formatInsightBalance(data.remaining, data.currency)}`;
     chip.title = data.source ? `来源：${data.source}` : '账户余额';
   } catch {
     chip.hidden = true;

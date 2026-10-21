@@ -66,6 +66,18 @@ function amount(value: unknown): number | undefined {
   return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/**
+ * Settings store secrets as `{ $secretRef }` on disk and as strings once
+ * decrypted. A profile that reaches this module still holding the reference has
+ * not been hydrated: sending it would put `[object Object]` in the header, and
+ * every gateway would answer 401 — which then looked like "no balance endpoint".
+ * Treat anything that is not a non-empty string as missing instead of guessing.
+ */
+function usableKey(profile: { apiKey?: unknown }): string {
+  const value = profile?.apiKey;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 async function readJson(url: string, apiKey: string, userAgent?: string): Promise<{ status: number; body: any } | null> {
   let response: Response;
   try {
@@ -181,28 +193,28 @@ function fromWorkbuddyPool(body: any): ProviderBalance | null {
   };
 }
 
-async function tryWorkbuddyPool(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
-  const result = await readJson(`${rootOf(base)}/status`, profile.apiKey, profile.userAgent);
+async function tryWorkbuddyPool(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
+  const result = await readJson(`${rootOf(base)}/status`, credential, profile.userAgent);
   if (result?.status !== 200) return null;
   return fromWorkbuddyPool(result.body);
 }
 
-async function tryDeepSeek(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
-  const result = await readJson(`${rootOf(base)}/user/balance`, profile.apiKey, profile.userAgent);
+async function tryDeepSeek(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
+  const result = await readJson(`${rootOf(base)}/user/balance`, credential, profile.userAgent);
   if (result?.status !== 200) return null;
   return fromDeepSeek(result.body);
 }
 
-async function tryCredits(url: string, profile: ModelProfileLike, source: string): Promise<ProviderBalance | null> {
-  const result = await readJson(url, profile.apiKey, profile.userAgent);
+async function tryCredits(url: string, profile: ModelProfileLike, source: string, credential: string): Promise<ProviderBalance | null> {
+  const result = await readJson(url, credential, profile.userAgent);
   if (result?.status !== 200) return null;
   return fromCredits(result.body, source);
 }
 
-async function tryBilling(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
-  const subscription = await readJson(`${rootOf(base)}/dashboard/billing/subscription`, profile.apiKey, profile.userAgent);
+async function tryBilling(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
+  const subscription = await readJson(`${rootOf(base)}/dashboard/billing/subscription`, credential, profile.userAgent);
   if (subscription?.status !== 200) return null;
-  const usage = await readJson(`${rootOf(base)}/dashboard/billing/usage`, profile.apiKey, profile.userAgent);
+  const usage = await readJson(`${rootOf(base)}/dashboard/billing/usage`, credential, profile.userAgent);
   return fromBilling(subscription.body, usage?.status === 200 ? usage.body : null);
 }
 
@@ -231,14 +243,14 @@ function fromGeneric(body: any): ProviderBalance | null {
   };
 }
 
-async function tryGeneric(base: string, profile: ModelProfileLike): Promise<ProviderBalance | null> {
+async function tryGeneric(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
   const root = rootOf(base);
   const paths = [
     '/api/user/self', '/api/v1/user/self', '/v1/dashboard/billing/credit_grants',
     '/dashboard/billing/credit_grants', '/api/credits', '/user/info',
   ];
   for (const path of paths) {
-    const result = await readJson(`${root}${path}`, profile.apiKey, profile.userAgent);
+    const result = await readJson(`${root}${path}`, credential, profile.userAgent);
     if (!result || result.status !== 200) continue;
     const value = fromGeneric(result.body);
     if (value) return value;
@@ -257,7 +269,8 @@ export async function fetchProviderBalance(profile: ModelProfileLike, options: {
     cache.set(key, { value, at: Date.now() });
     return value;
   };
-  if (!profile.apiKey) return finish({ status: 'unsupported', message: '尚未配置 API 密钥', updatedAt: Date.now() });
+  const credential = usableKey(profile);
+  if (!credential) return finish({ status: 'unsupported', message: '尚未配置 API 密钥', updatedAt: Date.now() });
 
   const base = normaliseBase(profile.baseURL, profile.provider);
   let host = '';
@@ -265,17 +278,17 @@ export async function fetchProviderBalance(profile: ModelProfileLike, options: {
 
   const attempts: Array<Promise<ProviderBalance | null>> = [];
   if (profile.provider === 'deepseek' || host.endsWith('deepseek.com')) {
-    attempts.push(tryDeepSeek(base, profile));
+    attempts.push(tryDeepSeek(base, profile, credential));
   } else if (host.endsWith('openrouter.ai')) {
-    attempts.push(tryCredits(`${new URL(base).origin}/api/v1/credits`, profile, 'OpenRouter 信用额度'));
+    attempts.push(tryCredits(`${new URL(base).origin}/api/v1/credits`, profile, 'OpenRouter 信用额度', credential));
   } else {
     // Pool gateways answer /status with a distinctive body; probing it first
     // keeps a 404-heavy relay from burning the other three requests.
-    attempts.push(tryWorkbuddyPool(base, profile));
-    attempts.push(tryBilling(base, profile));
-    attempts.push(tryCredits(`${rootOf(base)}/v1/credits`, profile, '网关信用额度'));
-    attempts.push(tryDeepSeek(base, profile));
-    attempts.push(tryGeneric(base, profile));
+    attempts.push(tryWorkbuddyPool(base, profile, credential));
+    attempts.push(tryBilling(base, profile, credential));
+    attempts.push(tryCredits(`${rootOf(base)}/v1/credits`, profile, '网关信用额度', credential));
+    attempts.push(tryDeepSeek(base, profile, credential));
+    attempts.push(tryGeneric(base, profile, credential));
   }
 
   for (const attempt of attempts) {
