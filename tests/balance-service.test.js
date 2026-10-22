@@ -60,6 +60,22 @@ test.before(async () => {
       res.end(JSON.stringify({ ok: true, service: 'something-else' }));
       return;
     }
+    if (url === '/sub2/v1/usage') {
+      res.setHeader('Content-Type', 'application/json');
+      // Overdrawn key: the relay reports a negative remaining, exactly like the
+      // -US$0.29 the desktop client must show without clamping it to zero.
+      res.end(JSON.stringify({
+        mode: 'quota_limited',
+        isValid: true,
+        quota: { limit: 10, used: 10.29, remaining: -0.29 },
+        remaining: -0.29,
+        rate_limits: [
+          { limit: 5, used: 1, remaining: 4 },
+          { limit: 100, used: 12, remaining: 88 },
+        ],
+      }));
+      return;
+    }
     if (url === '/generic/api/user/self') {
       res.setHeader('Content-Type', 'application/json');
       // New API reports quota in 1/500000 USD units.
@@ -138,6 +154,19 @@ test('an unrelated 200 at /status is not mistaken for a pool', async () => {
     id: 'plain', provider: 'custom', apiKey: 'sk-plain', baseURL: `${base}/plain/v1`,
   });
   assert.equal(result.status, 'unsupported', 'no accounts array means no reading');
+});
+
+test('a Sub2API relay reports its own allowance from /v1/usage', async () => {
+  const result = await fetchProviderBalance({
+    id: 'sub2', provider: 'custom', apiKey: 'sk-test', baseURL: `${base}/sub2/v1`,
+  });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.currency, 'USD');
+  assert.equal(result.remaining, -0.29, 'an overdrawn key stays negative instead of being clamped');
+  assert.equal(result.used, 10.29);
+  assert.equal(result.total, 10);
+  assert.match(result.source, /Sub2API/);
+  assert.match(result.source, /2 个限额窗口/);
 });
 
 test('a New API style quota endpoint is converted to dollars', async () => {

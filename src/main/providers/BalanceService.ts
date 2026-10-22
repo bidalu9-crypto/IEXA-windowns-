@@ -218,6 +218,43 @@ async function tryBilling(base: string, profile: ModelProfileLike, credential: s
   return fromBilling(subscription.body, usage?.status === 200 ? usage.body : null);
 }
 
+/**
+ * Sub2API (Wei-Shaw/sub2api) relays answer GET /v1/usage with the caller's own
+ * allowance. Shape: { mode: 'quota_limited', quota: { limit, used, remaining },
+ * remaining, rate_limits: [...] }. `remaining` may legitimately be negative —
+ * that is how an overdrawn key looks — so it must not be clamped.
+ */
+function fromSub2ApiUsage(body: any): ProviderBalance | null {
+  if (!body || typeof body !== 'object') return null;
+  const num = (value: unknown): number | null => (Number.isFinite(Number(value)) ? Number(value) : null);
+  const quota = body.quota && typeof body.quota === 'object' ? body.quota : null;
+  const remaining = quota ? num(quota.remaining) : num(body.remaining);
+  if (remaining === null) return null;
+  const used = quota ? num(quota.used) : null;
+  const limit = quota ? num(quota.limit) : null;
+  const rateLimits = Array.isArray(body.rate_limits) ? body.rate_limits.length : 0;
+  return {
+    status: 'ok',
+    currency: 'USD',
+    remaining,
+    ...(used !== null ? { used } : {}),
+    ...(limit !== null ? { total: limit } : {}),
+    source: rateLimits > 0 ? `Sub2API · ${rateLimits} 个限额窗口` : 'Sub2API',
+    updatedAt: Date.now(),
+  };
+}
+
+async function trySub2Api(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
+  const root = rootOf(base);
+  for (const path of ['/v1/usage', '/usage']) {
+    const result = await readJson(`${root}${path}`, credential, profile.userAgent);
+    if (!result || result.status !== 200) continue;
+    const value = fromSub2ApiUsage(result.body);
+    if (value) return value;
+  }
+  return null;
+}
+
 /** Extract a balance from the shapes relays commonly expose. */
 function fromGeneric(body: any): ProviderBalance | null {
   if (!body || typeof body !== 'object') return null;
@@ -282,6 +319,9 @@ export async function fetchProviderBalance(profile: ModelProfileLike, options: {
   } else if (host.endsWith('openrouter.ai')) {
     attempts.push(tryCredits(`${new URL(base).origin}/api/v1/credits`, profile, 'OpenRouter 信用额度', credential));
   } else {
+    // Sub2API is the most common relay family here and answers a distinctive
+    // /v1/usage, so it goes first; every probe is a cheap 404 for the others.
+    attempts.push(trySub2Api(base, profile, credential));
     // Pool gateways answer /status with a distinctive body; probing it first
     // keeps a 404-heavy relay from burning the other three requests.
     attempts.push(tryWorkbuddyPool(base, profile, credential));
