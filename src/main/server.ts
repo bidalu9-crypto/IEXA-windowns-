@@ -9,9 +9,7 @@ import { ShellSessionTools } from './tools/ShellSessionTools';
 import { GoalStore } from './agent/GoalStore';
 import { AppearanceSettings, normalizeAppearance } from './appearance/AppearanceSchema';
 import type { JobBridge, JobSummary } from './runtime/ToolRuntime';
-// =============================================================================
-// IEXA PC - HTTP Server (multi-model profiles)
-// =============================================================================
+// ===== IEXA PC - HTTP Server (multi-model profiles) =====
 
 import { gzipSync } from 'zlib';
 import * as http from 'http';
@@ -1313,6 +1311,7 @@ async function saveSessionMessages(
   steeredMessages: ChatMessage[] = [],
   generationMs = 0,
   firstTokenMs = 0,
+  status?: ChatMessage['status'],
 ): Promise<void> {
   const turnStartedAt = Number(startedAt) || Number(userMsg.timestamp) || 0;
   const durationMs = turnStartedAt > 0 ? Math.max(0, Date.now() - turnStartedAt) : undefined;
@@ -1326,6 +1325,7 @@ async function saveSessionMessages(
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     deliverables: deliverables.length > 0 ? deliverables : undefined,
     usage, durationMs, timestamp: Date.now(),
+    ...(status ? { status } : {}),
     ...(generationMs > 0 ? {
       generationMs, generationRateVersion: STREAM_RATE_VERSION,
       ...(firstTokenMs > 0 ? { firstTokenMs } : {}),
@@ -1875,9 +1875,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       closeShellSession: (id, sessionId) => shellSessions.close(id, sessionId),
     })) return;
 
-    // =====================================================================
-    // System info
-    // =====================================================================
+    // ===== System info =====
     if (url.pathname === '/api/system' && req.method === 'GET') {
       jsonReply(res, 200, getSystemInfo());
       return;
@@ -1892,9 +1890,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       }
     }
 
-    // =====================================================================
-    // Search API — fuzzy search across session titles + messages
-    // =====================================================================
+    // ===== Search API — fuzzy search across session titles + messages =====
     if (url.pathname === '/api/search' && req.method === 'GET') {
       const q = (url.searchParams.get('q') || '').trim();
       if (!q) { jsonReply(res, 200, { results: [], query: '' }); return; }
@@ -1963,9 +1959,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       return;
     }
 
-    // =====================================================================
-    // Sessions API (CRUD)
-    // =====================================================================
+    // ===== Sessions API (CRUD) =====
     if (url.pathname === '/api/sessions') {
       if (req.method === 'GET') {
         const store = loadSessionStore();
@@ -2309,9 +2303,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       }
     }
 
-    // =====================================================================
-    // Translate an assistant reply with the model bound to this conversation.
-    // =====================================================================
+    // ===== Translate an assistant reply with the model bound to this conversation. =====
     if (url.pathname === '/api/translate' && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req, 256 * 1024) || '{}') as Record<string, unknown>;
@@ -2355,9 +2347,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       return;
     }
 
-    // =====================================================================
-    // Per-model token usage (iOS-style cumulative actual usage)
-    // =====================================================================
+    // ===== Per-model token usage (iOS-style cumulative actual usage) =====
     if (url.pathname === '/api/token-usage' && req.method === 'GET') {
       const profiles = loadSettings().profiles;
       const records = loadTokenUsage().map((record) => {
@@ -2392,14 +2382,10 @@ function createServer(auth: LocalApiAuth): http.Server {
       return;
     }
 
-    // =====================================================================
-    // Chunked attachment uploads
-    // =====================================================================
+    // ===== Chunked attachment uploads =====
     if (await uploads.handle(req, res, url, mobileDevice?.id || 'desktop')) return;
 
-    // =====================================================================
-    // Steer: inject a user message into the turn that is already streaming
-    // =====================================================================
+    // ===== Steer: inject a user message into the turn that is already streaming =====
     if (await handleSteerRoute(req, res, url, {
       workspaceDir: WORKSPACE_DIR,
       limits: {
@@ -2434,9 +2420,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       },
     })) return;
 
-    // =====================================================================
-    // Chat API
-    // =====================================================================
+    // ===== Chat API =====
     if (url.pathname === '/api/chat' && req.method === 'POST') {
       // Measured from the moment the request lands, so uploads and queueing
       // count toward the turn duration the client displays.
@@ -2714,6 +2698,8 @@ ${recentMemories}
         // it, and the new reply replaces it instead of appending a second one.
         const continueTurn = parsed.continueTurn === true;
         let priorAssistantText = ''; // prose streamed before the restart
+        /** The turn parked itself; persist it as paused and close the stream. */
+        let pausedTurn = false;
         /** Steered user prompts applied inside this turn, preserved in order. */
         const steeredMessages: ChatMessage[] = [];
         let resumedAssistant: ChatMessage | undefined;
@@ -2968,8 +2954,7 @@ ${recentMemories}
           // Parked, not finished: the response stays open and the same turn
           // continues on resume, so nothing is persisted or finalised here.
           onPaused: () => {
-            // Parked, not finished: keep the partial turn on disk so a restart
-            // can continue it instead of losing every completed tool result.
+            pausedTurn = true;
             void checkpoint.flush('paused');
             emitTurnEvent('paused', { sessionId, turn: agent ? agent.getState?.() : undefined });
             broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_paused' }, sourceClientId);
@@ -3024,12 +3009,6 @@ ${recentMemories}
             res.end();
           },
         };
-        // A parked turn produces no stream activity, so a vanished client would
-        // otherwise leave the session locked forever. Only pause needs this:
-        // a running turn already notices a closed socket.
-        res.on('close', () => {
-          if (!res.writableEnded && agent?.isPaused?.()) agent.cancel();
-        });
         let terminalWork: Promise<void> = Promise.resolve();
         for (const key of ['onDone', 'onError', 'onCancelled'] as const) {
           const original = cb[key] as (...args: any[]) => unknown;
@@ -3041,6 +3020,17 @@ ${recentMemories}
         try {
           await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments }, { continueTurn });
           await terminalWork;
+          if (pausedTurn && !res.writableEnded) {
+            // Pause ends the turn: persist the partial reply, then close. Continuing
+            // is a new turn seeded from this file, so a reload cannot strand it.
+            await checkpoint.settle();
+            await saveSessionMessages(sessionId, existingMessages, userMsg, assistantFullText,
+              assistantToolCalls, lastUsage, assistantThinkingText, effectiveThinkingLevel,
+              transcriptRecorder.snapshot(), chatTurnStartedAt, steeredMessages,
+              agent ? agent.getGenerationMs() : 0, agent ? agent.getTimeToFirstTokenMs() : 0, 'paused');
+            broadcastSessionEvent('session_changed', { sessionId, reason: 'turn_paused' }, sourceClientId);
+            res.end();
+          }
         } finally {
           streamBatcher.flush();
           runningSessionIds.delete(sessionId); ownsSessionLock = false;
@@ -3066,9 +3056,7 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Fetch models from a custom OpenAI-compatible endpoint
-    // =====================================================================
+    // ===== Fetch models from a custom OpenAI-compatible endpoint =====
     if (url.pathname === '/api/profiles/fetch-models' && req.method === 'POST') {
       const body = await readBody(req);
       try {
@@ -3122,9 +3110,7 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Profiles API (CRUD)
-    // =====================================================================
+    // ===== Profiles API (CRUD) =====
     if (url.pathname === '/api/profiles') {
       if (req.method === 'GET') {
         const s = loadSettings();
@@ -3260,9 +3246,7 @@ ${recentMemories}
       }
     }
 
-    // =====================================================================
-    // Thinking level (global, iOS-style)
-    // =====================================================================
+    // ===== Thinking level (global, iOS-style) =====
     if (url.pathname === '/api/thinking-level') {
       if (req.method === 'GET') {
         jsonReply(res, 200, { thinkingLevel: getThinkingLevel() });
@@ -3286,9 +3270,7 @@ ${recentMemories}
       }
     }
 
-    // =====================================================================
-    // Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M)
-    // =====================================================================
+    // ===== Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M) =====
     if (url.pathname === '/api/context-compaction') {
       if (req.method === 'GET') {
         jsonReply(res, 200, { contextCompactionLimit: getContextCompactionLimit() ?? null });
@@ -3307,9 +3289,7 @@ ${recentMemories}
       }
     }
 
-    // =====================================================================
-    // SOUL.md — persistent assistant identity and personality
-    // =====================================================================
+    // ===== SOUL.md — persistent assistant identity and personality =====
     if (url.pathname === '/api/soul') {
       if (req.method === 'GET') {
         const soul = soulStore.ensureExists();
@@ -3359,9 +3339,7 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Active profile info
-    // =====================================================================
+    // ===== Active profile info =====
     if (url.pathname === '/api/active-profile' && req.method === 'GET') {
       const p = activeProfile();
       if (p) {
@@ -3372,9 +3350,7 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Legacy compat + reset
-    // =====================================================================
+    // ===== Legacy compat + reset =====
     if (url.pathname === '/api/settings') {
       if (req.method === 'GET') {
         const p = activeProfile();
@@ -3415,12 +3391,8 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Project (OpenCode-style: open a folder, then browse it)
-    // =====================================================================
-    // =====================================================================
-    // Skills API (iOS-style SKILL.md)
-    // =====================================================================
+    // ===== Project (OpenCode-style: open a folder, then browse it) =====
+    // ===== Skills API (iOS-style SKILL.md) =====
 
     if (url.pathname === '/api/project/scope') {
       const root = getProjectRoot();
@@ -3484,17 +3456,11 @@ ${recentMemories}
       return;
     }
 
-    // =====================================================================
-    // Persistent terminal sessions for the project workbench
-    // =====================================================================
+    // ===== Persistent terminal sessions for the project workbench =====
 
-    // =====================================================================
-    // MCP server catalog and desktop-side tool calls
-    // =====================================================================
+    // ===== MCP server catalog and desktop-side tool calls =====
 
-    // =====================================================================
-    // Local extension plugins: install, lifecycle, tools and sandboxed UI
-    // =====================================================================
+    // ===== Local extension plugins: install, lifecycle, tools and sandboxed UI =====
 
     // Feature routes live in api/; each reports whether it owned the request.
     // Order matters only where prefixes overlap, which they do not here.

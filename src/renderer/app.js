@@ -1771,7 +1771,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
   const turnStartedAt = Date.now();
   setProcessing(true);
   const turnRuntime = runtimeForSession(sessionId);
-  if (turnRuntime) turnRuntime.interruptedTurn = null;
+  if (turnRuntime) { turnRuntime.interruptedTurn = null; turnRuntime.pausedTurn = null; }
   snapshotActiveSessionRuntime();
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
@@ -2186,7 +2186,7 @@ function syncPausedBanner() {
   const banner = document.getElementById('pausedBanner');
   if (!banner) return;
   const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
-  const paused = runtime?.isPaused === true;
+  const paused = !!runtime?.pausedTurn;
   const interrupted = !paused && !!runtime?.interruptedTurn;
   banner.hidden = !paused && !interrupted;
   if (paused || interrupted) {
@@ -2239,11 +2239,17 @@ function hidePausedBanner() {
 function handlePaused(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
   const runtime = runtimeForSession(currentSessionId);
-  runtime.isPaused = true;
+  runtime.isPaused = false;
   runtime.pausePending = false;
   runtime.turnStopPending = false;
   hideWaitingIndicator();
   finishActiveThinkingBlock();
+  // Pause ends the turn: the partial reply is on disk with status 'paused', so
+  // the banner offers the same continuation an interrupted turn uses.
+  const toolCalls = currentAssistantMsg ? currentAssistantMsg.querySelectorAll('.tool-block').length : 0;
+  if (currentAssistantMsg) finalizeAssistantMessage(currentAssistantMsg);
+  runtime.pausedTurn = { toolCalls };
+  setProcessing(false);
   syncPausedBanner();
   snapshotActiveSessionRuntime();
 }
@@ -2271,36 +2277,18 @@ async function resumeProcessing() {
   if (!currentSessionId) return;
   const runtime = runtimeForSession(currentSessionId);
   const button = document.getElementById('pausedResume');
-  // An interrupted turn has no live stream to un-park: the work is on disk and
-  // continuing means asking the model to carry on from that history.
-  if (!runtime.isPaused && runtime.interruptedTurn) {
-    if (button) { button.disabled = true; button.dataset.busy = '1'; button.textContent = '继续中…'; }
-    runtime.interruptedTurn = null;
-    hidePausedBanner();
-    try {
-      await runChatTurn('', '', [], { continueTurn: true });
-    } finally {
-      if (button) { button.disabled = false; delete button.dataset.busy; button.textContent = '继续'; }
-    }
-    return;
-  }
-  if (!runtime.isPaused) return;
+  // Both a paused and an interrupted turn resume the same way: the partial
+  // reply lives on disk, and continuing asks the model to carry on from it.
+  if (!runtime.pausedTurn && !runtime.interruptedTurn) return;
   if (button) { button.disabled = true; button.dataset.busy = '1'; button.textContent = '继续中…'; }
+  runtime.pausedTurn = null;
+  runtime.interruptedTurn = null;
+  statusText.textContent = '继续中…';
+  hidePausedBanner();
   try {
-    const response = await fetch(API_BASE + '/api/resume?sessionId=' + encodeURIComponent(currentSessionId), { method: 'POST' });
-    if (!response.ok) throw new Error('任务已经结束，无法继续。');
-    runtime.isPaused = false;
-    const banner = document.getElementById('pausedBanner');
-    if (banner) banner.hidden = true;
-    // Unpark the composer before the next stream event arrives: input, send and
-    // stop must match a live turn again, not the paused snapshot.
-    syncPausedBanner();
-    statusText.textContent = '继续中…';
-    showWaitingIndicator();
-    snapshotActiveSessionRuntime();
-  } catch (error) {
+    await runChatTurn('', '', [], { continueTurn: true });
+  } finally {
     if (button) { button.disabled = false; delete button.dataset.busy; button.textContent = '继续'; }
-    addError(error.message || '继续失败。');
   }
 }
 

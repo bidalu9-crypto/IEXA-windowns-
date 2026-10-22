@@ -95,9 +95,16 @@ test('real browser: resume unlocks the composer and screenshots annotate', { ski
   // --- Pause parks the composer, resume must restore a live turn's controls ---
   await evaluate(`(() => {
     window.__realFetch = window.fetch;
+    window.__continueBody = null;
     window.fetch = async (input, init) => {
-      if (String(input).startsWith('/api/resume')) {
-        return new Response('{"ok":true}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (String(input) === '/api/chat') {
+        window.__continueBody = JSON.parse((init && init.body) || '{}');
+        return new Response(new ReadableStream({
+          start(controller) {
+            window.__pushContinue = (frame) => controller.enqueue(new TextEncoder().encode(frame));
+            controller.enqueue(new TextEncoder().encode('event: turn_started\\ndata: {}\\n\\n'));
+          },
+        }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
       }
       return window.__realFetch(input, init);
     };
@@ -124,6 +131,8 @@ test('real browser: resume unlocks the composer and screenshots annotate', { ski
 
   await evaluate("void resumeProcessing(); true");
   await wait("document.getElementById('pausedBanner').hidden === true");
+  assert.equal(await evaluate("window.__continueBody && window.__continueBody.continueTurn"), true,
+    'continuing asks the server to carry on from disk');
 
   const resumed = await evaluate(`({
     input: chatInput.disabled,
@@ -137,7 +146,7 @@ test('real browser: resume unlocks the composer and screenshots annotate', { ski
   assert.equal(resumed.stop, 'flex', 'stop is the visible action again');
   assert.equal(resumed.send, 'none', 'send stays hidden while the turn is still running');
   assert.equal(resumed.shot, false, 'screenshot is usable again');
-  assert.match(resumed.status, /继续中/);
+  assert.match(resumed.status, /继续中|处理中/);
 
   // A finished turn swaps back to send, and typing works.
   await evaluate("setProcessing(false); true");

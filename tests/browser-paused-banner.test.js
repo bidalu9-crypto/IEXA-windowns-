@@ -90,9 +90,17 @@ test('real browser: a paused turn shows a banner that resumes the same stream', 
     window.fetch = async (input, init) => {
       const url = String(input);
       if (url === '/api/chat') {
+        const body = JSON.parse((init && init.body) || '{}');
+        window.__chatBodies = window.__chatBodies || [];
+        window.__chatBodies.push(body);
+        if (window.__chatBodies.length > 1) {
+          return new Response('event: text\ndata: {"content":"continued"}\n\nevent: done\ndata: {}\n\n',
+            { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+        }
         return new Response(new ReadableStream({
           start(controller) {
             window.__pushChat = (frame) => controller.enqueue(new TextEncoder().encode(frame));
+            window.__endChat = () => controller.close();
             controller.enqueue(new TextEncoder().encode('event: turn_started\ndata: {"thinkingLevel":"medium"}\n\n'));
           },
         }), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
@@ -148,17 +156,19 @@ test('real browser: a paused turn shows a banner that resumes the same stream', 
   assert.equal(banner.role, 'region');
   assert.equal(banner.live, 'polite', 'only the text is announced, not the buttons');
 
-  // Continue resumes the same stream; nothing is re-sent as a new turn.
-  await evaluate("document.getElementById('pausedResume').click(); true");
-  await wait("window.__calls.some((url) => url.startsWith('/api/resume'))");
-  await wait("document.getElementById('pausedBanner').hidden === true");
-  assert.equal(await evaluate("window.__calls.filter((url) => url.startsWith('/api/chat')).length"), 0, 'no new chat request is made');
+  // Pause ends the turn: the server closes the stream, so the banner must stay
+  // put and continuing must be a new turn over the saved history.
+  await evaluate("window.__endChat && window.__endChat(); true");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(await evaluate("document.getElementById('pausedBanner').hidden"), false, 'the banner survives the closed stream');
 
-  await evaluate("window.__pushChat('event: done\\ndata: {}\\n\\n'); true");
+  await evaluate("document.getElementById('pausedResume').click(); true");
+  await wait("(window.__chatBodies || []).length === 2");
+  const bodies = await evaluate('window.__chatBodies');
+  assert.equal(bodies[1].continueTurn, true, 'continuing asks to carry on');
+  assert.equal(bodies[1].message, '', 'no prompt is re-sent');
+  assert.equal(await evaluate("window.__calls.some((url) => url.startsWith('/api/resume'))"), false,
+    'the parked-stream endpoint is no longer used');
   await wait("isProcessing === false");
   assert.equal(await evaluate("document.getElementById('pausedBanner').hidden"), true, 'a finished turn leaves no banner');
-
-  // Ending a parked turn is an explicit, separate action.
-  await evaluate("document.getElementById('pausedEnd').click(); true");
-  await wait("window.__calls.some((url) => url.startsWith('/api/cancel'))");
 });

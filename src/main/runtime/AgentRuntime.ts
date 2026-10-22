@@ -77,15 +77,14 @@ export class AgentRuntime {
     this.activeRun = true;
     try {
       await this.loop.run(request.message, request.tools, callbacks, request.attachments, options.continueTurn ? { resume: true } : undefined);
-      // A paused turn keeps this run alive: the session lock, the SSE response
-      // and the agent history all stay in place until resume or cancel.
-      while (this.loop.isPaused()) {
-        await new Promise<void>((resolve) => { this.resumeWaiter = resolve; });
-        if (this.loop.isCancelledNow()) { callbacks.onCancelled(); break; }
-        await this.loop.resume(request.tools, callbacks);
-      }
     }
     finally {
+      // Pause is terminal: the turn releases its lock and closes its stream, so
+      // a reload, a sleep or a crash cannot leave a parked turn nobody can
+      // reach. Continuing is a new turn seeded from disk (Codex does the same).
+      if (this.loop.isPaused()) {
+        this.state = { ...this.state, status: 'paused', currentTool: undefined, updatedAt: Date.now() };
+      }
       if (runSignal.aborted) {
         if (this.config.subAgentTree) await this.subAgents?.settleDescendants(this.config.sessionId);
         else await this.subAgents?.settleAll();

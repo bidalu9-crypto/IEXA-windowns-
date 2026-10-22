@@ -29,9 +29,11 @@ test.before(async () => {
         res.end(JSON.stringify({ choices: [{ message: { content: 'Fixture title' } }] }));
         return;
       }
-      streamCalls++;
+      // Title generation also streams; only the agent turn carries tools.
+      const isTurn = Array.isArray(request.tools) && request.tools.length > 0;
+      if (isTurn) streamCalls++;
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      if (streamCalls === 1) {
+      if (isTurn && streamCalls === 1) {
         // A long step: the user pauses while this is still open.
         res.write(sse('FIRST_HALF', false));
         releaseFirst();
@@ -77,7 +79,7 @@ async function api(route, method = 'GET', data) {
   return body;
 }
 
-test('pause parks the turn and resume continues it', async () => {
+test('pause ends the turn on disk and continueTurn resumes it', async () => {
   const { session } = await api('/api/sessions', 'POST', {});
 
   const chat = fetch(endpoint + '/api/chat', {
@@ -93,43 +95,38 @@ test('pause parks the turn and resume continues it', async () => {
   });
   assert.equal(paused.status, 202, await paused.text());
 
+  // Pause is terminal: the stream reports the pause and then closes. Keeping it
+  // open was what stranded a parked turn whenever the window reloaded.
   const chatResponse = await chat;
   assert.equal(chatResponse.status, 200);
-  const reader = chatResponse.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let sawPaused = false;
-  let sawDone = false;
-  // Read until paused arrives; the response must stay open afterwards.
-  while (!sawPaused) {
-    const step = await reader.read();
-    if (step.done) break;
-    text += decoder.decode(step.value, { stream: true });
-    sawPaused = text.includes('event: paused');
-  }
-  assert.equal(sawPaused, true, 'the renderer is told the turn is parked: ' + text.slice(0, 400));
-  assert.equal(sawDone, false, 'a paused turn is not finished');
+  const streamed = await chatResponse.text();
+  assert.match(streamed, /event: paused/, 'the renderer learns the turn stopped: ' + streamed.slice(0, 300));
+  assert.doesNotMatch(streamed, /event: done/, 'a paused turn is not finished');
 
-  const resumed = await fetch(endpoint + '/api/resume?sessionId=' + encodeURIComponent(session.id), {
+  const afterPause = await api('/api/sessions/' + session.id);
+  const pausedMessages = Array.isArray(afterPause) ? afterPause : afterPause.messages;
+  const partial = pausedMessages.filter((message) => message.role === 'assistant').pop();
+  assert.ok(partial, 'the partial turn is on disk');
+  assert.equal(partial.status, 'paused', 'and it is marked paused');
+
+  // Continuing is a new turn over that saved history, not a parked stream.
+  const continued = await fetch(endpoint + '/api/chat', {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + token },
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: session.id, message: '', continueTurn: true }),
   });
-  assert.equal(resumed.status, 202, await resumed.text());
-
-  while (!sawDone) {
-    const step = await reader.read();
-    if (step.done) break;
-    text += decoder.decode(step.value, { stream: true });
-    sawDone = text.includes('event: done');
-  }
-  assert.equal(sawDone, true, 'the resumed turn completed: ' + text.slice(-400));
-  assert.equal(streamCalls, 2, 'resume made exactly one more model call');
+  assert.equal(continued.status, 200);
+  const continuedText = await continued.text();
+  assert.match(continuedText, /SECOND_HALF/, 'the model carried on: ' + continuedText.slice(-300));
+  assert.match(continuedText, /event: done/);
+  assert.equal(streamCalls, 2, 'continuing made exactly one more model call');
 
   const payload = await api('/api/sessions/' + session.id);
   const messages = Array.isArray(payload) ? payload : payload.messages;
   const assistant = messages.filter((message) => message.role === 'assistant').pop();
   assert.ok(assistant, 'the turn was persisted');
-  assert.match(assistant.content || '', /SECOND_HALF/, 'the resumed answer is what got saved');
+  assert.match(assistant.content || '', /SECOND_HALF/, 'the continued answer is what got saved');
+  assert.equal(assistant.status, undefined, 'finishing clears the paused marker');
   assert.equal(messages.filter((message) => message.role === 'user').length, 1,
-    'resuming does not append a second user message');
+    'continuing does not append a second user message');
 });
