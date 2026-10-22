@@ -76,6 +76,13 @@ test.before(async () => {
       }));
       return;
     }
+    if (url === '/v1relay/v1/dashboard/billing/subscription') {
+      res.setHeader('Content-Type', 'application/json');
+      // SenseNova-style: the billing route lives under /v1 and there is no
+      // matching /usage endpoint, so the limit alone must be reported.
+      res.end(JSON.stringify({ object: 'billing_subscription', has_payment_method: true, soft_limit_usd: 250, hard_limit_usd: 250 }));
+      return;
+    }
     if (url === '/generic/api/user/self') {
       res.setHeader('Content-Type', 'application/json');
       // New API reports quota in 1/500000 USD units.
@@ -154,6 +161,17 @@ test('an unrelated 200 at /status is not mistaken for a pool', async () => {
     id: 'plain', provider: 'custom', apiKey: 'sk-plain', baseURL: `${base}/plain/v1`,
   });
   assert.equal(result.status, 'unsupported', 'no accounts array means no reading');
+});
+
+test('a billing route under /v1 is found, and a missing usage endpoint is tolerated', async () => {
+  const result = await fetchProviderBalance({
+    id: 'v1relay', provider: 'openai', apiKey: 'sk-test', baseURL: `${base}/v1relay/v1`,
+  });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.currency, 'USD');
+  assert.equal(result.remaining, 250);
+  assert.equal(result.used, undefined, 'no usage route means no invented usage');
+  assert.match(result.source, /账单接口/);
 });
 
 test('a Sub2API relay reports its own allowance from /v1/usage', async () => {

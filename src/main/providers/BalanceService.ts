@@ -146,7 +146,7 @@ function fromBilling(subscription: any, usage: any): ProviderBalance | null {
     status: 'ok',
     currency: 'USD',
     remaining: limit,
-    used: usedCents === undefined ? undefined : usedCents / 100,
+    ...(usedCents === undefined ? {} : { used: usedCents / 100 }),
     source: '网关账单接口',
     updatedAt: Date.now(),
   };
@@ -212,10 +212,17 @@ async function tryCredits(url: string, profile: ModelProfileLike, source: string
 }
 
 async function tryBilling(base: string, profile: ModelProfileLike, credential: string): Promise<ProviderBalance | null> {
-  const subscription = await readJson(`${rootOf(base)}/dashboard/billing/subscription`, credential, profile.userAgent);
-  if (subscription?.status !== 200) return null;
-  const usage = await readJson(`${rootOf(base)}/dashboard/billing/usage`, credential, profile.userAgent);
-  return fromBilling(subscription.body, usage?.status === 200 ? usage.body : null);
+  const root = rootOf(base);
+  // Both spellings exist in the wild: One API serves /dashboard/billing/…,
+  // SenseNova serves /v1/dashboard/billing/…. Probing both costs one 404.
+  for (const prefix of ['', '/v1']) {
+    const subscription = await readJson(`${root}${prefix}/dashboard/billing/subscription`, credential, profile.userAgent);
+    if (subscription?.status !== 200) continue;
+    const usage = await readJson(`${root}${prefix}/dashboard/billing/usage`, credential, profile.userAgent);
+    const value = fromBilling(subscription.body, usage?.status === 200 ? usage.body : null);
+    if (value) return value;
+  }
+  return null;
 }
 
 /**
