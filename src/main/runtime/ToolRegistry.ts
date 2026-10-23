@@ -103,12 +103,43 @@ export class ToolRegistry {
   get(name: string): ToolDefinition | undefined { return this.definitions.get(canonicalToolName(name)); }
   has(name: string): boolean { return this.definitions.has(canonicalToolName(name)); }
   list(): ToolDefinition[] { return [...this.definitions.values()]; }
+
+  /**
+   * A wrong tool name is usually a near miss (`edit`, `read_file`, `Write`).
+   * Naming the closest real tool lets the model recover in one turn instead of
+   * guessing again, which is cheaper than a full retry.
+   */
+  private suggest(name: string): string {
+    const wanted = String(name || '').toLowerCase();
+    const names = this.list().map((tool) => tool.name);
+    const distance = (a: string, b: string): number => {
+      const rows = a.length + 1;
+      const cols = b.length + 1;
+      let previous = Array.from({ length: cols }, (_, i) => i);
+      for (let i = 1; i < rows; i += 1) {
+        const current = [i];
+        for (let j = 1; j < cols; j += 1) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+        }
+        previous = current;
+      }
+      return previous[cols - 1];
+    };
+    const ranked = names
+      .map((candidate) => ({ candidate, score: distance(wanted, candidate.toLowerCase()) }))
+      .sort((a, b) => a.score - b.score);
+    const close = ranked.filter((entry) => entry.score <= Math.max(2, Math.floor(wanted.length / 3))).slice(0, 3);
+    if (close.length) return `Did you mean: ${close.map((entry) => entry.candidate).join(', ')}?`;
+    return `Valid tools: ${names.slice(0, 8).join(', ')}${names.length > 8 ? ', …' : ''}`;
+  }
   /** Validate in place; returns the human-readable list of clamped arguments. */
   validate(name: string, args: Record<string, unknown>): string[] {
-    const tool = this.get(name); if (!tool) throw new Error(`Unknown tool: ${name}`);
+    const tool = this.get(name);
+    if (!tool) throw new Error(`Unknown tool: ${name}. ${this.suggest(name)}`);
     if (args === null || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be an object.');
     for (const required of tool.required || []) if (!own(args, required) || args[required] === undefined || args[required] === null) throw new Error(`Missing required argument: ${required}`);
-    for (const key of Object.keys(args)) if (!own(tool.parameters, key)) throw new Error(`Unknown argument: ${key}`);
+    for (const key of Object.keys(args)) if (!own(tool.parameters, key)) throw new Error(`Unknown argument: ${key}. Valid: ${Object.keys(tool.parameters).join(', ') || '(none)'}`);
     const state = { nodes: 0, repairs: [] as string[] };
     for (const [key, schema] of Object.entries(tool.parameters)) {
       if (own(args, key)) args[key] = validateValue(args[key], schema, key, 0, state);

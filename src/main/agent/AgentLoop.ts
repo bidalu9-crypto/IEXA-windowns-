@@ -613,6 +613,7 @@ export class AgentLoop {
       skillsDir: this.config.skillsDir || null,
       soul: this.config.soul || null,
       sessionTools: this.config.toolRuntime?.registry?.has?.('shell_session') === true,
+      tools,
     });
     // Prefix stability (prompt caching): indexes that drift between turns
     // (root-session anchors) must not sit in the system prompt — a changed
