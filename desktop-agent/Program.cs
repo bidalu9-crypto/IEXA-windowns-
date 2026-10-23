@@ -750,12 +750,43 @@ internal static class Program
             throw new InvalidOperationException($"Working directory not found: {workingDirectory}");
         var before = SnapshotWindowHandles();
         var foregroundBefore = GetForegroundWindow();
+        var title = req["window"]?.GetValue<string>() ?? "";
+        var process = req["process"]?.GetValue<string>() ?? expectedProcess;
+        var pid = req["pid"]?.GetValue<int>() ?? 0;
+        var timeout = Math.Clamp(req["waitForWindowMs"]?.GetValue<int>() ?? 15000, 500, 60000);
+        var forceNew = req["forceNew"]?.GetValue<bool>() ?? false;
+
+        // Single-instance apps (Weixin, Spotify, …) hand a second launch to the
+        // copy that is already running and never open a new top-level window, so
+        // waiting for one always burned the full timeout. Bind to the live one.
+        if (!forceNew && !IsolatedDesktopHost.Requested && pid <= 0 && !string.IsNullOrWhiteSpace(process))
+        {
+            var reusable = FindReusableWindow(title, process);
+            if (reusable != IntPtr.Zero && IsWindow(reusable))
+            {
+                ForceForeground(reusable);
+                await Task.Delay(120);
+                var reusedHandle = FollowLaunchWindowTransition(reusable, GetWindowText(reusable), 0);
+                BindToWindow(reusedHandle);
+                return new
+                {
+                    launched = false, reused = true, requestedApp = app, executable = fileName,
+                    reason = "already-running", window = WindowInfo(reusedHandle), session = SessionState(),
+                };
+            }
+        }
+
         var info = new ProcessStartInfo
         {
             FileName = fileName,
             Arguments = launchArguments,
             UseShellExecute = !IsolatedDesktopHost.Requested,
-            WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory,
+            // An app launched by full path usually expects to start in its own
+            // folder; without this the first launch found the exe but died on
+            // relative resources.
+            WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory)
+                ? (Path.IsPathRooted(fileName) ? (Path.GetDirectoryName(fileName) ?? Environment.CurrentDirectory) : Environment.CurrentDirectory)
+                : workingDirectory,
         };
         if (IsolatedDesktopHost.Requested)
         {
@@ -767,10 +798,6 @@ internal static class Program
         catch (Exception ex) { throw new InvalidOperationException($"Application launch failed for '{app}': {ex.Message}", ex); }
         if (started is null) throw new InvalidOperationException($"Application launch returned no process for '{app}'.");
 
-        var title = req["window"]?.GetValue<string>() ?? "";
-        var process = req["process"]?.GetValue<string>() ?? expectedProcess;
-        var pid = req["pid"]?.GetValue<int>() ?? 0;
-        var timeout = Math.Clamp(req["waitForWindowMs"]?.GetValue<int>() ?? 15000, 500, 60000);
         var clock = Stopwatch.StartNew();
         IntPtr h = IntPtr.Zero;
         do
@@ -779,6 +806,7 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(process) || pid > 0)
             {
                 h = FindWindow(title, process, pid);
+                if (h != IntPtr.Zero && !IsUsableAppWindow(h)) h = IntPtr.Zero;
                 if (h != IntPtr.Zero && before.Contains(h.ToInt64()) && string.IsNullOrWhiteSpace(title) && pid <= 0)
                     h = IntPtr.Zero;
             }
@@ -786,17 +814,35 @@ internal static class Program
             if (h == IntPtr.Zero)
             {
                 var foreground = GetForegroundWindow();
-                if (foreground != IntPtr.Zero && foreground != foregroundBefore && IsWindowVisible(foreground)
+                if (foreground != IntPtr.Zero && foreground != foregroundBefore && IsUsableAppWindow(foreground)
                     && (WindowMatchesRequest(foreground, title, process, pid) || !before.Contains(foreground.ToInt64())))
                     h = foreground;
             }
-            if (h == IntPtr.Zero && !IsolatedDesktopHost.Requested) h = FindNewWindow(before);
+            if (h == IntPtr.Zero && !IsolatedDesktopHost.Requested) h = FindNewWindow(before, process);
             if (h != IntPtr.Zero && IsolatedDesktopHost.Requested) { GetWindowThreadProcessId(h, out var candidatePid); if (candidatePid != started.Id) h = IntPtr.Zero; }
             if (h != IntPtr.Zero && IsWindow(h)) break;
             await Task.Delay(80);
         } while (clock.ElapsedMilliseconds < timeout);
         if (h == IntPtr.Zero || !IsWindow(h))
+        {
+            // Single-instance apps forward the launch to the copy that is already
+            // running and reveal its window instead of creating a new one; bind
+            // to that rather than reporting a timeout for a working app.
+            var revealed = FindReusableWindow(title, process);
+            if (revealed != IntPtr.Zero && IsWindow(revealed))
+            {
+                ForceForeground(revealed);
+                await Task.Delay(120);
+                var revealedHandle = FollowLaunchWindowTransition(revealed, GetWindowText(revealed), 0);
+                BindToWindow(revealedHandle);
+                return new
+                {
+                    launched = false, reused = true, requestedApp = app, executable = fileName,
+                    reason = "revealed-existing", window = WindowInfo(revealedHandle), session = SessionState(),
+                };
+            }
             throw new InvalidOperationException($"Application started (pid {started.Id}) but no controllable top-level window appeared within {timeout} ms. Call list_windows to inspect running windows.");
+        }
         var logicalTitle = GetWindowText(h);
         GetWindowThreadProcessId(h, out var logicalPid);
         if (!IsolatedDesktopHost.Requested) { ForceForeground(h); await Task.Delay(120); h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid); }
@@ -849,6 +895,13 @@ internal static class Program
 
     static (string FileName, string Arguments, string ExpectedProcess) ResolveLaunchSpec(string app, string arguments)
     {
+        // A path the caller can actually see wins over the friendly-name table.
+        // Passing D:\Apps\Weixin\Weixin.exe must run that copy; routing it back
+        // through "weixin" made the table guess a Program Files install that did
+        // not exist and fall back to a bare name that could never start.
+        var direct = app.Trim().Trim('"');
+        if (Path.IsPathRooted(direct) && File.Exists(direct))
+            return (direct, arguments, Path.GetFileNameWithoutExtension(direct));
         var key = Path.GetFileNameWithoutExtension(app).Trim().ToLowerInvariant();
         return key switch
         {
@@ -877,15 +930,30 @@ internal static class Program
         return result;
     }
 
-    static IntPtr FindNewWindow(HashSet<long> before)
+    static IntPtr FindNewWindow(HashSet<long> before, string process = "")
     {
-        IntPtr result = IntPtr.Zero; long bestArea = -1;
+        IntPtr result = IntPtr.Zero; long bestScore = -1;
         EnumWindows((h, _) =>
         {
-            if (before.Contains(h.ToInt64()) || !IsWindowVisible(h) || string.IsNullOrWhiteSpace(GetWindowText(h))) return true;
-            long area = 0;
-            if (GetWindowRect(h, out var r)) area = Math.Max(0, r.Right - r.Left) * (long)Math.Max(0, r.Bottom - r.Top);
-            if (area > bestArea) { bestArea = area; result = h; }
+            if (before.Contains(h.ToInt64()) || !IsWindowVisible(h)) return true;
+            var title = GetWindowText(h);
+            // "Default IME", tray icons and friends appear as new visible windows
+            // while the app is still starting; picking one binds every later
+            // action to a window with no UI.
+            if (string.IsNullOrWhiteSpace(title) || LooksLikeHelperWindow(title)) return true;
+            if (((long)GetWindowLongPtr(h, -20) & 0x80L) != 0) return true;
+            if (!GetWindowRect(h, out var r)) return true;
+            long area = Math.Max(0, r.Right - r.Left) * (long)Math.Max(0, r.Bottom - r.Top);
+            if (area < 40_000) return true;
+            var processMatch = true;
+            if (!string.IsNullOrWhiteSpace(process))
+            {
+                GetWindowThreadProcessId(h, out var pid);
+                try { processMatch = Process.GetProcessById((int)pid).ProcessName.Contains(process, StringComparison.OrdinalIgnoreCase); }
+                catch { processMatch = false; }
+            }
+            var score = (processMatch ? 1_000_000_000L : 0) + Math.Min(area, 99_999_999L);
+            if (score > bestScore) { bestScore = score; result = h; }
             return true;
         }, IntPtr.Zero);
         return result;
@@ -1185,9 +1253,73 @@ internal static class Program
         return list;
     }
 
-    static IntPtr FindWindow(string query, string process = "", int requestedPid = 0)
+    /// <summary>
+    /// True when the handle is a real application surface: visible, titled, not a
+    /// tool/IME window, and large enough to contain UI.
+    /// </summary>
+    static bool IsUsableAppWindow(IntPtr h)
     {
-        IntPtr found = IntPtr.Zero; long bestScore = long.MinValue;
+        if (h == IntPtr.Zero || !IsWindow(h) || !IsWindowVisible(h)) return false;
+        var title = GetWindowText(h);
+        if (string.IsNullOrWhiteSpace(title) || LooksLikeHelperWindow(title)) return false;
+        if (((long)GetWindowLongPtr(h, -20) & 0x80L) != 0) return false;
+        if (!GetWindowRect(h, out var rect)) return false;
+        return Math.Max(0, rect.Right - rect.Left) * (long)Math.Max(0, rect.Bottom - rect.Top) >= 40_000;
+    }
+
+    /// <summary>
+    /// Tray/IME/message-only helpers are visible, carry a title and can even be
+    /// larger than the app (Weixin's tray window is screen-sized), so size is not
+    /// a discriminator. They have no controls; the real window does.
+    /// </summary>
+    static bool LooksLikeHelperWindow(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        string[] markers = { "TrayIcon", "CandidateWindow", "Mode Indicator", "NotifyIcon", "MessageWindow", "MSCTFIME", "Default IME", "GDI+" };
+        foreach (var marker in markers)
+            if (title.Contains(marker, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// A window worth reusing: visible, not a tool window, big enough to be an
+    /// application surface, and actually exposing controls.
+    /// </summary>
+    static IntPtr FindReusableWindow(string query, string process)
+    {
+        var candidates = new List<(IntPtr Handle, long Area)>();
+        EnumWindows((h, _) =>
+        {
+            if (!IsWindowVisible(h)) return true;
+            var title = GetWindowText(h);
+            if (!string.IsNullOrWhiteSpace(query) && !title.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+            if (LooksLikeHelperWindow(title)) return true;
+            GetWindowThreadProcessId(h, out var pid);
+            string processName = "";
+            try { processName = Process.GetProcessById((int)pid).ProcessName; } catch { return true; }
+            if (string.IsNullOrWhiteSpace(processName) || !processName.Contains(process, StringComparison.OrdinalIgnoreCase)) return true;
+            if (((long)GetWindowLongPtr(h, -20) & 0x80L) != 0) return true; // WS_EX_TOOLWINDOW
+            if (!GetWindowRect(h, out var rect)) return true;
+            long area = Math.Max(0, rect.Right - rect.Left) * (long)Math.Max(0, rect.Bottom - rect.Top);
+            if (area < 40_000) return true;
+            candidates.Add((h, area));
+            return true;
+        }, IntPtr.Zero);
+
+        foreach (var candidate in candidates.OrderByDescending(c => c.Area).Take(3))
+        {
+            try
+            {
+                if (Automation.Observe(candidate.Handle, 8, 0, ThrowIfCancelled).Elements.Length >= 3)
+                    return candidate.Handle;
+            }
+            catch { }
+        }
+        return candidates.OrderByDescending(c => c.Area).Select(c => c.Handle).FirstOrDefault();
+    }
+
+    static IntPtr FindWindow(string query, string process = "", int requestedPid = 0)
+    {        IntPtr found = IntPtr.Zero; long bestScore = long.MinValue;
         EnumWindows((h, _) => {
             var title = GetWindowText(h);
             var titleMatch = string.IsNullOrEmpty(query) || title.Contains(query, StringComparison.OrdinalIgnoreCase);
@@ -1411,6 +1543,7 @@ internal static class Program
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc cb, IntPtr lp);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")] static extern IntPtr GetWindowLongPtr(IntPtr h, int index);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();

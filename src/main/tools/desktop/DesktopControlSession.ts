@@ -193,7 +193,7 @@ export class DesktopControlSession {
             if (step.autoActivate === true) throw new Error('Use explicit activate; autoActivate is disabled in managed control.');
             if (background && snapshot.captureTrust === 'background-unverified' && !snapshot.elements.some(element => element.selector)) throw new Error('Background observation has no trusted UI Automation control; OCR/frame evidence cannot drive input.');
             if (background && !['click_element', 'type_element', 'click', 'type'].includes(name)) throw new Error('Background mode supports semantic UIA click/type only.');
-            if (step.observationToken && step.observationToken !== owner.snapshot!.observationToken) throw new Error('Observation token is stale for this owner.');
+            if (step.observationToken && step.observationToken !== owner.snapshot!.observationToken) throw new Error('Observation token is stale for this owner. Any observe or completed action replaces it: pass the token from that action\'s postObservation, or call observe again. Do not retry the previous token.');
             if (Date.now() - owner.snapshot!.capturedAt > 60_000) throw new Error('Observation expired. Observe again.');
             emit('resolve');
             if (step.target) {

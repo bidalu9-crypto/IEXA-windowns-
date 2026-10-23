@@ -41,7 +41,8 @@ export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfa
         executable: { type: 'string', description: 'Explicit executable path or command for launch; app is preferred for common applications.' },
         arguments: { type: 'string', description: 'Optional command-line arguments passed directly to the launched application.' },
         workingDirectory: { type: 'string', description: 'Optional working directory for launch.' },
-        waitForWindowMs: { type: 'integer', description: 'How long launch waits for a controllable top-level window. Default 15000.' },
+        waitForWindowMs: { type: 'integer', description: 'How long launch waits for a controllable top-level window. Default 15000; the client timeout follows it.' },
+        forceNew: { type: 'boolean', description: 'Start a second instance even when the app is already running. Ignored for single-instance apps, which never open a second window.' },
         window: { type: 'string', description: 'Partial title of the target window.' },
         process: { type: 'string', description: 'Process-name filter for window activation, useful when title text is unavailable.' },
         pid: { type: 'integer', description: 'Exact process ID for disambiguating multiple instances.' },
@@ -90,7 +91,7 @@ export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfa
         verifyText: { type: 'string', description: 'After any input action or batch, require this text in a fresh UIA/OCR observation. A mismatch reports failure without retrying input.' },
       },
       required: ['tool_title', 'action'],
-      propertyOrdering: ['tool_title', 'action', 'backend', 'focusPolicy', 'focusWaitMs', 'cdpEndpoint', 'cdpTargetId', 'app', 'executable', 'arguments', 'workingDirectory', 'waitForWindowMs', 'window', 'process', 'pid', 'handle', 'observationToken', 'target', 'elementId', 'role', 'relativeX', 'relativeY', 'toRelativeX', 'toRelativeY', 'x', 'y', 'toX', 'toY', 'autoActivate', 'background', 'allowGeometryChange', 'settleMs', 'durationMs', 'button', 'count', 'text', 'replace', 'forcePointer', 'intervalMs', 'key', 'keys', 'allowClose', 'delta', 'timeoutMs', 'threshold', 'includeElements', 'includeOcr', 'includeRegions', 'captureFrame', 'includeHidden', 'limit', 'actions', 'verifyText'],
+      propertyOrdering: ['tool_title', 'action', 'backend', 'focusPolicy', 'focusWaitMs', 'cdpEndpoint', 'cdpTargetId', 'app', 'executable', 'arguments', 'workingDirectory', 'waitForWindowMs', 'forceNew', 'window', 'process', 'pid', 'handle', 'observationToken', 'target', 'elementId', 'role', 'relativeX', 'relativeY', 'toRelativeX', 'toRelativeY', 'x', 'y', 'toX', 'toY', 'autoActivate', 'background', 'allowGeometryChange', 'settleMs', 'durationMs', 'button', 'count', 'text', 'replace', 'forcePointer', 'intervalMs', 'key', 'keys', 'allowClose', 'delta', 'timeoutMs', 'threshold', 'includeElements', 'includeOcr', 'includeRegions', 'captureFrame', 'includeHidden', 'limit', 'actions', 'verifyText'],
     },
     {
       name: 'todo_write',

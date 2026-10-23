@@ -197,7 +197,15 @@ export class DesktopAgent {
     }
     const action = String(args.action || 'observe');
     const requestedTimeout = Number(args.timeoutMs || 0);
-    const actionTimeout = action === 'observe' ? Math.max(8000, requestedTimeout || 15000) : Math.max(5000, requestedTimeout || 10000);
+    const requestedWait = Number(args.waitForWindowMs || 0);
+    // A launch may legitimately wait `waitForWindowMs` for a window (15s by
+    // default, 60s at most). Timing the request out on the generic 10s budget
+    // reported "timed out" for apps that had in fact started.
+    const actionTimeout = action === 'observe'
+      ? Math.max(8000, requestedTimeout || 15000)
+      : action === 'launch'
+        ? Math.max(20000, requestedTimeout || 0, (requestedWait || 15000) + 10000)
+        : Math.max(5000, requestedTimeout || 10000);
     const timeout = setTimeout(abortParent, actionTimeout);
     try {
       const adapter = desktopAdapterRegistry.resolve({ app: String(args.app || ''), process: String(args.process || ''), windowTitle: String(args.window || ''), handle: Number(args.handle || 0) || undefined, pid: Number(args.pid || 0) || undefined });
