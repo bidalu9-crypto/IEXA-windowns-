@@ -167,8 +167,8 @@ internal static class Program
                     "click" => Click(req),
                     "drag" => Drag(req),
                     "click_element" => ClickElement(req),
-                    "type_element" => TypeElement(req),
-                    "find_element" => FindElement(req),
+                    "type_element" => TypeElement(req).GetAwaiter().GetResult(),
+                    "find_element" => FindElement(req).GetAwaiter().GetResult(),
                     "read_focused" => ReadFocused(),
                     "wait_change" => await WaitChange(req),
                     "move" => Move(req),
@@ -444,9 +444,23 @@ internal static class Program
     static async Task<IEnumerable<SemanticElement>> OcrElements(Bitmap bitmap, Rectangle origin)
     {
         var result = new List<SemanticElement>();
+        // Windows OCR loses small CJK glyphs on a 1x render: WeChat's 12px labels
+        // came back as "匕门" and "TgÄ?ä". Upscaling the capture first recovers
+        // most of them, and the returned boxes are divided back by the same factor.
+        var scale = bitmap.Width < 1600 && bitmap.Height < 1600 ? 2.0 : 1.0;
+        Bitmap? upscaled = null;
         try
         {
-            using var ms = new MemoryStream(); bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            if (scale > 1)
+            {
+                upscaled = new Bitmap((int)(bitmap.Width * scale), (int)(bitmap.Height * scale));
+                using var g = Graphics.FromImage(upscaled);
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.DrawImage(bitmap, 0, 0, upscaled.Width, upscaled.Height);
+            }
+            var source = upscaled ?? bitmap;
+            using var ms = new MemoryStream(); source.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
             using var random = new InMemoryRandomAccessStream();
             var writer = new DataWriter(random); writer.WriteBytes(ms.ToArray()); await writer.StoreAsync(); await writer.FlushAsync(); writer.DetachStream(); writer.Dispose();
             random.Seek(0);
@@ -465,7 +479,8 @@ internal static class Program
                 if (words.Length == 0) continue;
                 var text = string.Concat(words.Select(w => w.Text)).Trim();
                 var minX = words.Min(w => w.BoundingRect.X); var minY = words.Min(w => w.BoundingRect.Y); var maxX = words.Max(w => w.BoundingRect.X + w.BoundingRect.Width); var maxY = words.Max(w => w.BoundingRect.Y + w.BoundingRect.Height);
-                var left = origin.Left + (int)minX; var top = origin.Top + (int)minY; var width = (int)Math.Ceiling(maxX - minX); var height = (int)Math.Ceiling(maxY - minY);
+                var left = origin.Left + (int)(minX / scale); var top = origin.Top + (int)(minY / scale);
+                var width = (int)Math.Ceiling((maxX - minX) / scale); var height = (int)Math.Ceiling((maxY - minY) / scale);
                 var role = GuessRole(text, left, top, width, height, origin);
                 // Windows OCR exposes recognized text and geometry here, but no calibrated confidence score.
                 result.Add(new SemanticElement(MakeId("ocr", role, text, left, top, width, height), role, text, left, top, width, height, "ocr", null));
@@ -473,6 +488,7 @@ internal static class Program
             LastOcrCount = result.Count; LastOcrStatus = "ok";
         }
         catch (Exception ex) { LastOcrStatus = ex.GetType().Name + ": " + ex.Message; LastOcrCount = 0; }
+        finally { upscaled?.Dispose(); }
         return result;
     }
 
@@ -546,11 +562,26 @@ internal static class Program
         return Automation.ReadFocused(BoundWindow);
     }
 
-    static object FindElement(JsonObject req)
+    static async Task<object> FindElement(JsonObject req)
     {
         var id = req["elementId"]?.GetValue<string>(); var text = req["text"]?.GetValue<string>() ?? ""; var role = req["role"]?.GetValue<string>() ?? "";
-        var matches = ElementCache.Values.Where(e => (string.IsNullOrEmpty(id) || e.Id == id) && (string.IsNullOrEmpty(text) || e.Text.Contains(text, StringComparison.OrdinalIgnoreCase)) && (string.IsNullOrEmpty(role) || e.Role.Contains(role, StringComparison.OrdinalIgnoreCase))).OrderByDescending(e => e.Confidence).Take(20).ToArray();
-        return new { count = matches.Length, elements = matches.Select(PublicElement).ToArray() };
+        bool Matches(SemanticElement e) =>
+            (string.IsNullOrEmpty(id) || e.Id == id) &&
+            (string.IsNullOrEmpty(text) || e.Text.Contains(text, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(role) || e.Role.Contains(role, StringComparison.OrdinalIgnoreCase));
+
+        var matches = ElementCache.Values.Where(Matches).OrderByDescending(e => e.Confidence).Take(20).ToList();
+        // No observation yet (or it predates the control): look now, so finding an
+        // element does not require a separate observe round trip first.
+        if (matches.Count == 0 && BoundWindow != IntPtr.Zero && IsWindow(BoundWindow) && (!string.IsNullOrEmpty(text) || !string.IsNullOrEmpty(role)))
+        {
+            var observation = Automation.Observe(BoundWindow, 400, ObservationEpoch, ThrowIfCancelled);
+            matches.AddRange(observation.Elements.Select(e => new SemanticElement(
+                e.Id, e.Role, e.Text, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width, e.Bounds.Height, "uia3", 1.0, e.Enabled, e.Selector)).Where(Matches));
+            using var frame = CaptureForeground(BoundWindow, out var bounds);
+            matches.AddRange((await OcrElements(frame, bounds)).Where(Matches));
+        }
+        return new { count = matches.Count, elements = matches.Take(20).Select(PublicElement).ToArray() };
     }
 
     static void ValidateBackgroundRequest(JsonObject req, string action)
@@ -570,10 +601,60 @@ internal static class Program
             throw new InvalidOperationException("Background mode only allows bound observation and semantic Invoke/Value, never physical input or activation.");
     }
 
+    /// <summary>
+    /// Picks the control that actually carries the label: an exact match beats a
+    /// container that merely contains the words, and among equals the smallest
+    /// box wins.
+    /// </summary>
+    static SemanticElement? PickBestMatch(IEnumerable<SemanticElement> elements, string text, string role)
+    {
+        var candidates = elements.Where(e =>
+            (string.IsNullOrWhiteSpace(role) || e.Role.Contains(role, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrWhiteSpace(text) || e.Text.Contains(text, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (candidates.Count == 0) return null;
+        return candidates
+            .OrderBy(e => string.Equals(e.Text.Trim(), text.Trim(), StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(e => (long)e.Width * e.Height)
+            .First();
+    }
+
+    /// <summary>
+    /// Resolves a click/type target from an explicit element id, or by locating it
+    /// now. Text targeting exists because self-drawn UI (Qt, canvas, games)
+    /// exposes almost nothing through UI Automation; "click 搜索" is both safer and
+    /// cheaper than estimating coordinates from a screenshot.
+    /// </summary>
+    static async Task<SemanticElement> ResolveTargetAsync(JsonObject req, bool allowTextAsLabel)
+    {
+        var id = req["elementId"]?.GetValue<string>() ?? "";
+        if (!string.IsNullOrWhiteSpace(id)) return ResolveElement(req);
+
+        EnsureBoundForeground(req, allowBackground: true);
+        IsolatedDesktopHost.VerifyWindow(BoundWindow);
+        // `text` means the content to type on type_element, so the label has its
+        // own key; click_element has no such conflict and may pass text.
+        var text = req["name"]?.GetValue<string>() ?? req["label"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(text) && allowTextAsLabel) text = req["text"]?.GetValue<string>() ?? "";
+        var role = req["role"]?.GetValue<string>() ?? "";
+        if (string.IsNullOrWhiteSpace(text) && string.IsNullOrWhiteSpace(role))
+            throw new InvalidOperationException("Provide elementId, or name/label (optionally role) so the target can be located now.");
+
+        var observation = Automation.Observe(BoundWindow, 400, ObservationEpoch, ThrowIfCancelled);
+        var fromUia = PickBestMatch(observation.Elements.Select(e => new SemanticElement(
+            e.Id, e.Role, e.Text, e.Bounds.Left, e.Bounds.Top, e.Bounds.Width, e.Bounds.Height, "uia3", 1.0, e.Enabled, e.Selector)), text, role);
+        if (fromUia != null) return fromUia;
+
+        using var frame = CaptureForeground(BoundWindow, out var bounds);
+        var fromOcr = PickBestMatch(await OcrElements(frame, bounds), text, role);
+        if (fromOcr != null) return fromOcr;
+
+        throw new InvalidOperationException($"No element matches '{text}'{(string.IsNullOrWhiteSpace(role) ? "" : $" with role {role}")}. Call observe with includeOcr to see the current screen, or pass elementId from that observation.");
+    }
+
     static object ClickElement(JsonObject req)
     {
         ThrowIfCancelled();
-        var element = ResolveElement(req); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
+        var element = ResolveTargetAsync(req, allowTextAsLabel: true).GetAwaiter().GetResult(); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
         AutomationActionResult? automation = null;
         var forcePointer = req["forcePointer"]?.GetValue<bool>() ?? false;
         if (background && (element.Selector == null || forcePointer))
@@ -618,10 +699,10 @@ internal static class Program
         return new { element = PublicElement(element), method, automation, effectObserved, foregroundVerified = !background && stillBound, backgroundApplied = background, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
     }
 
-    static object TypeElement(JsonObject req)
+    static async Task<object> TypeElement(JsonObject req)
     {
         ThrowIfCancelled();
-        var element = ResolveElement(req); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var text = Required(req, "text"); var replace = req["replace"]?.GetValue<bool>() ?? true; var method = "keyboard"; var before = CaptureBoundFrame();
+        var element = await ResolveTargetAsync(req, allowTextAsLabel: false); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var text = Required(req, "text"); var replace = req["replace"]?.GetValue<bool>() ?? true; var method = "keyboard"; var before = CaptureBoundFrame();
         AutomationActionResult? automation = null;
         if (element.Selector != null)
         {
