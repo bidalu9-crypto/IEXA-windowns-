@@ -40,7 +40,9 @@ internal static class IsolatedDesktopHost
     internal static void Run(string directory)
     {
         directory = Path.GetFullPath(directory);
-        var request = JsonSerializer.Deserialize<HostRequest>(File.ReadAllText(Path.Combine(directory, "request.json"))) ?? throw new InvalidOperationException("Missing host request");
+        var requestFile = new FileInfo(Path.Combine(directory, "request.json"));
+        if (!requestFile.Exists || requestFile.Length == 0 || requestFile.Length > 4096) throw new InvalidOperationException("Invalid isolated host request");
+        var request = JsonSerializer.Deserialize<HostRequest>(File.ReadAllText(requestFile.FullName)) ?? throw new InvalidOperationException("Missing host request");
         if (request.Port < 1024 || request.Port > 65535 || request.ParentPid < 1) throw new InvalidOperationException("Invalid isolated host request");
         IntPtr desktop = IntPtr.Zero, job = IntPtr.Zero, parent = IntPtr.Zero;
         PROCESS_INFORMATION child = default;
