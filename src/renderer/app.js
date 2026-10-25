@@ -1808,7 +1808,29 @@ async function runChatTurn(message, displayText, attachments, opts) {
     // Create this response placeholder in its owning session, never whichever
     // conversation happens to be visible at that instant.
     withSessionRuntime(sessionId, () => {
-      currentAssistantMsg = addMessage('assistant', '', undefined, { streaming: true, turnStartedAt });
+      // A continuation revives the parked bubble. The server replays the prose it
+      // already streamed, so opening a fresh bubble would duplicate that prose and
+      // strand the paused one — every 继续 left an empty card behind.
+      const parked = opts.continueTurn === true
+        ? chatMessages.querySelector('.message.assistant[data-parked-turn="1"]')
+        : null;
+      if (parked) {
+        const priorMs = Number(parked.dataset.durationMs) || 0;
+        delete parked.dataset.parkedTurn;
+        delete parked.dataset.durationMs;
+        delete parked.dataset.turnFinishedAt;
+        delete parked.dataset.generationMs;
+        parked.dataset.turnStartedAt = String(turnStartedAt - priorMs);
+        parked.classList.add('is-streaming');
+        const running = parked.querySelector('.message-usage-duration.is-running');
+        if (running) unregisterLiveTurnDuration(running);
+        renderMessageUsage(ensureMessageUsage(parked), null, null, undefined, { pending: true });
+        window.IexaTurnSummary?.expand?.(parked);
+        currentAssistantMsg = parked;
+        currentAssistantMsg.dataset.liveSessionId = sessionId;
+      } else {
+        currentAssistantMsg = addMessage('assistant', '', undefined, { streaming: true, turnStartedAt });
+      }
       currentAssistantMsg.dataset.liveSessionId = sessionId;
       currentAssistantMsg.dataset.thinkingLevel = turnThinkingLevel;
       showWaitingIndicator();
@@ -2247,7 +2269,12 @@ function handlePaused(turnToken) {
   // Pause ends the turn: the partial reply is on disk with status 'paused', so
   // the banner offers the same continuation an interrupted turn uses.
   const toolCalls = currentAssistantMsg ? currentAssistantMsg.querySelectorAll('.tool-block').length : 0;
-  if (currentAssistantMsg) finalizeAssistantMessage(currentAssistantMsg);
+  if (currentAssistantMsg) {
+    // Marked so a continuation can revive this exact bubble instead of leaving
+    // it behind and opening an empty one.
+    currentAssistantMsg.dataset.parkedTurn = '1';
+    finalizeAssistantMessage(currentAssistantMsg);
+  }
   runtime.pausedTurn = { toolCalls };
   setProcessing(false);
   syncPausedBanner();
@@ -2354,6 +2381,9 @@ async function stopProcessing(options) {
   // Stopping a running turn parks it so the user can continue; stopping a turn
   // that is already parked ends it for good.
   const hard = options?.hard === true || runtime.isPaused === true;
+  // A parked turn has no live agent and no open stream, so nothing will ever send
+  // the terminal event that the hard path normally waits for.
+  const parked = hard && !!(runtime.pausedTurn || runtime.interruptedTurn);
   if (hard) runtime.turnStopPending = true; else runtime.pausePending = true;
   // Remove the indicator synchronously; the cancellation SSE event may arrive
   // later, and late tool results are blocked from adding it back above.
@@ -2363,6 +2393,16 @@ async function stopProcessing(options) {
     const route = hard ? '/api/cancel' : '/api/pause';
     const response = await fetch(API_BASE + route + '?sessionId=' + encodeURIComponent(sid), { method: 'POST' });
     if (!response.ok) throw new Error(hard ? '停止请求失败，请重试。' : '暂停请求失败，请重试。');
+    if (parked) {
+      // The cancel acknowledgement is the whole story here: nothing is running,
+      // so settle locally instead of waiting for an event that cannot arrive.
+      runtime.pausedTurn = null;
+      runtime.interruptedTurn = null;
+      runtime.turnStopPending = false;
+      setProcessing(false);
+      syncPausedBanner();
+      return;
+    }
     if (hard && runtime.turnStopPending) statusText.textContent = '正在停止，等待执行器清理…';
     if (!hard && runtime.pausePending) statusText.textContent = '正在暂停…';
   } catch (e) {

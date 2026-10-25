@@ -831,6 +831,12 @@ async function switchSession(id, updateList = true) {
         toolCalls: (lastAssistant.toolCalls || []).filter((tc) => tc.result).length,
         at: Number(lastAssistant.timestamp) || 0,
       } : null;
+      // Mark the restored bubble so 继续 revives it instead of appending a new one.
+      if (unfinished) {
+        const bubbles = chatMessages.querySelectorAll('.message.assistant');
+        const lastBubble = bubbles[bubbles.length - 1];
+        if (lastBubble) lastBubble.dataset.parkedTurn = '1';
+      }
       window.syncPausedBanner?.();
     }
   } catch (err) {
