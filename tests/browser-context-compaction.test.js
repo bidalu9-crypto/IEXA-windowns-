@@ -130,6 +130,39 @@ test('real browser: the compaction panel saves a custom window and trigger', { s
   assert.ok(widths.capacity < widths.menu * 0.5, `capacity field ${widths.capacity}px stays under half of ${widths.menu}px`);
   assert.ok(widths.threshold > 0 && widths.threshold < widths.capacity, `threshold field ${widths.threshold}px is narrower than ${widths.capacity}px`);
 
+  // The native number spinner is the beveled up/down pair that reads as a Windows
+  // XP control. It must stay off, and the replacement must actually step.
+  const stepper = await evaluate(`(() => {
+    const input = document.getElementById('contextCompactionCustomInput');
+    const field = input.closest('.cc-stepper');
+    const buttons = field ? field.querySelectorAll('.cc-step') : [];
+    input.value = '200000';
+    const up = field.querySelector('.cc-step[data-dir="1"]');
+    const down = field.querySelector('.cc-step[data-dir="-1"]');
+    up.click();
+    const afterUp = input.value;
+    down.click();
+    down.click();
+    const afterDown = input.value;
+    // Clamping: at the maximum, one more press must not exceed it.
+    input.value = input.max;
+    up.click();
+    const atMax = input.value;
+    input.value = '200000';
+    return {
+      appearance: getComputedStyle(input).appearance,
+      buttons: buttons.length,
+      afterUp, afterDown, atMax, max: input.max,
+      iconStroke: getComputedStyle(field.querySelector('.cc-step-icon')).strokeWidth,
+    };
+  })()`);
+  assert.equal(stepper.appearance, 'textfield', 'the native spinner must be suppressed');
+  assert.equal(stepper.buttons, 2, 'one up and one down button per field');
+  assert.equal(stepper.afterUp, '201000', 'the up button steps by 1000');
+  assert.equal(stepper.afterDown, '199000', 'and the down button steps back');
+  assert.equal(stepper.atMax, stepper.max, 'stepping never exceeds the declared maximum');
+  assert.equal(stepper.iconStroke, '1.6px', 'the chevrons are hairline strokes, not beveled arrows');
+
   await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').click(); true");
   await wait("document.getElementById('contextCompactionCustom').hidden === true");
   assert.equal(await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').getAttribute('aria-expanded')"), 'false');

@@ -627,6 +627,30 @@ function initContextCompactionControl() {
     });
   });
 
+  menu.querySelectorAll('.cc-step').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const input = document.getElementById(el.dataset.step || '');
+      if (!input) return;
+      const delta = Number(el.dataset.delta) || 1;
+      const direction = Number(el.dataset.dir) || 1;
+      const min = Number(input.min);
+      const max = Number(input.max);
+      const typed = Number(input.value);
+      // An empty field steps from the placeholder, so the first click lands on a
+      // sensible number instead of jumping to the minimum.
+      const base = input.value !== '' && Number.isFinite(typed)
+        ? typed
+        : (Number(input.placeholder) || (Number.isFinite(min) ? min : 0));
+      const next = Math.min(Number.isFinite(max) ? max : Number.MAX_SAFE_INTEGER,
+        Math.max(Number.isFinite(min) ? min : 0, base + delta * direction));
+      input.value = String(next);
+      input.removeAttribute('aria-invalid');
+      input.focus({ preventScroll: true });
+    });
+  });
+
   const thresholdInput = document.getElementById('contextCompactionThresholdInput');
   const thresholdConfirm = document.getElementById('contextCompactionThresholdConfirm');
   const commitThreshold = () => {

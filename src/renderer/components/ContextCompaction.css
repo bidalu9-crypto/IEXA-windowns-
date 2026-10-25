@@ -96,33 +96,84 @@
 
 /* A number field does not need to fill the row: a fixed width keeps the unit and
    the action button next to the value they belong to instead of pinning them to
-   the far edge. */
-.cc-inline input {
+   the far edge. The field and its stepper share one border so they read as a
+   single control. */
+.cc-stepper {
   flex: 0 0 auto;
-  width: 112px;
+  display: flex;
+  align-items: stretch;
   height: 28px;
-  padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--bg-input);
+  overflow: hidden;
+  transition: border-color 0.12s ease;
+}
+
+.cc-stepper:hover { border-color: var(--border-strong); }
+.cc-stepper:focus-within { border-color: var(--accent); }
+.cc-stepper:has(input[aria-invalid="true"]) {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 6%, var(--bg-input));
+}
+
+.cc-inline .cc-stepper input {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 100%;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: calc(12px * var(--ui-font-scale, 1));
   font-variant-numeric: tabular-nums;
   text-align: left;
+  /* Native spinners are the beveled arrows that read as a Windows XP control. */
+  appearance: textfield;
+  -moz-appearance: textfield;
 }
 
-.cc-inline input::placeholder { color: var(--text-muted); }
-
-.cc-inline input:focus-visible {
-  outline: 2px solid var(--accent-hover);
-  outline-offset: -1px;
-  border-color: transparent;
+.cc-inline .cc-stepper input::-webkit-outer-spin-button,
+.cc-inline .cc-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.cc-inline input[aria-invalid="true"] {
-  border-color: var(--error);
-  background: color-mix(in srgb, var(--error) 6%, var(--bg-input));
+.cc-inline .cc-stepper input:focus-visible { outline: none; }
+
+.cc-stepper-buttons {
+  flex: 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+.cc-step {
+  flex: 1 1 50%;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.cc-step + .cc-step { border-top: 1px solid var(--border); }
+.cc-step:hover { background: var(--shell-hover); color: var(--text-primary); }
+.cc-step:active { background: var(--accent-light); color: var(--accent); }
+
+.cc-step-icon {
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .cc-unit {
@@ -162,7 +213,7 @@
 .cc-hint[data-tone="error"] { color: var(--error); }
 
 /* The trigger point is a percentage, so it needs less room than a token count. */
-.cc-section:last-child .cc-inline input { width: 68px; }
+.cc-section:last-child .cc-inline .cc-stepper input { width: 52px; }
 
 /* A short separator between the two sections reads better than a full rule. */
 .cc-section + .cc-section {

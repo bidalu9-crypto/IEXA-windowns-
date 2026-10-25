@@ -343,7 +343,17 @@
                       <button type="button" class="cc-chip cc-chip-custom" id="contextCompactionCustomToggle" data-limit="custom" role="option" aria-selected="false"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg><span>自定义</span></button>
                     </div>
                     <div class="cc-inline" id="contextCompactionCustom" hidden>
-                      <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-label="自定义上下文容量" aria-describedby="contextCompactionCustomHint">
+                      <div class="cc-stepper">
+                        <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-label="自定义上下文容量" aria-describedby="contextCompactionCustomHint">
+                        <div class="cc-stepper-buttons" aria-hidden="true">
+                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="1" aria-label="增加">
+                            <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 7.5 6 4l3.5 3.5"/></svg>
+                          </button>
+                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="-1" aria-label="减少">
+                            <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                          </button>
+                        </div>
+                      </div>
                       <span class="cc-unit">token</span>
                       <button type="button" class="cc-apply" id="contextCompactionCustomConfirm">应用</button>
                     </div>
@@ -363,7 +373,17 @@
                         <button type="button" class="cc-chip" data-threshold="100">100%</button>
                       </div>
                       <div class="cc-inline">
-                        <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" aria-describedby="contextCompactionThresholdHint">
+                        <div class="cc-stepper">
+                          <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" aria-describedby="contextCompactionThresholdHint">
+                          <div class="cc-stepper-buttons" aria-hidden="true">
+                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="1" aria-label="增加">
+                              <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 7.5 6 4l3.5 3.5"/></svg>
+                            </button>
+                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="-1" aria-label="减少">
+                              <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                            </button>
+                          </div>
+                        </div>
                         <span class="cc-unit">%</span>
                         <button type="button" class="cc-apply" id="contextCompactionThresholdConfirm">应用</button>
                       </div>
