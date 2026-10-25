@@ -435,6 +435,10 @@
               <input type="file" id="attachInput" multiple hidden
                 accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
               <textarea id="chatInput" placeholder="描述任务，使用 / 查看命令" rows="1" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+              <span class="composer-hint is-hidden" id="composerHint" aria-hidden="true">
+                <span class="composer-hint-line"></span>
+                <span class="composer-hint-line"></span>
+              </span>
               <div class="input-actions">
                 <button type="button" id="screenshotBtn" class="screenshot-btn" title="截图标注 (Ctrl+Shift+S)" aria-label="截图标注">
                   <svg class="screenshot-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="#ui-camera"/></svg>
@@ -1497,6 +1501,7 @@ version: 1.0.0
 <script src="services/UiHelpers.js"></script>
 <script src="services/ModelProfiles.js"></script>
 <script src="services/BalanceView.js"></script>
+<script src="services/ComposerHint.js"></script>
 <script src="services/TerminalPanel.js"></script>
 <script src="services/McpPanel.js"></script>
 <script src="services/PluginPanel.js"></script>

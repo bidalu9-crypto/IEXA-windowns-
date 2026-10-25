@@ -141,6 +141,8 @@ function renderBalanceChip() {
   const chip = balanceElement('balanceChip');
   const value = balanceElement('balanceValue');
   if (!wrap || !chip || !value) return;
+  // The composer hint mirrors the chip, so re-seed it whenever the chip repaints.
+  window.IexaComposerHint?.refresh?.();
   const data = balanceView.data;
   const hasValue = Boolean(data) && data.status === 'ok' && Number.isFinite(Number(data.remaining));
 

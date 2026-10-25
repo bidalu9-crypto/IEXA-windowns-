@@ -1364,6 +1364,8 @@ function enqueuePrompt(opts) {
   chatInput.value = '';
   chatInput.style.height = 'auto';
   clearAttachments();
+  // Assigning .value fires no input event, and the overlay owns the empty state.
+  window.IexaComposerHint?.refresh?.();
   updateComposerForQueue();
   if (isProcessing) statusText.textContent = followUpStatusText();
   console.log('[Queue] enqueued', id, 'mode=', mode, 'size=', promptQueue.length);
@@ -1436,6 +1438,8 @@ async function steerPrompt() {
   chatInput.value = '';
   chatInput.style.height = 'auto';
   clearAttachments();
+  // Assigning .value fires no input event, and the overlay owns the empty state.
+  window.IexaComposerHint?.refresh?.();
   scrollToBottom(false, true);
   if (sessionId === visibleSessionId) statusText.textContent = '正在插入对话…';
 
@@ -1736,6 +1740,7 @@ function cancelPendingEdit(clearComposer) {
     chatInput.value = '';
     chatInput.style.height = 'auto';
     clearAttachments();
+    window.IexaComposerHint?.refresh?.();
   }
 }
 
@@ -1862,6 +1867,8 @@ async function sendMessage(event) {
   chatInput.value = '';
   chatInput.style.height = 'auto';
   clearAttachments();
+  // Assigning .value fires no input event, and the overlay owns the empty state.
+  window.IexaComposerHint?.refresh?.();
   window.IexaChatPresentation?.animateSend(sentMessage, sendOrigin);
 
   suppressQueueDrain = false;
@@ -2882,6 +2889,7 @@ async function init() {
   initImageGallery();
   initModelProfilesModule();
   initBalanceView();
+  initComposerHint();
   initShareConversation();
   initSidebarNavigationScroll();
   initMobileDrawers();

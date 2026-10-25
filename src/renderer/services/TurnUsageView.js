@@ -193,6 +193,7 @@ function resetContextStatus() {
   const detail = '上下文用量：本会话尚无请求';
   contextProgress.title = detail;
   contextProgressTooltip.textContent = detail;
+  window.IexaComposerHint?.setContextPressure?.(null);
 }
 
 /**
@@ -243,6 +244,8 @@ function handleContextStatus(context, sessionId) {
   const detail = `${statusText}：${formatContextTokens(usedTokens)} / ${formatContextTokens(windowTokens)} tokens（${percent}% · ${source}）· 自动压缩阈值 ${thresholdPercent}%`;
   contextProgress.title = detail;
   contextProgressTooltip.textContent = detail;
+  // The composer mists as this ratio approaches 1, so the two readings agree.
+  window.IexaComposerHint?.setContextPressure?.(usedTokens, thresholdTokens, state);
 }
 
 function formatTokenCount(value) {

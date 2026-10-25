@@ -975,6 +975,97 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   color: var(--text-muted);
 }
 
+/* ---- Rotating composer hint ----------------------------------------------
+   The native placeholder cannot animate, so an overlay carries the text and the
+   native one is made transparent. Both lines are stacked; the outgoing line
+   leaves upward while the incoming one rises from below. */
+.chat-input-wrapper { position: relative; }
+
+.composer-hint {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: calc(0.98rem * var(--ui-font-scale, 1));
+  line-height: 1.45;
+  opacity: 1;
+  transition: opacity .18s ease;
+}
+
+.composer-hint.is-hidden { opacity: 0; }
+
+.composer-hint-line {
+  position: absolute;
+  inset: 6px 4px auto 4px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(62%);
+  transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease;
+}
+
+.composer-hint-line.is-current { opacity: 1; transform: translateY(0); }
+.composer-hint-line.is-leaving { opacity: 0; transform: translateY(-62%); }
+
+#chatInput.has-composer-hint::placeholder { color: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-hint-line { transition: none; }
+}
+
+html[data-motion="reduced"] .composer-hint-line { transition: none; }
+
+/* ---- Context pressure: a red mist as compaction approaches ----------------
+   `box-shadow` keeps the haze outside the border box without a stacking
+   context, so it never tints the draft text. The `:focus-within` twins are not
+   decoration: workbench.css repaints the focused border at a higher
+   specificity, and the composer is focused almost all the time. */
+.workbench-shell .chat-input-area.is-context-warn,
+.workbench-shell .chat-input-area.is-context-warn:focus-within,
+.workbench-shell .chat-input-area.is-context-critical,
+.workbench-shell .chat-input-area.is-context-critical:focus-within {
+  background-image: radial-gradient(130% 170% at 50% 118%, color-mix(in srgb, var(--error) 14%, transparent), transparent 62%);
+  animation: composer-context-mist 3.6s ease-in-out infinite;
+}
+
+.workbench-shell .chat-input-area.is-context-warn,
+.workbench-shell .chat-input-area.is-context-warn:focus-within {
+  border-color: color-mix(in srgb, var(--error) 46%, var(--border-strong));
+}
+
+.workbench-shell .chat-input-area.is-context-critical,
+.workbench-shell .chat-input-area.is-context-critical:focus-within {
+  border-color: color-mix(in srgb, var(--error) 72%, var(--border-strong));
+  background-image: radial-gradient(130% 170% at 50% 118%, color-mix(in srgb, var(--error) 26%, transparent), transparent 66%);
+  animation-duration: 2.4s;
+}
+
+@keyframes composer-context-mist {
+  0%, 100% {
+    box-shadow: 0 3px 12px #00000005,
+      0 0 24px -9px color-mix(in srgb, var(--error) 62%, transparent),
+      inset 0 0 28px -16px color-mix(in srgb, var(--error) 58%, transparent);
+  }
+  50% {
+    box-shadow: 0 3px 12px #00000005,
+      0 0 36px -3px color-mix(in srgb, var(--error) 86%, transparent),
+      inset 0 0 40px -9px color-mix(in srgb, var(--error) 78%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-shell .chat-input-area.is-context-warn,
+  .workbench-shell .chat-input-area.is-context-critical { animation: none; }
+}
+
+html[data-motion="reduced"] .workbench-shell .chat-input-area.is-context-warn,
+html[data-motion="reduced"] .workbench-shell .chat-input-area.is-context-critical { animation: none; }
+
 .input-actions {
   display: flex;
   gap: 6px;
