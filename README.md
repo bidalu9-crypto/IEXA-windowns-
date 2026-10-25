@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./resources/icon.png" width="96" alt="IEXA-WIN" />
+<img src="./docs/logo.png" width="96" alt="IEXA-WIN" />
 
 # IEXA-WIN
 
@@ -37,33 +37,42 @@
 <table>
 <tr>
 <td width="50%"><img src="./docs/screenshots/02-chat-light.png" alt="浅色对话" /></td>
-<td width="50%"><img src="./docs/screenshots/07-chat-dark.png" alt="深色对话" /></td>
+<td width="50%"><img src="./docs/screenshots/08-chat-dark.png" alt="深色对话" /></td>
 </tr>
 <tr>
-<td align="center">对话：思考过程、工具调用、任务计划、上下文压缩标记</td>
+<td align="center">对话：思考过程、连续工具、任务计划、用量与生成速率</td>
 <td align="center">同一段对话的深色主题</td>
 </tr>
 </table>
 
 <table>
 <tr>
-<td width="50%"><img src="./docs/screenshots/03-appearance.png" alt="外观与皮肤" /></td>
-<td width="50%"><img src="./docs/screenshots/04-scheduled.png" alt="定时任务" /></td>
+<td width="50%"><img src="./docs/screenshots/03-insights.png" alt="上下文洞察" /></td>
+<td width="50%"><img src="./docs/screenshots/04-appearance.png" alt="外观与皮肤" /></td>
 </tr>
 <tr>
+<td align="center">上下文洞察：Token 构成、耗时分布、用量趋势、活跃度日历</td>
 <td align="center">外观：8 套皮肤 + 自定义配色、圆角、字号</td>
-<td align="center">定时任务：按系统时间自动执行提示词</td>
 </tr>
 </table>
 
 <table>
 <tr>
-<td width="50%"><img src="./docs/screenshots/05-pet.png" alt="桌面宠物" /></td>
-<td width="50%"><img src="./docs/screenshots/06-settings.png" alt="配置" /></td>
+<td width="50%"><img src="./docs/screenshots/05-scheduled.png" alt="定时任务" /></td>
+<td width="50%"><img src="./docs/screenshots/06-pet.png" alt="桌面宠物" /></td>
 </tr>
 <tr>
+<td align="center">定时任务：按系统时间自动执行提示词</td>
 <td align="center">桌面宠物：一张图，本地抠图，拖到桌面上</td>
-<td align="center">配置：多模型、视觉代理、发送方式</td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="50%" align="center"><img src="./docs/screenshots/07-settings.png" alt="配置" /></td>
+</tr>
+<tr>
+<td align="center">配置：多模型、视觉代理、任务进行中的发送方式</td>
 </tr>
 </table>
 
@@ -81,6 +90,7 @@
 | 任务计划 | 模型自己列 TODO，完成一项划掉一项 |
 | 上下文压缩 | 压缩时在对话里留下标记，写明压缩前后大小 |
 | 暂停与继续 | 停下不丢进度，继续时从原来的步骤接着跑 |
+| 重新编辑 | 发错消息可以取回输入框改完重发，替换它之后的内容 |
 | 运行中插话 | 任务跑着也能补一句，不必等它结束 |
 | 检查点回退 | 回到任意一条消息重新开始 |
 
@@ -100,7 +110,8 @@
 
 - **定时任务**：每天 / 每周 / 每月，指定模型与会话，到点自动发送提示词；应用未运行时错过的时段会被标记而不是补发。
 - **会话管理**：按项目分组、置顶、归档、重命名、全文搜索；支持多窗口独立工作区。
-- **用量统计**：输入 / 输出 / 缓存命中、每秒生成速率、费用估算。
+- **上下文洞察**：Token 构成、耗时分布、近 7/30 天趋势、活跃度日历，以及按会话的用量与费用。
+- **手机桥接**：扫码配对后用手机打开同一会话，长对话按需分段加载。
 - **WebDAV 同步**：NextCloud、ownCloud、NAS 等，同步偏好与会话。
 
 ### 界面
@@ -109,6 +120,7 @@
 - 中文 / English / 日本語
 - 左右面板可拖动、可隐藏，输入框随可用宽度伸缩
 - 桌面宠物：上传一张图，本地抠图后放进一个透明置顶小窗
+- 输入框支持截图标注、图片预览；消息里的链接在系统浏览器打开
 
 ---
 
