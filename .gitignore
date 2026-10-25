@@ -4,6 +4,10 @@ release/
 electron/
 build/
 workspace/
+# Scratch files this workflow writes into the repo root. They belong in %TEMP%,
+# but ignoring them stops a commit-message draft from being pushed by accident.
+.tmp/
+.tmp-*
 attachments/
 .iexa-artifacts/
 .runtime/
