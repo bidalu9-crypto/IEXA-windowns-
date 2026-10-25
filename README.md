@@ -126,17 +126,23 @@
 
 ## 快速开始
 
-### 方式一：安装包
+### 方式一：安装包或便携版
 
-从 [Releases](https://github.com/bidalu9-crypto/IEXA-windowns-/releases) 下载 `IEXA-WIN-Setup-x.y.z.exe`，双击安装即可，**不需要预装 Node.js**。
+从 [Releases](https://github.com/bidalu9-crypto/IEXA-windowns-/releases) 下载任一版本，**不需要预装 Node.js**：
+
+| 文件 | 用法 |
+|---|---|
+| `IEXA-WIN-Setup-x.y.z.exe` | 安装到本机，带开始菜单与桌面快捷方式，可在「应用和功能」卸载 |
+| `IEXA-WIN-Portable-x.y.z.exe` | **单文件便携版**：放到桌面直接双击，不写注册表；数据保存在同目录的 `IEXA-WIN-data\` |
 
 也可以本地构建：
 
 ```bat
 build-installer.bat
+npm run dist:portable
 ```
 
-产物在 `release\IEXA-Setup.exe`。
+产物分别在 `release\IEXA-Setup.exe` 与 `release\IEXA-WIN-Portable-<版本>.exe`。
 
 ### 方式二：源码运行
 

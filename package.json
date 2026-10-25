@@ -15,6 +15,7 @@
     "electron:rebuild": "node scripts/rebuild-native.cjs",
     "dist": "node build-dist.js",
     "dist:builder": "npm run build && electron-builder --win nsis --publish never",
+    "dist:portable": "npm run build && electron-builder --win portable --publish never",
     "release:builder": "npm run build && electron-builder --win nsis --publish always",
     "postinstall": "node scripts/vendor-renderer.cjs",
     "pretest": "npm run build"
@@ -45,6 +46,9 @@
     ],
     "win": {
       "target": "nsis"
+    },
+    "portable": {
+      "artifactName": "IEXA-WIN-Portable-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

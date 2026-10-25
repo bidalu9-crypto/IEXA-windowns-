@@ -499,10 +499,23 @@ function installPetHost() {
 // ---- Per-instance workspace ----
 // Each window is its own agent instance. Give it a unique workspace so
 // sessions / memory / settings never collide across concurrent windows.
+//
+// A packaged build must not write next to its own __dirname: in an asar that is
+// inside the archive (mkdirSync fails, the app dies with an error dialog), and in
+// a portable build the directory is a temp extraction that disappears on exit.
+function resolveWorkspaceDir() {
+  if (process.env.IEXA_WORKSPACE) return process.env.IEXA_WORKSPACE; // explicit override
+  // electron-builder sets this for the portable target: keep data beside the exe
+  // so the whole thing really is portable.
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (portableDir) return path.join(portableDir, 'IEXA-WIN-data', 'workspace');
+  if (app.isPackaged) return path.join(app.getPath('appData'), 'IEXA-WIN', 'workspace');
+  return path.join(__dirname, 'workspace');
+}
+
 function ensureInstanceWorkspace() {
   if (process.env.IEXA_WORKSPACE) return; // caller explicitly set it
-  const base = path.join(__dirname, 'workspace');
-  process.env.IEXA_WORKSPACE = base;
+  process.env.IEXA_WORKSPACE = resolveWorkspaceDir();
   fs.mkdirSync(process.env.IEXA_WORKSPACE, { recursive: true });
   console.log('[IEXA] Workspace:', process.env.IEXA_WORKSPACE);
   console.log('[IEXA] Hit Ctrl+C / close window to stop this instance.');
