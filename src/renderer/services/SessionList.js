@@ -524,92 +524,22 @@ function activateCachedSession(id) {
   return queued;
 }
 
-async function switchSession(id, updateList = true) {
-  if (!id || (id === visibleSessionId && sessionRuntimes.get(id)?.historyReady)) return;
-  const viewEpoch = ++sessionViewEpoch;
-  // Switching only changes the visible surface. Background SSE streams continue.
-  snapshotActiveSessionRuntime(true);
-  for (const [cachedId, cached] of sessionRuntimes) {
-    if (sessionRuntimes.size <= 4) break;
-    if (cachedId === id || cachedId === currentSessionId || cached.isProcessing || cached.turnStopPending || cached.promptQueue?.length || pendingStreamUpdates.has(cachedId)) continue;
-    if (cached.currentTaskTimer) clearInterval(cached.currentTaskTimer);
-    sessionRuntimes.delete(cachedId);
-  }
-  currentSessionId = id;
-  visibleSessionId = id;
-  window.syncPausedBanner?.();
-  void refreshGoalBanner();
-  syncSubAgentView();
-  const targetRuntime = runtimeForSession(id);
-  if (targetRuntime.historyReady || targetRuntime.isProcessing) {
-    mountSessionRuntime(id);
-    scrollHistoryToLatest(id);
-    syncActiveSessionUI();
-    refreshModelSelector().catch(() => {});
-    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
-  } else {
-    chatMessages = visibleChatMessages;
-    applySessionRuntime(id);
-    clearChat();
-    const loading = document.createElement('div');
-    loading.className = 'history-loading';
-    loading.setAttribute('role', 'status');
-    loading.textContent = '正在加载对话…';
-    chatMessages.appendChild(loading);
-    setProcessing(false);
+// Phones keep a bounded transcript. WebKit reloads a tab once a single page
+// holds enough live DOM, and a long conversation built in one pass crosses that
+// line: 600 turns measured ~106k nodes and 460k px of height in a single paint.
+// Mobile renders the most recent window and grafts earlier chunks on demand;
+// desktop keeps rendering the whole history exactly as before.
+const MOBILE_HISTORY_INITIAL = 60;
+const MOBILE_HISTORY_CHUNK = 40;
 
-  // Load messages
-  try {
-    const resp = await fetch(`${API_BASE}/api/sessions/${id}`);
-    if (!resp.ok) throw new Error(`History HTTP ${resp.status}`);
-    const data = await resp.json();
-    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
-    // A newer click selected another session while this request was in flight.
-    // Do not append stale history into the current visible chat. The placeholder
-    // must still be dropped on this path: an epoch bump from a newer
-    // switchSession() used to strand "正在加载对话…" on screen forever.
-    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) {
-      loading.remove();
-      return;
-    }
-    applySessionProject(data.project);
-    // The session carries its request size across restarts; paint it before the
-    // first turn of this process instead of leaving the ring at zero.
-    applySessionContextStatus(id, data.context || null);
-    clearChat();
-    targetRuntime.fragment.replaceChildren();
-    targetRuntime.historyReady = true;
-    targetRuntime.historyRenderedCount = 0;
-    const msgs = data.messages || [];
+function mobileHistoryWindow() {
+  return document.body.dataset.mobileClient === 'paired';
+}
 
-    // Refresh this session's pinned model metadata from the server.
-    if (data.session) {
-      const index = sessionsCache.findIndex((item) => item.id === id);
-      if (index >= 0) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
-    }
-    const sess = sessionsCache.find(s => s.id === id);
-
-    if (msgs.length === 0) {
-      // Empty session: show welcome
-      showWelcome();
-    } else {
-      // Render messages
-      // A long history (hundreds of messages, thousands of tool blocks) used to
-      // be built in one synchronous pass: the browser then had to lay out the
-      // whole subtree before it could paint, freezing the window for seconds.
-      // Yield to the next frame once a batch exceeds the frame budget so the
-      // transcript paints progressively and stays interactive.
-      let batchStartedAt = performance.now();
-      for (let messageIndex = 0; messageIndex < msgs.length; messageIndex++) {
-        if (performance.now() - batchStartedAt > 8) {
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-          if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id) {
-            targetRuntime.historyReady = false;
-            return;
-          }
-          batchStartedAt = performance.now();
-        }
-        const msg = msgs[messageIndex];
+// One history message, exactly as the transcript has always painted it.
+// Extracted so the mobile window can graft an earlier chunk on demand
+// without a second copy of these layout rules drifting from this one.
+function renderHistoryMessage(msg, messageIndex) {
         if (msg.role === 'user') {
           addMessage('user', msg.content, msg.attachments || [], { messageIndex, timestamp: msg.timestamp });
         } else {
@@ -725,8 +655,172 @@ async function switchSession(id, updateList = true) {
           // paints the real number rather than zero.
           window.IexaTurnSummary?.settle(el);
         }
+}
+
+function showLoadEarlierAffordance(sessionId, runtime) {
+  const existing = chatMessages.querySelector('.load-earlier-messages');
+  if (existing) existing.remove();
+  if (!mobileHistoryWindow() || !runtime || runtime.historyStartIndex <= 0) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'load-earlier-messages';
+  button.textContent = `加载更早的消息（还有 ${runtime.historyStartIndex} 条）`;
+  button.addEventListener('click', () => { void loadEarlierHistory(sessionId); });
+  chatMessages.insertBefore(button, chatMessages.firstChild);
+}
+
+async function loadEarlierHistory(sessionId) {
+  // A switch while the chunk is being built must not graft it onto another
+  // conversation, so every exit re-checks which session is actually visible.
+  if (sessionId !== visibleSessionId || sessionId !== currentSessionId) return;
+  const runtime = runtimeForSession(sessionId);
+  const messages = runtime.historyMessages;
+  if (!mobileHistoryWindow() || !Array.isArray(messages) || runtime.historyStartIndex <= 0) return;
+  const button = chatMessages.querySelector('.load-earlier-messages');
+  if (button) { button.disabled = true; button.textContent = '正在加载…'; }
+
+  const nextStart = Math.max(0, runtime.historyStartIndex - MOBILE_HISTORY_CHUNK);
+  const added = runtime.historyStartIndex - nextStart;
+  const live = chatMessages;
+  // addMessage() asks the transcript to follow the newest message. While an
+  // earlier chunk is being collected that request would yank the reader to the
+  // bottom once the queued animation frame runs, so following is stopped first
+  // and the scroll position is restored by hand below.
+  stopFollowingLatestMessage();
+  const previousTop = live.scrollTop;
+  const previousHeight = live.scrollHeight;
+
+  // addMessage appends to `chatMessages` and scrolls to the bottom after every
+  // message. Staging the chunk in a detached container keeps that side effect
+  // off the live transcript; the nodes are grafted in one batch below.
+  const staging = document.createElement('div');
+  const created = [];
+  try {
+    chatMessages = staging;
+    for (let index = nextStart; index < runtime.historyStartIndex; index += 1) {
+      const before = staging.childElementCount;
+      renderHistoryMessage(messages[index], index);
+      for (let nodeIndex = before; nodeIndex < staging.childElementCount; nodeIndex += 1) {
+        const node = staging.children[nodeIndex];
+        if (node) created.push(node);
       }
-      targetRuntime.historyRenderedCount = msgs.length;
+    }
+  } catch (error) {
+    // A half-built chunk is discarded rather than grafted; the affordance comes
+    // back enabled so the next tap can retry.
+    chatMessages = live;
+    console.error('Failed to load earlier messages:', error);
+    showLoadEarlierAffordance(sessionId, runtime);
+    return;
+  } finally {
+    chatMessages = live;
+  }
+
+  if (sessionId !== visibleSessionId || sessionId !== currentSessionId) return;
+
+  const fragment = document.createDocumentFragment();
+  for (const node of created) fragment.appendChild(node);
+  live.insertBefore(fragment, live.firstChild);
+  runtime.historyStartIndex = nextStart;
+  runtime.historyRenderedCount = (Number(runtime.historyRenderedCount) || 0) + added;
+  // Keep the reader where they were: the transcript grew above the viewport.
+  live.scrollTop = previousTop + (live.scrollHeight - previousHeight);
+  showLoadEarlierAffordance(sessionId, runtime);
+}
+
+async function switchSession(id, updateList = true) {
+  if (!id || (id === visibleSessionId && sessionRuntimes.get(id)?.historyReady)) return;
+  const viewEpoch = ++sessionViewEpoch;
+  // Switching only changes the visible surface. Background SSE streams continue.
+  snapshotActiveSessionRuntime(true);
+  for (const [cachedId, cached] of sessionRuntimes) {
+    if (sessionRuntimes.size <= 4) break;
+    if (cachedId === id || cachedId === currentSessionId || cached.isProcessing || cached.turnStopPending || cached.promptQueue?.length || pendingStreamUpdates.has(cachedId)) continue;
+    if (cached.currentTaskTimer) clearInterval(cached.currentTaskTimer);
+    sessionRuntimes.delete(cachedId);
+  }
+  currentSessionId = id;
+  visibleSessionId = id;
+  window.syncPausedBanner?.();
+  void refreshGoalBanner();
+  syncSubAgentView();
+  const targetRuntime = runtimeForSession(id);
+  if (targetRuntime.historyReady || targetRuntime.isProcessing) {
+    mountSessionRuntime(id);
+    scrollHistoryToLatest(id);
+    syncActiveSessionUI();
+    refreshModelSelector().catch(() => {});
+    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
+  } else {
+    chatMessages = visibleChatMessages;
+    applySessionRuntime(id);
+    clearChat();
+    const loading = document.createElement('div');
+    loading.className = 'history-loading';
+    loading.setAttribute('role', 'status');
+    loading.textContent = '正在加载对话…';
+    chatMessages.appendChild(loading);
+    setProcessing(false);
+
+  // Load messages
+  try {
+    const resp = await fetch(`${API_BASE}/api/sessions/${id}`);
+    if (!resp.ok) throw new Error(`History HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (activatedSessionId !== id) activateCachedSession(id).catch(error => console.error('Failed to activate session:', error));
+    // A newer click selected another session while this request was in flight.
+    // Do not append stale history into the current visible chat. The placeholder
+    // must still be dropped on this path: an epoch bump from a newer
+    // switchSession() used to strand "正在加载对话…" on screen forever.
+    if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id || targetRuntime.isProcessing || targetRuntime.historyReady) {
+      loading.remove();
+      return;
+    }
+    applySessionProject(data.project);
+    // The session carries its request size across restarts; paint it before the
+    // first turn of this process instead of leaving the ring at zero.
+    applySessionContextStatus(id, data.context || null);
+    clearChat();
+    targetRuntime.fragment.replaceChildren();
+    targetRuntime.historyReady = true;
+    targetRuntime.historyRenderedCount = 0;
+    const msgs = data.messages || [];
+
+    // Refresh this session's pinned model metadata from the server.
+    if (data.session) {
+      const index = sessionsCache.findIndex((item) => item.id === id);
+      if (index >= 0) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
+    }
+    const sess = sessionsCache.find(s => s.id === id);
+
+    if (msgs.length === 0) {
+      // Empty session: show welcome
+      showWelcome();
+    } else {
+      // Render messages
+      // A long history (hundreds of messages, thousands of tool blocks) used to
+      // be built in one synchronous pass: the browser then had to lay out the
+      // whole subtree before it could paint, freezing the window for seconds.
+      // Yield to the next frame once a batch exceeds the frame budget so the
+      // transcript paints progressively and stays interactive.
+      const windowed = mobileHistoryWindow();
+      const startIndex = windowed ? Math.max(0, msgs.length - MOBILE_HISTORY_INITIAL) : 0;
+      let batchStartedAt = performance.now();
+      for (let messageIndex = startIndex; messageIndex < msgs.length; messageIndex++) {
+        if (performance.now() - batchStartedAt > 8) {
+          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+          if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id) {
+            targetRuntime.historyReady = false;
+            return;
+          }
+          batchStartedAt = performance.now();
+        }
+        renderHistoryMessage(msgs[messageIndex], messageIndex);
+      }
+      targetRuntime.historyMessages = msgs;
+      targetRuntime.historyStartIndex = startIndex;
+      targetRuntime.historyRenderedCount = msgs.length - startIndex;
+      if (startIndex > 0) showLoadEarlierAffordance(id, targetRuntime);
       // A turn that was still running when the process died is now on disk as
       // `interrupted`. Surface it so the user can continue instead of assuming
       // the work was lost.
