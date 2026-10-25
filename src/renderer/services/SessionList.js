@@ -730,6 +730,9 @@ async function loadEarlierHistory(sessionId) {
 
 async function switchSession(id, updateList = true) {
   if (!id || (id === visibleSessionId && sessionRuntimes.get(id)?.historyReady)) return;
+  // An edit belongs to the conversation that showed it; leaving drops the mode
+  // but keeps the draft text, which the user may still want to send.
+  window.cancelPendingEdit?.(false);
   const viewEpoch = ++sessionViewEpoch;
   // Switching only changes the visible surface. Background SSE streams continue.
   snapshotActiveSessionRuntime(true);

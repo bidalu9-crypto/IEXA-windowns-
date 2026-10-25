@@ -119,11 +119,15 @@ function addMessage(role, content, attachments, opts) {
     const timeText = formatMessageTimestamp(timestamp);
     actions.innerHTML = `
       ${timeText ? `<time class="user-message-time" datetime="${new Date(timestamp).toISOString()}" title="发送时间：${new Date(timestamp).toLocaleString()}">${timeText}</time>` : ''}
+      <button type="button" class="user-message-action user-message-edit" data-action="edit" title="重新编辑" aria-label="重新编辑">${uiIcon('edit')}</button>
       <button type="button" class="user-message-action user-message-resend" data-action="resend" title="重新发送" aria-label="重新发送">${uiIcon('send')}</button>
       <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">${uiIcon('branch')}</button>
       <button type="button" class="user-message-action" data-action="copy" title="复制消息" aria-label="复制消息">
         ${uiIcon('copy')}
       </button>`;
+    actions.querySelector('[data-action="edit"]').addEventListener('click', function () {
+      window.startEditingMessage?.(msg);
+    });
     actions.querySelector('[data-action="copy"]').addEventListener('click', function () {
       copyUserMessage(content, this);
     });

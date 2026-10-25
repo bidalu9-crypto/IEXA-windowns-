@@ -1184,3 +1184,40 @@ html[data-motion="reduced"] .paused-banner { animation: none; }
   .paused-banner-actions { width: 100%; justify-content: space-between; }
   .paused-banner-resume { flex: 0 0 auto; min-width: 96px; }
 }
+
+/* Editing a sent message: the strip makes the destructive tail-replacement
+   visible before the user presses send. */
+.composer-edit-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 9px;
+  background: var(--accent-light);
+  color: var(--text-primary);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+}
+.composer-edit-strip[hidden] { display: none; }
+.composer-edit-icon { display: inline-flex; flex: 0 0 14px; color: var(--accent); }
+.composer-edit-icon .ui-icon { width: 14px; height: 14px; stroke-width: var(--control-stroke); }
+.composer-edit-text { flex: 1; min-width: 0; }
+.composer-edit-cancel {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.composer-edit-cancel:hover { color: var(--text-primary); background: var(--bg-secondary); border-color: var(--border); }
+
+/* An image attachment opens the same full-size preview as the transcript. */
+.attach-chip.is-previewable { cursor: zoom-in; }
+.attach-chip.is-previewable:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+.attach-chip.is-previewable img { transition: transform .18s ease; }
+.attach-chip.is-previewable:hover img { transform: scale(1.05); }

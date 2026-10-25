@@ -218,8 +218,12 @@ test('real browser: mobile window keeps the DOM bounded and loads earlier chunks
   // same conversation must render in full with no affordance. A reload is used
   // because switchSession mounts a cached transcript instead of re-rendering.
   await evaluate("document.body.dataset.mobileClient = 'desktop'; true");
+  // Mark the outgoing document: after Page.reload the old globals are still
+  // visible for a moment, so a bare `typeof switchSession` wait can pass on the
+  // document that is about to be replaced.
+  await evaluate("window.__beforeReload = true; true");
   await cdp('Page.reload');
-  await wait("typeof switchSession === 'function' && typeof currentSessionId !== 'undefined' && currentSessionId");
+  await wait("!window.__beforeReload && typeof switchSession === 'function' && typeof currentSessionId !== 'undefined' && currentSessionId");
   await evaluate("void switchSession('sess_long'); true");
   await wait("document.querySelectorAll('#chatMessages .message').length === " + LONG_MESSAGES);
   assert.equal(await evaluate("!!document.querySelector('.load-earlier-messages')"), false,

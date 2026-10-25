@@ -1247,17 +1247,42 @@ function renderAttachPreview() {
   }
   attachPreview.style.display = 'flex';
   attachPreview.innerHTML = pendingAttachments.map((a) => {
-    const thumb = a.kind === 'image' && a.dataUrl
+    const previewable = a.kind === 'image' && Boolean(a.dataUrl);
+    const thumb = previewable
       ? `<img src="${a.dataUrl}" alt="">`
       : `<span class="attach-chip-icon">${uiIcon(a.kind === 'text' ? 'file' : 'box')}</span>`;
+    const chipClass = previewable ? 'attach-chip is-previewable' : 'attach-chip';
+    const chipAttrs = previewable
+      ? ` role="button" tabindex="0" aria-label="预览图片 ${escapeHtml(a.name)}"`
+      : '';
     return `
-      <div class="attach-chip" data-id="${a.id}">
+      <div class="${chipClass}" data-id="${a.id}"${chipAttrs}>
         ${thumb}
         <span class="attach-chip-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
         <button type="button" class="attach-chip-remove" data-ui-action="removeAttachment" data-ui-arg="${escapeHtml(a.id)}" title="移除附件" aria-label="移除附件">${uiIcon('close')}</button>
       </div>
     `;
   }).join('');
+
+  // An image chip opens the same full-size preview the transcript uses; the
+  // remove button must not trigger it.
+  attachPreview.querySelectorAll('.attach-chip.is-previewable').forEach((chip) => {
+    const open = () => {
+      const attachment = pendingAttachments.find((item) => item.id === chip.dataset.id);
+      if (attachment && attachment.dataUrl) {
+        window.openImagePreview?.(attachment.dataUrl, attachment.name, chip.querySelector('img'));
+      }
+    };
+    chip.addEventListener('click', (event) => {
+      if (event.target.closest('.attach-chip-remove')) return;
+      open();
+    });
+    chip.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    });
+  });
 }
 
 function clearAttachments() {
@@ -1668,6 +1693,131 @@ syncWelcomeLayout();
 // Send Message
 // =============================================================================
 
+// =============================================================================
+// Edit a sent message
+// =============================================================================
+
+/**
+ * Editing replaces the tail instead of appending: on send the conversation is
+ * truncated at the edited prompt and replayed with the new text. The strip is
+ * what keeps that destructive step visible before the user presses send.
+ */
+let pendingEdit = null;
+
+function renderEditStrip() {
+  const strip = document.getElementById('composerEditStrip');
+  if (!strip) return;
+  if (!pendingEdit) {
+    strip.hidden = true;
+    strip.replaceChildren();
+    return;
+  }
+  strip.hidden = false;
+  strip.replaceChildren();
+  const icon = document.createElement('span');
+  icon.className = 'composer-edit-icon';
+  icon.innerHTML = uiIcon('edit');
+  const text = document.createElement('span');
+  text.className = 'composer-edit-text';
+  text.textContent = '正在编辑这条消息，发送后会替换它之后的内容';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'composer-edit-cancel';
+  cancel.textContent = '取消编辑';
+  cancel.addEventListener('click', () => cancelPendingEdit(true));
+  strip.append(icon, text, cancel);
+}
+
+function cancelPendingEdit(clearComposer) {
+  if (!pendingEdit) return;
+  pendingEdit = null;
+  renderEditStrip();
+  if (clearComposer) {
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    clearAttachments();
+  }
+}
+
+// Cross-module entry points (session switching, inline handlers).
+window.startEditingMessage = startEditingMessage;
+window.cancelPendingEdit = cancelPendingEdit;
+
+async function startEditingMessage(messageEl) {
+  if (!messageEl || !currentSessionId) return;
+  if (isProcessing) {
+    addError('请先停止当前任务，再重新编辑这条消息。');
+    return;
+  }
+  const sessionId = currentSessionId;
+  const content = String(messageEl.querySelector('.message-content')?.innerText || '').trim();
+  const messageIndex = await resolvePersistedUserIndex(sessionId, messageEl, content);
+  if (!Number.isInteger(messageIndex) || messageIndex < 0) {
+    addError('没有找到这条消息在会话中的位置。');
+    return;
+  }
+  if (currentSessionId !== sessionId) return;
+
+  // Restore the attachments with their saved copies: the chat route accepts a
+  // savedPath, so nothing is re-uploaded and the original bytes are reused.
+  let restored = [];
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
+    const data = await response.json().catch(() => ({}));
+    const source = response.ok && Array.isArray(data.messages) ? data.messages[messageIndex] : null;
+    restored = (source && source.attachments ? source.attachments : []).map((item) => ({
+      id: 'att_edit_' + Math.random().toString(36).slice(2, 8),
+      name: item.name,
+      mime: item.mime,
+      kind: item.kind,
+      size: item.size,
+      savedPath: item.savedPath,
+      dataUrl: item.previewUrl || undefined,
+    }));
+  } catch {
+    // The text alone is still worth restoring.
+  }
+  if (currentSessionId !== sessionId) return;
+
+  pendingEdit = { sessionId, messageIndex, messageEl };
+  chatInput.value = content;
+  chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+  pendingAttachments = restored;
+  renderAttachPreview();
+  renderEditStrip();
+  chatInput.focus();
+  try { chatInput.setSelectionRange(content.length, content.length); } catch { /* not focusable */ }
+}
+
+/** Truncate the stored conversation at the edited prompt before replaying it. */
+async function applyPendingEdit() {
+  const edit = pendingEdit;
+  if (!edit || edit.sessionId !== currentSessionId) return false;
+  if (!edit.messageEl || !edit.messageEl.isConnected) {
+    // The transcript was rebuilt underneath us; sending now would append to a
+    // tail the server has already dropped. Ask for a fresh view instead.
+    addError('这条消息已经不在当前视图中，请重新打开会话后再编辑。');
+    return false;
+  }
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(edit.sessionId)}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIndex: edit.messageIndex, retainSelected: false }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '编辑前重置会话失败');
+  } catch (error) {
+    addError(error.message || '编辑前重置会话失败');
+    return false;
+  }
+  truncateTranscriptFrom(edit.messageEl, false);
+  resetTurnBookkeeping();
+  pendingEdit = null;
+  renderEditStrip();
+  return true;
+}
+
 async function sendMessage(event) {
   const message = chatInput.value.trim();
   const attachments = cloneAttachments(pendingAttachments);
@@ -1692,6 +1842,12 @@ async function sendMessage(event) {
   if (!currentSessionId) {
     await createSession();
     if (!currentSessionId) return;
+  }
+
+  // An edited message replaces its tail; a stale one is simply forgotten.
+  if (pendingEdit) {
+    if (pendingEdit.sessionId !== currentSessionId) cancelPendingEdit(false);
+    else if (!(await applyPendingEdit())) return;
   }
 
   dismissWelcome();
