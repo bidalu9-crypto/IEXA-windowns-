@@ -328,42 +328,47 @@
                   <span class="thinking-level-chevron" aria-hidden="true"></span>
                 </button>
                 <div class="context-compaction-menu" id="contextCompactionMenu" role="dialog" aria-label="上下文容量与压缩触发点" style="display:none;">
-                  <div class="context-compaction-list" role="listbox" aria-label="上下文容量">
-                    <button type="button" class="context-compaction-option" data-limit="auto" role="option"><span class="thinking-level-option-title">自动</span><span class="thinking-level-option-desc">按模型上下文上限</span></button>
-                    <button type="button" class="context-compaction-option" data-limit="128000" role="option"><span class="thinking-level-option-title">128K</span><span class="thinking-level-option-desc">约 12.8 万 token</span></button>
-                    <button type="button" class="context-compaction-option" data-limit="256000" role="option"><span class="thinking-level-option-title">256K</span><span class="thinking-level-option-desc">约 25.6 万 token</span></button>
-                    <button type="button" class="context-compaction-option" data-limit="384000" role="option"><span class="thinking-level-option-title">384K</span><span class="thinking-level-option-desc">约 38.4 万 token</span></button>
-                    <button type="button" class="context-compaction-option" data-limit="768000" role="option"><span class="thinking-level-option-title">768K</span><span class="thinking-level-option-desc">约 76.8 万 token</span></button>
-                    <button type="button" class="context-compaction-option" data-limit="1000000" role="option"><span class="thinking-level-option-title">1M</span><span class="thinking-level-option-desc">约 100 万 token</span></button>
-                    <button type="button" class="context-compaction-option context-compaction-custom-toggle" id="contextCompactionCustomToggle" data-limit="custom" role="option"><span class="thinking-level-option-title">自定义</span><span class="thinking-level-option-desc">128K 起，按实际窗口填</span></button>
-                  </div>
-                  <div class="context-compaction-custom" id="contextCompactionCustom" hidden>
-                    <label class="context-compaction-field-label" for="contextCompactionCustomInput">上下文容量</label>
-                    <div class="context-compaction-field-row">
-                      <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-describedby="contextCompactionCustomHint">
-                      <span class="context-compaction-unit">token</span>
-                      <button type="button" class="context-compaction-confirm" id="contextCompactionCustomConfirm">确定</button>
+                  <section class="cc-section" aria-labelledby="ccLimitLabel">
+                    <div class="cc-section-head">
+                      <span class="cc-section-title" id="ccLimitLabel">上下文容量</span>
+                      <span class="cc-section-value" id="ccLimitValue">自动</span>
                     </div>
-                    <p class="context-compaction-hint" id="contextCompactionCustomHint" role="status">最低 128000</p>
-                  </div>
-                  <div class="context-compaction-divider" aria-hidden="true"></div>
-                  <div class="context-compaction-threshold">
-                    <span class="context-compaction-field-label">压缩触发点</span>
-                    <div class="context-compaction-threshold-presets" role="group" aria-label="压缩触发点预设">
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="50">50%</button>
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="60">60%</button>
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="70">70%</button>
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="80">80%</button>
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="90">90%</button>
-                      <button type="button" class="context-compaction-threshold-option" data-threshold="100">100%</button>
+                    <div class="cc-grid" role="listbox" aria-label="上下文容量">
+                      <button type="button" class="cc-chip" data-limit="auto" role="option" aria-selected="true">自动</button>
+                      <button type="button" class="cc-chip" data-limit="128000" role="option" aria-selected="false">128K</button>
+                      <button type="button" class="cc-chip" data-limit="256000" role="option" aria-selected="false">256K</button>
+                      <button type="button" class="cc-chip" data-limit="384000" role="option" aria-selected="false">384K</button>
+                      <button type="button" class="cc-chip" data-limit="768000" role="option" aria-selected="false">768K</button>
+                      <button type="button" class="cc-chip" data-limit="1000000" role="option" aria-selected="false">1M</button>
+                      <button type="button" class="cc-chip cc-chip-custom" id="contextCompactionCustomToggle" data-limit="custom" role="option" aria-selected="false"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg><span>自定义</span></button>
                     </div>
-                    <div class="context-compaction-field-row">
-                      <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" aria-describedby="contextCompactionThresholdHint">
-                      <span class="context-compaction-unit">%</span>
-                      <button type="button" class="context-compaction-confirm" id="contextCompactionThresholdConfirm">确定</button>
+                    <div class="cc-inline" id="contextCompactionCustom" hidden>
+                      <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-label="自定义上下文容量" aria-describedby="contextCompactionCustomHint">
+                      <span class="cc-unit">token</span>
+                      <button type="button" class="cc-apply" id="contextCompactionCustomConfirm">应用</button>
                     </div>
-                    <p class="context-compaction-hint" id="contextCompactionThresholdHint" role="status">默认 80%，可选 50%–100%</p>
-                  </div>
+                    <p class="cc-hint" id="contextCompactionCustomHint" role="status">最低 128000</p>
+                    </section>
+                    <section class="cc-section" aria-labelledby="ccThresholdLabel">
+                      <div class="cc-section-head">
+                        <span class="cc-section-title" id="ccThresholdLabel">压缩触发点</span>
+                        <span class="cc-section-value" id="ccThresholdValue">默认 80%</span>
+                      </div>
+                      <div class="cc-grid cc-grid-six" role="group" aria-label="压缩触发点预设">
+                        <button type="button" class="cc-chip" data-threshold="50">50%</button>
+                        <button type="button" class="cc-chip" data-threshold="60">60%</button>
+                        <button type="button" class="cc-chip" data-threshold="70">70%</button>
+                        <button type="button" class="cc-chip" data-threshold="80">80%</button>
+                        <button type="button" class="cc-chip" data-threshold="90">90%</button>
+                        <button type="button" class="cc-chip" data-threshold="100">100%</button>
+                      </div>
+                      <div class="cc-inline">
+                        <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" aria-describedby="contextCompactionThresholdHint">
+                        <span class="cc-unit">%</span>
+                        <button type="button" class="cc-apply" id="contextCompactionThresholdConfirm">应用</button>
+                      </div>
+                      <p class="cc-hint" id="contextCompactionThresholdHint" role="status">默认 80%，可选 50%–100%</p>
+                      </section>
                 </div>
               </div>
               <div class="permission-mode-wrap" id="permissionModeWrap">

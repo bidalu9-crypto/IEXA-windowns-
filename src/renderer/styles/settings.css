@@ -1172,6 +1172,11 @@
   z-index: 50;
 }
 
+/* Equal z-index with the sibling permission control let the later sibling paint
+   over the open panel. Raise only while open, so the resting toolbar order is
+   untouched. */
+.context-compaction-wrap.is-open { z-index: 70; }
+
 .context-compaction-btn {
   display: inline-flex;
   align-items: center;
@@ -1271,8 +1276,8 @@
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-lg);
+  background: var(--popover-bg, var(--mac-surface-solid));
+  box-shadow: var(--popover-shadow, var(--mac-shadow-md));
   z-index: 60;
   display: none;
 }

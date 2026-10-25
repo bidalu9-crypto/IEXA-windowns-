@@ -93,7 +93,49 @@ test('real browser: the compaction panel saves a custom window and trigger', { s
 
   await evaluate("document.getElementById('contextCompactionBtn').click(); true");
   await wait("document.getElementById('contextCompactionMenu').style.display === 'block'");
-  await evaluate("document.querySelector('.context-compaction-option[data-limit=\"custom\"]').click(); true");
+
+  // Nothing may paint over the open panel. The sibling permission control used to
+  // share z-index 50 and won by document order, so the panel's lower half was
+  // covered by the button underneath it.
+  assert.deepEqual(await evaluate(`(() => {
+    const menu = document.getElementById('contextCompactionMenu');
+    const rect = menu.getBoundingClientRect();
+    const outside = new Set();
+    for (let y = rect.top + 8; y < rect.bottom - 8; y += 11) {
+      for (let x = rect.left + 8; x < rect.right - 8; x += 11) {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !menu.contains(hit)) outside.add(hit ? (hit.id || hit.className || hit.tagName) : 'none');
+      }
+    }
+    return [...outside];
+  })()`), [], 'no element may cover the open panel');
+
+  // The custom chip is a disclosure: it opens, marks itself, and collapses again.
+  await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').click(); true");
+  await wait("document.getElementById('contextCompactionCustom').hidden === false");
+  assert.equal(await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').getAttribute('aria-expanded')"), 'true');
+  assert.equal(await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').classList.contains('is-open')"), true);
+
+  // Number fields are sized to their content instead of stretching across the row,
+  // which used to push the unit and the action button to opposite edges.
+  const widths = await evaluate(`(() => {
+    const menu = document.getElementById('contextCompactionMenu').getBoundingClientRect().width;
+    return {
+      menu,
+      capacity: document.getElementById('contextCompactionCustomInput').getBoundingClientRect().width,
+      threshold: document.getElementById('contextCompactionThresholdInput').getBoundingClientRect().width,
+    };
+  })()`);
+  assert.ok(widths.capacity > 0, 'the custom field has a measurable width');
+  assert.ok(widths.capacity < widths.menu * 0.5, `capacity field ${widths.capacity}px stays under half of ${widths.menu}px`);
+  assert.ok(widths.threshold > 0 && widths.threshold < widths.capacity, `threshold field ${widths.threshold}px is narrower than ${widths.capacity}px`);
+
+  await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').click(); true");
+  await wait("document.getElementById('contextCompactionCustom').hidden === true");
+  assert.equal(await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').getAttribute('aria-expanded')"), 'false');
+  assert.equal(await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').classList.contains('is-open')"), false);
+
+  await evaluate("document.querySelector('.cc-chip[data-limit=\"custom\"]').click(); true");
   await wait("document.getElementById('contextCompactionCustom').hidden === false");
 
   await evaluate(`(() => {
@@ -116,8 +158,8 @@ test('real browser: the compaction panel saves a custom window and trigger', { s
 
   await evaluate("document.getElementById('contextCompactionBtn').click(); true");
   await wait("document.getElementById('contextCompactionMenu').style.display === 'block'");
-  await evaluate("document.querySelector('.context-compaction-threshold-option[data-threshold=\"50\"]').click(); true");
-  await wait("document.querySelector('.context-compaction-threshold-option[data-threshold=\"50\"]').classList.contains('is-active')");
+  await evaluate("document.querySelector('.cc-chip[data-threshold=\"50\"]').click(); true");
+  await wait("document.querySelector('.cc-chip[data-threshold=\"50\"]').getAttribute('aria-selected') === 'true'");
   assert.equal((await stored()).contextCompactionThreshold, 0.5, '50% is stored as a ratio');
   assert.match(await evaluate("document.getElementById('contextCompactionThresholdHint').textContent"), /50%/);
 
@@ -125,5 +167,5 @@ test('real browser: the compaction panel saves a custom window and trigger', { s
   await cdp('Page.reload');
   await wait("!window.__beforeReload && typeof currentSessionId !== 'undefined' && currentSessionId");
   await wait("document.getElementById('contextCompactionLabel').textContent === '200K'");
-  assert.equal(await evaluate("document.querySelector('.context-compaction-threshold-option[data-threshold=\"50\"]').classList.contains('is-active')"), true);
+  assert.equal(await evaluate("document.querySelector('.cc-chip[data-threshold=\"50\"]').getAttribute('aria-selected')"), 'true');
 });

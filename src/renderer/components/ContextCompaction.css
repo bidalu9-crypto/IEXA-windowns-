@@ -1,40 +1,107 @@
-/* Context compaction panel: a ceiling list, a custom window field, and the
-   trigger point. Split out of settings.css so that layer stays under its budget. */
+/* Context compaction panel: two compact sections (ceiling, trigger point).
+   Chips replace the old two-line list, which pushed the panel to 456px tall
+   and buried the second setting below the viewport. */
 
-/* Two settings share this panel, so the value list scrolls with the rest. */
-.context-compaction-list { display: flex; flex-direction: column; }
-
-.context-compaction-custom {
+.context-compaction-menu {
+  width: 268px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 4px 2px 2px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+  gap: 12px;
 }
 
-.context-compaction-custom[hidden] { display: none; }
+.cc-section { display: flex; flex-direction: column; gap: 7px; }
 
-.context-compaction-field-label {
+.cc-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.cc-section-title {
+  color: var(--text-secondary);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.cc-section-value {
   color: var(--text-muted);
   font-size: calc(10.5px * var(--ui-font-scale, 1));
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
-.context-compaction-field-row {
+.cc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.cc-grid-six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+.cc-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.cc-chip:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+
+.cc-chip[aria-selected="true"],
+.cc-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.cc-chip-custom { gap: 4px; }
+.cc-chip-custom .ui-icon { width: 11px; height: 11px; flex: 0 0 11px; }
+.cc-chip-custom[aria-selected="true"] .ui-icon { stroke-width: 2.2; }
+
+/* The custom chip is a disclosure rather than a value, so it borrows the accent
+   tint to show the field below is open without claiming to be the selection. */
+.cc-chip-custom.is-open {
+  border-color: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent-hover) 9%, transparent);
+  color: var(--accent-text, var(--text-primary));
+}
+.cc-chip-custom.is-open .ui-icon { transform: rotate(45deg); }
+
+/* The six trigger presets are narrower; drop the padding so they stay legible. */
+.cc-grid-six .cc-chip { padding: 0; font-size: calc(11px * var(--ui-font-scale, 1)); }
+
+.cc-inline {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
+  padding: 0 2px;
 }
 
-.context-compaction-field-row input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 26px;
-  padding: 0 8px;
+.cc-inline[hidden] { display: none; }
+
+/* A number field does not need to fill the row: a fixed width keeps the unit and
+   the action button next to the value they belong to instead of pinning them to
+   the far edge. */
+.cc-inline input {
+  flex: 0 0 auto;
+  width: 112px;
+  height: 28px;
+  padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--bg-input);
@@ -42,86 +109,63 @@
   font: inherit;
   font-size: calc(12px * var(--ui-font-scale, 1));
   font-variant-numeric: tabular-nums;
+  text-align: left;
 }
 
-.context-compaction-field-row input:focus-visible {
+.cc-inline input::placeholder { color: var(--text-muted); }
+
+.cc-inline input:focus-visible {
   outline: 2px solid var(--accent-hover);
-  outline-offset: 1px;
+  outline-offset: -1px;
+  border-color: transparent;
 }
 
-.context-compaction-unit {
+.cc-inline input[aria-invalid="true"] {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 6%, var(--bg-input));
+}
+
+.cc-unit {
   flex: 0 0 auto;
+  margin-right: auto;
   color: var(--text-muted);
   font-size: calc(10.5px * var(--ui-font-scale, 1));
 }
 
-.context-compaction-confirm {
+.cc-apply {
   flex: 0 0 auto;
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   border: 0;
   border-radius: 7px;
-  background: var(--accent);
+  background: var(--action-bg);
   color: var(--on-accent);
   font: inherit;
   font-size: calc(11.5px * var(--ui-font-scale, 1));
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
 
-.context-compaction-confirm:hover { background: var(--accent-hover); }
+.cc-apply:hover { background: var(--action-bg-hover); }
+.cc-apply:disabled { background: var(--border); color: var(--text-muted); cursor: default; }
 
-.context-compaction-hint {
+.cc-hint {
   margin: 0;
+  padding: 0 2px;
   color: var(--text-muted);
   font-size: calc(10.5px * var(--ui-font-scale, 1));
-  line-height: 1.45;
+  line-height: 1.4;
+  min-height: 15px;
 }
 
-.context-compaction-hint[data-tone="error"] { color: var(--error); }
+.cc-hint[data-tone="error"] { color: var(--error); }
 
-.context-compaction-divider {
-  height: 1px;
-  margin: 6px 2px;
-  background: var(--border);
+/* The trigger point is a percentage, so it needs less room than a token count. */
+.cc-section:last-child .cc-inline input { width: 68px; }
+
+/* A short separator between the two sections reads better than a full rule. */
+.cc-section + .cc-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
 }
-
-.context-compaction-threshold {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 2px 8px 6px;
-}
-
-.context-compaction-threshold-presets {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.context-compaction-threshold-option {
-  height: 24px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: calc(11px * var(--ui-font-scale, 1));
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-
-.context-compaction-threshold-option:hover {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.context-compaction-threshold-option.is-active {
-  border-color: var(--accent);
-  background: var(--accent-light);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.context-compaction-threshold .context-compaction-field-row input { flex: 0 0 62px; }

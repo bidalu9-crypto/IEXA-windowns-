@@ -414,13 +414,18 @@ function applyContextCompactionThresholdUI(percent) {
   currentContextCompactionThreshold = percent;
   const input = document.getElementById('contextCompactionThresholdInput');
   const hint = document.getElementById('contextCompactionThresholdHint');
-  if (input && document.activeElement !== input) input.value = percent === null ? '' : String(percent);
+  const value = document.getElementById('ccThresholdValue');
+  if (input) {
+    if (document.activeElement !== input) input.value = percent === null ? '' : String(percent);
+    input.removeAttribute('aria-invalid');
+  }
+  if (value) value.textContent = formatContextCompactionThreshold(percent);
   if (hint) {
-    hint.textContent = percent === null ? '默认 80%，可选 50%–100%' : `当前 ${percent}%：达到容量的 ${percent}% 时压缩`;
+    hint.textContent = percent === null ? '默认 80%，可选 50%–100%' : `达到容量的 ${percent}% 时压缩`;
     hint.dataset.tone = 'ok';
   }
-  document.querySelectorAll('.context-compaction-threshold-option').forEach((el) => {
-    el.classList.toggle('is-active', Number(el.dataset.threshold) === percent);
+  document.querySelectorAll('.cc-chip[data-threshold]').forEach((el) => {
+    el.setAttribute('aria-selected', String(Number(el.dataset.threshold) === percent));
   });
 }
 
@@ -429,6 +434,7 @@ function applyContextCompactionUI(limit) {
   const btn = document.getElementById('contextCompactionBtn');
   const label = document.getElementById('contextCompactionLabel');
   const limitHint = document.getElementById('contextCompactionCustomHint');
+  const limitValue = document.getElementById('ccLimitValue');
   const customInput = document.getElementById('contextCompactionCustomInput');
   const title = currentContextCompactionLimit
     ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${formatTokenCount(currentContextCompactionLimit)} token）`
@@ -439,24 +445,31 @@ function applyContextCompactionUI(limit) {
   }
   if (label) label.textContent = formatContextCompactionLabel(currentContextCompactionLimit);
   const isPreset = CONTEXT_COMPACTION_OPTIONS.some((item) => item.limit === currentContextCompactionLimit);
-  if (customInput && document.activeElement !== customInput && !isPreset && currentContextCompactionLimit !== null) {
-    customInput.value = String(currentContextCompactionLimit);
+  if (customInput) {
+    if (document.activeElement !== customInput && !isPreset && currentContextCompactionLimit !== null) {
+      customInput.value = String(currentContextCompactionLimit);
+    }
+    customInput.removeAttribute('aria-invalid');
+  }
+  if (limitValue) {
+    limitValue.textContent = currentContextCompactionLimit === null
+      ? '按模型上限'
+      : `${formatContextCompactionLabel(currentContextCompactionLimit)} · ${formatTokenCount(currentContextCompactionLimit)}`;
   }
   if (limitHint) {
     limitHint.textContent = !isPreset && currentContextCompactionLimit !== null
-      ? `当前自定义容量：${formatTokenCount(currentContextCompactionLimit)} token`
+      ? `当前自定义容量 ${formatTokenCount(currentContextCompactionLimit)} token`
       : '最低 128000';
     limitHint.dataset.tone = 'ok';
   }
   const menu = document.getElementById('contextCompactionMenu');
   if (menu) {
-    menu.querySelectorAll('.context-compaction-option').forEach((el) => {
-      if (el.dataset.limit === 'custom') {
-        el.classList.toggle('is-active', !isPreset && currentContextCompactionLimit !== null);
-        return;
-      }
-      const optionLimit = el.dataset.limit === 'auto' ? null : Number(el.dataset.limit);
-      el.classList.toggle('is-active', optionLimit === currentContextCompactionLimit);
+    menu.querySelectorAll('.cc-chip[data-limit]').forEach((el) => {
+      const custom = el.dataset.limit === 'custom';
+      const selected = custom
+        ? !isPreset && currentContextCompactionLimit !== null
+        : (el.dataset.limit === 'auto' ? null : Number(el.dataset.limit)) === currentContextCompactionLimit;
+      el.setAttribute('aria-selected', String(selected));
     });
   }
 }
@@ -464,11 +477,26 @@ function applyContextCompactionUI(limit) {
 function setContextCompactionMenuOpen(open) {
   const btn = document.getElementById('contextCompactionBtn');
   const menu = document.getElementById('contextCompactionMenu');
+  const wrap = document.getElementById('contextCompactionWrap');
   if (btn) {
     btn.classList.toggle('is-open', open);
     btn.setAttribute('aria-expanded', String(open));
   }
+  // The sibling permission control shares z-index 50 and comes later in the DOM,
+  // so it would paint over the open panel. Raise this wrapper only while open.
+  if (wrap) wrap.classList.toggle('is-open', open);
   if (menu) menu.style.display = open ? 'block' : 'none';
+  // Each open starts from the presets: the custom field is a disclosure, and
+  // leaving it expanded with no chip marker reads as a broken panel.
+  if (!open) {
+    const custom = document.getElementById('contextCompactionCustom');
+    if (custom) custom.hidden = true;
+    const chip = document.querySelector('.cc-chip[data-limit="custom"]');
+    if (chip) {
+      chip.classList.remove('is-open');
+      chip.setAttribute('aria-expanded', 'false');
+    }
+  }
 }
 
 /**
@@ -545,17 +573,28 @@ function initContextCompactionControl() {
     setContextCompactionMenuOpen(open);
   });
 
-  menu.querySelectorAll('.context-compaction-option').forEach((el) => {
+  menu.querySelectorAll('.cc-chip[data-limit]').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      // The custom row is a disclosure, not a value: it reveals the input and
-      // leaves the current ceiling untouched until the user confirms a number.
+      // The custom chip is a disclosure, not a value: it reveals the input and
+      // leaves the current ceiling untouched until the user applies a number.
       if (el.dataset.limit === 'custom') {
         const custom = document.getElementById('contextCompactionCustom');
         if (custom) {
-          custom.hidden = false;
-          document.getElementById('contextCompactionCustomInput')?.focus();
+          // Second click collapses the disclosure instead of leaving an orphan
+          // field under a chip that looks pressed.
+          const opening = custom.hidden;
+          custom.hidden = !opening;
+          menu.querySelectorAll('.cc-chip[data-limit="custom"]').forEach((chip) => {
+            chip.classList.toggle('is-open', opening);
+            chip.setAttribute('aria-expanded', String(opening));
+          });
+          if (opening) {
+            const input = document.getElementById('contextCompactionCustomInput');
+            input?.focus();
+            input?.select();
+          }
         }
         return;
       }
@@ -580,7 +619,7 @@ function initContextCompactionControl() {
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitCustom(); }
   });
 
-  menu.querySelectorAll('.context-compaction-threshold-option').forEach((el) => {
+  menu.querySelectorAll('.cc-chip[data-threshold]').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
