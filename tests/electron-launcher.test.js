@@ -37,12 +37,36 @@ test('the console lives exactly as long as the app', () => {
   assert.match(launcher, /exit \$exitCode/, 'the app exit code is propagated');
   assert.match(launcher, /Test-OwnedConsole/, 'ownership of the console is decided, not assumed');
   // A borrowed terminal must never be hidden, not even briefly: the user may have
-  // other work in it. This is the guard that was missing in the first draft.
-  assert.match(launcher, /if \(\$SkipHide -or -not \$owned -or \$console -eq \[IntPtr\]::Zero\) \{ return \}/,
+  // other work in it.
+  assert.match(launcher, /if \(\$SkipHide -or -not \$owned -or \$console -eq \[IntPtr\]::Zero\)/,
     'hiding is refused unless the console is ours');
+  // A double-clicked batch is `cmd /c ""…\start-electron.bat" "`; that console was
+  // created for this launch and must be hidden. Matching on "parent is cmd.exe"
+  // alone classified it as the user's shell, which is what broke hiding.
+  assert.ok(launcher.includes("(?i)(^|\\s)/c(\\s|$)"),
+    'the batch console is recognised by its /c argument');
+  assert.ok(launcher.includes('start-electron\\.bat'), 'or by the batch it is running');
   assert.match(launcher, /SW_HIDE/, 'hide is a Win32 call, not a guess');
   assert.match(launcher, /SW_SHOW/, 'restore uses the matching call');
   assert.match(launcher, /IsWindowVisible/, 'restore only touches a window it hid');
+});
+
+// Opt-in-free runtime check: -Diagnose prints the decision without launching
+// anything, so the exact branch that regressed is covered by a real process chain.
+test('ownership decision: a cmd /c batch console is ours, a bare shell is not', (t) => {
+  const pwsh = ['powershell', 'pwsh'].find((exe) => spawnSync(exe, ['-NoProfile', '-Command', 'exit 0']).status === 0);
+  if (!pwsh) return t.skip('no PowerShell available');
+  const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    path.join(root, 'scripts/electron-launcher.ps1'),
+    '-ElectronExe', 'C:\\Windows\\System32\\hostname.exe', '-AppDir', root, '-Diagnose'];
+
+  const direct = spawnSync(pwsh, args, { encoding: 'utf8', timeout: 30000 });
+  assert.match(String(direct.stdout), /owned=False/, 'a shell the user opened is not ours to hide');
+
+  const batch = spawnSync('cmd.exe', ['/c', [pwsh, ...args].map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)).join(' ')],
+    { encoding: 'utf8', timeout: 30000 });
+  assert.match(String(batch.stdout), /owned=True/,
+    'the console created for the batch is ours, so it gets hidden: ' + String(batch.stdout).slice(0, 200));
 });
 
 test('the launcher parses and stays runnable from a bare powershell', (t) => {

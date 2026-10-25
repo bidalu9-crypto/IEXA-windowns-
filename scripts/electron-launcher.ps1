@@ -40,6 +40,7 @@ param(
     [Parameter(Mandatory = $true)][string]$ElectronExe,
     [Parameter(Mandatory = $true)][string]$AppDir,
     [switch]$SkipHide,
+    [switch]$Diagnose,
     [int]$WindowTimeoutSeconds = 30
 )
 
@@ -70,7 +71,16 @@ function Test-OwnedConsole {
             $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$parentId" -ErrorAction Stop
             if (-not $parent) { break }
             if ($parent.Name -ieq 'explorer.exe') { return $true }
-            if ($parent.Name -match '^(cmd|powershell|pwsh|WindowsTerminal|conhost)\.exe$') { return $false }
+            if ($parent.Name -ieq 'cmd.exe') {
+                # A double-clicked batch runs as `cmd /c ""…\start-electron.bat" "`:
+                # that console was created for this launch. A shell the user already
+                # had open has neither /c nor the batch name, and must be left alone.
+                $line = "$($parent.CommandLine)"
+                if ($line -match '(?i)(^|\s)/c(\s|$)') { return $true }
+                if ($line -match '(?i)start-electron\.bat') { return $true }
+                return $false
+            }
+            if ($parent.Name -match '(?i)^(powershell|pwsh|windowsterminal|conhost|openconsole)\.exe$') { return $false }
             $current = $parent
         }
     } catch { }
@@ -80,11 +90,31 @@ function Test-OwnedConsole {
 
 $owned = -not $SkipHide -and (Test-OwnedConsole)
 
+if ($Diagnose) {
+    Write-Host "[Diagnose] pid=$PID console=$console owned=$owned"
+    $walk = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction SilentlyContinue
+    for ($depth = 0; $depth -lt 6 -and $walk; $depth++) {
+        $nextId = [int]$walk.ParentProcessId
+        if ($nextId -le 0) { break }
+        $next = Get-CimInstance Win32_Process -Filter "ProcessId=$nextId" -ErrorAction SilentlyContinue
+        if (-not $next) { break }
+        Write-Host "[Diagnose] parent $($next.Name) :: $($next.CommandLine)"
+        $walk = $next
+    }
+    exit 0
+}
+
 function Hide-Console {
     # A borrowed terminal is not ours to hide, even temporarily: the user may have
     # other work in it. Only a console this script owns may disappear.
-    if ($SkipHide -or -not $owned -or $console -eq [IntPtr]::Zero) { return }
+    if ($SkipHide -or -not $owned -or $console -eq [IntPtr]::Zero) {
+        if (-not $SkipHide -and -not $owned) {
+            Write-Host "[Launch] Console left visible (started from an existing terminal)."
+        }
+        return
+    }
     [void][IexaLauncher.Native]::ShowWindow($console, 0)  # SW_HIDE
+    Write-Host "[Launch] Console hidden; it will close together with IEXA."
 }
 
 function Restore-Console {
@@ -97,6 +127,7 @@ function Restore-Console {
 $process = $null
 try {
     $process = Start-Process -FilePath $ElectronExe -ArgumentList @("`"$AppDir`"") -WorkingDirectory $AppDir -PassThru
+    Write-Host "[Launch] App started (pid $($process.Id))."
 } catch {
     Write-Host "[ERROR] Could not start Electron: $($_.Exception.Message)"
     exit 1
