@@ -292,6 +292,8 @@ function applySessionRuntime(sessionId) {
   promptQueue = runtime.promptQueue || [];
   isDrainingQueue = !!runtime.isDrainingQueue;
   suppressQueueDrain = !!runtime.suppressQueueDrain;
+  // Switching to a running conversation must swap in the shortcut tips.
+  window.IexaComposerHint?.refresh?.();
   return runtime;
 }
 

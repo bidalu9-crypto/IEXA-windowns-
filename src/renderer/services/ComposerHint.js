@@ -3,14 +3,24 @@
 //
 // The native placeholder cannot animate, so an overlay carries the text and the
 // native one is made transparent. The rotation mixes the live context usage,
-// the selected site's balance and the static hints; as the context approaches
-// its compaction threshold the composer itself turns into a red mist.
+// the selected site's balance and either the static hints (idle) or the shortcut
+// tips (while a turn runs); as the context approaches its compaction threshold
+// the composer itself turns into a red mist.
 //
 // Classic script: declarations only, wiring happens in initComposerHint().
 // =============================================================================
 const COMPOSER_HINT_INTERVAL = 2000;
 const COMPOSER_HINT_SWAP_MS = 380;
 const COMPOSER_HINT_STATIC = ['有问题，随便问', '输入 / 查看命令'];
+// Only while a turn is running: with an idle composer Esc does nothing and the
+// follow-up modifier has nothing to interrupt, so these would be lies.
+const COMPOSER_HINT_SHORTCUTS = [
+  () => `Ctrl+Shift+Enter 本条改为${composerHintFollowUpLabel()}`,
+  () => '输入 / 打开技能与命令',
+  () => 'Ctrl+K 打开命令面板',
+  () => 'Esc 停止当前任务',
+  () => 'Ctrl+Shift+S 截图标注',
+];
 const composerHintState = {
   input: null,
   hint: null,
@@ -62,11 +72,29 @@ function composerHintEntries() {
   const entries = [];
   const context = composerHintContextEntry();
   if (context) entries.push(context);
-  entries.push(COMPOSER_HINT_STATIC[0]);
   const balance = composerHintBalanceEntry();
+  if (composerHintBusy()) {
+    if (balance) entries.push(balance);
+    COMPOSER_HINT_SHORTCUTS.forEach((entry) => entries.push(entry()));
+    return entries;
+  }
+  entries.push(COMPOSER_HINT_STATIC[0]);
   if (balance) entries.push(balance);
   entries.push(COMPOSER_HINT_STATIC[1]);
   return entries;
+}
+
+/** `isProcessing` lives in app.js; the overlay only reads it. */
+function composerHintBusy() {
+  try { return typeof isProcessing !== 'undefined' && !!isProcessing; } catch { return false; }
+}
+
+/** What Ctrl/Cmd+Shift+Enter would do right now, in the setting's own words. */
+function composerHintFollowUpLabel() {
+  try {
+    if (typeof followUpMode === 'undefined') return '排队';
+    return followUpMode === 'queue' ? '立即插入' : '排队';
+  } catch { return '排队'; }
 }
 
 /** Pin the overlay to the textarea's first line; it grows with the content. */
@@ -80,7 +108,7 @@ function positionComposerHint() {
   hint.style.left = (inner.left - outer.left) + 'px';
   hint.style.top = (inner.top - outer.top) + 'px';
   hint.style.width = inner.width + 'px';
-  hint.style.height = Math.max(20, Math.min(inner.height, 30)) + 'px';
+  hint.style.height = Math.max(20, Math.min(inner.height, 34)) + 'px';
 }
 
 function paintComposerHint(text, animate) {

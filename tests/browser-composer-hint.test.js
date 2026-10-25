@@ -127,7 +127,7 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.equal(initial.hidden, false, 'an empty composer shows the hint');
   assert.equal(initial.lines, 2, 'two stacked lines carry the swap');
   assert.ok(initial.text.length > 0, 'a line is active');
-  assert.equal(initial.transition, '0.32s, 0.32s', 'the swap is animated (transform and opacity)');
+  assert.equal(initial.transition, '0.32s, 0.26s', 'the swap is animated (transform, then a delayed fade)');
   assert.match(initial.placeholderColor, /rgba\(0, 0, 0, 0\)|transparent/, 'the native placeholder is hidden');
   assert.equal(initial.alignLeft, 0, 'the overlay starts at the textarea');
   assert.equal(initial.alignTop, 0, 'and shares its first line');
@@ -176,6 +176,25 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   await wait("document.getElementById('composerHint').classList.contains('is-hidden')");
   await evaluate("window.IexaComposerHint.refresh(); true");
   await wait("!document.getElementById('composerHint').classList.contains('is-hidden')");
+
+  // ---- shortcut tips replace the static hints while a turn runs ------------
+  const idleEntries = await evaluate('composerHintEntries()');
+  assert.ok(idleEntries.includes('有问题，随便问'), 'an idle composer keeps the plain invitation');
+  assert.ok(!idleEntries.some((entry) => entry.includes('Ctrl+K')), 'and shows no shortcuts');
+
+  await evaluate('setProcessing(true); true');
+  const busyEntries = await evaluate('composerHintEntries()');
+  assert.ok(busyEntries.includes('Ctrl+K 打开命令面板'), 'a running turn teaches the palette');
+  assert.ok(busyEntries.some((entry) => /^Ctrl\+Shift\+Enter 本条改为(排队|立即插入)$/.test(entry)),
+    'and the follow-up modifier, in the setting\'s own words');
+  assert.ok(busyEntries.includes('Esc 停止当前任务'), 'and how to stop');
+  assert.ok(!busyEntries.includes('有问题，随便问'), 'the invitation is replaced, not appended');
+  await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /Ctrl\\+|Esc /.test(line.textContent))`);
+
+  await evaluate('setProcessing(false); true');
+  const restoredEntries = await evaluate('composerHintEntries()');
+  assert.ok(restoredEntries.includes('有问题，随便问'), 'the invitation comes back when the turn ends');
+  assert.ok(!restoredEntries.some((entry) => entry.includes('Ctrl+K')), 'and the shortcuts leave');
 
   // ---- red mist near the compaction threshold ------------------------------
   await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 130000, compactThreshold: 160000, state: 'ok' }); true");

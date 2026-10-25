@@ -1005,12 +1005,23 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0;
-  transform: translateY(62%);
-  transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease;
+  transform: translateY(100%);
+  transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .2s ease;
 }
 
-.composer-hint-line.is-current { opacity: 1; transform: translateY(0); }
-.composer-hint-line.is-leaving { opacity: 0; transform: translateY(-62%); }
+/* A full line of travel keeps the two texts adjacent instead of on top of each
+   other mid-swap; the outgoing one is gone before the incoming one is solid. */
+.composer-hint-line.is-current {
+  opacity: 1;
+  transform: translateY(0);
+  transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .26s ease .06s;
+}
+
+.composer-hint-line.is-leaving {
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .14s ease;
+}
 
 #chatInput.has-composer-hint::placeholder { color: transparent; }
 

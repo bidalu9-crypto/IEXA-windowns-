@@ -727,6 +727,8 @@ function setProcessing(processing) {
   // A background task may finish while another conversation is visible. Keep
   // its state, but leave the selected composer's controls untouched.
   if (currentSessionId !== visibleSessionId) return;
+  // The empty-state hint swaps its static tips for shortcuts while a turn runs.
+  window.IexaComposerHint?.refresh?.();
   // iOS: input stays editable while processing so user can insert follow-ups.
   // Stop is always available during a run; send becomes "queue" mode.
   stopBtn.style.display = processing ? 'flex' : 'none';
