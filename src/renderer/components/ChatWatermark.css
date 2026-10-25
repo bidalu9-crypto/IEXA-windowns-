@@ -1,0 +1,54 @@
+/* Brand watermark behind the transcript.
+ *
+ * Decorative only: it is a pseudo-element on the non-scrolling wrapper, so it
+ * never enters the layout, never scrolls with the messages, never receives a
+ * pointer event, and cannot be selected. `z-index: -1` inside an isolated
+ * stacking context paints it above the page background but below every message,
+ * so text is never tinted by it.
+ *
+ * The landing screen already carries the mark next to the headline, so the
+ * watermark stays out of the way there (#view-chat.is-welcome). */
+
+.chat-messages-area {
+  /* Own stacking context: keeps the negative z-index from slipping behind the
+     chat container's background, which would hide the mark entirely. */
+  isolation: isolate;
+}
+
+.chat-messages-area::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: url("../mobile-pair-logo.png") center / min(48vh, 440px) auto no-repeat;
+  opacity: 0.055;
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.45s ease;
+}
+
+/* The outline mark is a bright cyan; on the dark canvas it needs a touch more
+   presence to read as a watermark rather than a smudge. */
+[data-theme="dark"] .chat-messages-area::before {
+  opacity: 0.075;
+}
+
+#view-chat.is-welcome .chat-messages-area::before {
+  opacity: 0;
+}
+
+@media (max-width: 760px) {
+  .chat-messages-area::before {
+    background-size: min(34vh, 240px) auto;
+    opacity: 0.045;
+  }
+  [data-theme="dark"] .chat-messages-area::before {
+    opacity: 0.06;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-messages-area::before {
+    transition: none;
+  }
+}
