@@ -62,7 +62,28 @@ export class ProviderError extends IexaError {
   static http(status: number, body: string, label = 'Provider'): ProviderError {
     let payload: unknown;
     try { payload = JSON.parse(body); } catch { payload = undefined; }
-    return ProviderError.from({ status, message: `${label} API error ${status}: ${body}`, error: payload });
+    // The body is a JSON envelope, not a sentence: showing it verbatim buries the
+    // one line the user needs under `type`/`param`/`code`/`request id` noise.
+    // Keep the readable part as the message and the raw body as the cause.
+    return ProviderError.from({ status, message: ProviderError.describe(status, body, payload, label), error: payload });
+  }
+
+  /** A short, human sentence for a failed HTTP response. */
+  private static describe(status: number, body: string, payload: any, label: string): string {
+    const text = (value: unknown): string | undefined => {
+      if (typeof value !== 'string') return undefined;
+      const trimmed = value.replace(/\s+/g, ' ').trim();
+      return trimmed || undefined;
+    };
+    const fromEnvelope = text(payload?.error?.message)
+      || text(payload?.message)
+      || text(payload?.error)
+      || text(payload?.error_msg)
+      || text(payload?.detail);
+    if (fromEnvelope) return fromEnvelope.slice(0, 300);
+    const fallback = text(body);
+    if (fallback && !/^[[{]/.test(fallback)) return `${label} API error ${status}: ${fallback.slice(0, 300)}`;
+    return `${label} API error ${status}${fallback ? '：' + fallback.slice(0, 300) : ''}`;
   }
 
   /** A successful HTTP transport can still carry a failed provider response. */

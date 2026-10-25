@@ -110,6 +110,11 @@ test('real browser: the transcript notice is compact, themed and self-dismissing
       fontSize: style.fontSize, borderLeft: style.borderLeftWidth, radius: style.borderRadius,
       background: style.backgroundColor, borderLeftColor: style.borderLeftColor,
       textLines: el.querySelector('.error-message-text').getBoundingClientRect().height,
+      // The countdown bar must clear the text: a shrunk flex item used to clip the
+      // second line and let the bar run through it.
+      textBottomGap: Math.round(rect.bottom - el.querySelector('.error-message-text').getBoundingClientRect().bottom),
+      barBottom: parseFloat(after.bottom), barHeight: parseFloat(after.height),
+      shrink: style.flexShrink,
       close: !!el.querySelector('.error-message-close'),
       closeLabel: el.querySelector('.error-message-close')?.getAttribute('aria-label'),
       countdown: after.animationName + ' ' + after.animationDuration,
@@ -120,6 +125,11 @@ test('real browser: the transcript notice is compact, themed and self-dismissing
   assert.ok(box.width <= 620, 'width is capped: ' + box.width);
   assert.ok(box.width < box.transcriptWidth * 0.75, `width ${box.width} stays a fraction of ${box.transcriptWidth}`);
   assert.ok(box.height <= 70, 'height stays compact: ' + box.height);
+  // A flex item in the column transcript shrinks by default; that clipped the
+  // second line and drew the countdown bar across it.
+  assert.equal(box.shrink, '0', 'the notice never shrinks below its content');
+  assert.ok(box.textBottomGap >= box.barBottom + box.barHeight + 1,
+    `the text clears the countdown bar (gap ${box.textBottomGap}px, bar ends at ${box.barBottom + box.barHeight}px)`);
   assert.equal(box.fontSize, '12px', 'smaller type than the old 15.2px box');
   assert.equal(box.borderLeft, '2px', 'one tinted edge instead of a full border');
   assert.equal(box.radius, '8px');

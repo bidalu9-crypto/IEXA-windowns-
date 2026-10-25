@@ -10,6 +10,9 @@
   position: relative;
   display: flex;
   align-items: flex-start;
+  /* A flex item inside the column transcript shrinks by default; that clipped the
+     second line and let the countdown bar run straight through it. */
+  flex: 0 0 auto;
   gap: 8px;
   box-sizing: border-box;
   width: fit-content;
