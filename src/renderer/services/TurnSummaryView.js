@@ -6,6 +6,7 @@
 // per-rail bars and per-block states intact.
 
 const TURN_ACTIVITY_SELECTOR = '.thinking-block, .tool-steps';
+const TURN_TEXT_SELECTOR = '.message-content';
 const TURN_SETTLE_KEY = 'iexa-settle-turns';
 
 /** Default on: a finished turn should read as one line plus its answer. */
@@ -16,11 +17,26 @@ function turnSettleEnabled() {
   try { return localStorage.getItem(TURN_SETTLE_KEY) !== 'off'; } catch { return true; }
 }
 
-/** Activity nodes owned by this message (never a nested message's). */
+/**
+ * Activity nodes owned by this message (never a nested message's).
+ *
+ * Working commentary counts as activity too. A turn that narrates, calls a tool,
+ * narrates again and only then answers used to leave every narration paragraph
+ * in the transcript after settling — the reader saw the summary line, then a wall
+ * of "我先看一下…" before reaching the actual reply. Every answer block except
+ * the last one is commentary: the last block is what the turn is delivering.
+ */
 function turnActivityOf(messageEl) {
   if (!messageEl) return [];
-  return [...messageEl.querySelectorAll(TURN_ACTIVITY_SELECTOR)]
-    .filter((node) => node.closest('.message') === messageEl);
+  const own = (node) => node.closest('.message') === messageEl;
+  const blocks = [...messageEl.querySelectorAll(TURN_ACTIVITY_SELECTOR)].filter(own);
+  const texts = [...messageEl.querySelectorAll(TURN_TEXT_SELECTOR)].filter(own);
+  // No reasoning and no tools: this is a plain answer, and folding it would hide
+  // the only thing the turn produced.
+  if (!blocks.length) return [];
+  const narration = texts.slice(0, Math.max(0, texts.length - 1));
+  return [...blocks, ...narration].sort((a, b) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
 }
 
 function turnActivityStats(messageEl) {
