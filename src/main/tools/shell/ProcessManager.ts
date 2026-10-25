@@ -205,7 +205,18 @@ function truncateUtf8(value: string, maxBytes: number): string {
   return encoded.subarray(0, maxBytes).toString('utf8').replace(/\uFFFD$/, '');
 }
 
-/** Terminate exactly one process tree and wait for the cleanup helper. */
+/**
+ * Terminate exactly one process tree and wait for the cleanup helper.
+ *
+ * libuv resolves a bare executable name through PATH, and it throws
+ * synchronously (`spawn UNKNOWN`) when the resolved file cannot be executed —
+ * it never emits an asynchronous `error`. A rewritten or shadowed PATH
+ * (Electron inherits one from its launcher) therefore used to skip taskkill
+ * entirely: the catch block resolved at once, only the direct child was killed,
+ * and the command's real work kept running while the caller was told it had
+ * been cancelled. Retry with the absolute system path; only when no candidate
+ * can start does the direct-child fallback stand.
+ */
 function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promise<void> {
   if (!child.pid) return Promise.resolve();
   if (process.platform !== 'win32') {
@@ -227,17 +238,51 @@ function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promi
       try { killer?.kill(); } catch {}
       finish();
     }, Math.max(250, Math.min(2000, gracePeriodMs)));
-    try {
-      killer = spawn('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], {
-        windowsHide: true,
-        stdio: 'ignore',
-      });
-      killer.once('error', finish);
-      killer.once('close', finish);
-    } catch {
-      finish();
-    }
+
+    const candidates = taskkillCandidates();
+    const attempt = (index: number) => {
+      if (done) return;
+      const executable = candidates[index];
+      // Every candidate failed to start: kill what we own and stop waiting.
+      if (!executable) { finish(); return; }
+      try {
+        const started = spawn(executable, ['/pid', String(child.pid), '/t', '/f'], {
+          windowsHide: true,
+          stdio: 'ignore',
+        });
+        killer = started;
+        let advanced = false;
+        const retry = () => {
+          if (advanced || done) return;
+          advanced = true;
+          try { started.kill(); } catch {}
+          attempt(index + 1);
+        };
+        started.once('error', retry);
+        // A failed attempt also emits 'close'; it must not end the wait while a
+        // retry is in flight.
+        started.once('close', () => { if (!advanced) finish(); });
+      } catch {
+        // Synchronous spawn failure: try the next candidate.
+        attempt(index + 1);
+      }
+    };
+    attempt(0);
   });
+}
+
+/**
+ * The bare name keeps the historical lookup order (and stays shadowable, which
+ * is how the retry is exercised); the absolute paths are the candidate that
+ * survives a rewritten PATH.
+ */
+function taskkillCandidates(): string[] {
+  const absolute = [
+    process.env.SystemRoot ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe') : undefined,
+    process.env.WINDIR ? path.join(process.env.WINDIR, 'System32', 'taskkill.exe') : undefined,
+    'C:\\Windows\\System32\\taskkill.exe',
+  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+  return ['taskkill.exe', ...absolute];
 }
 
 /** Locate a real cmd.exe instead of trusting a possibly stale ComSpec value. */
