@@ -2882,6 +2882,7 @@ async function init() {
   initImageGallery();
   initModelProfilesModule();
   initBalanceView();
+  initShareConversation();
   initSidebarNavigationScroll();
   initMobileDrawers();
   initChatFocusMode();

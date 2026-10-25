@@ -1,0 +1,131 @@
+/* Share menu for one exchange. It lives in components/ because transcript.css
+   is at its line budget, and it is anchored to the action row rather than
+   nested inside it, so a folded rail can never clip it. */
+.share-menu {
+  position: fixed;
+  z-index: 80;
+  width: 268px;
+  padding: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--popover-bg, var(--bg-panel));
+  box-shadow: var(--popover-shadow, var(--shadow-lg));
+  animation: share-menu-in 140ms cubic-bezier(.22,.61,.36,1);
+}
+
+@keyframes share-menu-in {
+  from { opacity: 0; transform: translateY(4px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-menu { animation: none; }
+  html[data-motion="reduced"] .share-menu { animation: none; }
+}
+
+.share-menu-head {
+  margin: 2px 4px 6px;
+  color: var(--text-muted);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.share-menu-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-radius: 9px;
+}
+
+.share-menu-row:hover { background: var(--accent-light); }
+
+.share-menu-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 6px 8px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.share-menu-item:focus-visible,
+.share-menu-download:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: -2px;
+}
+
+.share-menu-badge {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: calc(10px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+
+.share-menu-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.share-menu-text strong {
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+}
+
+.share-menu-text small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-menu-download {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.share-menu-download:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+.share-menu-download .ui-icon { width: 15px; height: 15px; }
+
+.share-menu-status {
+  margin: 5px 4px 1px;
+  min-height: 14px;
+  color: var(--success, #1f8f4e);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  line-height: 1.35;
+}
+
+.share-menu-status:empty { display: none; }
+
+.share-menu-status[data-tone="error"] { color: var(--error); }

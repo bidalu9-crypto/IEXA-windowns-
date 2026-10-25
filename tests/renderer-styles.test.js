@@ -69,3 +69,26 @@ test('every relative url() in a layer resolves from that layer', () => {
   }
   assert.deepEqual(missing, [], 'unresolvable asset URLs: ' + missing.join(', '));
 });
+
+function allCssFiles(dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...allCssFiles(full));
+    else if (entry.name.endsWith('.css')) out.push(full);
+  }
+  return out;
+}
+
+test('no stylesheet uses JavaScript-style comments', () => {
+  // `//` is not a CSS comment. It turns the rest of the line into a malformed
+  // selector and the parser then swallows the rules that follow: the file still
+  // loads with a 200, so only a visual check would notice.
+  const offenders = [];
+  for (const file of allCssFiles(RENDERER)) {
+    fs.readFileSync(file, 'utf8').split('\n').forEach((line, index) => {
+      if (/^\s*\/\//.test(line)) offenders.push(`${path.relative(ROOT, file)}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, [], 'not valid CSS comments: ' + offenders.join(', '));
+});

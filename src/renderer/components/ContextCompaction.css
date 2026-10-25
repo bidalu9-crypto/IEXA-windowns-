@@ -1,5 +1,5 @@
-// Context compaction panel: a ceiling list, a custom window field, and the
-// trigger point. Split out of settings.css so that layer stays under its budget.
+/* Context compaction panel: a ceiling list, a custom window field, and the
+   trigger point. Split out of settings.css so that layer stays under its budget. */
 
 /* Two settings share this panel, so the value list scrolls with the rest. */
 .context-compaction-list { display: flex; flex-direction: column; }

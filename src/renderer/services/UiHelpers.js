@@ -171,7 +171,8 @@ function appendAssistantMessageActions(messageEl) {
   actions.innerHTML = `
     <button type="button" class="assistant-message-action" data-action="translate" title="中英互译（调用当前会话模型，会计入模型用量）" aria-label="中英互译">${uiIcon('translate')}</button>
     <button type="button" class="assistant-message-action" data-action="copy" title="复制回复" aria-label="复制回复">${uiIcon('copy')}</button>
-    <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>`;
+    <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>
+    <button type="button" class="assistant-message-action" data-action="share" title="分享这条回复" aria-label="分享这条回复" aria-haspopup="menu" aria-expanded="false">${uiIcon('share')}</button>`;
   actions.querySelector('[data-action="translate"]').addEventListener('click', function () {
     translateAssistantMessage(messageEl, this);
   });
@@ -180,6 +181,11 @@ function appendAssistantMessageActions(messageEl) {
   });
   actions.querySelector('[data-action="retry"]').addEventListener('click', function () {
     retryAssistantMessage(messageEl, this);
+  });
+  actions.querySelector('[data-action="share"]').addEventListener('click', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    window.IexaShare?.open(messageEl, this);
   });
   footer.appendChild(actions);
   messageEl.appendChild(footer);
