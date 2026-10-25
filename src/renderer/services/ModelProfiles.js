@@ -358,8 +358,12 @@ function installPopoverHitGuard() {
   }
 }
 
-// ---- Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M) ----
+// ---- Context compaction ceiling (auto / presets / custom) and trigger point ----
 let currentContextCompactionLimit = null;
+let currentContextCompactionThreshold = null;
+const MIN_CONTEXT_COMPACTION_LIMIT = 128000;
+const MAX_CONTEXT_COMPACTION_LIMIT = 10000000;
+const DEFAULT_CONTEXT_COMPACTION_THRESHOLD = 80;
 
 const CONTEXT_COMPACTION_OPTIONS = [
   { limit: null, label: '自动', desc: '按模型上下文上限' },
@@ -370,22 +374,62 @@ const CONTEXT_COMPACTION_OPTIONS = [
   { limit: 1000000, label: '1M', desc: '约 100 万 token' },
 ];
 
+/** Any integer at or above 128K; the presets are shortcuts, not a whitelist. */
 function normalizeContextCompactionLimit(value) {
   if (value === undefined || value === null || value === '' || value === 'auto' || value === '0') return null;
   const numeric = Number(value);
-  const option = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === numeric);
-  return option ? option.limit : null;
+  if (!Number.isSafeInteger(numeric)) return null;
+  if (numeric < MIN_CONTEXT_COMPACTION_LIMIT || numeric > MAX_CONTEXT_COMPACTION_LIMIT) return null;
+  return numeric;
+}
+
+function normalizeContextCompactionThreshold(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const percent = numeric > 1 ? numeric : numeric * 100;
+  if (percent < 50 || percent > 100) return null;
+  return Math.round(percent);
 }
 
 function formatContextCompactionLabel(limit) {
-  const option = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === normalizeContextCompactionLimit(limit));
-  return option ? option.label : '自动';
+  const normalized = normalizeContextCompactionLimit(limit);
+  if (normalized === null) return '自动';
+  const preset = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === normalized);
+  if (preset) return preset.label;
+  // Custom windows read best as the same K/M shorthand the presets use.
+  if (normalized >= 1000000) {
+    const millions = normalized / 1000000;
+    return (Number.isInteger(millions) ? String(millions) : millions.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')) + 'M';
+  }
+  const thousands = normalized / 1000;
+  return (Number.isInteger(thousands) ? String(thousands) : thousands.toFixed(1)) + 'K';
+}
+
+function formatContextCompactionThreshold(percent) {
+  return percent === null ? '默认 80%' : `${percent}%`;
+}
+
+function applyContextCompactionThresholdUI(percent) {
+  currentContextCompactionThreshold = percent;
+  const input = document.getElementById('contextCompactionThresholdInput');
+  const hint = document.getElementById('contextCompactionThresholdHint');
+  if (input && document.activeElement !== input) input.value = percent === null ? '' : String(percent);
+  if (hint) {
+    hint.textContent = percent === null ? '默认 80%，可选 50%–100%' : `当前 ${percent}%：达到容量的 ${percent}% 时压缩`;
+    hint.dataset.tone = 'ok';
+  }
+  document.querySelectorAll('.context-compaction-threshold-option').forEach((el) => {
+    el.classList.toggle('is-active', Number(el.dataset.threshold) === percent);
+  });
 }
 
 function applyContextCompactionUI(limit) {
   currentContextCompactionLimit = normalizeContextCompactionLimit(limit);
   const btn = document.getElementById('contextCompactionBtn');
   const label = document.getElementById('contextCompactionLabel');
+  const limitHint = document.getElementById('contextCompactionCustomHint');
+  const customInput = document.getElementById('contextCompactionCustomInput');
   const title = currentContextCompactionLimit
     ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${formatTokenCount(currentContextCompactionLimit)} token）`
     : '自动压缩档位：自动（按模型上下文上限）';
@@ -394,9 +438,23 @@ function applyContextCompactionUI(limit) {
     btn.title = title;
   }
   if (label) label.textContent = formatContextCompactionLabel(currentContextCompactionLimit);
+  const isPreset = CONTEXT_COMPACTION_OPTIONS.some((item) => item.limit === currentContextCompactionLimit);
+  if (customInput && document.activeElement !== customInput && !isPreset && currentContextCompactionLimit !== null) {
+    customInput.value = String(currentContextCompactionLimit);
+  }
+  if (limitHint) {
+    limitHint.textContent = !isPreset && currentContextCompactionLimit !== null
+      ? `当前自定义容量：${formatTokenCount(currentContextCompactionLimit)} token`
+      : '最低 128000';
+    limitHint.dataset.tone = 'ok';
+  }
   const menu = document.getElementById('contextCompactionMenu');
   if (menu) {
     menu.querySelectorAll('.context-compaction-option').forEach((el) => {
+      if (el.dataset.limit === 'custom') {
+        el.classList.toggle('is-active', !isPreset && currentContextCompactionLimit !== null);
+        return;
+      }
       const optionLimit = el.dataset.limit === 'auto' ? null : Number(el.dataset.limit);
       el.classList.toggle('is-active', optionLimit === currentContextCompactionLimit);
     });
@@ -413,19 +471,60 @@ function setContextCompactionMenuOpen(open) {
   if (menu) menu.style.display = open ? 'block' : 'none';
 }
 
+/**
+ * Persist one setting. The server rejects out-of-range values with a message, so
+ * this surfaces the failure instead of pretending the change stuck.
+ */
+async function putContextCompaction(payload) {
+  const response = await fetch(API_BASE + '/api/context-compaction', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || '保存上下文设置失败');
+  return data;
+}
+
 async function setContextCompaction(limit) {
   const next = normalizeContextCompactionLimit(limit);
-  currentContextCompactionLimit = next;
-  applyContextCompactionUI(next);
-  setContextCompactionMenuOpen(false);
   try {
-    await fetch(API_BASE + '/api/context-compaction', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contextCompactionLimit: next }),
-    });
+    await putContextCompaction({ contextCompactionLimit: next });
+    applyContextCompactionUI(next);
+    setContextCompactionMenuOpen(false);
   } catch (e) {
+    const hint = document.getElementById('contextCompactionCustomHint');
+    if (hint) { hint.textContent = e.message || String(e); hint.dataset.tone = 'error'; }
     console.warn('save context compaction failed', e);
+  }
+}
+
+async function setContextCompactionThreshold(percent) {
+  const next = percent === null ? null : normalizeContextCompactionThreshold(percent);
+  const hint = document.getElementById('contextCompactionThresholdHint');
+  if (percent !== null && next === null) {
+    if (hint) { hint.textContent = '请输入 50 到 100 之间的百分比'; hint.dataset.tone = 'error'; }
+    return;
+  }
+  try {
+    await putContextCompaction({ contextCompactionThreshold: next === null ? null : next / 100 });
+    applyContextCompactionThresholdUI(next);
+  } catch (e) {
+    if (hint) { hint.textContent = e.message || String(e); hint.dataset.tone = 'error'; }
+    console.warn('save compaction threshold failed', e);
+  }
+}
+
+/** Hydrate both settings from the server (authoritative over any cached value). */
+async function loadContextCompactionSettings() {
+  try {
+    const response = await fetch(API_BASE + '/api/context-compaction');
+    if (!response.ok) return;
+    const data = await response.json();
+    applyContextCompactionUI(normalizeContextCompactionLimit(data.contextCompactionLimit));
+    applyContextCompactionThresholdUI(normalizeContextCompactionThreshold(data.contextCompactionThreshold));
+  } catch (error) {
+    console.warn('load context compaction failed', error);
   }
 }
 
@@ -436,6 +535,8 @@ function initContextCompactionControl() {
   if (!btn || !menu || !wrap) return;
 
   applyContextCompactionUI(currentContextCompactionLimit);
+  applyContextCompactionThresholdUI(currentContextCompactionThreshold);
+  void loadContextCompactionSettings();
 
   btn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -448,8 +549,60 @@ function initContextCompactionControl() {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextCompaction(el.dataset.limit);
+      // The custom row is a disclosure, not a value: it reveals the input and
+      // leaves the current ceiling untouched until the user confirms a number.
+      if (el.dataset.limit === 'custom') {
+        const custom = document.getElementById('contextCompactionCustom');
+        if (custom) {
+          custom.hidden = false;
+          document.getElementById('contextCompactionCustomInput')?.focus();
+        }
+        return;
+      }
+      void setContextCompaction(el.dataset.limit);
     });
+  });
+
+  const customInput = document.getElementById('contextCompactionCustomInput');
+  const customConfirm = document.getElementById('contextCompactionCustomConfirm');
+  const commitCustom = () => {
+    const raw = Number(customInput?.value);
+    const hint = document.getElementById('contextCompactionCustomHint');
+    if (!Number.isSafeInteger(raw) || raw < MIN_CONTEXT_COMPACTION_LIMIT || raw > MAX_CONTEXT_COMPACTION_LIMIT) {
+      if (hint) { hint.textContent = '请输入 128000 到 10000000 之间的整数'; hint.dataset.tone = 'error'; }
+      customInput?.focus();
+      return;
+    }
+    void setContextCompaction(raw);
+  };
+  customConfirm?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); commitCustom(); });
+  customInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitCustom(); }
+  });
+
+  menu.querySelectorAll('.context-compaction-threshold-option').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void setContextCompactionThreshold(Number(el.dataset.threshold));
+    });
+  });
+
+  const thresholdInput = document.getElementById('contextCompactionThresholdInput');
+  const thresholdConfirm = document.getElementById('contextCompactionThresholdConfirm');
+  const commitThreshold = () => {
+    const raw = Number(thresholdInput?.value);
+    const hint = document.getElementById('contextCompactionThresholdHint');
+    if (!Number.isFinite(raw) || raw < 50 || raw > 100) {
+      if (hint) { hint.textContent = '请输入 50 到 100 之间的百分比'; hint.dataset.tone = 'error'; }
+      thresholdInput?.focus();
+      return;
+    }
+    void setContextCompactionThreshold(raw);
+  };
+  thresholdConfirm?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); commitThreshold(); });
+  thresholdInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitThreshold(); }
   });
 
   document.addEventListener('click', (e) => {

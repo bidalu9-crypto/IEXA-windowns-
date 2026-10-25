@@ -37,9 +37,12 @@ export function contextWindowForModel(model: string, provider = ''): number {
  * model window. Keep the historical 80% ceiling for providers without an
  * output limit, while reserving the actual advertised completion budget.
  */
-export function compactThresholdForWindow(window: number, maxOutputTokens = 0): number {
+export function compactThresholdForWindow(window: number, maxOutputTokens = 0, thresholdRatio = DEFAULT_THRESHOLD_RATIO): number {
   const safeWindow = Math.max(1, Math.floor(Number(window) || 0));
-  const defaultThreshold = Math.floor(safeWindow * DEFAULT_THRESHOLD_RATIO);
+  // Callers may pass anything; the ceiling math below must stay in range or the
+  // threshold could collapse to zero (compaction on every single step).
+  const ratio = Math.min(1, Math.max(0.5, Number(thresholdRatio) || DEFAULT_THRESHOLD_RATIO));
+  const defaultThreshold = Math.floor(safeWindow * ratio);
   const requestedOutput = Math.max(0, Math.floor(Number(maxOutputTokens) || 0));
   if (requestedOutput <= 0) return Math.max(1, defaultThreshold);
   const outputReserve = Math.min(requestedOutput, safeWindow - 1);
@@ -105,6 +108,12 @@ const SUMMARY_SUFFIX = '\n</context-summary>\n\nRetained recent context:';
 export interface ContextCompactionOptions {
   /** Bound a stalled provider independently of its transport timeout. */
   summaryTimeoutMs?: number;
+  /**
+   * Where to start compacting, as a share of the window. The historical 80%
+   * keeps a fifth of the window free for the reply; a user who runs close to
+   * the limit can raise it to 1.0 and accept the output-reserve clamp instead.
+   */
+  thresholdRatio?: number;
 }
 
 function clip(text: string, limit: number): string {
@@ -220,7 +229,7 @@ export class ContextCompactor {
     const growth = Math.max(0, estimate - this.lastUsageEstimate);
     const usedTokens = Math.max(estimate, this.lastReportedInputTokens + growth);
     this.lastEstimatedRequest = estimate;
-    const threshold = compactThresholdForWindow(this.contextWindow, this.maxOutputTokens);
+    const threshold = compactThresholdForWindow(this.contextWindow, this.maxOutputTokens, this.options.thresholdRatio);
     return {
       contextWindow: this.contextWindow, usedTokens,
       estimated: this.restoredBaseline || !this.lastReportedInputTokens || growth > 0 || estimate > this.lastReportedInputTokens,
@@ -329,7 +338,7 @@ export class ContextCompactor {
     let latestUser = -1;
     for (let i = clean.length - 1; i >= 0; i--) { if (isUserRequest(clean[i])) { latestUser = i; break; } }
     if (latestUser < 0 || (clean.length < 2 && !checkpointRemoved)) return exhausted();
-    const threshold = compactThresholdForWindow(this.contextWindow, this.maxOutputTokens);
+    const threshold = compactThresholdForWindow(this.contextWindow, this.maxOutputTokens, this.options.thresholdRatio);
     const retainTokens = Math.max(1, Math.floor(this.contextWindow * DEFAULT_RETAIN_RATIO));
     let start = clean.length;
     let retained = 0;

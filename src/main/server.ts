@@ -90,6 +90,12 @@ import * as QRCode from 'qrcode';
 import { StreamBatcher } from './api/StreamBatcher';
 import { TranscriptRecorder, TranscriptEvents } from './session/TranscriptRecorder';
 import { markInterruptedTurns } from './session/InterruptedTurns';
+import {
+  CONTEXT_COMPACTION_LIMITS,
+  DEFAULT_COMPACTION_THRESHOLD_RATIO,
+  normalizeContextCompactionLimit,
+  normalizeContextCompactionThreshold,
+} from './session/ContextCompactionSettings';
 import { createTurnCheckpoint, planResume } from './session/TurnDurability';
 import type { ChatMessage, ChatAttachmentMeta } from './session/ChatMessage';
 
@@ -338,6 +344,8 @@ interface AppSettings {
   thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
   /** User-selected context ceiling for automatic compaction. */
   contextCompactionLimit?: number;
+  /** Where compaction starts inside that ceiling: 0.5–1.0, default 0.8. */
+  contextCompactionThreshold?: number;
   permissionMode?: PermissionMode;
   visionProfileId?: string;
 }
@@ -367,6 +375,7 @@ function loadSettings(): AppSettings {
         activeProfileId: raw.activeProfileId || raw.profiles?.[0]?.id || '',
         thinkingLevel: normalizeThinkingLevel(raw.thinkingLevel),
         contextCompactionLimit: normalizeContextCompactionLimit(raw.contextCompactionLimit),
+        contextCompactionThreshold: normalizeContextCompactionThreshold(raw.contextCompactionThreshold),
         permissionMode: normalizePermissionMode(raw.permissionMode),
         visionProfileId: typeof raw.visionProfileId === 'string' ? raw.visionProfileId : undefined,
       };
@@ -393,17 +402,7 @@ function imageMimeType(filePath: string): string | null {
   return ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' } as Record<string, string>)[ext] || null;
 }
 
-const CONTEXT_COMPACTION_LIMITS = [128_000, 256_000, 384_000, 768_000, 1_000_000] as const;
 
-type ContextCompactionLimit = typeof CONTEXT_COMPACTION_LIMITS[number];
-
-function normalizeContextCompactionLimit(value: unknown): ContextCompactionLimit | undefined {
-  if (value === undefined || value === null || value === '' || value === 'auto') return undefined;
-  const numeric = Number(value);
-  return CONTEXT_COMPACTION_LIMITS.includes(numeric as ContextCompactionLimit)
-    ? numeric as ContextCompactionLimit
-    : undefined;
-}
 
 function effectiveContextWindow(profile: ModelProfile, limit: unknown): number {
   const reportedWindow = Number(profile.contextWindow);
@@ -420,17 +419,30 @@ function effectiveContextWindow(profile: ModelProfile, limit: unknown): number {
   return modelWindow;
 }
 
-function getContextCompactionLimit(): ContextCompactionLimit | undefined {
+function getContextCompactionLimit(): number | undefined {
   return normalizeContextCompactionLimit(loadSettings().contextCompactionLimit);
 }
 
-function saveContextCompactionLimit(value: unknown): ContextCompactionLimit | undefined {
+function saveContextCompactionLimit(value: unknown): number | undefined {
   const limit = normalizeContextCompactionLimit(value);
   const s = loadSettings();
   s.contextCompactionLimit = limit;
   saveSettings(s);
   invalidateAllAgentsForNextTurn();
   return limit;
+}
+
+function getContextCompactionThreshold(): number | undefined {
+  return normalizeContextCompactionThreshold(loadSettings().contextCompactionThreshold);
+}
+
+function saveContextCompactionThreshold(value: unknown, explicitClear = false): number | undefined {
+  const threshold = explicitClear ? undefined : normalizeContextCompactionThreshold(value);
+  const s = loadSettings();
+  s.contextCompactionThreshold = threshold;
+  saveSettings(s);
+  invalidateAllAgentsForNextTurn();
+  return threshold;
 }
 
 function normalizePermissionMode(value: unknown): PermissionMode {
@@ -1228,6 +1240,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
       }
     },
     contextWindow: effectiveContextWindow(profile, profile.contextCompactionLimit ?? getContextCompactionLimit()),
+    compactionThresholdRatio: getContextCompactionThreshold() ?? DEFAULT_COMPACTION_THRESHOLD_RATIO,
     permissionResolver: (request: PermissionRequest) => permissionBroker.request(request),
     questionResolver: (request: AskUserRequest) => questionBroker.request(request),
     permissionMode: getPermissionMode(),
@@ -3273,15 +3286,36 @@ ${recentMemories}
     // ===== Context compaction ceiling (auto / 128K / 256K / 384K / 768K / 1M) =====
     if (url.pathname === '/api/context-compaction') {
       if (req.method === 'GET') {
-        jsonReply(res, 200, { contextCompactionLimit: getContextCompactionLimit() ?? null });
+        jsonReply(res, 200, {
+          contextCompactionLimit: getContextCompactionLimit() ?? null,
+          contextCompactionThreshold: getContextCompactionThreshold() ?? null,
+          contextCompactionThresholdDefault: DEFAULT_COMPACTION_THRESHOLD_RATIO,
+        });
         return;
       }
       if (req.method === 'PUT' || req.method === 'POST') {
         const body = await readBody(req);
         try {
-          const parsed = JSON.parse(body);
-          const limit = saveContextCompactionLimit(parsed.contextCompactionLimit ?? parsed.limit);
-          jsonReply(res, 200, { ok: true, contextCompactionLimit: limit ?? null });
+          const parsed = JSON.parse(body) as Record<string, unknown>;
+          const hasLimit = Object.hasOwn(parsed, 'contextCompactionLimit') || Object.hasOwn(parsed, 'limit');
+          const hasThreshold = Object.hasOwn(parsed, 'contextCompactionThreshold');
+          if (!hasLimit && !hasThreshold) { jsonReply(res, 400, { error: '没有要保存的设置' }); return; }
+          // A rejected value must fail loudly. Silently falling back to 自动 hides
+          // a typo behind a setting that looks applied but is not.
+          const rawLimit = Object.hasOwn(parsed, 'contextCompactionLimit') ? parsed.contextCompactionLimit : parsed.limit;
+          if (hasLimit && rawLimit !== null && rawLimit !== undefined && rawLimit !== 'auto' && normalizeContextCompactionLimit(rawLimit) === undefined) {
+            jsonReply(res, 400, { error: '上下文容量需为 128000 到 10000000 之间的整数' });
+            return;
+          }
+          if (hasThreshold && parsed.contextCompactionThreshold !== null && normalizeContextCompactionThreshold(parsed.contextCompactionThreshold) === undefined) {
+            jsonReply(res, 400, { error: '压缩触发点需在 50% 到 100% 之间' });
+            return;
+          }
+          const limit = hasLimit ? saveContextCompactionLimit(rawLimit) : getContextCompactionLimit();
+          const threshold = hasThreshold
+            ? saveContextCompactionThreshold(parsed.contextCompactionThreshold)
+            : getContextCompactionThreshold();
+          jsonReply(res, 200, { ok: true, contextCompactionLimit: limit ?? null, contextCompactionThreshold: threshold ?? null });
         } catch {
           jsonReply(res, 400, { error: '无效的 JSON' });
         }

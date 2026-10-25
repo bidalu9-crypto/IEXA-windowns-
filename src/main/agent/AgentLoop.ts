@@ -156,6 +156,8 @@ export interface AgentLoopConfig {
   soul?: SoulFile | null;
   /** API-reported context window (from /v1/models), overrides model-name guessing. */
   contextWindow?: number;
+  /** Where compaction starts, as a share of the window (0.5–1.0; default 0.8). */
+  compactionThresholdRatio?: number;
   /** Called when model file_reads a skill SKILL.md */
   onSkillRead?: (resolvedPath: string) => void;
   /** Called after model writes/edits a path under skills/ */
@@ -637,6 +639,7 @@ export class AgentLoop {
       tools,
       systemPrompt,
       this.config.maxTokens || this.config.provider.defaultMaxTokens,
+      { thresholdRatio: this.config.compactionThresholdRatio },
     );
     this.compactor = compactor;
     if (!resuming) {
