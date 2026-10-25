@@ -197,7 +197,18 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.ok(!restoredEntries.some((entry) => entry.includes('Ctrl+K')), 'and the shortcuts leave');
 
   // ---- red mist near the compaction threshold ------------------------------
+  // 65% of the window with an 80% threshold is five points away from the mist
+  // band: this is the regression the screenshot reported ("70% and already red").
   await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 130000, compactThreshold: 160000, state: 'ok' }); true");
+  const early = await evaluate(`(() => {
+    const area = document.querySelector('.chat-input-area');
+    return { warn: area.classList.contains('is-context-warn'), critical: area.classList.contains('is-context-critical') };
+  })()`);
+  assert.deepEqual(early, { warn: false, critical: false },
+    '65% of the window stays calm; the mist waits for the threshold band');
+
+  // 76% of the window is four points from an 80% threshold: that is the band.
+  await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 152000, compactThreshold: 160000, state: 'ok' }); true");
   const warn = await evaluate(`(() => {
     const area = document.querySelector('.chat-input-area');
     const style = getComputedStyle(area);
@@ -209,7 +220,7 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
       border: style.borderTopColor,
     };
   })()`);
-  assert.equal(warn.warn, true, '81% of the threshold starts the mist');
+  assert.equal(warn.warn, true, '76% of the window starts the mist');
   assert.equal(warn.critical, false);
   assert.notEqual(warn.shadow, 'none', 'the haze is a real shadow');
   assert.match(warn.background, /radial-gradient/, 'and a soft wash inside the field');
@@ -220,9 +231,9 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
     `the border picks up the warning tone (got ${warn.border})`);
 
   // The same reading feeds the rotation, so the entry must join it.
-  await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /上下文已用 65%/.test(line.textContent))`);
+  await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /上下文已用 76%/.test(line.textContent))`);
 
-  await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 156000, compactThreshold: 160000, state: 'ok' }); true");
+  await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 159000, compactThreshold: 160000, state: 'ok' }); true");
   const critical = await evaluate(`(() => {
     const area = document.querySelector('.chat-input-area');
     return {
@@ -231,7 +242,7 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
       animation: getComputedStyle(area).animationDuration,
     };
   })()`);
-  assert.equal(critical.critical, true, '97% of the threshold escalates');
+  assert.equal(critical.critical, true, '79.5% of the window escalates: half a point from the threshold');
   assert.equal(critical.warn, false, 'the two states are exclusive');
   assert.equal(critical.animation, '2.4s', 'the critical mist breathes faster');
 

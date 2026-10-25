@@ -244,8 +244,9 @@ function handleContextStatus(context, sessionId) {
   const detail = `${statusText}：${formatContextTokens(usedTokens)} / ${formatContextTokens(windowTokens)} tokens（${percent}% · ${source}）· 自动压缩阈值 ${thresholdPercent}%`;
   contextProgress.title = detail;
   contextProgressTooltip.textContent = detail;
-  // The composer mists as this ratio approaches 1, so the two readings agree.
-  window.IexaComposerHint?.setContextPressure?.(usedTokens, thresholdTokens, state);
+  // The composer mists as this percentage approaches the threshold percentage,
+  // so the ring the user is reading and the field agree.
+  window.IexaComposerHint?.setContextPressure?.(usedTokens, thresholdTokens, state, windowTokens);
 }
 
 function formatTokenCount(value) {

@@ -183,7 +183,7 @@ function syncComposerHintVisibility() {
  * `null` clears it. Called from the context ring's own update path so the two
  * readings can never disagree.
  */
-function setComposerContextPressure(usedTokens, thresholdTokens, state) {
+function setComposerContextPressure(usedTokens, thresholdTokens, state, windowTokens) {
   const area = document.querySelector('.chat-input-area');
   if (!area) return;
   const used = Number(usedTokens);
@@ -193,9 +193,16 @@ function setComposerContextPressure(usedTokens, thresholdTokens, state) {
     syncComposerHintVisibility();
     return;
   }
-  const ratio = used / threshold;
-  const critical = state === 'compacting' || state === 'exhausted' || ratio >= 0.95;
-  const warn = critical || state === 'near-limit' || ratio >= 0.75;
+  // Judge against the number the ring shows (used / window), not against
+  // used / threshold: with an 80% threshold the old ratio started the mist at
+  // 60% of the window, so "70%" already looked alarming. The mist now appears
+  // five points before the threshold and deepens one point before it.
+  const span = Number(windowTokens) > 0 ? Number(windowTokens) : threshold;
+  const limitPercent = Math.min(100, (threshold / span) * 100);
+  const usedPercent = Math.min(100, (used / span) * 100);
+  const pointsLeft = limitPercent - usedPercent;
+  const critical = state === 'compacting' || state === 'exhausted' || pointsLeft <= 1;
+  const warn = critical || state === 'near-limit' || pointsLeft <= 5;
   area.classList.toggle('is-context-warn', warn && !critical);
   area.classList.toggle('is-context-critical', critical);
   // The percentage in the rotation just moved; let the overlay catch up.
