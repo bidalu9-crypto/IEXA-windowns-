@@ -148,7 +148,7 @@ cd IEXA-windowns-
 npm ci
 ```
 
-然后双击 **`start-electron.bat`**。脚本会自动检查依赖、下载并校验 Electron 运行时、编译 TypeScript，再打开窗口。
+然后双击 **`start-electron.bat`**。脚本会自动检查依赖、下载并校验 Electron 运行时、编译 TypeScript，再打开窗口；**窗口出现后控制台会自动隐藏**，关掉 IEXA 时它也随之退出。
 
 想在浏览器里用：
 

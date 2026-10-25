@@ -33,18 +33,19 @@ echo [OK] Build complete.
 echo.
 echo [Launch] Starting new IEXA instance...
 echo.
-start "" "%ELECTRON_EXE%" "%APP_DIR%"
-if errorlevel 1 goto failed
 
-echo New IEXA instance is starting. A new desktop window will appear.
-echo Double-click this script again to open another window.
-echo.
-
-timeout /t 2 >nul
+rem The launcher waits for the app window, hides this console, then supervises the
+rem process: the window disappears together with IEXA instead of lingering.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\scripts\electron-launcher.ps1" -ElectronExe "%ELECTRON_EXE%" -AppDir "%APP_DIR%"
+set "LAUNCH_CODE=%ERRORLEVEL%"
+if not "%LAUNCH_CODE%"=="0" (
+    set "EXIT_CODE=%LAUNCH_CODE%"
+    goto failed
+)
 exit /b 0
 
 :failed
-set "EXIT_CODE=%ERRORLEVEL%"
+if not defined EXIT_CODE set "EXIT_CODE=%ERRORLEVEL%"
 if "%EXIT_CODE%"=="0" set "EXIT_CODE=1"
 echo.
 echo [FAILED] IEXA was not started. Review the error above.
