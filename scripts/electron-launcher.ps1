@@ -59,32 +59,34 @@ Add-Type -Namespace IexaLauncher -Name Native -MemberDefinition @'
 
 $console = [IexaLauncher.Native]::GetConsoleWindow()
 
-# Walk up the process chain: a console started by Explorer (double-click, shortcut,
-# UAC elevation) belongs to this script; one started from cmd/pwsh/Windows Terminal
-# belongs to the user and must be restored rather than destroyed.
+# Decide who owns this console from the DIRECT parent only.
+#
+# A double-clicked batch runs as `cmd.exe /c ""…\start-electron.bat" "`, which is
+# this script's immediate parent; that console was created for the launch and may
+# be hidden. A shell the user already had open has neither /c nor the batch name,
+# so it is left alone.
+#
+# Walking further up is wrong: when this script is started from a test runner the
+# chain is powershell → node.exe → `cmd.exe /d /s /c node --test …`, and that
+# ancestor's /c belongs to the runner, not to us. Stopping at the first ancestor
+# avoids attributing someone else's console to this launch.
 function Test-OwnedConsole {
     try {
-        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
-        for ($depth = 0; $depth -lt 5 -and $current; $depth++) {
-            $parentId = [int]$current.ParentProcessId
-            if ($parentId -le 0) { break }
-            $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$parentId" -ErrorAction Stop
-            if (-not $parent) { break }
-            if ($parent.Name -ieq 'explorer.exe') { return $true }
-            if ($parent.Name -ieq 'cmd.exe') {
-                # A double-clicked batch runs as `cmd /c ""…\start-electron.bat" "`:
-                # that console was created for this launch. A shell the user already
-                # had open has neither /c nor the batch name, and must be left alone.
-                $line = "$($parent.CommandLine)"
-                if ($line -match '(?i)(^|\s)/c(\s|$)') { return $true }
-                if ($line -match '(?i)start-electron\.bat') { return $true }
-                return $false
-            }
-            if ($parent.Name -match '(?i)^(powershell|pwsh|windowsterminal|conhost|openconsole)\.exe$') { return $false }
-            $current = $parent
+        $self = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+        if (-not $self) { return $false }
+        $parentId = [int]$self.ParentProcessId
+        if ($parentId -le 0) { return $false }
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$parentId" -ErrorAction Stop
+        if (-not $parent) { return $false }
+        $name = "$($parent.Name)".ToLowerInvariant()
+        if ($name -eq 'explorer.exe') { return $true }
+        if ($name -eq 'cmd.exe') {
+            $line = "$($parent.CommandLine)"
+            # /c means "run this and exit": a console created for the batch.
+            if ($line -match '(?i)(^|\s)/c(\s|$)') { return $true }
+            if ($line -match '(?i)start-electron\.bat') { return $true }
         }
     } catch { }
-    # Unknown ancestry: never assume the console is ours to hide.
     return $false
 }
 
