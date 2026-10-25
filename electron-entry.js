@@ -500,16 +500,28 @@ function installPetHost() {
 // Each window is its own agent instance. Give it a unique workspace so
 // sessions / memory / settings never collide across concurrent windows.
 //
-// A packaged build must not write next to its own __dirname: in an asar that is
-// inside the archive (mkdirSync fails, the app dies with an error dialog), and in
-// a portable build the directory is a temp extraction that disappears on exit.
+// Where does this build keep sessions, settings and uploads?
+//
+// Order matters: a packaged build must never write beside its own executable —
+// dropping an `IEXA-WIN-data` folder on someone's desktop is exactly what made
+// the portable build look like it had "lost" every conversation.
+//
+//   1. IEXA_WORKSPACE            explicit override (launchers, tests, CI)
+//   2. %APPDATA%\IEXA-WIN\workspace-path.txt
+//                                a pointer, so a packaged build can share the
+//                                workspace of a source checkout instead of
+//                                starting empty
+//   3. %APPDATA%\IEXA-WIN\workspace   the default for any packaged build
+//   4. <repo>\workspace          development only
 function resolveWorkspaceDir() {
-  if (process.env.IEXA_WORKSPACE) return process.env.IEXA_WORKSPACE; // explicit override
-  // electron-builder sets this for the portable target: keep data beside the exe
-  // so the whole thing really is portable.
-  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
-  if (portableDir) return path.join(portableDir, 'IEXA-WIN-data', 'workspace');
-  if (app.isPackaged) return path.join(app.getPath('appData'), 'IEXA-WIN', 'workspace');
+  if (process.env.IEXA_WORKSPACE) return process.env.IEXA_WORKSPACE;
+  const appDataRoot = path.join(app.getPath('appData'), 'IEXA-WIN');
+  const pointerFile = path.join(appDataRoot, 'workspace-path.txt');
+  try {
+    const target = fs.readFileSync(pointerFile, 'utf8').trim();
+    if (target && fs.existsSync(path.join(target, '.iexa-sessions.json'))) return target;
+  } catch { /* no pointer, or unreadable */ }
+  if (app.isPackaged) return path.join(appDataRoot, 'workspace');
   return path.join(__dirname, 'workspace');
 }
 

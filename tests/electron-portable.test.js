@@ -16,12 +16,30 @@ test('the workspace is resolved from the runtime, not from __dirname alone', () 
   const body = resolver.slice(0, resolver.indexOf('function ensureInstanceWorkspace'));
 
   assert.match(body, /process\.env\.IEXA_WORKSPACE/, 'an explicit override still wins');
-  assert.match(body, /PORTABLE_EXECUTABLE_DIR/, 'the portable target keeps data beside the exe');
+  assert.match(body, /workspace-path\.txt/, 'a pointer can share an existing workspace');
   assert.match(body, /app\.isPackaged/, 'a packaged build falls back to appData');
   assert.match(body, /app\.getPath\('appData'\)/, 'never inside app.asar');
+  // The portable build used to drop an IEXA-WIN-data folder next to the exe. On a
+  // desktop that looked like the app had lost every conversation, so the branch is
+  // gone for good.
+  assert.doesNotMatch(body, /PORTABLE_EXECUTABLE_DIR/, 'no data folder beside the executable');
   // The dev fallback stays last: it is the only case where __dirname is writable.
   const devAt = body.indexOf("path.join(__dirname, 'workspace')");
   assert.ok(devAt > body.indexOf('app.isPackaged'), 'the __dirname path is the last resort');
+});
+
+test('the exe and the installer carry the app icon', () => {
+  // Without an explicit icon electron-builder embeds the generic Electron mark:
+  // the desktop shortcut then shows a blank page icon instead of the fox.
+  assert.equal(pkg.build.icon, 'resources/icon.ico', 'the build-wide icon is set');
+  assert.equal(pkg.build.win.icon, 'resources/icon.ico', 'the Windows target overrides it too');
+  const ico = path.join(root, 'resources', 'icon.ico');
+  assert.ok(fs.existsSync(ico), 'the icon file exists');
+  // A valid .ico starts with 0,0,1,0 and declares at least one image.
+  const head = fs.readFileSync(ico).subarray(0, 6);
+  assert.equal(head.readUInt16LE(0), 0, 'reserved field');
+  assert.equal(head.readUInt16LE(2), 1, 'type: icon');
+  assert.ok(head.readUInt16LE(4) >= 5, 'several sizes are packed: ' + head.readUInt16LE(4));
 });
 
 test('a portable build is declared with a stable artifact name', () => {

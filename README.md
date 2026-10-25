@@ -133,7 +133,7 @@
 | 文件 | 用法 |
 |---|---|
 | `IEXA-WIN-Setup-x.y.z.exe` | 安装到本机，带开始菜单与桌面快捷方式，可在「应用和功能」卸载 |
-| `IEXA-WIN-Portable-x.y.z.exe` | **单文件便携版**：放到桌面直接双击，不写注册表；数据保存在同目录的 `IEXA-WIN-data\` |
+| `IEXA-WIN-Portable-x.y.z.exe` | **单文件便携版**：放到桌面直接双击，不写注册表。数据存在 `%APPDATA%\IEXA-WIN\workspace`，**不会在桌面留文件夹** |
 
 也可以本地构建：
 
@@ -143,6 +143,20 @@ npm run dist:portable
 ```
 
 产物分别在 `release\IEXA-Setup.exe` 与 `release\IEXA-WIN-Portable-<版本>.exe`。
+
+**让打包版共用已有的会话与配置**
+
+打包版默认把数据放在 `%APPDATA%\IEXA-WIN\workspace`。如果想让 exe 直接读源码目录里那份
+`workspace\`（例如从源码用惯了，不想复制几百 MB），新建一个指针文件：
+
+```bat
+mkdir "%APPDATA%\IEXA-WIN"
+echo E:\IEXA-WIN\workspace> "%APPDATA%\IEXA-WIN\workspace-path.txt"
+```
+
+指针里的路径必须以 `\.iexa-sessions.json` 存在为前提，否则会被忽略并回退到默认位置。
+指针生效时，源码启动与打包启动共用同一份数据——**两者不要同时打开**，否则两个进程会写同一批
+会话文件。
 
 ### 方式二：源码运行
 

@@ -1,6 +1,6 @@
 {
   "name": "iexa-win",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "IEXA-WIN - Your private Windows AI agent",
   "main": "electron-entry.js",
   "scripts": {
@@ -45,10 +45,12 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "resources/icon.ico"
     },
     "portable": {
-      "artifactName": "IEXA-WIN-Portable-${version}.${ext}"
+      "artifactName": "IEXA-WIN-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
     },
     "nsis": {
       "oneClick": false,
@@ -60,7 +62,8 @@
     "asarUnpack": [
       "desktop-agent/publish/**/*",
       "node_modules/node-pty/**/*"
-    ]
+    ],
+    "icon": "resources/icon.ico"
   },
   "dependencies": {
     "dompurify": "3.4.17",

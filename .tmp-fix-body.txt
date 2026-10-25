@@ -1,0 +1,38 @@
+三个问题同源：打包配置没写图标，工作区又被写死在 exe 旁边。
+
+1. exe 没有图标
+   `build.icon` / `build.win.icon` 都没配置，electron-builder 就用默认的 Electron 图标。
+   现在两个目标都指向 `resources/icon.ico`（7 个尺寸的狐狸描边标）。
+   验证方式不是看构建日志，而是从成品里把图标抽出来看：
+   `System.Drawing.Icon.ExtractAssociatedIcon` → 32×32，正是狐狸标。
+
+2. 桌面凭空多出 IEXA-WIN-data
+   上一版为了让便携版"真便携"，用 `PORTABLE_EXECUTABLE_DIR` 把数据放在 exe 旁边。
+   exe 放在桌面时，就在桌面建了一个 683 MB 级别的数据目录——这个分支已删除。
+
+3. 聊天记录与配置"全没了"
+   因为上面那条，新目录是空的。数据一直好好的在 `E:\IEXA-WIN\workspace`（39 个会话文件）。
+
+   现在的工作区解析顺序：
+   1. `IEXA_WORKSPACE` 显式覆盖
+   2. `%APPDATA%\IEXA-WIN\workspace-path.txt` 指针 —— 让打包版共用源码目录那份工作区
+   3. `%APPDATA%\IEXA-WIN\workspace` 打包版默认
+   4. `<repo>\workspace` 仅开发态
+
+   已写入指针 `E:\IEXA-WIN\workspace`，并删掉桌面那份空目录；桌面上只留两个 exe。
+
+实测（真实 exe，按 PID 结束）
+- 有指针：`pointedProfile=true`、`appDataProfile=false`、`sidecar=false` → 用的是指针目录。
+- 无指针：`appDataProfile=true` → 回退到 %APPDATA%，且 exe 旁边**不再**生成任何目录。
+- 期间发现探针自身继承了 `IEXA_WORKSPACE=E:\IEXA-WIN`（只在我这个进程作用域内），
+  导致探针把 `.iexa-*` 写进了仓库根；已清理，并在探针里显式剔除该变量后重测。
+
+产物（都已放到桌面）
+- `IEXA-WIN-Portable-1.0.1.exe` 127.1 MB，狐狸图标
+- `IEXA-WIN-Setup-1.0.1.exe` 148.6 MB，狐狸图标
+- 旧的 1.0.0 两个文件已从桌面移除，避免继续误用
+
+测试
+- tests/electron-portable.test.js 增加图标断言（文件存在、ICO 头合法、≥5 个尺寸），
+  并把「不许在 exe 旁边建目录」写成反向断言（`doesNotMatch PORTABLE_EXECUTABLE_DIR`）。
+- 全量 927 项，924 通过，0 失败，3 跳过。
