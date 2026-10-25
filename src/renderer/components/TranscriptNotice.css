@@ -1,0 +1,134 @@
+/* Transcript notices (errors, cancel notes, stream-limit warnings).
+ *
+ * The old version was a full-width box with a 1px error border and 12/16 padding:
+ * on a 1400px transcript it read as a banner rather than a message, and it stayed
+ * on screen forever. This is a compact inline notice: neutral surface, a single
+ * tinted edge, a 10-second countdown and a close button.
+ */
+
+.workbench-shell .error-message {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: min(100%, 620px);
+  margin: 10px 0 0;
+  padding: 7px 30px 8px 10px;
+  overflow: hidden;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--error) 46%, var(--border));
+  border-radius: 8px;
+  /* The surface is the theme's own panel colour. Only the 2px edge and the icon
+     carry the error tone: a tinted block was the original complaint. */
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  animation: notice-in 180ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.workbench-shell .error-message > span {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.workbench-shell .error-message .ui-icon {
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--error) 72%, var(--text-secondary));
+  stroke-width: 1.8;
+}
+
+/* The countdown doubles as the affordance: it shows how long the notice lasts. */
+.workbench-shell .error-message::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--error) 26%, transparent);
+  transform-origin: left center;
+  animation: notice-countdown var(--notice-life, 10000ms) linear forwards;
+}
+
+.workbench-shell .error-message.is-paused::after {
+  animation-play-state: paused;
+}
+
+.workbench-shell .error-message-close {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.workbench-shell .error-message-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.workbench-shell .error-message-close .ui-icon {
+  width: 11px;
+  height: 11px;
+  flex-basis: 11px;
+  margin: 0;
+  color: currentColor;
+  stroke-width: 2;
+}
+
+.workbench-shell .error-message.is-leaving {
+  animation: notice-out 180ms ease forwards;
+}
+
+/* Notices that live inside an assistant bubble should not add their own margin. */
+.workbench-shell .message .error-message {
+  margin-top: 8px;
+}
+
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes notice-out {
+  to { opacity: 0; transform: translateY(-2px); }
+}
+
+@keyframes notice-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* A countdown that cannot be read is worse than none: hold the bar still and let
+   the notice stay until dismissed. */
+@media (prefers-reduced-motion: reduce) {
+  .workbench-shell .error-message { animation: none; }
+  .workbench-shell .error-message::after { animation: none; transform: scaleX(1); opacity: .5; }
+  .workbench-shell .error-message.is-leaving { animation: none; opacity: 0; }
+}
+
+html[data-motion="reduced"] .workbench-shell .error-message { animation: none; }
+html[data-motion="reduced"] .workbench-shell .error-message::after { animation: none; transform: scaleX(1); opacity: .5; }
+html[data-motion="reduced"] .workbench-shell .error-message.is-leaving { animation: none; opacity: 0; }

@@ -590,11 +590,67 @@ async function resendUserMessage(messageEl, button) {
   }
 }
 
+/* Transcript notices: compact, auto-dismissing, and capped so a burst of errors
+ * cannot push the conversation off screen. The lifetime is a constant so the
+ * countdown bar and the timer cannot drift apart. */
+const ERROR_NOTICE_LIFETIME_MS = 10_000;
+const ERROR_NOTICE_LIMIT = 3;
+
+function dismissErrorNotice(err) {
+  if (!err || err.dataset.leaving === '1') return;
+  err.dataset.leaving = '1';
+  if (err._noticeTimer) { clearTimeout(err._noticeTimer); err._noticeTimer = null; }
+  err.classList.add('is-leaving');
+  const reduced = document.documentElement.dataset.motion === 'reduced'
+    || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  setTimeout(() => err.remove(), reduced ? 0 : 180);
+}
+
+function armErrorNotice(err) {
+  err.style.setProperty('--notice-life', ERROR_NOTICE_LIFETIME_MS + 'ms');
+  let remaining = ERROR_NOTICE_LIFETIME_MS;
+  let startedAt = 0;
+  const pause = () => {
+    if (!err._noticeTimer) return;
+    clearTimeout(err._noticeTimer);
+    err._noticeTimer = null;
+    remaining = Math.max(0, remaining - (Date.now() - startedAt));
+    err.classList.add('is-paused');
+  };
+  const resume = () => {
+    if (err._noticeTimer || err.dataset.leaving === '1') return;
+    startedAt = Date.now();
+    err.classList.remove('is-paused');
+    err._noticeTimer = setTimeout(() => dismissErrorNotice(err), remaining);
+  };
+  // Reading a message takes time: holding the pointer over it, or focusing the
+  // close button, stops the clock instead of pulling the text away mid-read.
+  err.addEventListener('pointerenter', pause);
+  err.addEventListener('pointerleave', resume);
+  err.addEventListener('focusin', pause);
+  err.addEventListener('focusout', resume);
+  resume();
+}
+
 function addError(message) {
   const err = document.createElement('div');
   err.className = 'error-message';
-  err.innerHTML = uiIcon('alert') + '<span>' + escapeHtml(message) + '</span>';
+  err.setAttribute('role', 'alert');
+  err.innerHTML = uiIcon('alert')
+    + '<span class="error-message-text">' + escapeHtml(message) + '</span>'
+    + '<button type="button" class="error-message-close" aria-label="关闭提示" title="关闭">' + uiIcon('close') + '</button>';
+  const text = err.querySelector('.error-message-text');
+  if (text) text.title = String(message);
+  err.querySelector('.error-message-close')?.addEventListener('click', () => dismissErrorNotice(err));
+
+  // Oldest first: the newest failure is the one worth reading.
+  const existing = [...chatMessages.querySelectorAll(':scope > .error-message')];
+  for (const stale of existing.slice(0, Math.max(0, existing.length - (ERROR_NOTICE_LIMIT - 1)))) {
+    dismissErrorNotice(stale);
+  }
+
   chatMessages.appendChild(err);
+  armErrorNotice(err);
   scrollToBottom();
 }
 
