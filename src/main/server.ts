@@ -3315,6 +3315,7 @@ ${recentMemories}
           const threshold = hasThreshold
             ? saveContextCompactionThreshold(parsed.contextCompactionThreshold)
             : getContextCompactionThreshold();
+          for (const agent of agentCache.values()) agent.setCompactionThresholdRatio(threshold ?? DEFAULT_COMPACTION_THRESHOLD_RATIO);
           jsonReply(res, 200, { ok: true, contextCompactionLimit: limit ?? null, contextCompactionThreshold: threshold ?? null });
         } catch {
           jsonReply(res, 400, { error: '无效的 JSON' });

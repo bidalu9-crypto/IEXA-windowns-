@@ -70,8 +70,44 @@ test('the configured trigger point decides whether the same history compacts', a
     'the same history must not compact at 100%; otherwise the ratio is ignored');
 });
 
-test('a custom window and trigger point survive a real server round trip', async (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-compaction-api-'));
+test('a live loop picks up a changed trigger without being rebuilt', async () => {
+  const window = 200000;
+  const seen = [];
+  const provider = {
+    name: 'fixture', model: 'fixture', defaultMaxTokens: 512,
+    async *streamMessage(request) {
+      if (isSummary(request)) { yield { type: 'textDelta', text: 'CHECKPOINT: summary' }; return; }
+      yield { type: 'textDelta', text: 'ok' };
+      yield { type: 'done', stopReason: 'endTurn' };
+    },
+  };
+  const runtime = {
+    initialize: async () => {}, beginTurn: noop, getBudget: () => ({ maxTurns: 4 }),
+    recordInputTokens: noop, isParallelSafe: () => false,
+    async execute() { return { success: true, output: 'ok' }; },
+  };
+  const loop = new AgentLoop({
+    sessionId: 'compaction-live-ratio', workspaceDir: process.cwd(), memoryDir: process.cwd(), memoryEnabled: false,
+    provider, toolRuntime: runtime, contextWindow: window, maxTokens: 512,
+    compactionThresholdRatio: 0.8, getAbortSignal: () => new AbortController().signal,
+  });
+  const callbacks = {
+    onTextDelta: noop, onThinkingDelta: noop, onToolCallStart: noop, onToolInputDelta: noop,
+    onToolCallComplete: noop, onToolResult: noop, onUsage: noop,
+    onContext: (context) => seen.push(context.compactThreshold),
+    onError: (error) => { throw new Error(error); }, onDone: noop, onCancelled: noop,
+  };
+
+  await loop.run('first', [], callbacks);
+  assert.equal(seen.at(-1), 160000, '80% of the window');
+
+  // The same loop, after the user saves 90%: the next request must use it.
+  loop.setCompactionThresholdRatio(0.9);
+  await loop.run('second', [], callbacks);
+  assert.equal(seen.at(-1), 180000, '90% of the window, without rebuilding the loop');
+});
+
+test('a custom window and trigger point survive a real server round trip', async (t) => {  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-compaction-api-'));
   process.env.IEXA_WORKSPACE = path.join(directory, 'workspace');
   const backend = require('../dist/main/server');
   const server = await backend.startServer(0, false);

@@ -133,8 +133,9 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.equal(initial.alignTop, 0, 'and shares its first line');
   assert.equal(initial.alignWidth, 0, 'and its width');
 
-  // ---- it rotates ----------------------------------------------------------
-  const first = initial.text;
+  // ---- it rotates while a turn runs ---------------------------------------
+  await evaluate('setProcessing(true); true');
+  const first = await evaluate("document.querySelector('#composerHint .composer-hint-line.is-current').textContent");
   // Poll for the change instead of sleeping a fixed 2s: the outgoing line keeps
   // `.is-leaving` for only 380ms after the swap starts.
   await wait(`document.querySelector('#composerHint .composer-hint-line.is-current').textContent !== ${JSON.stringify(first)}`);
@@ -151,6 +152,7 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.notEqual(rotated.text, first, `the text rotated (still "${first}")`);
   assert.equal(rotated.leavingText, first, 'the outgoing line carries the previous text');
   assert.notEqual(rotated.leavingTransform, 'none', 'the outgoing line is moved, not cut');
+  await evaluate('setProcessing(false); true');
 
   // ---- typing hides it -----------------------------------------------------
   await evaluate(`(() => {
@@ -190,11 +192,58 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.ok(busyEntries.includes('Esc 停止当前任务'), 'and how to stop');
   assert.ok(!busyEntries.includes('有问题，随便问'), 'the invitation is replaced, not appended');
   await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /Ctrl\\+|Esc /.test(line.textContent))`);
+  // The live reading joins the rotation only while a turn runs.
+  await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 152000, compactThreshold: 160000, state: 'ok' }); true");
+  await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /上下文已用 76%/.test(line.textContent))`);
 
   await evaluate('setProcessing(false); true');
   const restoredEntries = await evaluate('composerHintEntries()');
   assert.ok(restoredEntries.includes('有问题，随便问'), 'the invitation comes back when the turn ends');
   assert.ok(!restoredEntries.some((entry) => entry.includes('Ctrl+K')), 'and the shortcuts leave');
+
+  // ---- idle is one static line, not a rotation ----------------------------
+  await evaluate("setProcessing(false); true");
+  assert.deepEqual(await evaluate("composerHintEntries()"), ['有问题，随便问'],
+    'an idle composer shows the invitation only');
+  const idleLine = await evaluate("document.querySelector('#composerHint .composer-hint-line.is-current').textContent");
+  await new Promise((resolve) => setTimeout(resolve, 2600));
+  assert.equal(await evaluate("document.querySelector('#composerHint .composer-hint-line.is-current').textContent"), idleLine,
+    'and it does not rotate while nothing is running');
+
+  // A turn in another conversation is not this composer's business.
+  await evaluate("runtimeForSession('another-conversation').isProcessing = true; window.IexaComposerHint.refresh(); true");
+  assert.deepEqual(await evaluate("composerHintEntries()"), ['有问题，随便问'],
+    'a background turn must not flip the visible tips');
+  // The swap in and out of a background session happens on every SSE event.
+  // Replaying it must not repaint (or animate) the visible line.
+  const before = await evaluate(`(() => {
+    const line = document.querySelector('#composerHint .composer-hint-line.is-current');
+    return { text: line.textContent, html: document.getElementById('composerHint').innerHTML };
+  })()`);
+  await evaluate(`(() => {
+    const id = currentSessionId;
+    for (let i = 0; i < 6; i += 1) {
+      applySessionRuntime('another-conversation');
+      applySessionRuntime(id);
+    }
+  })()`);
+  const after = await evaluate(`(() => {
+    const line = document.querySelector('#composerHint .composer-hint-line.is-current');
+    return { text: line.textContent, html: document.getElementById('composerHint').innerHTML,
+      leaving: !!document.querySelector('#composerHint .composer-hint-line.is-leaving') };
+  })()`);
+  assert.equal(after.text, before.text, 'the visible line did not change');
+  assert.equal(after.leaving, false, 'and no swap animation was started');
+  assert.equal(after.html, before.html, 'the overlay was not rebuilt');
+  await evaluate("runtimeForSession('another-conversation').isProcessing = false; true");
+
+  // ---- saving the trigger moves the ring, not just the panel --------------
+  await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 100000, compactThreshold: 160000, state: 'ok' }); true");
+  assert.match(await evaluate("document.getElementById('contextProgressTooltip').textContent"), /自动压缩阈值 80%/);
+  await evaluate("document.querySelector('.cc-chip[data-threshold=\"90\"]').click(); true");
+  await wait(`/自动压缩阈值 90%/.test(document.getElementById('contextProgressTooltip').textContent)`);
+  assert.match(await evaluate("document.getElementById('contextCompactionThresholdConfirm').textContent"), /已保存/,
+    'the button confirms the save instead of staying silent');
 
   // ---- red mist near the compaction threshold ------------------------------
   // 65% of the window with an 80% threshold is five points away from the mist
@@ -230,8 +279,10 @@ test('real browser: the hint rotates and the composer mists near the limit', { s
   assert.ok(border[0] - border[1] > 18 && border[0] - border[2] > 18,
     `the border picks up the warning tone (got ${warn.border})`);
 
-  // The same reading feeds the rotation, so the entry must join it.
+  // The same reading feeds the rotation, so the entry must join it while busy.
+  await evaluate("setProcessing(true); true");
   await wait(`Array.from(document.querySelectorAll('#composerHint .composer-hint-line')).some((line) => /上下文已用 76%/.test(line.textContent))`);
+  await evaluate("setProcessing(false); true");
 
   await evaluate("handleContextStatus({ contextWindow: 200000, usedTokens: 159000, compactThreshold: 160000, state: 'ok' }); true");
   const critical = await evaluate(`(() => {

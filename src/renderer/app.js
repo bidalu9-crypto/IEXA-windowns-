@@ -292,8 +292,10 @@ function applySessionRuntime(sessionId) {
   promptQueue = runtime.promptQueue || [];
   isDrainingQueue = !!runtime.isDrainingQueue;
   suppressQueueDrain = !!runtime.suppressQueueDrain;
-  // Switching to a running conversation must swap in the shortcut tips.
-  window.IexaComposerHint?.refresh?.();
+  // Switching to a running conversation must swap in the shortcut tips. A
+  // background swap repaints nothing: the visible session's state did not move,
+  // and the signature check would run on every SSE event.
+  if (sessionId === visibleSessionId) window.IexaComposerHint?.refresh?.();
   return runtime;
 }
 

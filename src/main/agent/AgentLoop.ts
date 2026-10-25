@@ -185,6 +185,8 @@ export class AgentLoop {
   private sessionContextPlacement: 'message' | 'system' = 'message';
   /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
   private compactor: ContextManager | null = null;
+  /** Read per request, so a settings change applies without rebuilding the loop. */
+  private compactionThresholdRatio?: number;
   /** Summary can be loaded from disk before run() creates a request compactor. */
   private pendingCompactorSummary = '';
   /**
@@ -214,6 +216,7 @@ export class AgentLoop {
 
   constructor(config: AgentLoopConfig) {
     this.config = config;
+    this.compactionThresholdRatio = config.compactionThresholdRatio;
   }
 
   async initialize(): Promise<void> {
@@ -266,6 +269,15 @@ export class AgentLoop {
    * stream. Prompt prefill, tool execution, permission waits and user input are
    * excluded, so output tokens / seconds is the actual streaming rate.
    */
+  /**
+   * Change the compaction trigger without rebuilding the loop. The next request
+   * builds its compactor with this ratio, so a saved setting takes effect on the
+   * very next turn instead of waiting for the session to be recreated.
+   */
+  setCompactionThresholdRatio(ratio?: number): void {
+    this.compactionThresholdRatio = ratio;
+  }
+
   getGenerationMs(): number {
     return this.generationMs;
   }
@@ -639,7 +651,7 @@ export class AgentLoop {
       tools,
       systemPrompt,
       this.config.maxTokens || this.config.provider.defaultMaxTokens,
-      { thresholdRatio: this.config.compactionThresholdRatio },
+      { thresholdRatio: this.compactionThresholdRatio },
     );
     this.compactor = compactor;
     if (!resuming) {

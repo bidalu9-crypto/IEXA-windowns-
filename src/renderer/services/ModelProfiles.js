@@ -520,6 +520,7 @@ async function setContextCompaction(limit) {
     await putContextCompaction({ contextCompactionLimit: next });
     applyContextCompactionUI(next);
     setContextCompactionMenuOpen(false);
+    flashSaved(document.getElementById('contextCompactionCustomConfirm'));
   } catch (e) {
     const hint = document.getElementById('contextCompactionCustomHint');
     if (hint) { hint.textContent = e.message || String(e); hint.dataset.tone = 'error'; }
@@ -537,10 +538,40 @@ async function setContextCompactionThreshold(percent) {
   try {
     await putContextCompaction({ contextCompactionThreshold: next === null ? null : next / 100 });
     applyContextCompactionThresholdUI(next);
+    applyLocalCompactionThreshold(next);
+    flashSaved(document.getElementById('contextCompactionThresholdConfirm'));
   } catch (e) {
     if (hint) { hint.textContent = e.message || String(e); hint.dataset.tone = 'error'; }
     console.warn('save compaction threshold failed', e);
   }
+}
+
+/**
+ * The ring prints the server's `compactThreshold`. Mirror the new ratio at once
+ * so the tooltip and the mist react to the save instead of waiting for the next
+ * context event.
+ */
+function applyLocalCompactionThreshold(percent) {
+  const status = typeof latestContextStatus !== 'undefined' ? latestContextStatus : null;
+  if (!status) return;
+  const windowTokens = Number(status.contextWindow);
+  if (!Number.isFinite(windowTokens) || windowTokens <= 0) return;
+  const ratio = percent === null ? DEFAULT_CONTEXT_COMPACTION_THRESHOLD / 100 : percent / 100;
+  status.compactThreshold = Math.round(windowTokens * ratio);
+  handleContextStatus(status);
+}
+
+/** Brief confirmation on the button that was pressed; nothing else to show. */
+function flashSaved(button) {
+  if (!button) return;
+  if (!button.dataset.label) button.dataset.label = button.textContent;
+  button.textContent = '已保存';
+  button.dataset.saved = 'true';
+  clearTimeout(button._savedTimer);
+  button._savedTimer = setTimeout(() => {
+    button.textContent = button.dataset.label || '应用';
+    delete button.dataset.saved;
+  }, 1200);
 }
 
 /** Hydrate both settings from the server (authoritative over any cached value). */

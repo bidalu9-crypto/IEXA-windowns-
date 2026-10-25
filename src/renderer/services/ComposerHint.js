@@ -69,24 +69,32 @@ function composerHintBalanceEntry() {
 
 /** Recomputed on every tick: the context and the balance both move. */
 function composerHintEntries() {
+  // Idle: one static line. Rotating an invitation would draw the eye to a
+  // control that has nothing to say, and the shortcut tips are only true while
+  // a turn is running.
+  if (!composerHintBusy()) return [COMPOSER_HINT_STATIC[0]];
   const entries = [];
   const context = composerHintContextEntry();
   if (context) entries.push(context);
   const balance = composerHintBalanceEntry();
-  if (composerHintBusy()) {
-    if (balance) entries.push(balance);
-    COMPOSER_HINT_SHORTCUTS.forEach((entry) => entries.push(entry()));
-    return entries;
-  }
-  entries.push(COMPOSER_HINT_STATIC[0]);
   if (balance) entries.push(balance);
-  entries.push(COMPOSER_HINT_STATIC[1]);
+  COMPOSER_HINT_SHORTCUTS.forEach((entry) => entries.push(entry()));
   return entries;
 }
 
-/** `isProcessing` lives in app.js; the overlay only reads it. */
+/**
+ * Busy is a property of the conversation on screen, not of the process: a turn
+ * running in another conversation must not flip this composer's tips (that made
+ * the visible rotation flicker on every background SSE event).
+ */
 function composerHintBusy() {
-  try { return typeof isProcessing !== 'undefined' && !!isProcessing; } catch { return false; }
+  try {
+    if (typeof visibleSessionId !== 'undefined' && visibleSessionId && typeof runtimeForSession === 'function') {
+      const runtime = runtimeForSession(visibleSessionId);
+      if (runtime) return !!runtime.isProcessing;
+    }
+    return typeof isProcessing !== 'undefined' && !!isProcessing;
+  } catch { return false; }
 }
 
 /** What Ctrl/Cmd+Shift+Enter would do right now, in the setting's own words. */
@@ -155,10 +163,13 @@ function startComposerHintRotation() {
   stopComposerHintRotation();
   const entries = composerHintEntries();
   composerHintState.signature = entries.join('\u0000');
+  // A single line is not a rotation: remember that so a routine status refresh
+  // does not repaint it every time.
+  composerHintState.static = entries.length < 2;
   if (!entries.length) return;
   composerHintState.index = Math.min(composerHintState.index, entries.length - 1);
   paintComposerHint(entries[composerHintState.index], false);
-  if (entries.length < 2) return;
+  if (composerHintState.static) return;
   composerHintState.timer = setInterval(rotateComposerHint, COMPOSER_HINT_INTERVAL);
 }
 
@@ -175,7 +186,9 @@ function syncComposerHintVisibility() {
   // entries actually changed, so an in-flight rotation is never restarted by a
   // routine status refresh.
   const signature = composerHintEntries().join('\u0000');
-  if (!composerHintState.timer || signature !== composerHintState.signature) startComposerHintRotation();
+  const needsStart = signature !== composerHintState.signature
+    || (!composerHintState.timer && !composerHintState.static);
+  if (needsStart) startComposerHintRotation();
 }
 
 /**
