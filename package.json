@@ -18,7 +18,8 @@
     "dist:portable": "npm run build && electron-builder --win portable --publish never",
     "release:builder": "npm run build && electron-builder --win nsis --publish always",
     "postinstall": "node scripts/vendor-renderer.cjs",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "clean:temp": "node scripts/clean-temp.cjs"
   },
   "build": {
     "appId": "app.IEXA.desktop",
