@@ -159,12 +159,20 @@
     'locale.label': 'Interface language',
   };
 
-  const dictionaries = { 'zh-CN': zh, 'en-US': en };
+  const ui = (typeof window !== 'undefined' && window.IexaI18nUi) || { zh: {}, en: {}, ja: {} };
+  Object.assign(zh, ui.zh);
+  const en2 = Object.assign(en, ui.en);
+  const ja = ui.ja;
+
+  const dictionaries = { 'zh-CN': zh, 'en-US': en, 'ja-JP': ja };
+  void en2;
   const listeners = new Set();
   let locale = 'zh-CN';
 
   function normalize(value) {
-    return String(value || '').toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN';
+    const raw = String(value || '').toLowerCase();
+    if (raw.startsWith('ja')) return 'ja-JP';
+    return raw.startsWith('en') ? 'en-US' : 'zh-CN';
   }
 
   function t(key, params) {
