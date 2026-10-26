@@ -32,6 +32,17 @@ function codec() {
   };
 }
 function write(file, value) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value)); }
+
+test('a BOM-prefixed protected settings file is readable', t => {
+  // PowerShell 5.1 writes a BOM for `Set-Content -Encoding utf8`. A settings file
+  // saved that way failed the protected parse: with a .bak the edit silently
+  // appeared not to apply, without one the load threw.
+  const root = fixture(t), file = path.join(root, 'settings.json');
+  const store = secrets.createProtectedSettingsStore(codec());
+  const value = { profiles: [{ id: 'default', model: 'claude-sonnet-4-20250514' }], activeProfileId: 'default', permissionMode: 'risk' };
+  fs.writeFileSync(file, '\uFEFF' + JSON.stringify(value));
+  assert.deepEqual(store.loadProtectedSettings(file, () => ({})), value);
+});
 function diskContents(root) {
   return fs.readdirSync(root, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? diskContents(path.join(root, entry.name)) : [fs.readFileSync(path.join(root, entry.name), 'utf8')]).join('\n');
 }
@@ -252,9 +263,14 @@ test('Windows default helper uses DPAPI for synthetic credentials', { skip: proc
 
 test('unsupported platform and Electron basic_text explicitly fail closed', () => {
   const vm = require('node:vm');
-  const code = fs.readFileSync(require.resolve('../dist/main/security/SecretStore'), 'utf8');
+  const entry = require.resolve('../dist/main/security/SecretStore');
+  const code = fs.readFileSync(entry, 'utf8');
   for (const safe of [undefined, { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'basic_text' }]) {
-    const context = { exports: {}, require: name => name === 'electron' ? { safeStorage: safe } : require(name), process: { platform: 'linux' }, Buffer };
+    // Resolve relative specifiers against the module's own directory: the real
+    // SecretStore imports '../persistence/stripBom', which a bare `require(name)`
+    // would look for next to this test file.
+    const load = name => (name.startsWith('.') ? require(path.resolve(path.dirname(entry), name)) : require(name));
+    const context = { exports: {}, require: name => name === 'electron' ? { safeStorage: safe } : load(name), process: { platform: 'linux' }, Buffer };
     vm.runInNewContext(code, context);
     assert.throws(() => context.exports.createPlatformSecretCodec());
   }

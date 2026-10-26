@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { execFileSync } from 'child_process';
+import { stripBom } from '../persistence/stripBom';
 
 export interface SecretCodec {
   readonly id: string;
@@ -79,7 +80,10 @@ export function createPlatformSecretCodec(): SecretCodec {
 function read(file: string): string {
   const stat = fs.lstatSync(file);
   if (!stat.isFile() || stat.size > MAX_BYTES * 4) throw failure();
-  return fs.readFileSync(file, 'utf8');
+  // PowerShell 5.1's `Set-Content -Encoding utf8` and several editors prefix a
+  // BOM; JSON.parse rejects it. Strip only the leading code unit so a BOM that
+  // is legitimately inside a JSON string value is preserved.
+  return stripBom(fs.readFileSync(file, 'utf8'));
 }
 function atomic(file: string, value: unknown): void {
   const data = JSON.stringify(value, null, 2);
