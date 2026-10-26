@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>IEXA motion stage</title>
+<style>
+  /* 1920x1080 stage. Every element is driven from JS by an absolute timeline;
+     no CSS transitions or animations, so any frame can be addressed directly. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #06070c; }
+  body { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+
+  .scene {
+    position: absolute; inset: 0;
+    display: none;
+    will-change: transform, opacity, clip-path;
+    transform-origin: 50% 55%;
+  }
+
+  .glow {
+    position: absolute; left: 50%; top: 46%;
+    width: 1500px; height: 1500px; margin: -750px 0 0 -750px;
+    border-radius: 50%; filter: blur(20px);
+    will-change: transform, opacity;
+  }
+  .grid {
+    position: absolute; inset: -120px;
+    background-image:
+      linear-gradient(to right, rgba(120,140,200,.07) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(120,140,200,.07) 1px, transparent 1px);
+    background-size: 72px 72px;
+    will-change: transform, opacity;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 25%, transparent 78%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 25%, transparent 78%);
+  }
+
+  .shot-wrap {
+    position: absolute; left: 50%; top: 48%;
+    width: 1580px; height: 889px; margin-left: -790px; margin-top: -444px;
+    will-change: transform, opacity;
+    transform-style: preserve-3d;
+  }
+  .shot {
+    position: absolute; inset: 0;
+    border-radius: 18px; overflow: hidden;
+    background: #101218;
+    border: 1px solid rgba(150,165,210,.20);
+    will-change: transform, box-shadow;
+  }
+  .shot img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+  .sheen {
+    position: absolute; inset: 0; border-radius: 18px; pointer-events: none;
+    background: linear-gradient(105deg, transparent 38%, rgba(190,215,255,.16) 47%, rgba(190,215,255,.05) 52%, transparent 60%);
+    will-change: transform, opacity;
+  }
+
+  .pulse { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform, opacity; }
+
+  /* A horizontal scan head sweeping the card: unmistakable motion that never
+     competes with the UI text underneath. */
+  .scan {
+    position: absolute; left: 0; right: 0; height: 3px;
+    background: linear-gradient(to right, transparent, rgba(150,190,255,.85), rgba(190,215,255,.95), rgba(150,190,255,.85), transparent);
+    box-shadow: 0 0 24px rgba(120,170,255,.55);
+    opacity: 0; pointer-events: none; will-change: transform, opacity;
+  }
+
+  /* Ring is fine for a button; a bracket reads better for "this region". */
+  .focus-box {
+    position: absolute; border-radius: 12px;
+    border: 2px solid rgba(140,180,255,.85);
+    box-shadow: 0 0 0 1px rgba(10,14,26,.5), 0 0 28px rgba(110,160,255,.35);
+    opacity: 0; pointer-events: none; will-change: transform, opacity;
+  }
+
+  /* Whole-film progress, bottom edge. */
+  .film-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(120,140,190,.14); z-index: 4; }
+  .film-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8b7bff, #60a5fa); box-shadow: 0 0 16px rgba(120,160,255,.6); }
+
+  .chrome { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+  .index {
+    position: absolute; left: 96px; top: 214px;
+    font-size: 15px; font-weight: 600; letter-spacing: .28em;
+    color: rgba(160,178,225,.75); will-change: opacity, transform;
+  }
+  .rail {
+    position: absolute; left: 96px; top: 250px; width: 2px; height: 0;
+    background: linear-gradient(to bottom, rgba(138,124,255,.95), rgba(96,165,250,.12));
+    transform-origin: 50% 0; will-change: height, opacity;
+  }
+  .label {
+    position: absolute; right: 96px; top: 62px;
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 11px 20px; border-radius: 999px;
+    font-size: 17px; font-weight: 600;
+    background: rgba(22,26,42,.82);
+    border: 1px solid rgba(138,150,210,.34);
+    box-shadow: 0 10px 30px rgba(0,0,0,.42);
+    /* No will-change: the pill's own transform animation plus an explicitly
+       promoted layer makes Chromium retain the previous frame as a ghost. */
+  }
+  .label .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+  .hero {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+  }
+  .mark { width: 168px; height: 168px; will-change: transform, opacity; }
+  .mark img { width: 100%; height: 100%; object-fit: contain; }
+  .title {
+    font-size: 108px; font-weight: 800; letter-spacing: .04em; line-height: 1.05;
+    color: #f4f7ff; display: flex;
+  }
+  .title span { display: inline-block; will-change: transform, opacity; }
+  .subtitle {
+    font-size: 27px; font-weight: 400; color: rgba(176,192,228,.9);
+    will-change: transform, opacity, letter-spacing;
+  }
+  .rule { width: 92px; height: 3px; border-radius: 2px; background: linear-gradient(90deg,#8b7bff,#60a5fa); will-change: transform, opacity; }
+  .foot { position: absolute; bottom: 92px; font-size: 16px; letter-spacing: .16em; color: rgba(140,155,190,.75); will-change: opacity; }
+
+  /* ---- transition: colour-block wipe -------------------------------------
+     Two panels sweeping right. The dark panel is opaque and carries the cut at
+     its midpoint (it spans the full frame there); the accent panel trails its
+     leading edge as a light smear. Chosen over a crossfade because a dissolve
+     between two UI screenshots reads as blur, not as motion. */
+  .wipe-layer { position: absolute; inset: 0; pointer-events: none; z-index: 20; overflow: hidden; }
+  .wipe-panel {
+    position: absolute; top: -120px; bottom: -120px; left: 0; width: 2600px;
+    transform: translateX(-2700px) skewX(-9deg);
+    will-change: transform;
+  }
+  .wipe-panel.a {
+    background: linear-gradient(96deg, #080b16 0%, #0e1428 34%, #17203f 66%, #26315f 88%, #38468f 100%);
+    box-shadow: 60px 0 130px rgba(110,140,255,.22);
+  }
+  .wipe-panel.b {
+    width: 360px;
+    background: linear-gradient(96deg, rgba(46,58,120,.95) 0%, rgba(110,140,255,.58) 30%, rgba(205,224,255,.92) 52%, rgba(139,123,255,.40) 76%, rgba(139,123,255,0) 100%);
+    filter: blur(1.5px);
+  }
+
+  /* ---- cursor ----------------------------------------------------------- */
+  .cursor {
+    position: absolute; width: 34px; height: 34px; margin: -3px 0 0 -7px;
+    z-index: 7; opacity: 0; pointer-events: none;
+    filter: drop-shadow(0 5px 10px rgba(0,0,0,.55));
+    will-change: transform, opacity;
+  }
+  .cursor svg { display: block; width: 100%; height: 100%; }
+  .click-ring {
+    position: absolute; border-radius: 50%; border: 2px solid;
+    opacity: 0; pointer-events: none; will-change: transform, opacity;
+  }
+
+  /* ---- chapter counter: an odometer, not a fade-in ---------------------- */
+  .counter { display: inline-flex; font-weight: 700; font-size: 16px; letter-spacing: .04em; }
+  .odo { display: inline-block; height: 1.15em; line-height: 1.15em; overflow: hidden; }
+  /* No will-change here: promoting the track to its own compositing layer lets
+     it escape the .odo clip in Chromium, and the wheel paints outside the pill. */
+  .odo-track { display: block; }
+  .odo-track i { display: block; height: 1.15em; font-style: normal; text-align: center; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="grid" id="grid"></div>
+  <div class="glow" id="glow"></div>
+  <div id="scenes"></div>
+  <div class="wipe-layer" id="wipeLayer">
+    <div class="wipe-panel a" id="wipeA"></div>
+    <div class="wipe-panel b" id="wipeB"></div>
+  </div>
+  <div class="film-bar"><i id="filmBar"></i></div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Everything is a pure function of t. The driver injects the plan, then asks for
+// frame(t) and screenshots the result — no timers, no CSS animation, so any frame
+// can be regenerated in isolation.
+// ---------------------------------------------------------------------------
+const W = 1920, H = 1080;
+// 0.58s is the shortest window in which a block can cross the frame and still
+// read as travel rather than a flash frame.
+const CROSSFADE = 0.58;
+
+const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+const easeOutExpo = (t) => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const easeInOutCubic = (t) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOutBack = (t) => { const c1 = 1.28, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+
+const scenesEl = document.getElementById('scenes');
+const gridEl = document.getElementById('grid');
+const glowEl = document.getElementById('glow');
+const wipeA = document.getElementById('wipeA');
+const wipeB = document.getElementById('wipeB');
+const filmBar = document.getElementById('filmBar');
+
+let PLAN = [];
+let BUILT = [];
+window.READY = false;
+window.TOTAL = 0;
+
+function buildScene(spec) {
+  const root = document.createElement('div');
+  root.className = 'scene';
+  root.style.display = 'none';
+
+  const chrome = document.createElement('div');
+  chrome.className = 'chrome';
+  const indexEl = document.createElement('div');
+  indexEl.className = 'index';
+  indexEl.textContent = spec.index || '';
+  const rail = document.createElement('div');
+  rail.className = 'rail';
+  // Hero cards carry no chapter number, so a rail there would hang beside
+  // nothing.
+  chrome.append(indexEl);
+  if (spec.index) chrome.append(rail);
+
+  let labelEl = null, odoTens = null, odoOnes = null;
+  if (spec.label) {
+    labelEl = document.createElement('div');
+    labelEl.className = 'label';
+    labelEl.style.color = spec.accent || '#dfe7ff';
+
+    // Chapter number as an odometer wheel. A plain fade-in says "static card";
+    // two wheels rolling up to the number says "chapter change".
+    const counter = document.createElement('span');
+    counter.className = 'counter';
+    const mkWheel = () => {
+      const odo = document.createElement('span');
+      odo.className = 'odo';
+      const track = document.createElement('span');
+      track.className = 'odo-track';
+      // 0-9 plus a repeated 0: the wheel rolls a full turn when one digit
+      // carries into the next, and without the extra cell it would run off.
+      for (let d = 0; d < 11; d++) {
+        const i = document.createElement('i');
+        i.textContent = String(d % 10);
+        track.append(i);
+      }
+      odo.append(track);
+      return { odo, track };
+    };
+    const tens = mkWheel(), ones = mkWheel();
+    odoTens = tens.track;
+    odoOnes = ones.track;
+    counter.append(tens.odo, ones.odo);
+
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const txt = document.createElement('span');
+    txt.textContent = spec.label;
+    labelEl.append(counter, dot, txt);
+    chrome.append(labelEl);
+  }
+  root.append(chrome);
+
+  let shotWrap = null, shot = null, sheen = null, focusBox = null, scanEl = null, cursorEl = null;
+  const rings = [];
+  if (spec.shot) {
+    shotWrap = document.createElement('div');
+    shotWrap.className = 'shot-wrap';
+    shot = document.createElement('div');
+    shot.className = 'shot';
+    const img = document.createElement('img');
+    img.src = spec.shot;
+    shot.append(img);
+    sheen = document.createElement('div');
+    sheen.className = 'sheen';
+    shot.append(sheen);
+    shotWrap.append(shot);
+    root.append(shotWrap);
+
+    const focus = spec.focus || [0.5, 0.5];
+
+    // One annotation language only: a breathing bracket. The old sonar rings
+    // landed on the same spot and the two competed with each other.
+    const box = document.createElement('div');
+    box.className = 'focus-box';
+    const bw = 300, bh = 112;
+    box.style.width = bw + 'px';
+    box.style.height = bh + 'px';
+    box.style.left = (focus[0] * 1580 - bw / 2) + 'px';
+    box.style.top = (focus[1] * 889 - bh / 2) + 'px';
+    box.style.borderColor = (spec.accent || '#8ab4ff');
+    shotWrap.append(box);
+    focusBox = box;
+
+    // Scan head travelling the full card height every 5.2s.
+    const scan = document.createElement('div');
+    scan.className = 'scan';
+    shotWrap.append(scan);
+    scanEl = scan;
+
+    // Pointer that travels to the bracket and clicks once. The bracket alone
+    // says "look here"; the pointer says "this is what the app does".
+    const cursor = document.createElement('div');
+    cursor.className = 'cursor';
+    cursor.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5.2 2.4 L5.2 19.6 L9.4 15.6 L12.2 21.6 L15.1 20.2 L12.2 14.4 L18.6 14.2 Z" fill="#ffffff" stroke="#0b0e18" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+    shotWrap.append(cursor);
+    cursorEl = cursor;
+
+    for (let i = 0; i < 2; i++) {
+      const r = document.createElement('div');
+      r.className = 'click-ring';
+      r.style.width = '56px';
+      r.style.height = '56px';
+      r.style.margin = '-28px 0 0 -28px';
+      r.style.borderColor = spec.accent || '#8ab4ff';
+      shotWrap.append(r);
+      rings.push(r);
+    }
+  }
+
+  let mark = null, subtitle = null, rule = null, foot = null;
+  const titleChars = [];
+  const isHero = Boolean(spec.hero);
+  if (isHero) {
+    const hero = document.createElement('div');
+    hero.className = 'hero';
+    mark = document.createElement('div');
+    mark.className = 'mark';
+    const logo = document.createElement('img');
+    logo.src = spec.logo;
+    mark.append(logo);
+
+    const title = document.createElement('div');
+    title.className = 'title';
+    for (const ch of (spec.title || '')) {
+      const span = document.createElement('span');
+      span.textContent = ch === ' ' ? '\u00A0' : ch;
+      title.append(span);
+      titleChars.push(span);
+    }
+    rule = document.createElement('div');
+    rule.className = 'rule';
+    subtitle = document.createElement('div');
+    subtitle.className = 'subtitle';
+    subtitle.textContent = spec.subtitle || '';
+    hero.append(mark, title, rule, subtitle);
+    root.append(hero);
+
+    if (spec.foot) {
+      foot = document.createElement('div');
+      foot.className = 'foot';
+      foot.textContent = spec.foot;
+      root.append(foot);
+    }
+  }
+
+  scenesEl.append(root);
+  return { spec, root, indexEl, rail, labelEl, odoTens, odoOnes, shotWrap, shot, sheen, rings, focusBox, scanEl, cursorEl, mark, titleChars, subtitle, rule, foot, isHero };
+}
+
+function paint(b, tLocal, dur, prevIndex) {
+  const inP = clamp01(tLocal / 1.05);
+  const eIn = easeOutExpo(inP);
+  // The colour wipe covers the cut outright, so per-scene exits would only show
+  // through the uncovered slivers at either end of the sweep.
+  const eOut = 0;
+  const settled = Math.max(0, tLocal - 1.05);
+
+  if (b.shot) {
+    const lift = (1 - eIn) * 78;
+    const rot = (1 - eIn) * 7.5;
+    // A continuous Ken Burns across the whole scene. The earlier version only
+    // breathed by 0.4%, which reads as a still frame; 4.5% over the scene reads
+    // as motion without making the UI text crawl.
+    const pan = clamp01(tLocal / dur);
+    const ken = 1 + 0.07 * easeInOutCubic(pan);
+    const swayY = 1.5 * Math.sin(tLocal / 3.4) * clamp01(settled / 1.2);
+    const sc = (0.935 + 0.065 * eIn) * ken;
+    const exitY = eOut * -26;
+    b.shotWrap.style.transform =
+      'perspective(1500px) translateY(' + (lift + exitY).toFixed(2) + 'px) ' +
+      'rotateX(' + rot.toFixed(3) + 'deg) rotateY(' + swayY.toFixed(3) + 'deg) ' +
+      'scale(' + sc.toFixed(4) + ')';
+    b.shotWrap.style.opacity = String((1 - eOut * 0.85) * (0.15 + 0.85 * eIn));
+
+    const shadow = 60 * eIn;
+    b.shot.style.boxShadow = '0 ' + shadow.toFixed(1) + 'px ' + (shadow * 2.1).toFixed(1) + 'px rgba(2,4,12,' + (0.55 * eIn).toFixed(3) + '), 0 0 0 1px rgba(150,170,215,' + (0.10 * eIn).toFixed(3) + ')';
+
+    const sweepP = clamp01((tLocal - 0.55) / 1.5);
+    b.sheen.style.transform = 'translateX(' + (-140 + 300 * easeInOutCubic(sweepP)).toFixed(2) + '%)';
+    b.sheen.style.opacity = String(0.95 * Math.sin(Math.PI * clamp01(sweepP)));
+
+    // Focus bracket breathes on a 2.8s cycle so the eye lands there first.
+    if (b.focusBox) {
+      const bp = 0.5 + 0.5 * Math.sin(tLocal / 1.4);
+      b.focusBox.style.opacity = ((0.30 + 0.34 * bp) * eIn * (1 - eOut)).toFixed(3);
+      b.focusBox.style.transform = 'scale(' + (1 + 0.012 * bp).toFixed(4) + ')';
+    }
+
+    // Scan head: one full pass every 5.2s, fading at both ends of the sweep.
+    if (b.scanEl) {
+      const period = 5.2;
+      const sp = (tLocal % period) / period;
+      b.scanEl.style.transform = 'translateY(' + (sp * 889).toFixed(1) + 'px)';
+      b.scanEl.style.opacity = (Math.sin(Math.PI * sp) * 0.7 * eIn * (1 - eOut)).toFixed(3);
+    }
+
+    // Pointer: a quadratic bezier from the card's lower-left to the bracket,
+    // then a click. Travel starts once the card has stopped moving so the eye
+    // can pick the pointer up against a still frame.
+    if (b.cursorEl) {
+      const fc = b.spec.focus || [0.5, 0.5];
+      const sx = 0.10 * 1580, sy = 0.84 * 889;
+      const ex = fc[0] * 1580, ey = fc[1] * 889;
+      const cx = sx + 0.46 * 1580, cy = sy - 0.44 * 889;
+      const cp = easeInOutCubic(clamp01((tLocal - 0.95) / 1.65));
+      const u = 1 - cp;
+      const bx = u * u * sx + 2 * u * cp * cx + cp * cp * ex;
+      const by = u * u * sy + 2 * u * cp * cy + cp * cp * ey;
+      b.cursorEl.style.transform = 'translate(' + bx.toFixed(1) + 'px,' + by.toFixed(1) + 'px)';
+      b.cursorEl.style.opacity = String(clamp01((tLocal - 0.76) / 0.3) * (1 - eOut));
+
+      const landed = tLocal - 2.6;
+      for (let i = 0; i < b.rings.length; i++) {
+        if (landed < 0) { b.rings[i].style.opacity = '0'; continue; }
+        const rp = ((landed + i * 0.22) % 1.5) / 1.5;
+        b.rings[i].style.transform = 'translate(' + ex.toFixed(1) + 'px,' + ey.toFixed(1) + 'px) scale(' + (0.4 + 1.2 * easeOutCubic(rp)).toFixed(3) + ')';
+        b.rings[i].style.opacity = ((1 - rp) * (1 - rp) * 0.62 * (1 - eOut)).toFixed(3);
+      }
+    }
+  }
+
+  const idxP = clamp01((tLocal - 0.25) / 0.6);
+  b.indexEl.style.opacity = String(0.9 * idxP * (1 - eOut));
+  b.indexEl.style.transform = 'translateY(' + ((1 - idxP) * 10).toFixed(2) + 'px)';
+
+  const railP = easeOutExpo(clamp01((tLocal - 0.2) / 0.85));
+  b.rail.style.height = (150 * railP).toFixed(1) + 'px';
+  b.rail.style.opacity = String((1 - eOut) * railP);
+
+  if (b.labelEl) {
+    const lp = easeOutExpo(clamp01((tLocal - 0.42) / 0.7));
+    b.labelEl.style.opacity = String(lp * (1 - eOut));
+    b.labelEl.style.transform = 'translateX(' + ((1 - lp) * 34).toFixed(2) + 'px)';
+  }
+
+  if (b.odoTens) {
+    // One wheel carries: the tens digit stays put until the ones wheel passes
+    // 9, so 0->4 shows a single rolling digit instead of two half-turned ones.
+    // It rolls from the previous chapter, not from zero — a counter that resets
+    // every scene reads as a backwards jump on 09 -> 07.
+    const target = Number(b.spec.index) || 0;
+    const from = Number(prevIndex) || 0;
+    const roll = easeOutExpo(clamp01((tLocal - 0.30) / 1.15));
+    const v = from + (target - from) * roll;
+    // Carry in lockstep with the ones wheel. Delay it and the tens digit sits
+    // half-turned ("0" hovering above "1") for the whole roll; on a real odometer
+    // both wheels move together and the upper digit clears as the lower one lands.
+    const carry = clamp01(v - 9);
+    b.odoTens.style.transform = 'translateY(' + (-carry * 1.15).toFixed(4) + 'em)';
+    b.odoOnes.style.transform = 'translateY(' + (-v * 1.15).toFixed(4) + 'em)';
+  }
+
+  if (b.isHero && b.mark) {
+    const logoT = clamp01(tLocal / 0.85);
+    b.mark.style.transform = 'scale(' + (0.62 + 0.38 * easeOutBack(logoT)).toFixed(4) + ') translateY(' + ((1 - easeOutExpo(logoT)) * 24).toFixed(2) + 'px)';
+    b.mark.style.opacity = String(clamp01(logoT * 1.6));
+
+    for (let i = 0; i < b.titleChars.length; i++) {
+      const p = clamp01((tLocal - 0.22 - i * 0.045) / 0.62);
+      b.titleChars[i].style.transform = 'translateY(' + ((1 - easeOutExpo(p)) * 112).toFixed(2) + '%)';
+      b.titleChars[i].style.opacity = String(clamp01(p * 2.2));
+    }
+
+    const rp = clamp01((tLocal - 0.75) / 0.7);
+    b.rule.style.transform = 'scaleX(' + easeOutExpo(rp).toFixed(4) + ')';
+    b.rule.style.opacity = String(rp);
+
+    const sp = clamp01((tLocal - 0.95) / 0.8);
+    b.subtitle.style.opacity = String(sp);
+    b.subtitle.style.letterSpacing = (0.42 - 0.20 * easeOutCubic(sp)).toFixed(3) + 'em';
+    b.subtitle.style.transform = 'translateY(' + ((1 - easeOutExpo(sp)) * 14).toFixed(2) + 'px)';
+
+    if (b.foot) b.foot.style.opacity = String(0.8 * clamp01((tLocal - 1.4) / 0.8) * (1 - eOut));
+  }
+}
+
+function frame(t) {
+  let active = -1;
+  for (let i = 0; i < PLAN.length; i++) {
+    const s = PLAN[i];
+    if (t >= s.start && t < s.start + s.dur) active = i;
+  }
+  if (active < 0) active = PLAN.length - 1;
+  const s = PLAN[active];
+  const local = t - s.start;
+
+  // The wipe owns the cut: while its opaque panel spans the frame the outgoing
+  // scene is swapped for the incoming one, so exactly one scene is ever painted.
+  const wipeP = active > 0 && local < CROSSFADE ? easeInOutCubic(clamp01(local / CROSSFADE)) : null;
+  const shown = wipeP !== null && wipeP < 0.5 ? active - 1 : active;
+
+  for (let i = 0; i < BUILT.length; i++) {
+    const b = BUILT[i];
+    const on = i === shown;
+    b.root.style.display = on ? 'block' : 'none';
+    if (on) paint(b, t - PLAN[i].start, PLAN[i].dur, i > 0 ? PLAN[i - 1].index : '');
+  }
+
+  const accent = s.accent || '#6d7cff';
+  glowEl.style.background = 'radial-gradient(circle at 50% 50%, ' + accent + '46 0%, ' + accent + '18 32%, transparent 66%)';
+  glowEl.style.transform = 'scale(' + (1 + 0.045 * Math.sin(t / 3.1)).toFixed(4) + ') translateX(' + (10 * Math.sin(t / 5)).toFixed(2) + 'px)';
+  gridEl.style.transform = 'translate(' + (-(t * 16) % 72).toFixed(2) + 'px, ' + (-(t * 7) % 72).toFixed(2) + 'px)';
+
+  if (wipeP !== null) {
+    // Panel A spans 3000px and covers the whole frame around its midpoint; the
+    // skew means the true coverage edge sits ~209px inside its box, hence the
+    // generous travel. Panel B rides that leading edge as the accent smear.
+    // Panel A is only ~1.35x the frame wide: wide enough to read as travel, tight
+    // enough that it never parks over the whole picture for more than ~3 frames.
+    const tx = -2700 + 4800 * wipeP;
+    wipeA.style.transform = 'translateX(' + tx.toFixed(1) + 'px) skewX(-9deg)';
+    // B sits entirely outside A's leading edge: a light smear running ahead of
+    // the block, not a second block stacked on top of it.
+    wipeB.style.transform = 'translateX(' + (tx + 2600).toFixed(1) + 'px) skewX(-9deg)';
+    wipeA.style.display = 'block';
+    wipeB.style.display = 'block';
+  } else {
+    wipeA.style.display = 'none';
+    wipeB.style.display = 'none';
+  }
+
+  // Whole-film progress, so the viewer always knows how much is left.
+  if (filmBar) filmBar.style.width = ((t / Math.max(0.001, window.TOTAL)) * 100).toFixed(2) + '%';
+}
+
+window.frame = frame;
+window.__install = (incoming) => {
+  PLAN = incoming.map((s) => ({ ...s }));
+  BUILT.forEach((b) => b.root.remove());
+  BUILT = PLAN.map(buildScene);
+  window.TOTAL = PLAN.reduce((sum, s) => sum + s.dur - CROSSFADE, 0) + CROSSFADE;
+  window.READY = true;
+  return window.TOTAL;
+};
+</script>
+</body>
+</html>

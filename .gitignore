@@ -71,3 +71,18 @@ debug.log
 /.iexa-project.json
 /.iexa-jobs.json
 /skills/
+
+# Video pipeline: source stills, narration and the rendered film are all
+# regenerable via .video/build.cjs, so they stay out of the repo.
+/.video-shots/
+/.video/build/
+/.video/build2/
+/.video/frames/
+/.video/scrim.png
+/.video/vo/
+/.video/vo2/
+/.video/mg/plan.json
+/.video/mg/preview/
+/.video/mg/check/
+/.video/mg/verify/
+/IEXA-WIN-*.mp4
