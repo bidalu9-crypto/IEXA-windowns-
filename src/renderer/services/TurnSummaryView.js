@@ -99,6 +99,7 @@ function setTurnActivityCollapsed(messageEl, collapsed) {
   if (!messageEl) return false;
   const bar = messageEl.querySelector('.turn-summary');
   if (!bar) return false;
+  liftToolArtifacts(messageEl);
   for (const node of turnActivityOf(messageEl)) {
     node.classList.toggle('turn-activity-hidden', collapsed);
   }
@@ -113,8 +114,30 @@ function setTurnActivityCollapsed(messageEl, collapsed) {
  * Fold a finished turn. Idempotent: a rebuilt message reuses the existing bar,
  * so replay can call this without caring whether it ran before.
  */
+/**
+ * A picture the model showed is a deliverable, not activity.
+ *
+ * The card is created as a child of the tool rail (`renderToolArtifactsAfterStep`
+ * inserts it beside the step), so folding the rail took the image with it: the
+ * final summary could never show a picture. Lift each card to sit beside its rail
+ * before anything folds. Idempotent, so replay can call it on every settle.
+ */
+function liftToolArtifacts(messageEl) {
+  if (!messageEl) return;
+  const own = (node) => node.closest('.message') === messageEl;
+  for (const rail of [...messageEl.querySelectorAll('.tool-steps')].filter(own)) {
+    const cards = [...rail.children].filter((child) => child.classList && child.classList.contains('tool-artifacts'));
+    if (!cards.length) continue;
+    // One fragment keeps the cards in their original order after the rail.
+    const fragment = document.createDocumentFragment();
+    for (const card of cards) fragment.appendChild(card);
+    rail.after(fragment);
+  }
+}
+
 function settleTurnActivity(messageEl) {
   if (!messageEl || !turnSettleEnabled()) return false;
+  liftToolArtifacts(messageEl);
   const nodes = turnActivityOf(messageEl);
   if (!nodes.length) return false;
   let bar = messageEl.querySelector('.turn-summary');

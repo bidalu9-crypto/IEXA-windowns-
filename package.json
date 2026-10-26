@@ -1,6 +1,6 @@
 {
   "name": "iexa-win",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "IEXA-WIN - Your private Windows AI agent",
   "main": "electron-entry.js",
   "scripts": {

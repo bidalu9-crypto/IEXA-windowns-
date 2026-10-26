@@ -59,7 +59,7 @@ import { resolveScopedPath } from './security/PathSandbox';
 import { groupFileChanges, undoFileChanges, undoUnavailable } from './session/FileChangeUndo';
 import { encodeRollbacks, hydrateRollbacks } from './session/RollbackStore';
 import { CheckpointStore, FileChange } from './session/CheckpointStore';
-import { isServableArtifact, isTransientArtifact } from './agent/ArtifactPolicy';
+import { isServableArtifact, isTransientArtifact, resolveArtifactPath } from './agent/ArtifactPolicy';
 import { loadProtectedSettings, saveProtectedSettings } from './security/SecretStore';
 import { handleWebDAVRoute } from './api/WebDAVRoutes';
 import { handleRuntimeRoute } from './api/RuntimeRoutes';
@@ -2150,13 +2150,13 @@ function createServer(auth: LocalApiAuth): http.Server {
           for (const call of message.toolCalls || []) {
             if (!call.result) continue;
             const artifacts = call.result.artifacts || [];
-            // A card must not outlive its file: restoring a transcript after a
-            // scratch directory was cleaned would otherwise paint broken images.
+            // A card must not outlive its file: a cleaned scratch dir would paint broken images.
             const servable = artifacts.filter((artifact) => isServableArtifact(WORKSPACE_DIR, artifact.path));
             if (servable.length !== artifacts.length) call.result.artifacts = servable;
             for (const artifact of servable) {
               const id = `artifact_${require('crypto').createHash('sha256').update(artifact.path).digest('hex')}`;
-              artifactRegistry.set(id, { path: artifact.path, mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
+              // Resolved, not relative: FileRoutes checks with fs.existsSync (cwd-based).
+              artifactRegistry.set(id, { path: resolveArtifactPath(WORKSPACE_DIR, artifact.path), mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               artifact.url = `/api/artifacts/${id}`;
             }
             if (call.result.output.length > 24000 && servable.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {

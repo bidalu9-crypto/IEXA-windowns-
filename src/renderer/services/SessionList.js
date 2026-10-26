@@ -603,15 +603,16 @@ function renderHistoryMessage(msg, messageIndex) {
                 body.appendChild(result);
                 setPagedText(result, tc.result.output || '');
                 if (tc.result.fileChange) renderFileChange(body, tc.result.fileChange);
-                if (tc.result.artifacts && tc.result.artifacts.length) {
-                  // Mirror the live layout: a display_file card belongs beside
-                  // its step, not appended after the usage footer.
-                  if (tc.name === 'display_file') renderToolArtifactsAfterStep(block, tc.result.artifacts);
-                  else renderToolArtifacts(body, tc.result.artifacts);
-                }
               }
               window.IexaChatActivity.updateTool(block, tc.name, tc.args, tc.result);
               steps.appendChild(block);
+              // Attach artifacts only once the step is in the tree: the card is
+              // placed with `block.after(card)`, and `after()` on a detached node
+              // is a no-op — that is how restored images used to disappear.
+              if (tc.result && tc.result.artifacts && tc.result.artifacts.length) {
+                if (tc.name === 'display_file') renderToolArtifactsAfterStep(block, tc.result.artifacts);
+                else renderToolArtifacts(block.querySelector('.tool-body'), tc.result.artifacts);
+              }
             }
             refreshToolGroupSummary(steps);
             // Match the live turn layout: thinking, task/tools, then answer.
