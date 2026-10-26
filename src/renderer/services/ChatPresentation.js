@@ -56,6 +56,14 @@
   function patch(parent, fresh, animate) {
     let current = parent.firstChild;
     for (const next of [...fresh.childNodes]) {
+      // A chart card stands in for the <pre> it was built from. The template always
+      // still carries that <pre>, so without this the next delta deletes the card
+      // and rebuilds the SVG — a visible flicker on every frame.
+      if (current && current.nodeType === 1 && current.dataset.chartCard === '1'
+          && next.nodeType === 1 && next.tagName === 'PRE' && next.querySelector('code.language-chart')) {
+        current = current.nextSibling;
+        continue;
+      }
       let target = current;
       if (!compatible(target, next)) {
         target = next.nodeType === 3 ? textGroup(next.data, animate) : next.cloneNode(false);

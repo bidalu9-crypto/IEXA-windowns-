@@ -288,6 +288,11 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
     img._iexaFollowBound = true;
     img.addEventListener('load', () => scrollToBottom(false, isNearChatBottom), { once: true });
   });
+
+  // Charts appear as soon as their fence closes, instead of waiting for the turn
+  // to end. A half-written spec is skipped silently by the enhancer, and patch()
+  // preserves an already-built card across deltas.
+  window.IexaChart?.enhance(contentEl);
 }
 
 function handleTextDelta(fullText) {

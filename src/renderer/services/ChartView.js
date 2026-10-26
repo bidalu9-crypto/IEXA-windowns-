@@ -337,7 +337,13 @@
       const pre = codeEl.parentElement;
       if (!pre || pre.dataset.chartEnhanced) return;
 
-      const result = window.IexaChartSpec.parseChartSpec(codeEl.textContent);
+      // Cheap pre-filter for the streaming path: a spec is always an object, so a
+      // body that does not end in `}` cannot be complete. Skipping the parse here
+      // avoids re-parsing a growing half-written JSON on every delta.
+      const raw = codeEl.textContent || '';
+      if (!/\}\s*$/.test(raw)) return;
+
+      const result = window.IexaChartSpec.parseChartSpec(raw);
       if (!result.ok) {
         // Mid-stream bodies stop mid-value all the time. Leave the block alone and
         // do not mark it: the final render will pick it up once the JSON is whole.
@@ -353,6 +359,9 @@
       }
       pre.dataset.chartEnhanced = '1';
       const card = buildCard(result.spec);
+      // Tells patch() this node represents the <pre> it replaced, so the next
+      // streaming delta keeps it instead of rebuilding the SVG.
+      card.dataset.chartCard = '1';
       const target = pre.closest('.code-block-wrapper') || pre;
       target.parentNode.insertBefore(card, target);
       target.remove();
