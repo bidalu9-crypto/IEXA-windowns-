@@ -19,7 +19,11 @@
     "release:builder": "npm run build && electron-builder --win nsis --publish always",
     "postinstall": "node scripts/vendor-renderer.cjs",
     "pretest": "npm run build",
-    "clean:temp": "node scripts/clean-temp.cjs"
+    "clean:temp": "node scripts/clean-temp.cjs",
+    "test:fast": "node scripts/run-tests.cjs --fast",
+    "test:browser": "node scripts/run-tests.cjs --browser",
+    "pretest:fast": "npm run build",
+    "pretest:browser": "npm run build"
   },
   "build": {
     "appId": "app.IEXA.desktop",
