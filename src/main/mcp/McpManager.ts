@@ -291,7 +291,7 @@ export class McpManager {
 
   private load(): void {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.configFile, 'utf8')) as { servers?: McpServerConfig[] };
+      const raw = JSON.parse(fs.readFileSync(this.configFile, 'utf8').replace(/^\uFEFF/, '')) as { servers?: McpServerConfig[] };
       for (const value of raw.servers || []) {
         const config = this.validate(value);
         this.configs.set(config.id, config); this.state.set(config.id, { status: 'disconnected', tools: [], resources: [], logs: [] });

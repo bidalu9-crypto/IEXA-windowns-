@@ -78,7 +78,7 @@ export class NativeIsolatedWorkspace {
       const readyFile=path.join(this.directory,'ready.json');
       if(fs.existsSync(readyFile)) {
         let info: WorkspaceReady | undefined;
-        try { info=JSON.parse(fs.readFileSync(readyFile,'utf8')); } catch { /* Partial readiness file, no action dispatched. */ }
+        try { info=JSON.parse(fs.readFileSync(readyFile, 'utf8').replace(/^\uFEFF/, '')); } catch { /* Partial readiness file, no action dispatched. */ }
         if(info) {
           if(info.hostPid !== this.child.pid || info.port !== port || !info.jobBound || !/^IEXA-Owned-[a-f0-9]{32}$/.test(info.desktopName)) throw new Error('Isolated host identity mismatch.');
           try {

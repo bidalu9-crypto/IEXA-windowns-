@@ -60,7 +60,7 @@ export function loadHookSpecs(workspaceDir: string): HookSpec[] {
   try {
     const stat = fs.statSync(configPath);
     if (!stat.isFile() || stat.size > MAX_CONFIG_BYTES) return [];
-    source = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    source = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
   } catch { return []; }
   if (!source || typeof source !== 'object' || Array.isArray(source)) return [];
 

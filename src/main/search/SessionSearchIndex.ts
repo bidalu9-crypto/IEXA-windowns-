@@ -215,7 +215,7 @@ export class SessionSearchIndex {
 
   /** Extract only the prose a user would search for; tool payloads are skipped. */
   private extract(filePath: string): [number, string, number, string][] {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
     if (!Array.isArray(parsed)) return [];
     const out: [number, string, number, string][] = [];
     const limit = Math.min(parsed.length, MAX_INDEXED_MESSAGES);

@@ -37,6 +37,16 @@ test('loadSync uses the fallback when both copies are unusable', () => {
   assert.deepEqual(new JsonStore(file, () => ({ v: 0 })).loadSync(), { v: 0 });
 });
 
+test('loadSync reads a file that starts with a UTF-8 BOM', () => {
+  // PowerShell 5.1 emits a BOM for `Set-Content -Encoding utf8`. JSON.parse
+  // rejects it, which used to reset a hand-edited settings file to defaults
+  // without any error the user could see.
+  const dir = tempDir();
+  const file = path.join(dir, 'data.json');
+  fs.writeFileSync(file, '\uFEFF{"v":7}', 'utf8');
+  assert.deepEqual(new JsonStore(file, () => ({ v: 0 })).loadSync(), { v: 7 });
+});
+
 test('large backups hard-link instead of copying', t => {
   const dir = tempDir();
   const file = path.join(dir, 'big.json');

@@ -86,7 +86,7 @@ export class PetStore {
 
   private load(): void {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+      const raw = JSON.parse(fs.readFileSync(this.configPath, 'utf8').replace(/^\uFEFF/, ''));
       this.config = normalizePetConfig(raw);
     } catch {
       this.config = { ...DEFAULT_CONFIG };

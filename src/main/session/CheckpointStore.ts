@@ -82,7 +82,7 @@ export class CheckpointStore {
   load(sessionId: string): CheckpointRecord[] {
     const target = this.file(sessionId); // validation must not be swallowed by the read fallback
     try {
-      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, ''));
       if (!Array.isArray(parsed)) return [];
       return parsed.filter((item): item is CheckpointRecord =>
         Boolean(item) && typeof item.id === 'string' && typeof item.createdAt === 'number' && Array.isArray(item.changes));

@@ -37,7 +37,7 @@ export class JsonStore<T> {
   }
 
   private read(filePath: string): { ok: true; value: T } | { ok: false } {
-    try { return { ok: true, value: JSON.parse(fs.readFileSync(filePath, 'utf8')) as T }; }
+    try { return { ok: true, value: JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')) as T }; }
     catch { return { ok: false }; }
   }
 }

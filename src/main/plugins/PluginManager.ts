@@ -274,7 +274,7 @@ export class PluginManager {
     if (!fs.existsSync(manifestPath) || !fs.statSync(manifestPath).isFile()) throw new Error(`缺少 ${MANIFEST_FILE}。`);
     if (fs.statSync(manifestPath).size > MAX_MANIFEST_BYTES) throw new Error('插件清单超过 256 KB。');
     let source: unknown;
-    try { source = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { throw new Error('插件清单不是有效 JSON。'); }
+    try { source = JSON.parse(fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '')); } catch { throw new Error('插件清单不是有效 JSON。'); }
     return this.validateManifest(source, directory);
   }
 
@@ -456,7 +456,7 @@ export class PluginManager {
 
   private loadState(): PluginState {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as PluginState;
+      const parsed = JSON.parse(fs.readFileSync(this.stateFile, 'utf8').replace(/^\uFEFF/, '')) as PluginState;
       return parsed && parsed.plugins && typeof parsed.plugins === 'object' ? parsed : { plugins: {} };
     } catch { return { plugins: {} }; }
   }
