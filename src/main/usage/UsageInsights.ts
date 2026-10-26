@@ -9,6 +9,7 @@
 // =============================================================================
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from '../persistence/stripBom';
 
 export type UsageRange = '24h' | '7d' | '30d' | 'all';
 
@@ -250,7 +251,7 @@ export function collectUsageInsights(options: CollectOptions): UsageInsights {
     const id = file.replace(/\.json$/, '');
     let messages: RawMessage[] = [];
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+      const raw = JSON.parse(stripBom(fs.readFileSync(path.join(dir, file), 'utf8')));
       messages = Array.isArray(raw) ? raw : Array.isArray(raw?.messages) ? raw.messages : [];
     } catch { continue; }
 

@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
+import { stripBom } from '../persistence/stripBom';
 
 export type McpTransport = 'stdio' | 'http';
 
@@ -291,7 +292,7 @@ export class McpManager {
 
   private load(): void {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.configFile, 'utf8').replace(/^\uFEFF/, '')) as { servers?: McpServerConfig[] };
+      const raw = JSON.parse(stripBom(fs.readFileSync(this.configFile, 'utf8'))) as { servers?: McpServerConfig[] };
       for (const value of raw.servers || []) {
         const config = this.validate(value);
         this.configs.set(config.id, config); this.state.set(config.id, { status: 'disconnected', tools: [], resources: [], logs: [] });

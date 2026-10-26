@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { WebDAVClient } from 'webdav';
+import { stripBom } from '../persistence/stripBom';
 
 export const MAX_SYNC_BYTES = 8 * 1024 * 1024;
 export const MAX_REMOTE_ENTRIES = 10_000;
@@ -133,7 +134,7 @@ export function readLocalSyncText(file: string): string {
   assertLocalSyncPath(file);
   const stat = fs.statSync(file);
   if (!stat.isFile() || stat.size > MAX_SYNC_BYTES) throw invalid();
-  return fs.readFileSync(file, 'utf8');
+  return stripBom(fs.readFileSync(file, 'utf8'));
 }
 
 /** Streams are capped even when Content-Length is absent or dishonest. */

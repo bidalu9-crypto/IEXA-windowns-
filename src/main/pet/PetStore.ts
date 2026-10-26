@@ -7,6 +7,7 @@
 // =============================================================================
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from '../persistence/stripBom';
 
 export interface PetConfig {
   /** Pet window is on screen. */
@@ -86,7 +87,7 @@ export class PetStore {
 
   private load(): void {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.configPath, 'utf8').replace(/^\uFEFF/, ''));
+      const raw = JSON.parse(stripBom(fs.readFileSync(this.configPath, 'utf8')));
       this.config = normalizePetConfig(raw);
     } catch {
       this.config = { ...DEFAULT_CONFIG };

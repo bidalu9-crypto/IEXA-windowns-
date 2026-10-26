@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ToolExecutionResult } from '../providers/types';
 import { undoFileChanges } from './FileChangeUndo';
+import { stripBom } from '../persistence/stripBom';
 
 export type FileChange = NonNullable<ToolExecutionResult['fileChange']>;
 
@@ -82,7 +83,7 @@ export class CheckpointStore {
   load(sessionId: string): CheckpointRecord[] {
     const target = this.file(sessionId); // validation must not be swallowed by the read fallback
     try {
-      const parsed = JSON.parse(fs.readFileSync(target, 'utf8').replace(/^\uFEFF/, ''));
+      const parsed = JSON.parse(stripBom(fs.readFileSync(target, 'utf8')));
       if (!Array.isArray(parsed)) return [];
       return parsed.filter((item): item is CheckpointRecord =>
         Boolean(item) && typeof item.id === 'string' && typeof item.createdAt === 'number' && Array.isArray(item.changes));

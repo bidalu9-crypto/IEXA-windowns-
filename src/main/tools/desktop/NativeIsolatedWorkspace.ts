@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
+import { stripBom } from '../../persistence/stripBom';
 
 const liveWorkspaces = new Set<NativeIsolatedWorkspace>();
 export async function controlNativeIsolatedWorkspaces(operation: 'pause' | 'resume', signal?: AbortSignal) {
@@ -45,7 +46,7 @@ export class NativeIsolatedWorkspace {
     ];
     for (const exe of candidates) {
       try {
-        const capability = JSON.parse(fs.readFileSync(path.join(path.dirname(exe),'isolated-desktop-capability.json'),'utf8').replace(/^\uFEFF/,''));
+        const capability = JSON.parse(stripBom(fs.readFileSync(path.join(path.dirname(exe),'isolated-desktop-capability.json'),'utf8')));
         const hash = createHash('sha256').update(fs.readFileSync(exe.replace(/\.exe$/i,'.dll'))).digest('hex');
         if (fs.existsSync(exe) && capability.version === 1 && hash === String(capability.sha256).toLowerCase()) return exe;
       } catch { /* An old helper must not be launched with unrecognized isolation arguments. */ }
@@ -78,7 +79,7 @@ export class NativeIsolatedWorkspace {
       const readyFile=path.join(this.directory,'ready.json');
       if(fs.existsSync(readyFile)) {
         let info: WorkspaceReady | undefined;
-        try { info=JSON.parse(fs.readFileSync(readyFile, 'utf8').replace(/^\uFEFF/, '')); } catch { /* Partial readiness file, no action dispatched. */ }
+        try { info=JSON.parse(stripBom(fs.readFileSync(readyFile, 'utf8'))); } catch { /* Partial readiness file, no action dispatched. */ }
         if(info) {
           if(info.hostPid !== this.child.pid || info.port !== port || !info.jobBound || !/^IEXA-Owned-[a-f0-9]{32}$/.test(info.desktopName)) throw new Error('Isolated host identity mismatch.');
           try {

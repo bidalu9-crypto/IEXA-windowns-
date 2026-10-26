@@ -7,6 +7,7 @@
 // =============================================================================
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from '../persistence/stripBom';
 
 export type ScheduleFrequency = 'daily' | 'weekly' | 'monthly';
 
@@ -155,7 +156,7 @@ export function describeSchedule(schedule: ScheduledTaskSchedule): string {
 
 export function loadScheduledTasks(file: string): ScheduledTask[] {
   try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    const parsed = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
     const list = Array.isArray(parsed) ? parsed : parsed?.tasks;
     if (!Array.isArray(list)) return [];
     return list.filter((task): task is ScheduledTask => !!task && typeof task === 'object' && typeof task.id === 'string');

@@ -17,6 +17,7 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from '../persistence/stripBom';
 
 export type HookPhase = 'preToolUse' | 'postToolUse';
 
@@ -60,7 +61,7 @@ export function loadHookSpecs(workspaceDir: string): HookSpec[] {
   try {
     const stat = fs.statSync(configPath);
     if (!stat.isFile() || stat.size > MAX_CONFIG_BYTES) return [];
-    source = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
+    source = JSON.parse(stripBom(fs.readFileSync(configPath, 'utf8')));
   } catch { return []; }
   if (!source || typeof source !== 'object' || Array.isArray(source)) return [];
 

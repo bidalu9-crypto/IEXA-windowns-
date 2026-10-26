@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { SkillValidator } from './SkillValidator';
+import { stripBom } from '../persistence/stripBom';
 
 export type SkillSource = 'file' | 'paste' | 'bundled' | 'session' | 'url';
 
@@ -343,7 +344,7 @@ export class SkillStore {
   private loadIndex(): SkillsIndex {
     try {
       if (fs.existsSync(this.indexFile)) {
-        const raw = JSON.parse(fs.readFileSync(this.indexFile, 'utf-8'));
+        const raw = JSON.parse(stripBom(fs.readFileSync(this.indexFile, 'utf-8')));
         if (raw && Array.isArray(raw.skills)) return raw as SkillsIndex;
       }
     } catch { /* */ }

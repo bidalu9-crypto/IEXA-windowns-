@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from '../persistence/stripBom';
 
 /**
  * Incremental plain-text index over chat sessions.
@@ -215,7 +216,7 @@ export class SessionSearchIndex {
 
   /** Extract only the prose a user would search for; tool payloads are skipped. */
   private extract(filePath: string): [number, string, number, string][] {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+    const parsed = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf8')));
     if (!Array.isArray(parsed)) return [];
     const out: [number, string, number, string][] = [];
     const limit = Math.min(parsed.length, MAX_INDEXED_MESSAGES);

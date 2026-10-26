@@ -98,6 +98,7 @@ import {
 } from './session/ContextCompactionSettings';
 import { createTurnCheckpoint, planResume } from './session/TurnDurability';
 import type { ChatMessage, ChatAttachmentMeta } from './session/ChatMessage';
+import { stripBom } from './persistence/stripBom';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -401,8 +402,6 @@ function imageMimeType(filePath: string): string | null {
   const ext = path.extname(filePath).toLowerCase();
   return ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp' } as Record<string, string>)[ext] || null;
 }
-
-
 
 function effectiveContextWindow(profile: ModelProfile, limit: unknown): number {
   const reportedWindow = Number(profile.contextWindow);
@@ -712,7 +711,7 @@ function loadSessionContext(sessionId: string): string {
   try {
     const fp = sessionContextPath(sessionId);
     if (!fs.existsSync(fp)) return '';
-    const state = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Partial<DurableSessionContext>;
+    const state = JSON.parse(stripBom(fs.readFileSync(fp, 'utf-8'))) as Partial<DurableSessionContext>;
     return typeof state.content === 'string' ? state.content : '';
   } catch { return ''; }
 }
@@ -757,7 +756,7 @@ function loadSessionSummary(sessionId: string): string {
   try {
     const fp = sessionContextPath(sessionId);
     if (!fs.existsSync(fp)) return '';
-    const state = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Partial<DurableSessionContext>;
+    const state = JSON.parse(stripBom(fs.readFileSync(fp, 'utf-8'))) as Partial<DurableSessionContext>;
     return typeof state.summary === 'string' ? state.summary : '';
   } catch { return ''; }
 }
@@ -872,7 +871,7 @@ function clearSessionUsage(sessionId: string): void {
   try {
     const fp = sessionContextPath(sessionId);
     if (!fs.existsSync(fp)) return;
-    const state = JSON.parse(fs.readFileSync(fp, 'utf-8')) as Record<string, unknown>;
+    const state = JSON.parse(stripBom(fs.readFileSync(fp, 'utf-8'))) as Record<string, unknown>;
     delete state.usage;
     new JsonStore<Record<string, unknown>>(fp, () => state).saveSync(state);
   } catch { /* best effort */ }

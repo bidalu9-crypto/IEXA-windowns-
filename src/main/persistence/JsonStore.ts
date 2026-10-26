@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { stripBom } from './stripBom';
 const pendingWrites = new Map<string, Promise<void>>();
 
 /** Crash-tolerant JSON persistence with a last-known-good backup. */
@@ -37,7 +38,7 @@ export class JsonStore<T> {
   }
 
   private read(filePath: string): { ok: true; value: T } | { ok: false } {
-    try { return { ok: true, value: JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '')) as T }; }
+    try { return { ok: true, value: JSON.parse(stripBom(fs.readFileSync(filePath, 'utf8'))) as T }; }
     catch { return { ok: false }; }
   }
 }

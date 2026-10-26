@@ -9,6 +9,7 @@
 // =============================================================================
 import * as fs from 'fs';
 import { JsonStore } from '../persistence/JsonStore';
+import { stripBom } from '../persistence/stripBom';
 
 export interface ContextUsageSnapshot {
   usedTokens: number;
@@ -80,7 +81,7 @@ export function contextUsageStatus(snapshot: ContextUsageSnapshot): {
 export function readContextUsage(filePath: string): ContextUsageSnapshot | null {
   try {
     if (!fs.existsSync(filePath)) return null;
-    const state = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
+    const state = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf-8'))) as Record<string, unknown>;
     return normalizeContextUsage(state.usage);
   } catch {
     return null;
@@ -96,7 +97,7 @@ export function writeContextUsage(filePath: string, snapshot: ContextUsageSnapsh
     let state: Record<string, unknown> = {};
     if (fs.existsSync(filePath)) {
       try {
-        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const parsed = JSON.parse(stripBom(fs.readFileSync(filePath, 'utf-8')));
         if (parsed && typeof parsed === 'object') state = parsed as Record<string, unknown>;
       } catch { /* rebuild from the fields we own */ }
     }
