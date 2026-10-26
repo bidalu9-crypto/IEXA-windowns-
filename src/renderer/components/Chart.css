@@ -1,0 +1,263 @@
+/* Interactive charts in chat messages.
+   Colours come from theme tokens so light/dark and custom skins all apply. The
+   series palette keeps the accent first and then spreads across hues, which stays
+   distinguishable on both canvases. */
+
+.chart-card {
+  --chart-c1: var(--accent);
+  --chart-c2: #f59e0b;
+  --chart-c3: #10b981;
+  --chart-c4: #ef4444;
+  --chart-c5: #8b5cf6;
+  --chart-c6: #06b6d4;
+  --chart-c7: #ec4899;
+  --chart-c8: #84cc16;
+  margin: 10px 0;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  /* Charts are figures, not prose: keep them out of the message's text flow. */
+  break-inside: avoid;
+}
+
+[data-theme="dark"] .chart-card {
+  --chart-c2: #fbbf24;
+  --chart-c3: #34d399;
+  --chart-c4: #f87171;
+  --chart-c5: #a78bfa;
+  --chart-c6: #22d3ee;
+  --chart-c7: #f472b6;
+  --chart-c8: #a3e635;
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.chart-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-toggle {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.chart-toggle:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.chart-toggle[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.chart-body { position: relative; }
+.chart-body[hidden] { display: none; }
+.chart-canvas { position: relative; }
+.chart-svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+/* Grid lines stay behind the data and never compete with it. */
+.chart-grid {
+  stroke: color-mix(in srgb, var(--border) 70%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.chart-axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: var(--text-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-axis-title {
+  fill: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+.chart-line {
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-dot { stroke: none; }
+
+.chart-bar {
+  /* Bars read as data, so a hairline of the surface keeps them apart. */
+  stroke: var(--bg-secondary);
+  stroke-width: 1;
+}
+
+.chart-guide {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: .55;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 6px;
+  z-index: 3;
+  min-width: 118px;
+  max-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid var(--popover-border, var(--border-strong));
+  border-radius: 7px;
+  background: var(--popover-bg, var(--bg-primary));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  pointer-events: none;
+}
+
+.chart-tooltip[hidden] { display: none; }
+
+.chart-tooltip-head {
+  margin-bottom: 3px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.5;
+}
+
+.chart-tooltip-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-tooltip-value {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-swatch {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+}
+
+.chart-table-holder { margin-top: 2px; }
+.chart-table-holder[hidden] { display: none; }
+
+.chart-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-table th,
+.chart-table td {
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.chart-table tbody th {
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-align: left;
+}
+
+.chart-table tr:last-child th,
+.chart-table tr:last-child td { border-bottom: 0; }
+
+/* A chart that cannot be drawn leaves its source readable instead of vanishing. */
+.chart-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--error) 28%, transparent);
+  border-left-width: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error) 6%, transparent);
+  color: var(--text-secondary);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+}
+
+.chart-error strong { color: var(--error); font-weight: 600; }
+
+@media (max-width: 640px) {
+  .chart-card { padding: 8px 9px 6px; }
+  .chart-legend { gap: 3px 9px; }
+}

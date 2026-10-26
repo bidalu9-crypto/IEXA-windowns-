@@ -275,6 +275,9 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   if (finalRender) {
     enhanceCodeBlocks(contentEl);
     enhanceTables(contentEl);
+    // Charts render only once the message is final: a half-streamed JSON body
+    // would show as an error card that immediately disappears.
+    window.IexaChart?.enhance(contentEl);
     return;
   }
 

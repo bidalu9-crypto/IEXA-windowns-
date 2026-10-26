@@ -507,5 +507,48 @@ export async function handleFileRoute(
       }
       return true;
     }
+    if (url.pathname === '/api/fs/write' && req.method === 'POST') {
+      try {
+        const projectRoot = ctx.getProjectRoot();
+        if (!projectRoot) { jsonReply(res, 400, { error: '尚未打开项目' }); return true; }
+        let body: any;
+        try { body = JSON.parse(await readBody(req) || '{}'); } catch { jsonReply(res, 400, { error: '请求体不是合法 JSON' }); return true; }
+        const rel = String(body?.path || '').replace(/\\/g, '/');
+        if (!rel) { jsonReply(res, 400, { error: '缺少 path' }); return true; }
+        if (typeof body?.content !== 'string') { jsonReply(res, 400, { error: '缺少 content' }); return true; }
+        const content: string = body.content;
+        if (Buffer.byteLength(content, 'utf-8') > 2 * 1024 * 1024) { jsonReply(res, 400, { error: '文档过大（>2MB）' }); return true; }
+        // allowMissing: the editor creates new documents as well as updating them.
+        let target: string;
+        try { target = resolveScopedPath(rel, [projectRoot], true); } catch { jsonReply(res, 400, { error: '路径无效或越界' }); return true; }
+        if (isPrivateFile(target)) { jsonReply(res, 403, { error: '应用内部或秘密文件不在写入范围。' }); return true; }
+        const existed = fs.existsSync(target);
+        if (existed && fs.statSync(target).isDirectory()) { jsonReply(res, 400, { error: '目标是目录' }); return true; }
+        // A file another program touched after the editor loaded it must not be
+        // silently overwritten; the client decides whether to reload or force.
+        const expected = Number(body?.expectedMtimeMs);
+        if (existed && Number.isFinite(expected) && expected > 0) {
+          const current = Math.round(fs.statSync(target).mtimeMs);
+          if (Math.abs(current - expected) > 1000) {
+            jsonReply(res, 409, { error: '文件已被其他程序修改，请重新加载后再保存', mtimeMs: current });
+            return true;
+          }
+        }
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content, 'utf-8');
+        const st = fs.statSync(target);
+        jsonReply(res, 200, {
+          ok: true,
+          path: path.relative(projectRoot, target).replace(/\\/g, '/'),
+          name: path.basename(target),
+          size: st.size,
+          created: !existed,
+          mtimeMs: Math.round(st.mtimeMs),
+        });
+      } catch (err) {
+        jsonReply(res, 500, { error: (err as Error).message });
+      }
+      return true;
+    }
   return false;
 }

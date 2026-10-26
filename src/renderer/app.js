@@ -566,6 +566,7 @@ const VIEW_REFRESH = {
   plugins: () => loadPlugins(),
   pet: () => loadPetSnapshot().then(petRender),
   sync: () => loadMobileBridge(),
+  doc: () => window.IexaDoc?.init(),
 };
 
 document.querySelectorAll('.nav-btn').forEach((btn) => {

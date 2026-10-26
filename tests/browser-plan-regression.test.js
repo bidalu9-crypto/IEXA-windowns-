@@ -112,7 +112,7 @@ test('real browser: archive, independent panels, folding, FLIP send and streamin
   await evaluate("document.querySelector('.message.user .message-fold-toggle').click()");
   assert.equal(await evaluate("window.__sendAnimations[0].frames[0].transform!==window.__sendAnimations[0].frames[1].transform"),true);
   // The reply actions, in order: translate, copy, regenerate, share.
-  assert.deepEqual(await evaluate("Array.from(document.querySelector('.message.assistant .assistant-message-actions').querySelectorAll('button')).map(button=>button.dataset.action)"),['translate','copy','retry','share']);
+  assert.deepEqual(await evaluate("Array.from(document.querySelector('.message.assistant .assistant-message-actions').querySelectorAll('button')).map(button=>button.dataset.action)"),['translate','copy','retry','share','doc']);
   assert.equal(await evaluate("formatEstimatedCost(null)"),'未配置价格');
   assert.equal(await evaluate("formatEstimatedCost(0)"),'$0.00');
   assert.equal(await evaluate("formatEstimatedCost(0.00001234)"),'$0.00001234');

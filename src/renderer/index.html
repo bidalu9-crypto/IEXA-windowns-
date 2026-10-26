@@ -28,6 +28,8 @@
 <link rel="stylesheet" href="components/Pet.css">
 <link rel="stylesheet" href="components/HeroWorkspace.css">
 <link rel="stylesheet" href="components/UsageInsights.css">
+<link rel="stylesheet" href="components/Chart.css">
+<link rel="stylesheet" href="components/DocumentEditor.css">
 <link rel="stylesheet" href="components/ContextCompaction.css">
 <link rel="stylesheet" href="components/TranscriptNotice.css">
 <link rel="stylesheet" href="components/ChatWatermark.css">
@@ -52,7 +54,7 @@
     <symbol id="ui-chevron-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
     <symbol id="ui-folder-plus" viewBox="0 0 24 24"><path d="M3.5 6.8A1.8 1.8 0 0 1 5.3 5h4.4l1.8 2h7.2a1.8 1.8 0 0 1 1.8 1.8v8.5a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V6.8Z"/><path d="M12 11.4v5.2M9.4 14h5.2"/></symbol>
     <symbol id="ui-pause" viewBox="0 0 24 24"><path d="M9.4 5.6v12.8M14.6 5.6v12.8"/></symbol>
-    <symbol id="ui-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
+    <symbol id="ui-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol><symbol id="ui-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol><symbol id="ui-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol><symbol id="ui-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></symbol>
     <symbol id="ui-archive" viewBox="0 0 24 24"><path d="M4 4h16v4H4zM6 8v12h12V8M10 12h4"/></symbol>
     <symbol id="ui-pin" viewBox="0 0 24 24"><path d="M9 3h6l-.8 5 3.3 3.3v1.7H6.5v-1.7L9.8 8 9 3Z"/><path d="M12 13v8"/></symbol>
     <symbol id="ui-camera" viewBox="0 0 24 24"><path d="M3.5 8.6a2 2 0 0 1 2-2h2.1l1.4-1.9a1.4 1.4 0 0 1 1.1-.6h3.8a1.4 1.4 0 0 1 1.1.6l1.4 1.9h2.1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.6" r="3.2"/></symbol>
@@ -144,7 +146,8 @@
       <details class="sidebar-more" id="sidebarMore">
         <summary><svg class="ui-icon" aria-hidden="true"><use href="#ui-settings"/></svg><span data-i18n="nav.more">设置与拓展</span></summary>
         <div class="sidebar-secondary"><button class="nav-btn" data-view="appearance"><svg class="ui-icon" aria-hidden="true"><use href="#ui-palette"/></svg><span data-i18n="nav.appearance">外观</span></button>
-<button class="nav-btn" data-view="pet"><svg class="ui-icon" aria-hidden="true"><use href="#ui-robot"/></svg><span data-i18n="nav.pet">桌面宠物</span></button>
+<button class="nav-btn" data-view="doc"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span data-i18n="nav.doc">文档</span></button>
+  <button class="nav-btn" data-view="pet"><svg class="ui-icon" aria-hidden="true"><use href="#ui-robot"/></svg><span data-i18n="nav.pet">桌面宠物</span></button>
 <button class="nav-btn" data-view="soul"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg><span data-i18n="nav.soul">灵魂</span></button>
 <button class="nav-btn nav-btn-token-usage" data-view="token-calculator">
         <svg class="nav-token-usage-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1029,7 +1032,8 @@ version: 1.0.0
       </div>
     </div>
 
-    <div class="view" id="view-pet">
+    <div class="view" id="view-doc"></div>
+<div class="view" id="view-pet">
       <div class="pet-page">
         <header class="pet-page-head">
           <div>
@@ -1527,6 +1531,9 @@ version: 1.0.0
 <script src="services/AppearanceView.js"></script>
 <script src="services/ScreenshotCapture.js"></script>
 <script src="services/ShareConversation.js"></script>
+<script src="services/ChartSpec.js"></script>
+<script src="services/ChartView.js"></script>
+<script src="services/DocumentEditor.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 <script src="services/WindowChrome.js"></script>
