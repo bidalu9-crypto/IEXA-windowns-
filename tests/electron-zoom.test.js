@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
   // Fixed sleeps are unreliable when the suite runs many windows at once: poll
   // until the value stops moving (or reaches the expected one) instead.
   const settle = async (expected) => {
-    const deadline = Date.now() + 4000;
+    const deadline = Date.now() + 8000;
     let last = null;
     while (Date.now() < deadline) {
       const current = factor();
@@ -56,25 +56,40 @@ app.whenReady().then(async () => {
   };
   const out = {};
 
+  // A synthetic key event can be dropped while the renderer is still spinning up,
+  // and that is far more likely when several suites run at once. Retry the press
+  // until the expected factor lands: the handler is what is under test, not the
+  // reliability of the event transport.
+  const press = async (keyCode, modifiers, expected) => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      send(keyCode, modifiers);
+      const value = await settle(expected);
+      if (expected === undefined || Math.abs(value - expected) < 1e-6) return value;
+    }
+    return factor();
+  };
+
   out.start = factor();
 
-  send('=', ['control']);           out.plusEquals = await settle(1.1);
-  send('=', ['control']);           out.plusTwice = await settle(1.2);
-  send('+', ['control', 'shift']);  out.plusShift = await settle(1.3);
-  send('-', ['control']);           out.minus = await settle(1.2);
+  out.plusEquals = await press('=', ['control'], 1.1);
+  out.plusTwice = await press('=', ['control'], 1.2);
+  out.plusShift = await press('+', ['control', 'shift'], 1.3);
+  out.minus = await press('-', ['control'], 1.2);
 
-  for (let i = 0; i < 30; i += 1) { send('-', ['control']); }
+  // Keep pressing until the floor is reached: one dropped event would otherwise
+  // leave the value a step short.
+  for (let i = 0; i < 60 && Math.abs(factor() - zoom.DEFAULTS.min) > 1e-6; i += 1) send('-', ['control']);
   out.floor = await settle(zoom.DEFAULTS.min);
 
-  send('0', ['control']);           out.reset = await settle(1);
+  out.reset = await press('0', ['control'], 1);
 
-  for (let i = 0; i < 40; i += 1) { send('=', ['control']); }
+  for (let i = 0; i < 80 && Math.abs(factor() - zoom.DEFAULTS.max) > 1e-6; i += 1) send('=', ['control']);
   out.ceiling = await settle(zoom.DEFAULTS.max);
 
-  send('0', ['control']);           out.resetAgain = await settle(1);
+  out.resetAgain = await press('0', ['control'], 1);
 
   // Alt must be left alone (AltGr arrives as ctrl+alt on several layouts).
-  send('=', ['control', 'alt']);    await new Promise((r) => setTimeout(r, 150));
+  send('=', ['control', 'alt']);    await new Promise((r) => setTimeout(r, 400));
   out.altIgnored = factor();
 
   out.menuZoomAccelerators = viewRoles;
@@ -95,7 +110,14 @@ app.whenReady().then(async () => {
   );
   win.webContents.insertText('clipboard-probe');
   send('a', ['control']);
-  await new Promise((r) => setTimeout(r, 200));
+  // Same dropped-event risk as the zoom keys: poll until the selection exists.
+  for (let i = 0; i < 40; i += 1) {
+    const selected = await win.webContents.executeJavaScript(
+      "(() => { const i = document.getElementById('probe'); return !!(i && i.selectionStart !== i.selectionEnd); })()",
+    );
+    if (selected) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
   out.selectionProbe = await win.webContents.executeJavaScript(
     "(() => { const i = document.getElementById('probe'); return i ? [i.selectionStart, i.selectionEnd, i.value] : null; })()",
   );

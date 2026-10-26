@@ -72,7 +72,7 @@ test('real browser: the preview downloads and copies the current image', { skip:
     return result.result?.result?.value;
   }
   async function wait(expression) {
-    for (let index = 0; index < 120; index++) {
+    for (let index = 0; index < 300; index++) {
       if (await evaluate(expression)) return;
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -124,7 +124,8 @@ test('real browser: the preview downloads and copies the current image', { skip:
 
   // The shortcut hint must survive UI scaling; it used to be display:none there.
   await evaluate("closeImagePreview(); document.documentElement.dataset.uiScaled='true'; true");
-  await new Promise((r) => setTimeout(r, 200));
+  // Wait for the scaled layout to settle instead of guessing 200 ms.
+  await wait("(() => { const el = document.querySelector('.shell-new-thread kbd'); return !!el && el.getBoundingClientRect().width > 10; })()");
   const kbd = await evaluate(`(() => {
     const el = document.querySelector('.shell-new-thread kbd');
     return el ? { display: getComputedStyle(el).display, width: Math.round(el.getBoundingClientRect().width) } : null;

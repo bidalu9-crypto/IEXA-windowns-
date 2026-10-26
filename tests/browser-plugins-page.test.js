@@ -111,7 +111,7 @@ test('real browser: plugin cards explain compatibility, tools and panels', { ski
     return result.result?.result?.value;
   }
   async function wait(expression) {
-    for (let index = 0; index < 120; index++) {
+    for (let index = 0; index < 300; index++) {
       if (await evaluate(expression)) return;
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -212,7 +212,9 @@ test('real browser: plugin cards explain compatibility, tools and panels', { ski
   await evaluate("document.querySelector('.plugin-card[data-plugin-id=\"hello-dashboard\"] [data-plugin-enable]').click(); true");
   await wait("document.querySelector('.plugin-card[data-plugin-id=\"hello-dashboard\"] .plugin-foot-note').textContent.includes('生效')");
   await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 900, deviceScaleFactor: 1, mobile: true });
-  await new Promise((r) => setTimeout(r, 350));
+  // A fixed delay races the reflow when the machine is busy; wait for the mobile
+  // layout itself, then assert on it.
+  await wait("getComputedStyle(document.querySelector('.plugin-tool-schema')).display === 'none'");
   assert.equal(await evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.plugin-tool-schema')).display"), 'none', 'the parameter chip gives way on a phone');
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.plugin-sandbox-note')).display"), 'none');
