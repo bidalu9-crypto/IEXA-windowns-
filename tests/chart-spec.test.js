@@ -104,13 +104,36 @@ test('long text is truncated rather than rejected', () => {
 });
 
 test('parse reports a JSON error without leaking a stack', () => {
-  const broken = parseChartSpec('{ "type": "line", ');
+  // Balanced but malformed: an incomplete body is a different case (see the
+  // mid-value test below), so this one must still surface a real error.
+  const broken = parseChartSpec('{ "type": "line", }');
   assert.equal(broken.ok, false);
   assert.match(broken.error, /JSON 解析失败/);
   assert.doesNotMatch(broken.error, /at Object|node_modules/);
 
   assert.equal(parseChartSpec('').ok, false);
   assert.equal(parseChartSpec('   ').ok, false);
+});
+
+test('a body that stops mid-value is reported as incomplete, not as an error', () => {
+  // Mid-stream frames look exactly like this. Treating them as errors flashed a red
+  // banner on every frame of a normal stream.
+  const partials = [
+    '{"type":"line","title":"未完成","cate',
+    '{"type":"line","title":"x","categories":["a","b"]',
+    '{"type":"line","categories":["a"],"series":[{"name":"s","values":[1,2',
+    '{"type":"bar"',
+  ];
+  for (const partial of partials) {
+    const result = parseChartSpec(partial);
+    assert.equal(result.ok, false, partial);
+    assert.equal(result.incomplete, true, `should be incomplete: ${partial}`);
+  }
+  // A body that is balanced but wrong is still an error, not an incomplete frame.
+  const broken = parseChartSpec('{"type":"line",}');
+  assert.equal(broken.ok, false);
+  assert.notEqual(broken.incomplete, true, 'balanced-but-broken JSON is a real error');
+  assert.match(broken.error, /JSON/);
 });
 
 test('the value range spans every series and ignores gaps', () => {

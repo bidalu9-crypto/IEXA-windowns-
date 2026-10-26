@@ -110,6 +110,29 @@
     };
   }
 
+  /**
+   * A body that stops mid-value is a streaming artefact, not a user error. Draw
+   * nothing and leave the block as plain text: a red "cannot display" banner
+   * flashing on every frame of a normal stream would be noise.
+   */
+  function looksIncomplete(source) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (const character of source) {
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === '\\') escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') inString = true;
+      else if (character === '{' || character === '[') depth += 1;
+      else if (character === '}' || character === ']') depth -= 1;
+    }
+    return inString || depth > 0;
+  }
+
   /** Parse the raw text of a ```chart block. Partial JSON is a normal case mid-stream. */
   function parseChartSpec(source) {
     const body = String(source || '').trim();
@@ -118,6 +141,7 @@
     try {
       raw = JSON.parse(body);
     } catch (error) {
+      if (looksIncomplete(body)) return { ok: false, incomplete: true, error: '图表数据尚未输出完整' };
       return fail('图表 JSON 解析失败：' + text(error && error.message, 120));
     }
     return validateChartSpec(raw);

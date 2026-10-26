@@ -336,10 +336,13 @@
     rootEl.querySelectorAll('pre > code.language-chart').forEach((codeEl) => {
       const pre = codeEl.parentElement;
       if (!pre || pre.dataset.chartEnhanced) return;
-      pre.dataset.chartEnhanced = '1';
 
       const result = window.IexaChartSpec.parseChartSpec(codeEl.textContent);
       if (!result.ok) {
+        // Mid-stream bodies stop mid-value all the time. Leave the block alone and
+        // do not mark it: the final render will pick it up once the JSON is whole.
+        if (result.incomplete) return;
+        pre.dataset.chartEnhanced = '1';
         // Keep the raw data readable: an unparseable chart is still information.
         const banner = el('div', 'chart-error');
         banner.setAttribute('role', 'note');
@@ -348,6 +351,7 @@
         pre.parentNode.insertBefore(banner, pre);
         return;
       }
+      pre.dataset.chartEnhanced = '1';
       const card = buildCard(result.spec);
       const target = pre.closest('.code-block-wrapper') || pre;
       target.parentNode.insertBefore(card, target);
