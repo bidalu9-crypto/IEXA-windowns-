@@ -151,8 +151,32 @@ async function verifiedCachedRuntime({ version, sums, name, archive, sumsURL, de
   } catch { return false; }
 }
 
+async function installedRuntimeValid() {
+  const destination = runtimeDir();
+  const exe = path.join(destination, 'electron.exe');
+  if (!fs.existsSync(exe)) return false;
+  try {
+    const probe = spawnSync(exe, ['-p', 'process.versions.electron'], {
+      windowsHide: true,
+      encoding: 'utf8',
+      timeout: 30000,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    });
+    if (probe.status !== 0) return false;
+    const version = probe.stdout.trim();
+    return version === electronVersion();
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   const version = electronVersion();
+  if (process.argv.includes('--install') && await installedRuntimeValid()) {
+    fs.writeFileSync(path.join(root, 'node_modules/electron/path.txt'), 'electron.exe');
+    console.log(`Using installed Electron ${version}; skipping download/install.`);
+    return;
+  }
   const cache = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'IEXA/electron-cache');
   fs.mkdirSync(cache, { recursive: true });
   const name = `electron-v${version}-win32-x64.zip`;
@@ -187,5 +211,6 @@ async function main() {
   if (process.argv.includes('--install')) await installRuntime(archive, expected, sumsURL);
   return archive;
 }
+
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
 module.exports = { expectedChecksum, verifyArchive, sha256, fileHashes, verifiedCachedRuntime, main };
