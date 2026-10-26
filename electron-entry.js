@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const net = require('net');
 const { installWindowCorners } = require('./resources/window-corners.cjs');
+const { installZoomControls, stripZoomAccelerators } = require('./resources/zoom-controls.cjs');
 const { mainWindowChromeOptions, mainWindowState, runWindowCommand, createWindowResize, trackWindowState, isWindowFullscreen } = require('./resources/window-chrome.cjs');
 
 // The backend listens on IPv4 0.0.0.0 for the optional phone bridge. Keep
@@ -738,6 +739,12 @@ function createWindow() {
 
   // Remove default menu
   mainWindow.setMenuBarVisibility(false);
+
+  // Zoom is ours: the default View menu maps zoom-in to `CommandOrControl+Plus`
+  // (Shift+= on most layouts), so Ctrl+= did nothing, and its zoom-out had no
+  // floor. Strip those accelerators first, then clamp the range here.
+  stripZoomAccelerators(Menu);
+  installZoomControls(mainWindow.webContents);
 
   mainWindow.once('ready-to-show', () => {
     if (!HEADLESS && savedWindow.maximized) mainWindow.maximize();
