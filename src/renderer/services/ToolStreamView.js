@@ -728,19 +728,18 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
     const duration = elapsed !== null ? (elapsed / 1000).toFixed(elapsed > 10_000 ? 1 : 2) + 's' : '';
     const status = info.block.querySelector('.tool-status');
     if (status && duration) status.insertAdjacentHTML('beforeend', `<span class="tool-duration">${duration}</span>`);
-    if (imageData && imageMimeType && !(artifacts && artifacts.length)) {
-      const image = document.createElement('button');
-      image.type = 'button';
-      // The picture is the deliverable, not tab content: appending it to the
-      // output pane hid every generated image behind a tab that starts closed.
-      image.className = 'tool-result-image';
-      image.title = IexaI18n.t('tool.image.open');
-      const img = document.createElement('img');
-      img.src = `data:${imageMimeType};base64,${imageData}`;
-      img.alt = IexaI18n.t('tool.image.generated');
-      image.appendChild(img);
-      image.addEventListener('click', () => openImagePreview(img.src, IexaI18n.t('tool.image.generated'), img));
-      bodyEl.appendChild(image);
+    if (imageData && imageMimeType) {
+      // A picture the model read or generated is a deliverable, not tab
+      // content: it belongs beside the tool row, outside the collapsible body,
+      // or it disappears the moment the turn folds.
+      const path = (Array.isArray(artifacts) && artifacts[0] && artifacts[0].path)
+        || IexaI18n.t('tool.image.generated');
+      renderToolArtifactsAfterStep(info.block, [{
+        kind: 'image', path, mimeType: imageMimeType,
+        url: `data:${imageMimeType};base64,${imageData}`,
+      }]);
+    } else if (artifacts && artifacts.length) {
+      renderToolArtifactsAfterStep(info.block, artifacts);
     }
     if (fileChange && fileChange.path) {
       info.fileChange = fileChange;
@@ -752,18 +751,6 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       } else {
         renderFileChange(outputPane, fileChange);
       }
-    }
-    const mediaArtifacts = artifacts && artifacts.length
-      ? artifacts
-      : imageData && imageMimeType
-        ? [{ kind: 'image', path: IexaI18n.t('tool.image.generated'), mimeType: imageMimeType, url: `data:${imageMimeType};base64,${imageData}` }]
-        : [];
-    if (mediaArtifacts.length) {
-      // display_file is an explicit model instruction. Place its media after
-      // this exact tool step, not in a shared end-of-message gallery, so the
-      // visible order matches the streamed tool-call/result order.
-      if (info.name === 'display_file') renderToolArtifactsAfterStep(info.block, mediaArtifacts);
-      else renderToolArtifacts(bodyEl, mediaArtifacts);
     }
   }
 

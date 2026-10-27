@@ -609,8 +609,9 @@ function renderHistoryMessage(msg, messageIndex) {
               // placed with `block.after(card)`, and `after()` on a detached node
               // is a no-op — that is how restored images used to disappear.
               if (tc.result && tc.result.artifacts && tc.result.artifacts.length) {
-                if (tc.name === 'display_file') renderToolArtifactsAfterStep(block, tc.result.artifacts);
-                else renderToolArtifacts(block.querySelector('.tool-body'), tc.result.artifacts);
+                // Media belongs beside the row, never inside the collapsible
+                // body: a folded turn must not swallow the picture.
+                renderToolArtifactsAfterStep(block, tc.result.artifacts);
               }
             }
             refreshToolGroupSummary(steps);
