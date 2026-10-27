@@ -25,7 +25,8 @@
       block.classList.toggle('is-expanded', open);
     });
     oldHeader.replaceWith(header);
-    header.insertBefore(make('span', 'activity-operation'), header.querySelector('.tool-heading'));
+    // The row already leads with its variant verb and trails its argument
+    // summary; a second operation label beside them read the verb twice.
     const stats = make('span', 'activity-diff');
     header.insertBefore(stats, header.querySelector('.tool-status'));
     block.dataset.activityBound = 'true';
@@ -148,28 +149,28 @@
       const current = icon.querySelector('use')?.getAttribute('href');
       if (current !== '#' + target) icon.innerHTML = markup;
     }
-    header.querySelector('.activity-operation').textContent = IexaI18n.t(agentOperations[name] || operations[name] || 'activity.op.unknown');
+    header.querySelector('.activity-operation')?.replaceWith();
     const title = header.querySelector('.tool-name'), meta = header.querySelector('.tool-meta');
     const file = typeof input.path === 'string' ? input.path : typeof result?.fileChange?.path === 'string' ? result.fileChange.path : '';
     if (file) {
       const normalized = file.replace(/\\/g, '/');
-      const slash = normalized.lastIndexOf('/');
-      title.textContent = normalized.slice(slash + 1) || normalized;
-      meta.textContent = slash >= 0 ? normalized.slice(0, slash + 1) : '';
-      header.title = `${opLabel(name)} ${file} · ${IexaI18n.t('activity.openDetail')}`;
+      // The leading verb belongs to the variant title and never changes here;
+      // the path is the summary, shown in full rather than split across two
+      // lines the way the old filename/folder pair did.
+      meta.textContent = normalized;
+      header.title = `${title.textContent} ${normalized} · ${IexaI18n.t('activity.openDetail')}`;
       block.dataset.fileType = normalized.split('.').at(-1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
     } else {
       const preview = name === 'shell_execute' ? input.command : name === 'browser_fetch' ? input.url : input.tool_title;
-      title.textContent = typeof preview === 'string' && preview.trim() ? preview.trim().replace(/\s+/g, ' ') : name;
-      meta.textContent = '';
-      header.title = title.textContent;
+      if (typeof preview === 'string' && preview.trim()) meta.textContent = preview.trim().replace(/\s+/g, ' ');
+      header.title = [title.textContent, meta.textContent].filter(Boolean).join(' ');
       if (agentOperations[name]) {
-        title.textContent = String(input.nickname || input.message || (Array.isArray(input.ids) ? IexaI18n.t('activity.agentsCount', { count: input.ids.length }) : input.id || '')).replace(/\s+/g, ' ').slice(0, 100);
-        header.title = `${IexaI18n.t(agentOperations[name])} ${title.textContent}`;
+        meta.textContent = String(input.nickname || input.message || (Array.isArray(input.ids) ? IexaI18n.t('activity.agentsCount', { count: input.ids.length }) : input.id || '')).replace(/\s+/g, ' ').slice(0, 100);
+        header.title = `${IexaI18n.t(agentOperations[name])} ${meta.textContent}`;
       }
       if (name === 'shell_execute' || name.startsWith('terminal_')) {
-        header.querySelector('.activity-operation').textContent = '';
-        title.textContent = result?.success === true ? IexaI18n.t('activity.shell.ran') : IexaI18n.t('activity.shell.running');
+        const statusText = result?.success === true ? IexaI18n.t('activity.shell.ran') : IexaI18n.t('activity.shell.running');
+        header.title = `${statusText} ${meta.textContent}`.trim();
       }
     }
     if (agentOperations[name] && result !== undefined) {

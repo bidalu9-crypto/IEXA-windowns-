@@ -507,6 +507,14 @@
     'dock.remove': { zh: '移除', en: 'Remove', ja: '削除' },
     'dock.attachmentsOnly': { zh: '仅附件', en: 'Attachments only', ja: '添付のみ' },
 
+    /* ---- tool row variants (one glyph + one verb per kind of act) ---- */
+    'tool.variant.search': { zh: '搜索', en: 'Searched', ja: '検索' },
+    'tool.variant.read': { zh: '读取', en: 'Read', ja: '読み取り' },
+    'tool.variant.bash': { zh: '运行', en: 'Ran', ja: '実行' },
+    'tool.variant.write': { zh: '写入', en: 'Wrote', ja: '書き込み' },
+    'tool.variant.edit': { zh: '编辑', en: 'Edited', ja: '編集' },
+    'tool.variant.others': { zh: '工具', en: 'Tool', ja: 'ツール' },
+
     /* ---- file action card ---- */
     'fileActions.open': { zh: '打开', en: 'Open', ja: '開く' },
     'fileActions.reveal': { zh: '打开所在文件夹', en: 'Open containing folder', ja: '格納フォルダーを開く' },

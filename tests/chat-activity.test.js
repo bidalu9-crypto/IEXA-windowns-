@@ -12,7 +12,7 @@ test('waiting status is text-only, live-announced and contains no orb/card child
 test('tool row renders real path/counts safely without changing execution status',t=>{
  const w=setup(t),b=block(w);b.dataset.executionStatus='awaiting_approval';
  w.IexaChatActivity.updateTool(b,'file_edit',{path:'src/<img onerror=x>.ts'},{success:true,fileChange:{added:12,removed:3}});
- assert.equal(b.querySelector('img'),null);assert.equal(b.querySelector('.tool-name').textContent,'<img onerror=x>.ts');assert.equal(b.querySelector('.tool-meta').textContent,'src/');assert.equal(b.querySelector('.activity-operation').textContent,'编辑');assert.equal(b.querySelector('.activity-diff').textContent,'+12−3');assert.equal(b.dataset.executionStatus,'awaiting_approval');assert.equal(b.querySelector('.tool-status').textContent,'等待批准');
+ assert.equal(b.querySelector('img'),null);assert.equal(b.querySelector('.tool-meta').textContent,'src/<img onerror=x>.ts');assert.equal(b.querySelector('.activity-operation'),null);assert.equal(b.querySelector('.activity-diff').textContent,'+12−3');assert.equal(b.dataset.executionStatus,'awaiting_approval');assert.equal(b.querySelector('.tool-status').textContent,'等待批准');
 });
 test('pending and failed writes never display invented diff numbers',t=>{
  const w=setup(t),b=block(w);w.IexaChatActivity.updateTool(b,'file_write',{path:'a.ts'});assert.equal(b.querySelector('.activity-diff').textContent,'');
@@ -40,5 +40,5 @@ test('production app integrates compact rendering for live and historical calls'
 test('actual live completion handler prepares compact rows without falsely marking execution running',t=>{
  const w=setup(t),b=block(w);w.currentToolBlocks={call:{block:b,name:'file_write'}};w.setPagedText=(el,text)=>{el.textContent=text;};w.toolMeta=()=>'';w.toolLiveTitle=()=>'';w.updateTaskSummary=()=>{};w.scrollToBottom=()=>{};w.uiIcon=()=>'';
  loadFunctions(w,['handleToolComplete','setToolStepStatus']);w.handleToolComplete('call','file_write',{path:'src/fixture.ts',content:'hello'});
- assert.equal(b.querySelector('.tool-name').textContent,'fixture.ts');assert.equal(b.querySelector('.tool-meta').textContent,'src/');assert.equal(b.querySelector('.activity-operation').textContent,'写入');assert.equal(b.dataset.status,'queued');assert.equal(b.querySelector('.tool-header').tagName,'BUTTON');assert.equal(b.querySelector('.activity-diff').textContent,'');
+ assert.equal(b.querySelector('.tool-meta').textContent,'src/fixture.ts');assert.equal(b.querySelector('.activity-operation'),null);assert.equal(b.dataset.status,'queued');assert.equal(b.querySelector('.tool-header').tagName,'BUTTON');assert.equal(b.querySelector('.activity-diff').textContent,'');
 });

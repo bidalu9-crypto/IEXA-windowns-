@@ -582,12 +582,13 @@ function renderHistoryMessage(msg, messageIndex) {
               block.dataset.kind = toolKind(tc.name || '');
               if (Number.isFinite(Number(tc.startedAt || tc.result?.startedAt))) block.dataset.startedAt = String(Number(tc.startedAt || tc.result?.startedAt));
               if (Number.isFinite(Number(tc.finishedAt || tc.result?.finishedAt))) block.dataset.finishedAt = String(Number(tc.finishedAt || tc.result?.finishedAt));
-              const histTitle = (tc.args && tc.args.tool_title) || toolDisplayName(tc.name);
+              const histTitle = toolDisplayName(tc.name);
+              const histElapsed = Number(tc.result?.durationMs || 0);
               block.innerHTML = `
                 <div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-${escapeHtml(tc.id)}">
                   <span class="tool-icon">${toolIcon(tc.name)}</span>
                   <span class="tool-heading"><span class="tool-name">${escapeHtml(histTitle)}</span><span class="tool-meta">${escapeHtml(toolMeta(tc.name, tc.args))}</span></span>
-                  <span class="tool-status done">${uiIcon('check')}<span>${IexaI18n.t('tool.status.done')}</span></span>
+                  <span class="tool-status done">${histElapsed ? escapeHtml(formatTaskElapsed(histElapsed)) : ''}</span>
                   <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
                 <div class="tool-body" id="tool-body-${escapeHtml(tc.id)}" style="display:none;">

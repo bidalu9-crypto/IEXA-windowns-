@@ -55,22 +55,72 @@ function canonicalToolName(name) {
   return TOOL_ALIASES[raw] || raw;
 }
 
+function toolVariant(name) {
+  const canonical = canonicalToolName(name);
+  if (['grep', 'glob', 'web_search', 'job_list'].includes(canonical)) return 'search';
+  if (['file_read', 'read_image', 'project_instructions', 'browser_fetch', 'job_output', 'memory_get'].includes(canonical)) return 'read';
+  if (['shell_execute', 'shell_session'].includes(canonical) || canonical.startsWith('terminal_')) return 'bash';
+  if (canonical === 'file_write') return 'write';
+  if (canonical === 'file_edit') return 'edit';
+  return 'others';
+}
+
+// A tool row leads with what kind of act it was, not with the wire name: the
+// name is a protocol detail and reads as noise twenty times in a row.
+const VARIANT_TITLES = {
+  search: 'tool.variant.search',
+  read: 'tool.variant.read',
+  bash: 'tool.variant.bash',
+  write: 'tool.variant.write',
+  edit: 'tool.variant.edit',
+  others: 'tool.variant.others',
+};
+
 function toolDisplayName(name) {
   const canonical = canonicalToolName(name);
   if (canonical.startsWith('mcp_')) return 'MCP · ' + canonical.slice(4);
+  const variant = toolVariant(canonical);
+  if (variant !== 'others') return IexaI18n.t(VARIANT_TITLES[variant]);
   const key = 'tool.' + canonical;
   const translated = IexaI18n.t(key);
   return translated !== key ? translated : canonical;
 }
 
+// Sub-agent verbs stay distinguishable from one another: they share the
+// "others" variant title, but collapsing five different actions onto one
+// sparkle would hide which one ran.
+const SPECIAL_TOOL_ICONS = {
+  spawn_agent: 'robot',
+  send_input: 'send',
+  wait_agent: 'clock',
+  close_agent: 'close',
+  resume_agent: 'play',
+};
+
+// Icon name per variant. Spelled out rather than concatenated so the sprite
+// registry test can see every glyph the renderer can ask for.
+const VARIANT_ICONS = {
+  search: 'tool-variant-search',
+  read: 'tool-variant-read',
+  bash: 'tool-variant-bash',
+  write: 'tool-variant-write',
+  edit: 'tool-variant-edit',
+  others: 'tool-variant-others',
+};
+
+// DSH uses one glyph per row variant (14px inside a 16px box); per-tool icons
+// made two unrelated calls look like different products.
 function toolIcon(name) {
   const canonical = canonicalToolName(name);
-  // MCP tools share one family icon; everything else has its own.
-  if (canonical.startsWith('mcp_')) return uiIcon('puzzle');
-  return uiIcon(TOOL_ICONS[canonical] || 'box');
+  if (SPECIAL_TOOL_ICONS[canonical]) return uiIcon(SPECIAL_TOOL_ICONS[canonical]);
+  if (canonical.startsWith('mcp_')) return uiIcon('tool-variant-others');
+  return uiIcon(VARIANT_ICONS[toolVariant(canonical)]);
 }
 
 function formatTaskElapsed(ms) {
+  // Sub-second calls read as "0 秒" otherwise, which erases the difference
+  // between a 12ms read and a 900ms search.
+  if (ms < 1000) return Math.max(1, Math.round(ms)) + 'ms';
   const seconds = Math.max(0, Math.floor(ms / 1000));
   if (seconds < 60) return IexaI18n.t('tool.elapsed.seconds', { seconds });
   const minutes = Math.floor(seconds / 60);
@@ -388,7 +438,14 @@ function setToolStepStatus(block, status, label) {
   statusEl.className = 'tool-status ' + status;
   if (label != null) statusEl.textContent = label;
   else if (status === 'running' || status === 'streaming') statusEl.textContent = IexaI18n.t('tool.status.running');
-  else if (status === 'done') statusEl.innerHTML = uiIcon('check') + '<span>' + IexaI18n.t('tool.status.done') + '</span>';
+  else if (status === 'done') {
+    // DeepSeek Harness keeps a settled row to one line: the duration is the
+    // only trailing evidence worth the space, and "done" is already implied
+    // by the absence of a spinner. A restored row already carries its recorded
+    // duration, so a missing start stamp must not erase it.
+    const started = Number(block.dataset.startedAt || 0);
+    if (started) statusEl.textContent = formatTaskElapsed(Date.now() - started);
+  }
   else if (status === 'error') statusEl.innerHTML = uiIcon('alert') + '<span>' + IexaI18n.t('tool.status.error') + '</span>';
   block.dataset.status = status;
   block.classList.toggle('is-active', status === 'running' || status === 'streaming');
@@ -413,33 +470,37 @@ function toolKind(name) {
 function toolMeta(name, args) {
   const source = args && typeof args === 'object' ? args : {};
   const canonical = canonicalToolName(name);
-  if (canonical === 'shell_execute') return source.shell ? `${source.shell} · ${IexaI18n.t('tool.meta.workspaceCommand')}` : IexaI18n.t('tool.meta.workspaceCommand');
-  if (canonical === 'shell_session') return `${source.action || 'open'}${source.session_id ? ' · ' + String(source.session_id).slice(0, 8) : ''}`;
-  if (canonical === 'job_list') return IexaI18n.t('tool.meta.recentJobs');
-  if (canonical === 'job_output') return String(source.job_id || IexaI18n.t('tool.meta.jobOutput'));
-  if (canonical === 'goal') return `${source.action || 'get'}${source.objective ? ' · ' + String(source.objective).slice(0, 40) : ''}`;
-  if (canonical.startsWith('mcp_')) return IexaI18n.t('tool.meta.mcp');
-  if (canonical === 'read_image') return String(source.path || IexaI18n.t('tool.meta.vision'));
-  if (canonical === 'display_file') return String(source.path || IexaI18n.t('tool.meta.deliverable'));
-  if (canonical === 'browser_fetch') return String(source.url || IexaI18n.t('tool.meta.webPage'));
-  if (canonical === 'web_search') return String(source.query || IexaI18n.t('tool.meta.publicInfo'));
-  if (canonical === 'desktop_control') return String(source.action || IexaI18n.t('tool.meta.desktop'));
-  if (canonical === 'project_instructions') return String(source.path || source.kind || IexaI18n.t('tool.meta.projectRoot'));
-  if (canonical === 'grep') return source.path ? `${source.path} · ${source.pattern || ''}` : String(source.pattern || IexaI18n.t('tool.meta.workspace'));
-  if (canonical === 'glob') return String(source.pattern || IexaI18n.t('tool.meta.workspace'));
-  if (canonical === 'memory_get') return String(source.keywords || IexaI18n.t('tool.meta.allMemory'));
-  if (canonical === 'memory_write') return String(source.content || '').slice(0, 40) || IexaI18n.t('tool.meta.longTermMemory');
-  if (canonical === 'ask_user') return IexaI18n.t('tool.meta.awaitingChoice');
+  const text = (value) => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  const firstLine = (value) => text(value).split(/\r?\n/)[0];
+  // The summary is the one fact that identifies this call: the command, the
+  // path, or the query. Anything that only restates the tool ("workspace
+  // command", "unknown") is noise on a 26px row and is left empty instead.
+  if (canonical === 'shell_execute' || canonical === 'shell_session') return firstLine(source.command || '');
+  if (canonical === 'grep') return firstLine(source.pattern || '');
+  if (canonical === 'glob') return firstLine(source.pattern || '');
+  if (canonical === 'web_search') return firstLine(source.query || '');
+  if (canonical === 'browser_fetch') return firstLine(source.url || '');
+  if (canonical === 'read_image' || canonical === 'display_file') return firstLine(source.path || '');
+  if (canonical === 'desktop_control') return firstLine(source.action || '');
+  if (canonical === 'project_instructions') return firstLine(source.path || source.kind || '');
+  if (canonical === 'memory_get') return firstLine(source.keywords || '');
+  if (canonical === 'memory_write') return firstLine(source.content || '').slice(0, 60);
   if (canonical === 'todo_write') {
     const count = Array.isArray(source.todos) ? source.todos.length : 0;
-    return count ? IexaI18n.t('tool.meta.planCount', { count }) : IexaI18n.t('tool.meta.plan');
+    return count ? IexaI18n.t('tool.meta.planCount', { count }) : '';
   }
-  if (canonical === 'spawn_agent') return String(source.nickname || IexaI18n.t('tool.meta.subagent'));
-  if (canonical === 'send_input') return String(source.id || IexaI18n.t('tool.meta.subagent'));
-  if (canonical === 'wait_agent') return Array.isArray(source.ids) ? IexaI18n.t('tool.meta.subagentCount', { count: source.ids.length }) : IexaI18n.t('tool.meta.subagent');
-  if (canonical === 'close_agent' || canonical === 'resume_agent') return String(source.id || IexaI18n.t('tool.meta.subagent'));
-  if (source.path) return String(source.path);
-  return IexaI18n.t('tool.meta.unknown');
+  if (canonical === 'spawn_agent') return firstLine(source.nickname || '');
+  if (canonical === 'job_output') return firstLine(source.job_id || '');
+  if (canonical === 'goal') return firstLine(source.objective || source.action || '');
+  if (canonical === 'ask_user') return '';
+  if (canonical.startsWith('mcp_')) return '';
+  if (source.path) return firstLine(source.path);
+  if (source.file_path) return firstLine(source.file_path);
+  if (source.url) return firstLine(source.url);
+  if (source.query) return firstLine(source.query);
+  if (source.pattern) return firstLine(source.pattern);
+  if (source.command) return firstLine(source.command);
+  return '';
 }
 
 function handleToolStart(id, name) {
@@ -478,17 +539,8 @@ function handleToolStart(id, name) {
       '<span class="tool-chevron" aria-hidden="true"></span>' +
     '</div>' +
     '<div class="tool-body" id="tool-body-' + escapeHtml(id) + '" style="display:none;">' +
-      '<div class="tool-tabs" role="tablist">' +
-        '<button type="button" role="tab" class="tool-tab is-active" data-tool-tab="input" aria-selected="true">' + IexaI18n.t('tool.tab.input') + '</button>' +
-        '<button type="button" role="tab" class="tool-tab" data-tool-tab="output" aria-selected="false">' + IexaI18n.t('tool.tab.output') + '</button>' +
-        '<span class="tool-tabs-spacer"></span>' +
-        '<button type="button" class="tool-inspect" data-tool-inspect title="' + IexaI18n.t('tool.tab.inspect') + '">' + IexaI18n.t('tool.tab.inspect') + '</button>' +
-      '</div>' +
-      '<div class="tool-pane" data-pane="input"><pre class="tool-args">' + IexaI18n.t('tool.preparing.placeholder') + '</pre></div>' +
-      '<div class="tool-pane" data-pane="output" hidden><pre class="tool-result"></pre></div>' +
-      '<div class="tool-pane" data-pane="diff" hidden></div>' +
+      (window.IexaToolCard ? window.IexaToolCard.bodyMarkup(id) : '') +
     '</div>';
-
   // Insert the compact task bar once, above the individual capsules.
   // Capsules remain collapsed until the user taps the task bar.
   let summary = host.querySelector('.task-summary');

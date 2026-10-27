@@ -586,7 +586,9 @@ body {
 .tool-header .tool-icon {
   display: inline-flex;
   align-items: center;
-  color: var(--accent);
+  /* Neutral, like DeepSeek Harness: the leading verb names the kind of act,
+     so a per-family accent only added five colours to one turn. */
+  color: var(--text-muted);
   font-size: inherit;
 }
 

@@ -36,6 +36,25 @@ function loadUiDictionary() {
 const icons = objectLiteral('TOOL_ICONS');
 const aliases = objectLiteral('TOOL_ALIASES');
 
+// DeepSeek Harness gives every call one of seven row variants; the variant,
+// not the wire tool, chooses the glyph and the leading verb. Loading the
+// renderer in a bare context is enough to reach the classifier.
+function loadVariants() {
+  const context = {
+    window: {},
+    document: { documentElement: { getAttribute: () => null }, querySelectorAll: () => [] },
+    localStorage: { getItem: () => null, setItem: () => {} },
+    IexaI18n: { t: (key) => key },
+    uiIcon: () => '',
+    fetch: () => Promise.reject(new Error('offline')),
+  };
+  vm.createContext(context);
+  vm.runInContext(source, context, { filename: 'ToolStreamView.js' });
+  return context;
+}
+
+const VARIANTS = ['search', 'read', 'bash', 'write', 'edit', 'others'];
+
 // The default registry plus the tools the server registers with runtime deps
 // and the ones registered dynamically (vision proxy, MCP, sub-agents).
 const REGISTERED = [
@@ -51,11 +70,9 @@ const UI = loadUiDictionary();
 const labels = {};
 for (const name of ALL) if (UI.zh['tool.' + name]) labels[name] = UI.zh['tool.' + name];
 
-test('every tool has a label in all three locales, and an icon', () => {
+test('every tool has a label in all three locales', () => {
   const missingLabels = ALL.filter((name) => !labels[name]);
-  const missingIcons = ALL.filter((name) => !icons[name]);
   assert.deepEqual(missingLabels, [], 'tools without a label fall back to their raw id');
-  assert.deepEqual(missingIcons, [], 'tools without an icon fall back to a generic gear');
   const blank = [];
   for (const name of ALL) {
     for (const locale of ['zh', 'en', 'ja']) {
@@ -64,15 +81,33 @@ test('every tool has a label in all three locales, and an icon', () => {
     }
   }
   assert.deepEqual(blank, [], 'no locale may leave a tool unnamed');
-  assert.deepEqual(Object.keys(icons).filter((name) => !ALL.includes(name)), [], 'a stale icon entry');
 });
 
-test('no two tools share an icon', () => {
-  const seen = new Map();
-  for (const [name, icon] of Object.entries(icons)) {
-    assert.ok(!seen.has(icon), `${name} and ${seen.get(icon)} both use "${icon}"`);
-    seen.set(icon, name);
+test('every tool resolves to one of the seven row variants', () => {
+  const context = loadVariants();
+  const unknown = [];
+  for (const name of ALL) {
+    const variant = context.toolVariant(name);
+    if (!VARIANTS.includes(variant)) unknown.push(`${name} -> ${variant}`);
   }
+  assert.deepEqual(unknown, [], 'a tool that falls outside the variant set gets a mismatched glyph');
+  // The classifier must be stable: a wire alias cannot pick a different row.
+  assert.equal(context.toolVariant('read_file'), 'read');
+  assert.equal(context.toolVariant('edit'), 'edit');
+});
+
+test('every variant has a title and a sprite glyph', () => {
+  const symbols = new Set([...html.matchAll(/<symbol id="ui-([a-z0-9-]+)"/g)].map((m) => m[1]));
+  const missing = VARIANTS.filter((variant) => !symbols.has('tool-variant-' + variant));
+  assert.deepEqual(missing, [], 'a variant without a glyph falls back to a blank icon');
+  const blankTitles = VARIANTS.filter((variant) => {
+    for (const locale of ['zh', 'en', 'ja']) {
+      const value = UI[locale]['tool.variant.' + variant];
+      if (typeof value !== 'string' || !value.trim()) return true;
+    }
+    return false;
+  });
+  assert.deepEqual(blankTitles, [], 'a variant must be named in all three locales');
 });
 
 test('every referenced icon exists in the sprite', () => {
@@ -93,14 +128,14 @@ test('presentation helpers canonicalise aliases and cover the families', () => {
   assert.match(source, /function canonicalToolName\(name\)/);
   assert.match(source, /const canonical = canonicalToolName\(name\);\s*\n\s*if \(canonical\.startsWith\('mcp_'\)\) return 'MCP · '/,
     'MCP tools keep a readable suffix');
-  assert.match(source, /if \(canonical\.startsWith\('mcp_'\)\) return uiIcon\('puzzle'\)/);
-  assert.match(source, /canonical === 'web_search'/, 'web_search is classified as a web tool');
-  assert.match(source, /canonical === 'display_file'/, 'display_file is classified as a vision tool');
+  assert.match(source, /if \(canonical\.startsWith\('mcp_'\)\) return uiIcon\('tool-variant-others'\)/);
+  assert.match(source, /'web_search', 'job_list'\]\.includes\(canonical\)/, 'web_search is classified as a search tool');
+  assert.match(source, /'job_output', 'memory_get'\]\.includes\(canonical\)/, 'display_file is classified as a read tool');
 });
 
 test('the renderer never falls back to a gear for a known tool', () => {
   assert.doesNotMatch(source, /TOOL_ICONS\[[^\]]+\] \|\| 'settings'/, 'the old gear fallback is gone');
-  assert.match(source, /TOOL_ICONS\[canonical\] \|\| 'box'/, 'unknown tools get the neutral box, not the settings gear');
+  assert.match(source, /uiIcon\(VARIANT_ICONS\[toolVariant\(canonical\)\]\)/, 'the fallback is the neutral variant glyph');
 });
 
 test('every registered definition is well formed', () => {

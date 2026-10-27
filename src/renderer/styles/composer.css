@@ -147,8 +147,9 @@ html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-artifacts { disp
 .tool-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px 3px 35px;
   font-size: calc(0.82rem * var(--ui-font-scale, 1));
   cursor: pointer;
   user-select: none;
@@ -163,23 +164,34 @@ html[data-collapse-tools="on"] .tool-steps.is-collapsed > .tool-artifacts { disp
    re-rastered on append. */
 
 .tool-header .tool-icon {
-  font-size: calc(0.95rem * var(--ui-font-scale, 1));
-  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.tool-header .tool-icon .ui-icon,
+.tool-header .tool-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .tool-header .tool-name {
+  flex: none;
   color: var(--text-primary, var(--accent));
-  font-weight: 560;
-  flex: 1;
-  min-width: 0;
+  font-size: calc(0.81rem * var(--ui-font-scale, 1));
+  font-weight: 400;
+  line-height: 20px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tool-header .tool-status {
   margin-left: auto;
-  font-size: calc(0.72rem * var(--ui-font-scale, 1));
+  font-size: calc(0.7rem * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   color: var(--text-muted);
 }
@@ -340,25 +352,28 @@ html[data-motion="reduced"] .todo-plan-rail i.is-new { animation: none; }
 .message.user { max-width: min(85%, 720px); margin-left: auto; margin-right: 0; }
 .message.user .message-content { border: 1px solid color-mix(in srgb, var(--border) 92%, transparent); border-radius: 18px; padding: 10px 14px; background: var(--bg-tertiary); }
 .message.assistant .message-content { padding: 8px 0; line-height: 1.62; }
-.tool-steps { position: relative; gap: 7px; margin: 12px 0 8px; }
+.tool-steps { position: relative; gap: 1px; margin: 10px 0 8px; }
 html:not([data-collapse-tools="on"]) .tool-steps::before,
 .tool-steps:not(.is-collapsed)::before { content: ''; position: absolute; z-index: 0; left: 20px; top: 38px; bottom: 20px; width: 1px; background: var(--border); }
 .task-summary { position: relative; z-index: 1; min-height: 38px; padding: 8px 11px; border-radius: 8px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
 .task-summary:hover { background: var(--bg-tertiary); border-color: color-mix(in srgb, var(--accent) 52%, var(--border)); }
-.tool-block { position: relative; z-index: 1; border-radius: 8px; border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
-.tool-block::before { content: ''; position: absolute; left: 15px; top: 17px; z-index: 2; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--text-muted); border-radius: 50%; background: var(--bg-secondary); }
+.tool-block { position: relative; z-index: 1; border-radius: 8px; border-color: transparent; background: transparent; box-shadow: none; }
+.tool-block:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+.tool-block::before { content: ''; position: absolute; left: 15px; top: 12px; z-index: 2; width: 9px; height: 9px; box-sizing: border-box; border: 2px solid var(--text-muted); border-radius: 50%; background: var(--bg-primary); }
 .tool-block.is-active::before { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 17%, transparent); }
 .tool-block.is-done::before { border-color: var(--success); background: var(--success); }
 .tool-block.is-error::before { border-color: var(--error); background: var(--error); }
-.tool-block.is-active { border-color: color-mix(in srgb, var(--accent) 58%, var(--border)); background: color-mix(in srgb, var(--accent-light) 24%, var(--bg-secondary)); box-shadow: none; }
+.tool-block.is-active { border-color: transparent; background: color-mix(in srgb, var(--text-primary) 4%, transparent); box-shadow: none; }
 .tool-block.is-done { opacity: 1; }
-.tool-header { min-height: 50px; gap: 9px; padding: 8px 12px 8px 35px; }
+.tool-header { min-height: 26px; gap: 6px; padding: 2px 10px 2px 35px; border-radius: 8px; }
 .tool-block.is-active .tool-header::after { opacity: .5; }
-.tool-header .tool-icon { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; color: var(--accent); }
-.tool-heading { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
-.tool-header .tool-name { width: 100%; font-size: calc(.81rem * var(--ui-font-scale, 1)); font-weight: 620; line-height: 1.15; }
-.tool-meta { display: block; overflow: hidden; color: var(--text-muted); font: calc(.68rem * var(--ui-font-scale, 1))/1.15 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.tool-header .tool-status { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 5px; background: var(--bg-primary); font-size: calc(.66rem * var(--ui-font-scale, 1)); }
+.tool-header .tool-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: none; color: var(--text-muted); }
+.tool-header .tool-icon svg { width: 14px; height: 14px; }
+.tool-heading { display: flex; flex: 1; min-width: 0; flex-direction: row; align-items: baseline; gap: 0; }
+.tool-header .tool-name { flex: none; width: auto; font-size: calc(.81rem * var(--ui-font-scale, 1)); font-weight: 400; line-height: 20px; color: var(--text-primary); }
+.tool-meta { flex: 1 1 auto; min-width: 0; display: block; overflow: hidden; color: var(--text-muted); font: calc(.81rem * var(--ui-font-scale, 1))/20px inherit; text-overflow: ellipsis; white-space: nowrap; }
+.tool-meta::before { content: '·'; margin: 0 8px; color: var(--text-muted); }
+.tool-header .tool-status { display: inline-flex; align-items: center; gap: 4px; padding: 0; border-radius: 0; background: none; font-size: calc(.7rem * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
 .tool-status.done { color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--bg-primary)); }
 .tool-status.error { color: var(--error); background: color-mix(in srgb, var(--error) 10%, var(--bg-primary)); }
 .tool-duration { margin-left: 3px; padding-left: 4px; border-left: 1px solid currentColor; opacity: .76; font-variant-numeric: tabular-nums; }
@@ -368,11 +383,7 @@ html:not([data-collapse-tools="on"]) .tool-steps::before,
 .tool-section-label { margin: 0 0 5px; color: var(--text-muted); font-size: calc(.64rem * var(--ui-font-scale, 1)); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .tool-args, .tool-body pre.tool-args { max-height: 135px; margin: 0 0 10px; padding: 8px 10px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); font: calc(.7rem * var(--ui-font-scale, 1))/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .tool-body .tool-result { max-height: 340px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--code-bg); font: calc(.73rem * var(--ui-font-scale, 1))/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.tool-block[data-kind="terminal"] .tool-icon { color: #58a6ff; }
-.tool-block[data-kind="file"] .tool-icon { color: #3fb950; }
-.tool-block[data-kind="mcp"] .tool-icon { color: #d2a8ff; }
-.tool-block[data-kind="web"] .tool-icon { color: #79c0ff; }
-.tool-block[data-kind="vision"] .tool-icon { color: #f2cc60; }
+/* DSH keeps every variant glyph in the muted label tone: the verb already tells the kind, and five accent colours per turn fought the transcript. */
 .file-change-card, .turn-deliverables { border-radius: 8px; box-shadow: none; }
 .file-change-card { background: var(--bg-secondary); }
 .file-change-diff { background: var(--code-bg); }

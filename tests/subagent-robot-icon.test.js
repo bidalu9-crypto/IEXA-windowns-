@@ -9,11 +9,14 @@ function iconContext(){
  const pick=(predicate)=>source.statements.find(predicate);
  const mapping=pick(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(source)==='TOOL_ICONS'));
  const aliases=pick(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(source)==='TOOL_ALIASES'));
+ const special=pick(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(source)==='SPECIAL_TOOL_ICONS'));
  const canonical=pick(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='canonicalToolName');
+ const variant=pick(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='toolVariant');
+ const variantIcons=pick(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>d.name.getText(source)==='VARIANT_ICONS'));
  const fn=pick(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='toolIcon');
  const context={uiIcon:name=>name};
  vm.createContext(context);
- vm.runInContext([mapping,aliases,canonical,fn].map(n=>n.getText(source)).join('\n'),context);
+ vm.runInContext([mapping,aliases,special,variantIcons,variant,canonical,fn].map(n=>n.getText(source)).join('\n'),context);
  return context;
 }
 
@@ -21,11 +24,11 @@ test('each sub-agent operation has its own icon; ordinary tools keep their ident
  const context=iconContext();
  for(const name of names)assert.equal(context.toolIcon(name),expected[name],`${name} has a distinct icon`);
  assert.equal(new Set(names.map(n=>context.toolIcon(n))).size,names.length,'no two sub-agent operations share a glyph');
- assert.equal(context.toolIcon('shell_execute'),'terminal');
- assert.equal(context.toolIcon('file_read'),'file');
- assert.equal(context.toolIcon('file_write'),'file-plus','writing is not the same action as editing');
- assert.equal(context.toolIcon('edit'),'edit','an alias resolves to the real tool');
- assert.equal(context.toolIcon('unrecognized'),'box','unknown tools get a neutral glyph, never the settings gear');
+ assert.equal(context.toolIcon('shell_execute'),'tool-variant-bash');
+ assert.equal(context.toolIcon('file_read'),'tool-variant-read');
+ assert.equal(context.toolIcon('file_write'),'tool-variant-write','writing has its own variant');
+ assert.equal(context.toolIcon('edit'),'tool-variant-edit','an alias resolves to the real tool');
+ assert.equal(context.toolIcon('unrecognized'),'tool-variant-others','unknown tools get the neutral variant glyph');
 });
 
 test('robot is a single valid vector symbol and history rows follow the tool mapping',t=>{
