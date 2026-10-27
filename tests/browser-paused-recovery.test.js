@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
+const { launchPage } = require('./helpers/browser-page');
 
 const browser = process.env.IEXA_TEST_BROWSER || [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -47,37 +48,19 @@ test('real browser: a parked turn resumes in place and ends locally', { skip: !b
   const port = server.address().port;
   const code = backend.getServerCredentials(server).loginCode;
 
-  const proc = spawn(browser, [
-    '--headless=new', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-    '--no-first-run', '--no-default-browser-check', '--remote-debugging-address=127.0.0.1',
-    '--remote-debugging-port=0', `--user-data-dir=${path.join(dir, 'profile')}`, 'about:blank',
-  ], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
 
   let socket;
-  const exited = once(proc, 'exit');
+  let page;
   t.after(async () => {
     if (socket) { try { socket.close(); } catch { /* closed */ } }
-    if (proc.exitCode === null) proc.kill();
-    await Promise.race([exited, new Promise((r) => setTimeout(r, 1500))]);
+    if (page) await page.close();
     server.closeAllConnections();
     await new Promise((r) => server.close(r));
     try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); } catch { /* lock */ }
   });
 
-  const wsUrl = await new Promise((resolve, reject) => {
-    let log = '';
-    const timer = setTimeout(() => reject(new Error('browser startup timeout')), 12000);
-    proc.stderr.on('data', (data) => {
-      log += data;
-      const match = log.match(/DevTools listening on (ws:\/\/\S+)/);
-      if (match) { clearTimeout(timer); resolve(match[1]); }
-    });
-    proc.once('error', reject);
-  });
-  const endpoint = new URL(wsUrl);
-  const pages = await fetch(`http://${endpoint.host}/json`).then((r) => r.json());
-  socket = new WebSocket(pages.find((page) => page.type === 'page').webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  page = await launchPage();
+  socket = page.socket;
 
   let sequence = 0;
   const waiting = new Map();
