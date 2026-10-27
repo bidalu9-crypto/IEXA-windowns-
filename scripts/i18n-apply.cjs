@@ -25,7 +25,7 @@ const ts = require('typescript');
 
 const ROOT = path.join(__dirname, '..');
 const RENDERER = path.join(ROOT, 'src', 'renderer');
-const DICT = path.join(RENDERER, 'services', 'I18nUi.js');
+const DICT = path.join(RENDERER, 'services', 'I18nUiPanels.js');
 const CJK = /[\u4e00-\u9fa5]/;
 
 const batchPath = process.argv[2];
@@ -179,7 +179,7 @@ if (missing.size) {
 
 if (changedTotal || batch.rows.length) {
   let dict = fs.readFileSync(DICT, 'utf8');
-  const anchor = '\n  };\n\n  const pick';
+  const anchor = '\n  };\n\n  const table';
   if (!dict.includes(anchor)) throw new Error('dictionary anchor not found');
   const existing = new Set([...dict.matchAll(/^\s*'([^']+)': \{ zh:/gm)].map((m) => m[1]));
   const fresh = batch.rows.filter((row) => !existing.has(row.key));

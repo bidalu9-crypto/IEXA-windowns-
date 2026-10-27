@@ -35,7 +35,7 @@ function pluginToolEditor(plugin, tool) {
   return `<button type="button" class="plugin-tool-row" data-plugin-tool-open="${escapeHtml(tool.name)}" ${disabled ? 'disabled' : ''}>
     <span class="plugin-tool-mark">${uiIcon('terminal')}</span>
     <span class="plugin-tool-text"><b>${escapeHtml(tool.name)}</b><small>${escapeHtml(tool.description || IexaI18n.t('plugin.noDescription'))}</small></span>
-    <span class="plugin-tool-schema" title="${required ? IexaI18n.t('plugin.requiredParams', { count: required }) : IexaI18n.t('plugin.allOptional')}">${params ? IexaI18n.t('plugin.paramCount', { count: params }) : IexaI18n.t('plugin.noParams')}</span>
+    <span class="plugin-tool-schema" title="${required ? IexaI18n.t('plugin.requiredParams', { count: required }) : IexaI18n.t('plugin.allOptional')}">${params ? IexaI18n.t(params === 1 ? 'plugin.paramOne' : 'plugin.paramCount', { count: params }) : IexaI18n.t('plugin.noParams')}</span>
     <span class="plugin-tool-arrow">${uiIcon('chevron-right')}</span>
   </button>`;
 }
@@ -89,8 +89,8 @@ function renderPlugins(plugins) {
     const slug = [plugin.name === plugin.id ? '' : plugin.id, plugin.author || ''].filter(Boolean).join(' · ');
     const description = plugin.error && !plugin.description ? '' : `<p class="plugin-description">${escapeHtml(plugin.description || IexaI18n.t('plugin.noDescriptionLong'))}</p>`;
     const capabilities = plugin.error ? '' : `<div class="plugin-capabilities">
-        <span class="plugin-cap">${uiIcon('bolt')}${IexaI18n.t('plugin.toolCount', { count: tools.length })}</span>
-        <span class="plugin-cap">${uiIcon('panel-left')}${plugin.hasUI ? IexaI18n.t('plugin.panelCount', { count: plugin.contributions?.panels?.length || 1 }) : IexaI18n.t('plugin.noPanels')}</span>
+        <span class="plugin-cap">${uiIcon('bolt')}${IexaI18n.t(tools.length === 1 ? 'plugin.toolOne' : 'plugin.toolCount', { count: tools.length })}</span>
+        <span class="plugin-cap">${uiIcon('panel-left')}${plugin.hasUI ? IexaI18n.t((plugin.contributions?.panels?.length || 1) === 1 ? 'plugin.panelOne' : 'plugin.panelCount', { count: plugin.contributions?.panels?.length || 1 }) : IexaI18n.t('plugin.noPanels')}</span>
         <span class="plugin-cap is-quiet">${uiIcon('box')}${IexaI18n.t('plugin.dataDir')}</span>
       </div>`;
     return `<article class="plugin-card ${plugin.enabled ? 'is-enabled' : ''} ${plugin.error ? 'has-error' : ''}" data-plugin-id="${escapeHtml(plugin.id)}">

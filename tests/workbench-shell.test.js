@@ -7,7 +7,7 @@ const root = path.join(__dirname, '../src/renderer');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const shell = fs.readFileSync(path.join(root, 'services/WorkbenchShell.js'), 'utf8');
 const skin = fs.readFileSync(path.join(root, 'workbench.css'), 'utf8');
-function fixture(t) { const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' }); t.after(() => dom.window.close()); dom.window.eval(shell); return dom.window; }
+function fixture(t) { const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' }); t.after(() => dom.window.close()); require('./helpers/install-i18n')(dom.window); dom.window.eval(shell); return dom.window; }
 const tick = () => new Promise(r => setImmediate(r));
 test('unique IDs, sprite references and original navigation destinations', t => {
   const w = fixture(t); const d = w.document; const ids = [...d.querySelectorAll('[id]')].map(el => el.id);

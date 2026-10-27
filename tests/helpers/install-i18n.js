@@ -9,7 +9,7 @@ const RENDERER = path.join(__dirname, '..', '..', 'src', 'renderer');
 
 module.exports = function installI18n(win) {
   if (win.IexaI18n) return win.IexaI18n;
-  for (const file of ['services/I18nUi.js', 'services/I18n.js']) {
+  for (const file of ['services/I18nUi.js', 'services/I18nUiPanels.js', 'services/I18n.js']) {
     win.eval(fs.readFileSync(path.join(RENDERER, file), 'utf8'));
   }
   return win.IexaI18n;

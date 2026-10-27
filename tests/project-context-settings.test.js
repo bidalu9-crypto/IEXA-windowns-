@@ -111,7 +111,7 @@ test('actual settings UI persists explicit scope, keeps failed drafts and render
 
 test('settings UI ignores late project reads and preview responses for a previously selected session', async t => {
   const dom = new JSDOM(fs.readFileSync('src/renderer/index.html', 'utf8'), { runScripts: 'outside-only' });
-  t.after(() => dom.window.close()); const w = dom.window;
+  t.after(() => dom.window.close()); const w = dom.window; require('./helpers/install-i18n')(w);
   w.eval(fs.readFileSync('src/renderer/services/PromptSettings.js', 'utf8'));
   let sessionId = 'session-a';
   const panel = new w.IexaPromptSettings({ getSessionId: () => sessionId });

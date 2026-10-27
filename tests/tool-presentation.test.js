@@ -29,6 +29,7 @@ function loadUiDictionary() {
   const sandbox = { window: {} };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(root, 'src/renderer/services/I18nUi.js'), 'utf8'), sandbox, { filename: 'I18nUi.js' });
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/renderer/services/I18nUiPanels.js'), 'utf8'), sandbox, { filename: 'I18nUiPanels.js' });
   return sandbox.window.IexaI18nUi;
 }
 

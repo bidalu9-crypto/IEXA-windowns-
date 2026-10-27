@@ -22,7 +22,7 @@ const ts = require('typescript');
 
 const ROOT = path.join(__dirname, '..', 'src', 'renderer');
 const CJK = /[\u4e00-\u9fa5]/;
-const DICTIONARIES = new Set(['services/I18nUi.js', 'services/I18n.js']);
+const DICTIONARIES = new Set(['services/I18nUi.js', 'services/I18nUiPanels.js', 'services/I18n.js']);
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

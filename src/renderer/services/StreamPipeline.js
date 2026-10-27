@@ -159,7 +159,7 @@ function handleSSEEvent(raw, turnToken) {
         break;
       case 'permission_required':
         showPermissionDialog(data);
-        notifyIfHidden('IEXA 需要你的批准', '有工具调用正在等待审批');
+        notifyIfHidden(IexaI18n.t('notify.approvalTitle'), IexaI18n.t('notify.approvalBody'));
         break;
       case 'question_required':
         showQuestionCard(data);
@@ -172,11 +172,11 @@ function handleSSEEvent(raw, turnToken) {
         break;
       case 'done':
         handleDone(data.stopReason, turnToken, data.generationMs, data.generationRateVersion, data.firstTokenMs);
-        notifyIfHidden('IEXA 任务完成', data.stopReason === 'cancelled' ? '本轮任务已取消' : '本轮处理已完成');
+        notifyIfHidden(IexaI18n.t('notify.doneTitle'), data.stopReason === 'cancelled' ? IexaI18n.t('notify.cancelledBody') : IexaI18n.t('notify.doneBody'));
         break;
       case 'paused':
         handlePaused(turnToken);
-        notifyIfHidden('IEXA 任务已暂停', '点击继续即可从暂停处接着执行');
+        notifyIfHidden(IexaI18n.t('notify.pausedTitle'), IexaI18n.t('notify.pausedBody'));
         break;
       case 'cancelled':
         handleCancelled(turnToken);
@@ -222,7 +222,7 @@ function showQuestionCard(data) {
   hideWaitingIndicator();
   window.IexaQuestionCard.show(data, questionCardOptions());
   const info = data && data.toolCallId ? currentToolBlocks[data.toolCallId] : null;
-  if (info) setToolStepStatus(info.block, 'streaming', '等待用户作答');
+  if (info) setToolStepStatus(info.block, 'streaming', IexaI18n.t('notify.waitingAnswer'));
 }
 
 function handleRetry(data) {
@@ -230,10 +230,10 @@ function handleRetry(data) {
   const attempt = Number(data && data.attempt) || 1;
   const delayMs = Number(data && data.delayMs) || 0;
   const seconds = Math.max(1, Math.ceil(delayMs / 1000));
-  beginTaskSummary(`网关暂时不可用，${seconds} 秒后重试（第 ${attempt} 次）`);
+  beginTaskSummary(IexaI18n.t('notify.gatewayRetry', { seconds, attempt }));
   currentAssistantMsg.querySelectorAll('.tool-block').forEach((block) => {
     if (!block.classList.contains('is-done') && !block.classList.contains('is-error')) {
-      setToolStepStatus(block, 'streaming', '等待重试');
+      setToolStepStatus(block, 'streaming', IexaI18n.t('notify.retrying'));
     }
   });
   scrollToBottom();
@@ -345,7 +345,7 @@ function updateThinkingTokenCount(thinkBlock, text) {
   const countEl = thinkBlock.querySelector('.thinking-token-count');
   if (countEl) {
     countEl.textContent = formatTokenCount(tokens);
-    countEl.title = `思考 token：${tokens.toLocaleString()}（按思考内容估算）`;
+    countEl.title = IexaI18n.t('think.tokenTitle', { count: tokens.toLocaleString() });
   }
 }
 
@@ -371,7 +371,7 @@ function restoreTranscriptOrder(element, message) {
     thinking(text, item) {
       const block = document.createElement('details'); block.className = 'thinking-block is-complete';
       const level = normalizeThinkingLevel(message.thinkingLevel || currentThinkingLevel); block.dataset.thinkingLevel = level; block._reasoning = text;
-      block.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count"></span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+      block.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">${IexaI18n.t('msg.thinking')}</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count"></span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
       window.IexaChatActivity.prepareThinking(block); updateThinkingTokenCount(block, text); setPagedText(block.querySelector('.thinking-content'), text);
       if (Number.isSafeInteger(item.durationMs)) {
         block.dataset.startedAt = String(Math.max(1, item.timestamp));
@@ -399,11 +399,11 @@ function buildCompactionMarker(before, after, timestamp) {
   const detail = from > 0 && to > 0
     ? `<span class="compaction-delta">${escapeHtml(formatTokenCount(from))} → ${escapeHtml(formatTokenCount(to))}</span>`
     : '';
-  marker.innerHTML = `${uiIcon('compact')}<span class="compaction-label">上下文已自动压缩</span>${detail}`;
+  marker.innerHTML = `${uiIcon('compact')}<span class="compaction-label">${IexaI18n.t('compact.label')}</span>${detail}`;
   const at = Number(timestamp);
   marker.title = at > 0
-    ? `上下文已自动压缩：${from > 0 ? from.toLocaleString() : '—'} → ${to > 0 ? to.toLocaleString() : '—'} tokens · ${new Date(at).toLocaleString()}`
-    : '上下文已自动压缩：较早的历史已折叠为摘要，工具结果与最近请求保留。';
+    ? IexaI18n.t('compact.titleDetail', { from: from > 0 ? from.toLocaleString() : '—', to: to > 0 ? to.toLocaleString() : '—', time: new Date(at).toLocaleString() })
+    : IexaI18n.t('compact.body');
   return marker;
 }
 
@@ -433,7 +433,7 @@ function finishThinkingBlock(thinkBlock) {
   const title = thinkBlock.querySelector('.thinking-title');
   const effort = thinkBlock.querySelector('.thinking-effort');
   const spinner = thinkBlock.querySelector('.thinking-spinner');
-  if (title) title.textContent = '思考';
+  if (title) title.textContent = IexaI18n.t('msg.thinking');
   if (effort) effort.textContent = thinkingEffortLabelFor(thinkBlock.dataset.thinkingLevel);
   if (spinner) spinner.remove();
 }
@@ -490,7 +490,7 @@ function handleThinkingDelta(text) {
     thinkBlock.dataset.startedAt = String(Date.now());
     thinkBlock._reasoning = '';
     thinkBlock.dataset.thinkingLevel = level;
-    thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+    thinkBlock.innerHTML = `<summary><span class="thinking-spinner" aria-hidden="true"></span>${uiIcon('brain')}<span class="thinking-title">${IexaI18n.t('msg.thinking')}</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
     // Clicks on the summary are the only reliable user intent: programmatic
     // open changes also emit `toggle`, so that event cannot tell them apart.
     thinkBlock.querySelector(':scope > summary')?.addEventListener('click', () => {

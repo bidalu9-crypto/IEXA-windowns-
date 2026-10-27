@@ -62,5 +62,5 @@ test('every token surface routes through the shared formatter', () => {
   assert.ok(appSource.includes("IexaI18n.t('usage.cacheShort')"), 'the short cache label comes from the dictionary');
   assert.ok(appSource.includes('countEl.textContent = formatTokenCount(tokens);'), 'thinking badge is compact');
   assert.ok(appSource.includes('约 ${formatTokenCount(count)} tokens'), 'soul editor estimate is compact');
-  assert.ok(appSource.includes('${formatTokenCount(currentContextCompactionLimit)} token）'), 'compaction tooltip is compact');
+  assert.ok(appSource.includes("IexaI18n.t('model.compactionPreset', { label: formatContextCompactionLabel(currentContextCompactionLimit), limit: formatTokenCount(currentContextCompactionLimit) })"), 'compaction tooltip is compact');
 });

@@ -106,6 +106,7 @@ test('real browser: plugin cards explain compatibility, tools and panels', { ski
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1200, height: 1000, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
   await wait("typeof currentSessionId !== 'undefined' && currentSessionId");
+  await evaluate("IexaI18n.setLocale('zh-CN'); true");
   await evaluate("document.querySelector('.nav-btn[data-view=\"plugins\"]').click(); true");
   await wait("document.querySelectorAll('.plugin-card').length === 2");
 
@@ -127,7 +128,8 @@ test('real browser: plugin cards explain compatibility, tools and panels', { ski
   assert.equal(healthy.version, 'v1.0.0');
   assert.equal(healthy.compat, '清单 v2');
   assert.deepEqual(healthy.tools, ['greet', 'save_note']);
-  assert.deepEqual(healthy.params, ['1 参数', '2 参数']);
+  const paramLabels = await evaluate(`[IexaI18n.t('plugin.paramOne'), IexaI18n.t('plugin.paramCount', { count: 2 })]`);
+  assert.deepEqual(healthy.params, paramLabels);
   assert.deepEqual(healthy.panels, ['Dashboard']);
   assert.deepEqual(healthy.caps, ['2 个工具', '1 个面板', '独立数据目录']);
   assert.match(healthy.note, /生效/);

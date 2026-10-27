@@ -11,7 +11,7 @@ test('window command allowlist, exact sender, and existing close lifecycle',()=>
  win.full=true;runWindowCommand(win,win.webContents,'toggle-maximize','win32');assert.equal(win.full,false);assert.deepEqual(mainWindowState(win,'win32'),{custom:true,maximized:false,fullscreen:false});
  win.isDestroyed=()=>true;assert.equal(mainWindowState(win,'win32'),null);assert.throws(()=>runWindowCommand(win,win.webContents,'close','win32'));
 });
-function domFixture(t,bridge){const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/renderer/index.html'),'utf8'),{url:'http://127.0.0.1',runScripts:'outside-only'});t.after(()=>dom.window.close());dom.window.iexaDesktop=bridge;dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/renderer/services/WindowChrome.js'),'utf8'));return dom.window;}
+function domFixture(t,bridge){const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/renderer/index.html'),'utf8'),{url:'http://127.0.0.1',runScripts:'outside-only'});t.after(()=>dom.window.close());require('./helpers/install-i18n')(dom.window);dom.window.iexaDesktop=bridge;dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/renderer/services/WindowChrome.js'),'utf8'));return dom.window;}
 test('integrated chrome controls forward once, state updates labels and listener is disposed',t=>{
  const calls=[];let listener,disposed=false;const w=domFixture(t,{initialWindowState:{custom:true,maximized:false,fullscreen:false},windowCommand:c=>{calls.push(c);return Promise.resolve();},onWindowState:cb=>{listener=cb;return()=>{disposed=true;};}});
  assert.equal(w.document.getElementById('windowControls').hidden,false);assert.equal(w.document.documentElement.dataset.windowChrome,'custom');

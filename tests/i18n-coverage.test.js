@@ -1,4 +1,4 @@
-// Three locales, and every wired string must exist in all of them. A missing
+﻿// Three locales, and every wired string must exist in all of them. A missing
 // entry silently falls back to Chinese, which looks like "translation done" to
 // anyone testing in English while a panel quietly stays Chinese.
 const test = require('node:test');
@@ -16,7 +16,7 @@ function loadI18n() {
   const sandbox = { window: {}, localStorage: { getItem: () => null, setItem: () => {} }, document: undefined };
   sandbox.window.localStorage = sandbox.localStorage;
   vm.createContext(sandbox);
-  for (const file of ['services/I18nUi.js', 'services/I18n.js']) {
+  for (const file of ['services/I18nUi.js', 'services/I18nUiPanels.js', 'services/I18n.js']) {
     vm.runInContext(fs.readFileSync(path.join(RENDERER, file), 'utf8'), sandbox, { filename: file });
   }
   return sandbox.window;
@@ -102,7 +102,7 @@ test('hover titles and aria labels follow the locale in the real markup', () => 
     url: 'http://127.0.0.1:19840/',
   });
   const win = dom.window;
-  for (const file of ['services/I18nUi.js', 'services/I18n.js']) {
+  for (const file of ['services/I18nUi.js', 'services/I18nUiPanels.js', 'services/I18n.js']) {
     win.eval(fs.readFileSync(path.join(RENDERER, file), 'utf8'));
   }
 

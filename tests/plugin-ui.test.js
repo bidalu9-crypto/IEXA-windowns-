@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');const {JSDOM}=require('jsdom'),{MessageChannel}=require('node:worker_threads');
 const renderer=path.resolve(__dirname,'../src/renderer'),read=file=>fs.readFileSync(path.join(renderer,'services',file),'utf8');
-function setup(t,modules){const dom=new JSDOM('<!doctype html><html><body></body></html>',{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());for(const file of modules)dom.window.eval(read(file));return dom.window;}
+function setup(t,modules){const dom=new JSDOM('<!doctype html><html><body></body></html>',{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());require('./helpers/install-i18n')(dom.window);for(const file of modules)dom.window.eval(read(file));return dom.window;}
 const presentation={pluginId:'test-plugin',pluginName:'Test',tool:'run',card:{version:1,title:'<img onerror=alert(1)>',description:'Actual snapshot',fields:[{label:'Name',value:'<script>x</script>'}],table:{columns:['A'],rows:[['<svg onload=x>']]}}};
 test('plugin cards restore identical data with no HTML execution or duplicate card; no plugin code required',t=>{
  const w=setup(t,['PluginCards.js']);const host=w.document.createElement('div');host.innerHTML='<div class="tool-body"><pre>raw output</pre></div>';w.document.body.append(host);
