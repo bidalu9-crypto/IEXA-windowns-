@@ -16,7 +16,7 @@ let scheduledDraftFrequency = 'daily';
 let scheduledDraftTarget = 'new';
 let scheduledEditorReturnFocus = null;
 const scheduledRunning = new Set();
-const SCHEDULED_WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const SCHEDULED_WEEKDAYS = [IexaI18n.t('sched.weekday.0'), IexaI18n.t('sched.weekday.1'), IexaI18n.t('sched.weekday.2'), IexaI18n.t('sched.weekday.3'), IexaI18n.t('sched.weekday.4'), IexaI18n.t('sched.weekday.5'), IexaI18n.t('sched.weekday.6')];
 const SCHEDULED_ICON = {
   clock: '<svg class="ui-icon" aria-hidden="true"><use href="#ui-clock"/></svg>',
   play: '<svg class="ui-icon" aria-hidden="true"><use href="#ui-play"/></svg>',
@@ -51,33 +51,33 @@ function scheduledDayStart(ms) {
 
 /** "今天 09:00" / "明天 09:00" / "周四 09:00" / "4 月 2 日 09:00". */
 function formatScheduledRun(ms, now = Date.now()) {
-  if (!Number.isFinite(Number(ms))) return '未安排';
+  if (!Number.isFinite(Number(ms))) return IexaI18n.t('sched.unscheduled');
   const deltaDays = Math.round((scheduledDayStart(ms) - scheduledDayStart(now)) / 86400000);
   const clock = scheduledTimeLabel(ms);
-  if (deltaDays === 0) return `今天 ${clock}`;
-  if (deltaDays === 1) return `明天 ${clock}`;
-  if (deltaDays > 1 && deltaDays < 7) return `${SCHEDULED_WEEKDAYS[new Date(ms).getDay()]} ${clock}`;
+  if (deltaDays === 0) return IexaI18n.t('sched.today') + ' ' + clock;
+  if (deltaDays === 1) return IexaI18n.t('sched.tomorrow') + ' ' + clock;
+  if (deltaDays > 1 && deltaDays < 7) return IexaI18n.t('sched.weekday.' + new Date(ms).getDay()) + ' ' + clock;
   const date = new Date(ms);
-  return `${date.getMonth() + 1} 月 ${date.getDate()} 日 ${clock}`;
+  return IexaI18n.t('sched.dateMd', { month: date.getMonth() + 1, day: date.getDate() }) + ' ' + clock;
 }
 
 function formatScheduledDistance(ms, now = Date.now()) {
   const diff = Number(ms) - now;
   if (!Number.isFinite(diff)) return '';
-  if (diff <= 0) return '即将运行';
+  if (diff <= 0) return IexaI18n.t('sched.dueNow');
   const minutes = Math.round(diff / 60000);
-  if (minutes < 1) return '不到 1 分钟后';
-  if (minutes < 60) return `${minutes} 分钟后`;
+  if (minutes < 1) return IexaI18n.t('sched.underMinute');
+  if (minutes < 60) return IexaI18n.t('sched.inMinutes', { count: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时后`;
-  return `${Math.round(hours / 24)} 天后`;
+  if (hours < 24) return IexaI18n.t('sched.inHours', { count: hours });
+  return IexaI18n.t('sched.inDays', { count: Math.round(hours / 24) });
 }
 
 function scheduledScheduleLabel(schedule) {
   if (!schedule) return '';
-  if (schedule.frequency === 'weekly') return `每周${SCHEDULED_WEEKDAYS[schedule.weekday ?? 0]} ${schedule.time}`;
-  if (schedule.frequency === 'monthly') return `每月 ${schedule.dayOfMonth ?? 1} 日 ${schedule.time}`;
-  return `每天 ${schedule.time}`;
+  if (schedule.frequency === 'weekly') return IexaI18n.t('sched.weekly', { weekday: IexaI18n.t('sched.weekday.' + (schedule.weekday ?? 0)), time: schedule.time });
+  if (schedule.frequency === 'monthly') return IexaI18n.t('sched.monthly', { day: schedule.dayOfMonth ?? 1, time: schedule.time });
+  return IexaI18n.t('sched.daily', { time: schedule.time });
 }
 
 /** Mirror of the server's wall-clock math, used only for the live preview. */
@@ -113,18 +113,18 @@ function scheduledNextRun(schedule, after) {
 }
 
 function scheduledStatusOf(task) {
-  if (!task.enabled) return { tone: 'off', text: '已关闭' };
-  if (task.lastStatus === 'error') return { tone: 'error', text: '上次失败' };
-  if (task.lastStatus === 'missed') return { tone: 'warn', text: '错过一次' };
-  return { tone: 'on', text: '已启用' };
+  if (!task.enabled) return { tone: 'off', text: IexaI18n.t('sched.status.off') };
+  if (task.lastStatus === 'error') return { tone: 'error', text: IexaI18n.t('sched.status.error') };
+  if (task.lastStatus === 'missed') return { tone: 'warn', text: IexaI18n.t('sched.status.missed') };
+  return { tone: 'on', text: IexaI18n.t('sched.status.on') };
 }
 
 function scheduledLastLabel(task) {
-  if (!task.lastRunAt) return '还没有运行过';
+  if (!task.lastRunAt) return IexaI18n.t('sched.neverRun');
   const when = formatScheduledRun(task.lastRunAt);
-  if (task.lastStatus === 'error') return `上次 ${when} · ${task.lastError || '失败'}`;
-  if (task.lastStatus === 'missed') return `上次计划 ${when} · 应用未运行`;
-  return `上次 ${when} · 完成`;
+  if (task.lastStatus === 'error') return IexaI18n.t('sched.lastError', { when, error: task.lastError || IexaI18n.t('sched.failed') });
+  if (task.lastStatus === 'missed') return IexaI18n.t('sched.lastMissed', { when });
+  return IexaI18n.t('sched.lastDone', { when });
 }
 
 function updateScheduledBadge() {
@@ -153,14 +153,14 @@ function refreshScheduledBadge() {
 async function loadScheduledTasks() {
   try {
     const response = await fetch(`${API_BASE}/api/scheduled-tasks`);
-    if (!response.ok) throw new Error(`服务返回 ${response.status}`);
+    if (!response.ok) throw new Error(IexaI18n.t('sched.serviceStatus', { status: response.status }));
     const data = await response.json();
     scheduledTasksCache = Array.isArray(data.tasks) ? data.tasks : [];
     scheduledTimezone = String(data.timezone || '');
     scheduledTasksLoaded = true;
     scheduledTasksError = '';
   } catch (error) {
-    scheduledTasksError = error?.message || '无法连接服务';
+    scheduledTasksError = error?.message || IexaI18n.t('sched.noService');
   }
   renderScheduledTasks();
   updateScheduledBadge();
@@ -171,8 +171,8 @@ function scheduledCardMarkup(task) {
   const prompt = String(task.prompt || '').trim();
   const titleText = String(task.title || '').trim();
   const nextRun = task.enabled && task.nextRunAt
-    ? `<span class="scheduled-next"><strong>下次</strong> ${escapeHtml(formatScheduledRun(task.nextRunAt))}<em>${escapeHtml(formatScheduledDistance(task.nextRunAt))}</em></span>`
-    : '<span class="scheduled-next is-off">已暂停，不会自动运行</span>';
+    ? `<span class="scheduled-next"><strong>${IexaI18n.t('sched.next')}</strong> ${escapeHtml(formatScheduledRun(task.nextRunAt))}<em>${escapeHtml(formatScheduledDistance(task.nextRunAt))}</em></span>`
+    : '<span class="scheduled-next is-off">' + IexaI18n.t('sched.pausedNoRun') + '</span>';
   // A named task shows its prompt; an unnamed one already uses the prompt as
   // the heading, so the body carries only the part the heading could not show.
   const remainder = task.customTitle
@@ -191,25 +191,25 @@ function scheduledCardMarkup(task) {
             <span class="scheduled-state is-${status.tone}"><i aria-hidden="true"></i>${status.text}</span>
           </div>
           ${showPrompt ? `<p class="scheduled-card-prompt${longPrompt ? ' is-clamped' : ''}">${escapeHtml(body)}</p>` : ''}
-          ${longPrompt ? '<button type="button" class="scheduled-prompt-toggle" data-action="expand" aria-expanded="false">展开提示词</button>' : ''}
+          ${longPrompt ? '<button type="button" class="scheduled-prompt-toggle" data-action="expand" aria-expanded="false">' + IexaI18n.t('sched.expandPrompt') + '</button>' : ''}
         </div>
         <button type="button" class="scheduled-switch" role="switch" aria-checked="${task.enabled ? 'true' : 'false'}"
-          aria-label="${task.enabled ? '暂停这个任务' : '启用这个任务'}" data-action="toggle">
+          aria-label="${task.enabled ? IexaI18n.t('sched.pauseTask') : IexaI18n.t('sched.enableTask')}" data-action="toggle">
           <span class="scheduled-switch-knob"></span>
         </button>
       </div>
       <div class="scheduled-card-chips">
         <span class="scheduled-chip is-accent">${SCHEDULED_ICON.repeat}${escapeHtml(task.scheduleLabel || scheduledScheduleLabel(task.schedule))}</span>
-        <span class="scheduled-chip${task.profileMissing ? ' is-warning' : ''}">${escapeHtml(task.profileLabel || '未选择模型')}</span>
-        <span class="scheduled-chip">${task.sessionMode === 'existing' ? `会话 · ${escapeHtml(task.sessionTitle || '已移除')}` : '每次新建会话'}</span>
+        <span class="scheduled-chip${task.profileMissing ? ' is-warning' : ''}">${escapeHtml(task.profileLabel || IexaI18n.t('sched.noModel'))}</span>
+        <span class="scheduled-chip">${task.sessionMode === 'existing' ? IexaI18n.t('sched.sessionPrefix') + escapeHtml(task.sessionTitle || IexaI18n.t('sched.removed')) : IexaI18n.t('sched.newSessionEach')}</span>
       </div>
       <div class="scheduled-card-foot">
         ${nextRun}
         <span class="scheduled-last" title="${escapeHtml(task.lastError || '')}">${escapeHtml(scheduledLastLabel(task))}</span>
         <div class="scheduled-card-actions">
-          <button type="button" class="scheduled-action" data-action="run" title="立即运行" aria-label="立即运行">${SCHEDULED_ICON.play}</button>
-          <button type="button" class="scheduled-action" data-action="edit" title="编辑" aria-label="编辑">${SCHEDULED_ICON.edit}</button>
-          <button type="button" class="scheduled-action is-danger" data-action="delete" title="删除" aria-label="删除">${SCHEDULED_ICON.trash}</button>
+          <button type="button" class="scheduled-action" data-action="run" title="${IexaI18n.t('sched.runNow')}" aria-label="${IexaI18n.t('sched.runNow')}">${SCHEDULED_ICON.play}</button>
+          <button type="button" class="scheduled-action" data-action="edit" title="${IexaI18n.t('sched.edit')}" aria-label="${IexaI18n.t('sched.edit')}">${SCHEDULED_ICON.edit}</button>
+          <button type="button" class="scheduled-action is-danger" data-action="delete" title="${IexaI18n.t('sched.delete')}" aria-label="${IexaI18n.t('sched.delete')}">${SCHEDULED_ICON.trash}</button>
         </div>
       </div>
     </article>`;
@@ -229,18 +229,18 @@ function renderScheduledTasks() {
   const summary = scheduledEl('scheduledSummary');
   const sub = document.querySelector('.scheduled-sub');
   if (sub && scheduledTimezone) {
-    const text = `按系统时间（${scheduledTimezone}）把保存好的提示词发送给模型。应用需要保持运行。`;
+    const text = IexaI18n.t('sched.subtitle', { timezone: scheduledTimezone });
     if (sub.textContent !== text) sub.textContent = text;
   }
 
   if (!scheduledTasksLoaded && !scheduledTasksCache.length) {
-    list.innerHTML = '<div class="scheduled-loading">加载定时任务中…</div>';
+    list.innerHTML = '<div class="scheduled-loading">' + IexaI18n.t('sched.loading') + '</div>';
     if (summary) summary.hidden = true;
     return;
   }
 
   if (scheduledTasksError) {
-    list.innerHTML = `<div class="scheduled-error-state"><strong>定时任务暂时无法加载</strong><span>${escapeHtml(scheduledTasksError)}</span><button type="button" class="btn-secondary btn-sm" data-action="retry">重新连接</button></div>`;
+    list.innerHTML = `<div class="scheduled-error-state"><strong>${IexaI18n.t('sched.loadFailed')}</strong><span>${escapeHtml(scheduledTasksError)}</span><button type="button" class="btn-secondary btn-sm" data-action="retry">${IexaI18n.t('sched.reconnect')}</button></div>`;
     if (summary) summary.hidden = true;
     return;
   }
@@ -250,10 +250,10 @@ function renderScheduledTasks() {
     list.innerHTML = `
       <div class="scheduled-empty">
         <div class="scheduled-empty-mark" aria-hidden="true"><span class="scheduled-empty-ring"></span>${SCHEDULED_ICON.clock}</div>
-        <h3>还没有定时任务</h3>
-        <p>把每天重复的巡检、汇总或提醒写下来，到点后自动交给模型执行。</p>
+        <h3>${IexaI18n.t('sched.emptyTitle')}</h3>
+        <p>${IexaI18n.t('sched.emptyBody')}</p>
         <button type="button" class="scheduled-new-btn is-primary" data-action="create">
-          <svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg><span>新建定时任务</span>
+          <svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg><span>${IexaI18n.t('sched.newTask')}</span>
         </button>
       </div>`;
     return;
@@ -268,8 +268,8 @@ function renderScheduledTasks() {
       .filter((value) => value > 0)
       .sort((a, b) => a - b)[0];
     summary.hidden = false;
-    summary.innerHTML = `<span><strong>${activeTasks.length}</strong> 个已启用</span>` +
-      (next ? `<span class="scheduled-summary-next">下一次 ${escapeHtml(formatScheduledRun(next))}</span>` : '');
+    summary.innerHTML = `<span><strong>${activeTasks.length}</strong> ${IexaI18n.t('sched.enabledCount')}</span>` +
+      (next ? `<span class="scheduled-summary-next">${IexaI18n.t('sched.nextRun')} ${escapeHtml(formatScheduledRun(next))}</span>` : '');
   }
 
   if (focusMemo) {
@@ -290,14 +290,14 @@ async function toggleScheduledTask(task, enabled) {
       body: JSON.stringify({ enabled }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `服务返回 ${response.status}`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('sched.serviceStatus', { status: response.status }));
     const index = scheduledTasksCache.findIndex((item) => item.id === task.id);
     if (index >= 0) scheduledTasksCache[index] = data.task;
     renderScheduledTasks();
     updateScheduledBadge();
-    scheduledAnnounce(`已${enabled ? '启用' : '暂停'}「${task.title}」`);
+    scheduledAnnounce(IexaI18n.t(enabled ? 'sched.announceOn' : 'sched.announceOff', { title: task.title }));
   } catch (error) {
-    await window.IexaDialogs.alert(`更新定时任务失败：${error?.message || error}`);
+    await window.IexaDialogs.alert(IexaI18n.t('sched.updateFailed', { error: error?.message || error }));
     await loadScheduledTasks();
   }
 }
@@ -310,12 +310,12 @@ async function runScheduledTaskNow(task, button) {
   try {
     const response = await fetch(`${API_BASE}/api/scheduled-tasks/${encodeURIComponent(task.id)}/run`, { method: 'POST' });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `服务返回 ${response.status}`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('sched.serviceStatus', { status: response.status }));
     const index = scheduledTasksCache.findIndex((item) => item.id === task.id);
     if (index >= 0) scheduledTasksCache[index] = data.task;
     renderScheduledTasks();
     const sessionId = data.task?.lastSessionId;
-    scheduledAnnounce(`「${task.title}」运行完成`);
+    scheduledAnnounce(IexaI18n.t('sched.runDone', { title: task.title }));
     if (sessionId && typeof showSession === 'function') {
       // The run already persisted a conversation; jump to it so the result is
       // visible instead of silently completing in the background.
@@ -323,7 +323,7 @@ async function runScheduledTaskNow(task, button) {
       document.querySelector('.nav-btn[data-view="chat"]')?.click();
     }
   } catch (error) {
-    await window.IexaDialogs.alert(`运行失败：${error?.message || error}`);
+    await window.IexaDialogs.alert(IexaI18n.t('sched.runFailed', { error: error?.message || error }));
     await loadScheduledTasks();
   } finally {
     scheduledRunning.delete(task.id);
@@ -333,20 +333,20 @@ async function runScheduledTaskNow(task, button) {
 }
 
 async function deleteScheduledTask(task) {
-  const ok = await window.IexaDialogs.confirm(`删除定时任务「${task.title}」？已经生成的会话会保留。`);
+  const ok = await window.IexaDialogs.confirm(IexaI18n.t('sched.deleteConfirm', { title: task.title }));
   if (!ok) return;
   try {
     const response = await fetch(`${API_BASE}/api/scheduled-tasks/${encodeURIComponent(task.id)}`, { method: 'DELETE' });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `服务返回 ${response.status}`);
+      throw new Error(data.error || IexaI18n.t('sched.serviceStatus', { status: response.status }));
     }
     scheduledTasksCache = scheduledTasksCache.filter((item) => item.id !== task.id);
     renderScheduledTasks();
     updateScheduledBadge();
-    scheduledAnnounce(`已删除「${task.title}」`);
+    scheduledAnnounce(IexaI18n.t('sched.deleted', { title: task.title }));
   } catch (error) {
-    await window.IexaDialogs.alert(`删除失败：${error?.message || error}`);
+    await window.IexaDialogs.alert(IexaI18n.t('sched.deleteFailed', { error: error?.message || error }));
   }
 }
 
@@ -368,7 +368,7 @@ function scheduledFillOptions() {
     if (!profiles.length) {
       const option = document.createElement('option');
       option.value = '';
-      option.textContent = '还没有配置模型';
+      option.textContent = IexaI18n.t('sched.noProfiles');
       model.appendChild(option);
     }
   }
@@ -384,13 +384,13 @@ function scheduledFillOptions() {
     for (const item of sessions) {
       const option = document.createElement('option');
       option.value = item.id;
-      option.textContent = item.title || '未命名会话';
+      option.textContent = item.title || IexaI18n.t('sched.untitledSession');
       session.appendChild(option);
     }
     if (!sessions.length) {
       const option = document.createElement('option');
       option.value = '';
-      option.textContent = '还没有可用的会话';
+      option.textContent = IexaI18n.t('sched.noSessions');
       session.appendChild(option);
     }
     if (selected && sessions.some((item) => item.id === selected)) session.value = selected;
@@ -401,7 +401,7 @@ function scheduledFillOptions() {
     for (let value = 1; value <= 31; value += 1) {
       const option = document.createElement('option');
       option.value = String(value);
-      option.textContent = `${value} 日`;
+      option.textContent = IexaI18n.t('sched.dayOption', { value });
       day.appendChild(option);
     }
   }
@@ -442,19 +442,19 @@ function scheduledUpdatePreview() {
   const schedule = scheduledCurrentSchedule();
   const next = scheduledNextRun(schedule, Date.now());
   const label = scheduledScheduleLabel(schedule);
-  const when = scheduledEditorTask ? '下次' : '首次';
+  const when = scheduledEditorTask ? IexaI18n.t('sched.next') : IexaI18n.t('sched.first');
   preview.textContent = next
     ? `${label} · ${when} ${formatScheduledRun(next)}（${formatScheduledDistance(next)}）`
     : label;
   const counter = scheduledEl('scheduledPromptCount');
   const prompt = scheduledEl('scheduledPrompt');
-  if (counter && prompt) counter.textContent = `${prompt.value.length} 字`;
+  if (counter && prompt) counter.textContent = IexaI18n.t('sched.charCount', { count: prompt.value.length });
 }
 
 async function openScheduledEditor(task = null) {
   const profiles = Array.isArray(profilesCache) ? profilesCache : [];
   if (!task && !profiles.length) {
-    await window.IexaDialogs.alert('还没有配置模型。请先在「配置」里添加一个模型，再创建定时任务。');
+    await window.IexaDialogs.alert(IexaI18n.t('sched.needModelFirst'));
     return;
   }
   scheduledFillOptions();
@@ -464,11 +464,11 @@ async function openScheduledEditor(task = null) {
   scheduledDraftTarget = task?.sessionMode === 'existing' ? 'existing' : 'new';
 
   const title = scheduledEl('scheduledEditorTitle');
-  if (title) title.textContent = task ? '编辑定时任务' : '新建定时任务';
+  if (title) title.textContent = task ? IexaI18n.t('sched.editorEdit') : IexaI18n.t('sched.newTask');
   const sub = scheduledEl('scheduledEditorSub');
-  if (sub) sub.textContent = task ? '修改后从当前时间重新计算下一次运行。' : '到点后自动发送提示词并开始一轮任务。';
+  if (sub) sub.textContent = task ? IexaI18n.t('sched.editorEditHint') : IexaI18n.t('sched.editorNewHint');
   const save = scheduledEl('scheduledSave');
-  if (save) save.textContent = task ? '保存修改' : '保存定时任务';
+  if (save) save.textContent = task ? IexaI18n.t('sched.saveEdit') : IexaI18n.t('sched.saveNew');
   const prompt = scheduledEl('scheduledPrompt');
   if (prompt) prompt.value = task?.prompt || '';
   const name = scheduledEl('scheduledTitle');
@@ -535,13 +535,13 @@ async function saveScheduledTask(event) {
     error.hidden = false;
   };
   const prompt = String(scheduledEl('scheduledPrompt')?.value || '').trim();
-  if (!prompt) { showError('请填写提示词'); scheduledEl('scheduledPrompt')?.focus(); return; }
+  if (!prompt) { showError(IexaI18n.t('sched.errPrompt')); scheduledEl('scheduledPrompt')?.focus(); return; }
   const profileId = String(scheduledEl('scheduledModel')?.value || '');
-  if (!profileId) { showError('请选择一个模型'); return; }
+  if (!profileId) { showError(IexaI18n.t('sched.errModel')); return; }
   const sessionId = scheduledDraftTarget === 'existing' ? String(scheduledEl('scheduledSession')?.value || '') : '';
-  if (scheduledDraftTarget === 'existing' && !sessionId) { showError('请选择一个已有会话'); return; }
+  if (scheduledDraftTarget === 'existing' && !sessionId) { showError(IexaI18n.t('sched.errSession')); return; }
   const time = String(scheduledEl('scheduledTime')?.value || '');
-  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(time)) { showError('请选择有效的时间'); return; }
+  if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(time)) { showError(IexaI18n.t('sched.errTime')); return; }
 
   const payload = {
     title: String(scheduledEl('scheduledTitle')?.value || '').trim() || undefined,
@@ -565,7 +565,7 @@ async function saveScheduledTask(event) {
       },
     );
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `服务返回 ${response.status}`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('sched.serviceStatus', { status: response.status }));
     if (editing) {
       const index = scheduledTasksCache.findIndex((item) => item.id === editing.id);
       if (index >= 0) scheduledTasksCache[index] = data.task;
@@ -576,9 +576,9 @@ async function saveScheduledTask(event) {
     closeScheduledEditor();
     renderScheduledTasks();
     updateScheduledBadge();
-    scheduledAnnounce(`已保存「${data.task?.title || '定时任务'}」`);
+    scheduledAnnounce(IexaI18n.t('sched.saved', { title: data.task?.title || IexaI18n.t('sched.taskFallback') }));
   } catch (thrown) {
-    showError(thrown?.message || '保存失败');
+    showError(thrown?.message || IexaI18n.t('sched.saveFailed'));
   } finally {
     if (save) { save.disabled = false; save.classList.remove('is-busy'); }
   }
@@ -603,7 +603,7 @@ function initScheduledTasks() {
       const prompt = card.querySelector('.scheduled-card-prompt');
       const expanded = button.getAttribute('aria-expanded') === 'true';
       button.setAttribute('aria-expanded', String(!expanded));
-      button.textContent = expanded ? '展开提示词' : '收起提示词';
+      button.textContent = expanded ? IexaI18n.t('sched.expandPrompt') : IexaI18n.t('sched.collapsePrompt');
       prompt?.classList.toggle('is-clamped', expanded);
     }
   });
