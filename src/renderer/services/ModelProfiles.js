@@ -85,10 +85,10 @@ function applyThinkingLevelUI(level) {
   const btn = document.getElementById('thinkingLevelBtn');
   const label = document.getElementById('thinkingLevelLabel');
   const menu = document.getElementById('thinkingLevelMenu');
-  if (label) label.textContent = THINKING_LEVELS[currentThinkingLevel].label;
+  if (label) label.textContent = IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey);
   if (btn) {
     btn.dataset.level = currentThinkingLevel;
-    btn.title = '思考档位：' + THINKING_LEVELS[currentThinkingLevel].label;
+    btn.title = IexaI18n.t('think.levelTitle', { level: IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey) });
     btn.disabled = maxLevel === 'off';
   }
   if (menu) {
@@ -99,13 +99,13 @@ function applyThinkingLevelUI(level) {
     const selected = THINKING_LEVEL_ORDER.indexOf(currentThinkingLevel);
     if (slider) {
       slider.max = String(maxIndex); slider.value = String(selected); slider.disabled = maxIndex === 0;
-      slider.setAttribute('aria-valuetext', THINKING_LEVELS[currentThinkingLevel].label);
+      slider.setAttribute('aria-valuetext', IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey));
     }
     if (track) {
       track.style.setProperty('--thinking-fill', `${maxIndex ? selected / maxIndex * 100 : 0}%`);
     }
     if (value) {
-      value.textContent = THINKING_LEVELS[currentThinkingLevel].label;
+      value.textContent = IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey);
       const chevron = document.createElement('span'); chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = ' ›'; value.appendChild(chevron);
     }
     if (ticks) {

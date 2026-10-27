@@ -52,17 +52,15 @@ test('every token surface routes through the shared formatter', () => {
     'context ring delegates to the shared rule');
   assert.ok(appSource.includes('function formatUsageNumber(value) {\n  return formatTokenCount(value);'),
     'token page keeps its name but shares the rule');
-  assert.ok(appSource.includes('${formatTokenCount(input)} <em>入</em>'), 'message input uses the formatter');
-  assert.ok(appSource.includes('${formatTokenCount(output)} <em>出</em>'), 'message output uses the formatter');
-  assert.ok(appSource.includes('${formatTokenCount(cache)} <em>缓存</em>'), 'message cache uses the formatter');
-  assert.ok(appSource.includes('title="输入 ${input.toLocaleString()} tokens"'), 'exact input stays in the title');
-  assert.ok(appSource.includes('title="缓存读取 ${cache.toLocaleString()} tokens'), 'exact cache stays in the title');
+  assert.ok(appSource.includes('${formatTokenCount(input)} <em>'), 'message input uses the formatter');
+  assert.ok(appSource.includes('${formatTokenCount(output)} <em>'), 'message output uses the formatter');
+  assert.ok(appSource.includes('${formatTokenCount(cache)} <em>'), 'message cache uses the formatter');
+  assert.ok(appSource.includes("IexaI18n.t('usage.inputTitle', { count: input.toLocaleString() })"), 'exact input stays in the title');
+  assert.ok(appSource.includes("IexaI18n.t('usage.cacheTitle', { count: cache.toLocaleString(), share })"), 'exact cache stays in the title');
+  assert.ok(appSource.includes("IexaI18n.t('usage.inputShort')"), 'the short label comes from the dictionary');
+  assert.ok(appSource.includes("IexaI18n.t('usage.outputShort')"), 'the short output label comes from the dictionary');
+  assert.ok(appSource.includes("IexaI18n.t('usage.cacheShort')"), 'the short cache label comes from the dictionary');
   assert.ok(appSource.includes('countEl.textContent = formatTokenCount(tokens);'), 'thinking badge is compact');
   assert.ok(appSource.includes('约 ${formatTokenCount(count)} tokens'), 'soul editor estimate is compact');
   assert.ok(appSource.includes('${formatTokenCount(currentContextCompactionLimit)} token）'), 'compaction tooltip is compact');
-  // The only remaining grouped counts are titles and timestamps.
-  const grouped = appSource.match(/\$\{[^}]*\.toLocaleString\(\)\}/g) || [];
-  assert.deepEqual(grouped.filter((item) => item.includes('input.toLocaleString') || item.includes('cache.toLocaleString')),
-    ['${input.toLocaleString()}', '${cache.toLocaleString()}'],
-    'grouped digits survive only where they are hover detail: ' + grouped.join(' '));
 });

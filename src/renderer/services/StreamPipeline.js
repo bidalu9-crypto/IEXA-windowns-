@@ -329,7 +329,7 @@ function handleTextDelta(fullText) {
 
 function thinkingEffortLabelFor(level) {
   const normalized = normalizeThinkingLevel(level || 'medium');
-  return THINKING_LEVELS[normalized]?.label || '标准';
+  return THINKING_LEVELS[normalized]?.labelKey ? IexaI18n.t(THINKING_LEVELS[normalized].labelKey) : IexaI18n.t('think.medium');
 }
 
 function estimateThinkingTokens(text) {

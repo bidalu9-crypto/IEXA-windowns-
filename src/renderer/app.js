@@ -158,13 +158,13 @@ let activeChatTurnToken = 0;
 
 // Thinking level (iOS-style: off / low / medium / high / xhigh / max / ultra)
 const THINKING_LEVELS = {
-  off: { id: 'off', label: '关闭', desc: '不启用额外思考' },
-  low: { id: 'low', label: '低', desc: '快速轻量推理' },
-  medium: { id: 'medium', label: '标准', desc: '平衡速度与深度' },
-  high: { id: 'high', label: '高', desc: '更深入的长思考' },
-  xhigh: { id: 'xhigh', label: '超高', desc: '最大化推理深度' },
-  max: { id: 'max', label: '最大', desc: '使用模型允许的最大思考' },
-  ultra: { id: 'ultra', label: 'Ultra', desc: '更强的深度推理模式' },
+  off: { id: 'off', labelKey: 'think.off', descKey: 'think.offDesc' },
+  low: { id: 'low', labelKey: 'think.low', descKey: 'think.lowDesc' },
+  medium: { id: 'medium', labelKey: 'think.medium', descKey: 'think.mediumDesc' },
+  high: { id: 'high', labelKey: 'think.high', descKey: 'think.highDesc' },
+  xhigh: { id: 'xhigh', labelKey: 'think.xhigh', descKey: 'think.xhighDesc' },
+  max: { id: 'max', labelKey: 'think.max', descKey: 'think.maxDesc' },
+  ultra: { id: 'ultra', labelKey: 'think.ultra', descKey: 'think.ultraDesc' },
 };
 let currentThinkingLevel = localStorage.getItem('iexa-thinking-level') || 'medium';
 if (!THINKING_LEVELS[currentThinkingLevel]) currentThinkingLevel = 'medium';

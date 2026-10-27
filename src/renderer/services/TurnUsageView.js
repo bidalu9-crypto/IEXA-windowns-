@@ -7,11 +7,11 @@
 
 function formatTurnDuration(ms) {
   const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
-  if (total < 60) return total + ' 秒';
+  if (total < 60) return total + ' ' + IexaI18n.t('duration.sec');
   if (total < 3600) {
-    return Math.floor(total / 60) + ' 分 ' + String(total % 60).padStart(2, '0') + ' 秒';
+    return Math.floor(total / 60) + ' ' + IexaI18n.t('duration.min') + ' ' + String(total % 60).padStart(2, '0') + ' ' + IexaI18n.t('duration.sec');
   }
-  return Math.floor(total / 3600) + ' 小时 ' + String(Math.floor((total % 3600) / 60)).padStart(2, '0') + ' 分 ' + String(total % 60).padStart(2, '0') + ' 秒';
+  return Math.floor(total / 3600) + ' ' + IexaI18n.t('duration.hour') + ' ' + String(Math.floor((total % 3600) / 60)).padStart(2, '0') + ' ' + IexaI18n.t('duration.min') + ' ' + String(total % 60).padStart(2, '0') + ' ' + IexaI18n.t('duration.sec');
 }
 
 /**
@@ -42,7 +42,7 @@ function messageTurnDuration(messageEl) {
 function renderTurnDurationMarkup(duration) {
   const running = !!(duration && duration.running);
   return `<span class="message-usage-duration${running ? ' is-running' : ''}"${running ? ` data-started-at="${duration.startedAt}"` : ''} role="timer">` +
-    `<em>耗时</em> <span class="message-usage-duration-value">${formatTurnDuration(duration.ms)}</span></span>`;
+    `<em>${IexaI18n.t('usage.duration')}</em> <span class="message-usage-duration-value">${formatTurnDuration(duration.ms)}</span></span>`;
 }
 
 // One shared ticker; a turn only owns a single element, so the interval is
@@ -134,16 +134,16 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
       <rect x="10.5" y="8" width="3" height="11" rx="1" stroke="currentColor" stroke-width="1.7"/>
       <rect x="17" y="4" width="3" height="15" rx="1" stroke="currentColor" stroke-width="1.7"/>
     </svg>`);
-    parts.push(`<span title="输入 ${input.toLocaleString()} tokens">${formatTokenCount(input)} <em>入</em></span>`);
+    parts.push(`<span title="${IexaI18n.t('usage.inputTitle', { count: input.toLocaleString() })}">${formatTokenCount(input)} <em>${IexaI18n.t('usage.inputShort')}</em></span>`);
     parts.push('<i aria-hidden="true"></i>');
-    parts.push(`<span title="输出 ${output.toLocaleString()} tokens">${formatTokenCount(output)} <em>出</em></span>`);
+    parts.push(`<span title="${IexaI18n.t('usage.outputTitle', { count: output.toLocaleString() })}">${formatTokenCount(output)} <em>${IexaI18n.t('usage.outputShort')}</em></span>`);
     if (cacheReadTokens !== undefined && cacheReadTokens !== null && Number.isFinite(cacheRead)) {
       parts.push('<i aria-hidden="true"></i>');
       const cache = Math.max(0, Math.round(cacheRead));
       // Share of the prompt that came from cache. input already contains the
       // cached span, so this is a plain ratio - the same reading providers give.
       const share = input > 0 ? Math.round(Math.min(1, cache / input) * 100) : 0;
-      parts.push(`<span class="message-usage-cache" title="缓存读取 ${cache.toLocaleString()} tokens（占输入 ${share}%）">${formatTokenCount(cache)} <em>缓存</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
+      parts.push(`<span class="message-usage-cache" title="${IexaI18n.t('usage.cacheTitle', { count: cache.toLocaleString(), share })}">${formatTokenCount(cache)} <em>${IexaI18n.t('usage.cacheShort')}</em> <span class="message-usage-cache-share">(${share}%)</span></span>`);
     }
     // Streaming rate, measured inside provider streams only: tool runs, approval
     // waits and user pauses are not generation time.
@@ -157,10 +157,10 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
       if (rate >= 0.05) {
         const text = rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1);
         const prefill = Number.isFinite(firstTokenMs) && firstTokenMs > 0
-          ? `；首字等待合计 ${(firstTokenMs / 1000).toFixed(1)} 秒（预填充，不计入）`
+          ? IexaI18n.t('usage.prefill', { seconds: (firstTokenMs / 1000).toFixed(1) })
           : '';
         parts.push('<i aria-hidden="true"></i>');
-        parts.push(`<span class="message-usage-rate" title="生成 ${output.toLocaleString()} tokens，解码 ${(generationMs / 1000).toFixed(1)} 秒${prefill}">${text} tok/s</span>`);
+        parts.push(`<span class="message-usage-rate" title="${IexaI18n.t('usage.rateTitle', { count: output.toLocaleString(), seconds: (generationMs / 1000).toFixed(1), prefill })}">${text} tok/s</span>`);
       }
     }
   }
@@ -171,7 +171,7 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
   const timestamp = Number(messageEl && messageEl.dataset.timestamp);
   const timeText = formatMessageTimestamp(timestamp);
   if (timeText) {
-    parts.push(`<time class="message-usage-time" datetime="${new Date(timestamp).toISOString()}" title="生成时间：${new Date(timestamp).toLocaleString()}">${timeText}</time>`);
+    parts.push(`<time class="message-usage-time" datetime="${new Date(timestamp).toISOString()}" title="${IexaI18n.t('usage.generatedAt', { time: new Date(timestamp).toLocaleString() })}">${timeText}</time>`);
   }
   usageEl.innerHTML = parts.join('');
   if (duration && duration.running) registerLiveTurnDuration(usageEl.querySelector('.message-usage-duration'));
@@ -190,7 +190,7 @@ function resetContextStatus() {
   contextProgressValue.style.strokeDasharray = '0 100';
   const percentLabel = document.getElementById('contextProgressPercent');
   if (percentLabel) percentLabel.textContent = '0%';
-  const detail = '上下文用量：本会话尚无请求';
+  const detail = IexaI18n.t('context.noRequests');
   contextProgress.title = detail;
   contextProgressTooltip.textContent = detail;
   window.IexaComposerHint?.setContextPressure?.(null);
@@ -234,14 +234,21 @@ function handleContextStatus(context, sessionId) {
   contextProgressValue.style.strokeDasharray = percent + ' 100';
   const percentLabel = document.getElementById('contextProgressPercent');
   if (percentLabel) percentLabel.textContent = percent + '%';
-  const source = context.estimated ? '估算' : '模型实测';
+  const source = context.estimated ? IexaI18n.t('context.estimated') : IexaI18n.t('context.measured');
   const thresholdTokens = Math.max(1, Number(context.compactThreshold) || Math.round(windowTokens * 0.8));
   const thresholdPercent = Math.min(100, Math.round((thresholdTokens / windowTokens) * 100));
-  let statusText = state === 'compacting' ? '正在自动压缩上下文' :
-    state === 'compacted' ? '已自动压缩上下文' :
-    state === 'near-limit' ? '接近自动压缩阈值' :
-    state === 'exhausted' ? '上下文接近上限' : '上下文用量';
-  const detail = `${statusText}：${formatContextTokens(usedTokens)} / ${formatContextTokens(windowTokens)} tokens（${percent}% · ${source}）· 自动压缩阈值 ${thresholdPercent}%`;
+  let statusText = state === 'compacting' ? IexaI18n.t('context.compacting') :
+    state === 'compacted' ? IexaI18n.t('context.compacted') :
+    state === 'near-limit' ? IexaI18n.t('context.nearLimit') :
+    state === 'exhausted' ? IexaI18n.t('context.exhausted') : IexaI18n.t('context.usage');
+  const detail = IexaI18n.t('context.detail', {
+    status: statusText,
+    used: formatContextTokens(usedTokens),
+    total: formatContextTokens(windowTokens),
+    percent,
+    source,
+    threshold: thresholdPercent,
+  });
   contextProgress.title = detail;
   contextProgressTooltip.textContent = detail;
   // The composer mists as this percentage approaches the threshold percentage,
@@ -268,9 +275,9 @@ function formatUsageNumber(value) {
 }
 
 function formatEstimatedCost(value) {
-  if (value === null || value === undefined || value === '') return '未配置价格';
+  if (value === null || value === undefined || value === '') return IexaI18n.t('cost.notConfigured');
   const cost = Number(value);
-  if (!Number.isFinite(cost) || cost < 0) return '未配置价格';
+  if (!Number.isFinite(cost) || cost < 0) return IexaI18n.t('cost.notConfigured');
   if (cost === 0) return '$0.00';
   if (cost < 1e-8) return `$${cost.toExponential(2)}`;
   const digits = cost < 0.0001 ? Math.min(12, Math.max(8, -Math.floor(Math.log10(cost)) + 4)) : cost < 0.01 ? 6 : 2;

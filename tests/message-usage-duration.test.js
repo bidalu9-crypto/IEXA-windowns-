@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 const { JSDOM } = require('jsdom');
+const installI18n = require('./helpers/install-i18n');
 
 /* The usage line carries a live turn timer between the prompt-cache receipt and
    the clock: it starts at 0 秒, advances once a second while the turn streams,
@@ -37,6 +38,7 @@ function createWindow(t) {
   const dom = new JSDOM('<body><div id="messages"></div></body>', { runScripts: 'outside-only', pretendToBeVisual: true, url: 'http://localhost' });
   if (t) t.after(() => dom.window.close());
   const w = dom.window;
+  installI18n(w);
   w.escapeHtml = (value) => String(value);
   w.formatMessageTimestamp = (value) => (Number.isFinite(Number(value)) && Number(value) > 0 ? '14:31' : '');
   // Module-scope state the extracted functions close over.
