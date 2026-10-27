@@ -226,6 +226,7 @@ function finalizeAssistantMessage(messageEl) {
   // The turn is over: fold its reasoning and tool rails behind one line that
   // carries the elapsed time. Expanding restores them exactly as they were.
   window.IexaTurnSummary?.settle(messageEl);
+  if (!document.getElementById('trajectoryView')?.hidden) window.IexaTrajectory?.refresh?.(true);
   scrollToBottom(false, followLatest);
 }
 

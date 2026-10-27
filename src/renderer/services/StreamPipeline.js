@@ -254,6 +254,34 @@ function ensureAnswerContentEl() {
   return content;
 }
 
+function stableMarkdownSplit(source) {
+  // The split sits after the last blank line that is outside a fenced block.
+  // Everything before it never changes again during this stream, so its HTML
+  // can be parsed once and reused.
+  let inFence = false;
+  let split = 0;
+  let position = 0;
+  for (const line of source.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    position += line.length + 1;
+    if (!inFence && /^\s*$/.test(line)) split = position;
+  }
+  return split;
+}
+
+function streamingMarkdownHtml(contentEl, source) {
+  if (source.length < 1500) return null;
+  const split = stableMarkdownSplit(source);
+  if (split <= 0 || split >= source.length) return null;
+  const stable = source.slice(0, split);
+  let cached = contentEl._streamStable;
+  if (!cached || cached.source !== stable) {
+    cached = { source: stable, html: renderSafeMarkdown(stable, { highlight: false }) };
+    contentEl._streamStable = cached;
+  }
+  return cached.html + renderSafeMarkdown(source.slice(split), { highlight: false });
+}
+
 function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   if (!contentEl) return;
   const source = String(markdown || '');
@@ -265,8 +293,15 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
     // Avoid rerunning syntax highlighting over all growing code blocks per SSE delta.
     // Finalization adds highlighting exactly once, even when the text is unchanged.
     if (!finalRender && window.IexaChatPresentation) {
-      window.IexaChatPresentation.renderStream(contentEl, renderSafeMarkdown(source, { highlight: false }));
-    } else contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
+      // Parse only the last open block; the settled prefix is cached. This is
+      // what keeps a long reply inside one frame instead of re-parsing the
+      // whole document on every delta.
+      const partial = streamingMarkdownHtml(contentEl, source);
+      window.IexaChatPresentation.renderStream(contentEl, partial || renderSafeMarkdown(source, { highlight: false }));
+    } else {
+      contentEl._streamStable = null;
+      contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
+    }
     contentEl._renderedMarkdownFinal = finalRender;
     contentEl._renderedMarkdownSource = source;
     normalizeRenderedAssets(contentEl);

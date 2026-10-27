@@ -485,6 +485,10 @@
     'compact.body': { zh: '上下文已自动压缩：较早的历史已折叠为摘要，工具结果与最近请求保留。', en: 'Context auto-compacted: earlier history is folded into a summary; tool results and recent requests are kept.', ja: 'コンテキストを自動圧縮：以前の履歴は要約に折りたたまれ、ツール結果と直近のリクエストは保持されます。' },
     'msg.thinking': { zh: '思考', en: 'Thinking', ja: '思考' },
 
+    'tool.tab.input': { zh: '输入', en: 'Input', ja: '入力' },
+    'tool.tab.output': { zh: '输出', en: 'Output', ja: '出力' },
+    'tool.tab.inspect': { zh: '检查', en: 'Inspect', ja: '検査' },
+
     /* ---- composer dock ---- */
     'dock.plan': { zh: '任务', en: 'Tasks', ja: 'タスク' },
     'dock.queue': { zh: '排队消息', en: 'Queued messages', ja: 'キュー内のメッセージ' },

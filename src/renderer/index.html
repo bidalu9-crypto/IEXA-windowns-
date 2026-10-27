@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="styles/transcript.css">
 <link rel="stylesheet" href="styles/composer.css">
 <link rel="stylesheet" href="styles/dock.css">
+<link rel="stylesheet" href="styles/trajectory.css">
+<link rel="stylesheet" href="styles/toolcard.css">
 <link rel="stylesheet" href="styles/settings.css">
 <link rel="stylesheet" href="styles/skills.css">
 <link rel="stylesheet" href="styles/refinements.css">
@@ -248,7 +250,27 @@
             <span class="goal-bar-status" id="goalBarStatus"></span>
             <button type="button" class="goal-bar-clear" id="goalBarClear" title="清除目标" data-i18n-title="tip.clearGoal" aria-label="清除目标" data-i18n-aria="tip.clearGoal"><svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg></button>
           </div>
-          <div class="chat-messages-area">
+          <div class="chat-view-tabs" id="chatViewTabs" role="tablist" aria-label="对话视图">
+        <button type="button" class="chat-view-tab is-active" data-chat-view="conversation" role="tab" aria-selected="true">对话</button>
+        <button type="button" class="chat-view-tab" data-chat-view="trajectory" role="tab" aria-selected="false">轨迹</button>
+      </div>
+      <div class="trajectory-view" id="trajectoryView" hidden>
+        <div class="trajectory-toolbar">
+          <div class="trajectory-filters" role="group" aria-label="筛选轨迹">
+            <button type="button" class="trajectory-filter is-active" data-trajectory-filter="all">全部</button>
+            <button type="button" class="trajectory-filter" data-trajectory-filter="tool">工具</button>
+            <button type="button" class="trajectory-filter" data-trajectory-filter="thinking">思考</button>
+            <button type="button" class="trajectory-filter" data-trajectory-filter="error">错误</button>
+          </div>
+          <span class="trajectory-count" id="trajectoryCount"></span>
+          <button type="button" class="trajectory-refresh" id="trajectoryRefresh">刷新</button>
+        </div>
+        <div class="trajectory-body">
+          <div class="trajectory-list" id="trajectoryList" role="list"></div>
+          <aside class="trajectory-inspector" id="trajectoryInspector" hidden></aside>
+        </div>
+      </div>
+      <div class="chat-messages-area">
             <div class="chat-messages" id="chatMessages">
               <div class="welcome">
                 <div class="welcome-head">
@@ -1496,6 +1518,7 @@ version: 1.0.0
 <script src="components/PermissionDialog.js"></script>
 <script src="components/QuestionCard.js"></script>
 <script src="services/ToolLifecycleView.js"></script>
+<script src="services/ToolCard.js"></script>
 <script src="services/PluginCards.js"></script>
 <script src="services/PluginBridge.js"></script>
 <script src="services/PluginWorkspace.js"></script>
@@ -1515,6 +1538,7 @@ version: 1.0.0
 <script src="services/ModelProfiles.js"></script>
 <script src="services/BalanceView.js"></script>
 <script src="services/ComposerHint.js"></script>
+<script src="services/TrajectoryView.js"></script>
 <script src="services/ComposerDock.js"></script>
 <script src="services/PlanDock.js"></script>
 <script src="services/QueueDock.js"></script>

@@ -478,7 +478,15 @@ function handleToolStart(id, name) {
       '<span class="tool-chevron" aria-hidden="true"></span>' +
     '</div>' +
     '<div class="tool-body" id="tool-body-' + escapeHtml(id) + '" style="display:none;">' +
-      '<div class="tool-section-label">' + IexaI18n.t('tool.section.input') + '</div><pre class="tool-args">' + IexaI18n.t('tool.preparing.placeholder') + '</pre>' +
+      '<div class="tool-tabs" role="tablist">' +
+        '<button type="button" role="tab" class="tool-tab is-active" data-tool-tab="input" aria-selected="true">' + IexaI18n.t('tool.tab.input') + '</button>' +
+        '<button type="button" role="tab" class="tool-tab" data-tool-tab="output" aria-selected="false">' + IexaI18n.t('tool.tab.output') + '</button>' +
+        '<span class="tool-tabs-spacer"></span>' +
+        '<button type="button" class="tool-inspect" data-tool-inspect title="' + IexaI18n.t('tool.tab.inspect') + '">' + IexaI18n.t('tool.tab.inspect') + '</button>' +
+      '</div>' +
+      '<div class="tool-pane" data-pane="input"><pre class="tool-args">' + IexaI18n.t('tool.preparing.placeholder') + '</pre></div>' +
+      '<div class="tool-pane" data-pane="output" hidden><pre class="tool-result"></pre></div>' +
+      '<div class="tool-pane" data-pane="diff" hidden></div>' +
     '</div>';
 
   // Insert the compact task bar once, above the individual capsules.
@@ -651,16 +659,13 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
 
   const bodyEl = info.block.querySelector('.tool-body');
   if (bodyEl) {
-    // Keep args, replace/append result
-    let resultPre = bodyEl.querySelector('.tool-result');
+    const outputPane = bodyEl.querySelector('[data-pane="output"]') || bodyEl;
+    const diffPane = bodyEl.querySelector('[data-pane="diff"]');
+    let resultPre = outputPane.querySelector('.tool-result');
     if (!resultPre) {
       resultPre = document.createElement('pre');
       resultPre.className = 'tool-result';
-      const outputLabel = document.createElement('div');
-      outputLabel.className = 'tool-section-label tool-output-label';
-      outputLabel.textContent = IexaI18n.t('tool.section.output');
-      bodyEl.appendChild(outputLabel);
-      bodyEl.appendChild(resultPre);
+      outputPane.appendChild(resultPre);
     }
     setPagedText(resultPre, output || '');
     const startedAt = Number(info.block.dataset.startedAt || 0);
@@ -678,12 +683,18 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       img.alt = IexaI18n.t('tool.image.generated');
       image.appendChild(img);
       image.addEventListener('click', () => openImagePreview(img.src, IexaI18n.t('tool.image.generated'), img));
-      bodyEl.appendChild(image);
+      outputPane.appendChild(image);
     }
     if (fileChange && fileChange.path) {
       info.fileChange = fileChange;
       info.success = !!success;
-      renderFileChange(bodyEl, fileChange);
+      if (diffPane) {
+        renderFileChange(diffPane, fileChange);
+        const tab = bodyEl.querySelector('[data-tool-tab="diff"]');
+        if (tab) { tab.hidden = false; window.IexaToolCard?.showTab(info.block, 'diff'); }
+      } else {
+        renderFileChange(outputPane, fileChange);
+      }
     }
     const mediaArtifacts = artifacts && artifacts.length
       ? artifacts

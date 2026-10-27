@@ -747,6 +747,7 @@ async function switchSession(id, updateList = true) {
   visibleSessionId = id;
   window.IexaPlanDock?.reset();
   window.IexaQueueDock?.reset();
+  window.IexaTrajectory?.reset();
   window.syncPausedBanner?.();
   void refreshGoalBanner();
   syncSubAgentView();

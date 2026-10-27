@@ -1,0 +1,55 @@
+/* Tool card v2: input/output tabs, an Inspect jump, and a diff pane. */
+
+.tool-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-tab {
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+
+.tool-tab:hover { color: var(--text-primary); }
+.tool-tab.is-active { background: var(--bg-secondary); color: var(--text-primary); font-weight: 560; }
+
+.tool-tabs-spacer { flex: 1 1 auto; }
+
+.tool-inspect {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+
+.tool-inspect:hover { border-color: var(--accent); color: var(--accent); }
+
+.tool-pane[hidden] { display: none; }
+.tool-pane > .tool-args,
+.tool-pane > .tool-result { margin: 0; }
+
+.trajectory-load-more {
+  display: block;
+  width: 100%;
+  margin: 4px 0 8px;
+  padding: 6px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: none;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  cursor: pointer;
+}
+
+.trajectory-load-more:hover { border-color: var(--accent); color: var(--text-primary); }
