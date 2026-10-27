@@ -745,6 +745,8 @@ async function switchSession(id, updateList = true) {
   }
   currentSessionId = id;
   visibleSessionId = id;
+  window.IexaPlanDock?.reset();
+  window.IexaQueueDock?.reset();
   window.syncPausedBanner?.();
   void refreshGoalBanner();
   syncSubAgentView();
@@ -822,6 +824,7 @@ async function switchSession(id, updateList = true) {
         renderHistoryMessage(msgs[messageIndex], messageIndex);
       }
       targetRuntime.historyMessages = msgs;
+      window.IexaPlanDock?.setTodos(id, window.IexaPlanDock.extractTodos(msgs));
       targetRuntime.historyStartIndex = startIndex;
       targetRuntime.historyRenderedCount = msgs.length - startIndex;
       if (startIndex > 0) showLoadEarlierAffordance(id, targetRuntime);

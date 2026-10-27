@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="styles/shell.css">
 <link rel="stylesheet" href="styles/transcript.css">
 <link rel="stylesheet" href="styles/composer.css">
+<link rel="stylesheet" href="styles/dock.css">
 <link rel="stylesheet" href="styles/settings.css">
 <link rel="stylesheet" href="styles/skills.css">
 <link rel="stylesheet" href="styles/refinements.css">
@@ -437,7 +438,8 @@
             </div>
     <div class="composer-edit-strip" id="composerEditStrip" hidden></div>
     <div class="attach-preview" id="attachPreview" style="display:none;"></div>
-            <div class="chat-input-wrapper">
+            <div class="composer-dock" id="composerDock" hidden></div>
+      <div class="chat-input-wrapper">
               <button type="button" id="attachBtn" class="attach-btn ui-icon-button" title="添加附件" data-i18n-title="tip.addAttachment" aria-label="添加附件" data-i18n-aria="tip.addAttachment"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg></button>
               <input type="file" id="attachInput" multiple hidden
                 accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
@@ -1513,6 +1515,9 @@ version: 1.0.0
 <script src="services/ModelProfiles.js"></script>
 <script src="services/BalanceView.js"></script>
 <script src="services/ComposerHint.js"></script>
+<script src="services/ComposerDock.js"></script>
+<script src="services/PlanDock.js"></script>
+<script src="services/QueueDock.js"></script>
 <script src="services/TerminalPanel.js"></script>
 <script src="services/McpPanel.js"></script>
 <script src="services/PluginPanel.js"></script>

@@ -484,6 +484,24 @@
     'compact.titleDetail': { zh: '上下文已自动压缩：{from} → {to} tokens · {time}', en: 'Context auto-compacted: {from} → {to} tokens · {time}', ja: 'コンテキストを自動圧縮：{from} → {to} トークン · {time}' },
     'compact.body': { zh: '上下文已自动压缩：较早的历史已折叠为摘要，工具结果与最近请求保留。', en: 'Context auto-compacted: earlier history is folded into a summary; tool results and recent requests are kept.', ja: 'コンテキストを自動圧縮：以前の履歴は要約に折りたたまれ、ツール結果と直近のリクエストは保持されます。' },
     'msg.thinking': { zh: '思考', en: 'Thinking', ja: '思考' },
+
+    /* ---- composer dock ---- */
+    'dock.plan': { zh: '任务', en: 'Tasks', ja: 'タスク' },
+    'dock.queue': { zh: '排队消息', en: 'Queued messages', ja: 'キュー内のメッセージ' },
+    'dock.hide': { zh: '隐藏', en: 'Hide', ja: '隠す' },
+    'dock.done': { zh: '{count} 已完成', en: '{count} done', ja: '{count} 完了' },
+    'dock.active': { zh: '{count} 进行中', en: '{count} in progress', ja: '{count} 進行中' },
+    'dock.pending': { zh: '{count} 待办', en: '{count} pending', ja: '{count} 待ち' },
+    'dock.status.done': { zh: '已完成', en: 'Completed', ja: '完了' },
+    'dock.status.active': { zh: '进行中', en: 'In progress', ja: '進行中' },
+    'dock.status.pending': { zh: '待办', en: 'Pending', ja: '待ち' },
+    'dock.queueUnit': { zh: '条排队', en: 'queued', ja: '件' },
+    'dock.mode.queue': { zh: '排队', en: 'Queue', ja: 'キュー' },
+    'dock.mode.steer': { zh: '插入', en: 'Steer', ja: '割り込み' },
+    'dock.more': { zh: '+{count} 条排队', en: '+{count} more queued', ja: '+{count} 件' },
+    'dock.edit': { zh: '编辑', en: 'Edit', ja: '編集' },
+    'dock.remove': { zh: '移除', en: 'Remove', ja: '削除' },
+    'dock.attachmentsOnly': { zh: '仅附件', en: 'Attachments only', ja: '添付のみ' },
   };
 
   const table = root.IexaI18nUiTable = root.IexaI18nUiTable || {};

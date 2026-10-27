@@ -646,6 +646,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
 
   if (Array.isArray(todos) && success && currentAssistantMsg) {
     renderTodoPlan(currentAssistantMsg, todos);
+    window.IexaPlanDock?.setTodos(currentSessionId, todos);
   }
 
   const bodyEl = info.block.querySelector('.tool-body');

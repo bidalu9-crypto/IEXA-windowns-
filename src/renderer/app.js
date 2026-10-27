@@ -1572,6 +1572,10 @@ function updateComposerForQueue() {
   // stored in that runtime, but it must not rewrite the visible composer's
   // controls or steal typing focus from the selected conversation.
   if (currentSessionId !== visibleSessionId) return;
+  window.IexaQueueDock?.setQueue(
+    currentSessionId,
+    promptQueue.filter((item) => item.sessionId === currentSessionId),
+  );
   if (isProcessing) {
     // One round button, like Codex: send becomes stop while a turn runs. The
     // follow-up mode is a setting, never a label in the composer.
