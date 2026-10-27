@@ -37,6 +37,49 @@ const SPAWN_TIMEOUT_MS = 90_000;
  */
 const CHUNK_CHARS = 1100;
 const PARALLEL_CHUNKS = 3;
+// Audio is disposable: it can always be synthesized again. A reply that is read
+// once should not cost disk forever, so the cache is capped and the oldest files
+// go first. Reading an evicted reply simply pays the synthesis cost again.
+export const CACHE_LIMIT_BYTES = 200 * 1024 * 1024;
+
+/**
+ * Drop the oldest cached clips until the directory fits the budget.
+ *
+ * Runs after a synthesis finishes rather than on a timer: the only moment the
+ * size changes is when something is written, and a background sweeper would need
+ * its own lifecycle for no gain.
+ */
+export function trimCache(cacheDir: string, limitBytes = CACHE_LIMIT_BYTES): number {
+  let entries: { file: string; size: number; atime: number }[];
+  try {
+    entries = fs.readdirSync(cacheDir)
+      .filter((name) => name.endsWith('.mp3'))
+      .map((name) => {
+        const file = path.join(cacheDir, name);
+        const stat = fs.statSync(file);
+        // atime is often disabled on Windows; mtime is rewritten on every cache
+        // hit by the route, so it represents "last used" well enough here.
+        return { file, size: stat.size, atime: stat.mtimeMs };
+      });
+  } catch {
+    return 0;
+  }
+
+  let total = entries.reduce((sum, entry) => sum + entry.size, 0);
+  if (total <= limitBytes) return 0;
+
+  entries.sort((a, b) => a.atime - b.atime);
+  let removed = 0;
+  for (const entry of entries) {
+    if (total <= limitBytes) break;
+    try {
+      fs.unlinkSync(entry.file);
+      total -= entry.size;
+      removed += 1;
+    } catch { /* another process may have taken it */ }
+  }
+  return removed;
+}
 
 /** Split prose into chunks that respect sentence boundaries. */
 export function splitForSpeech(text: string, limit = CHUNK_CHARS): string[] {
@@ -204,7 +247,14 @@ export async function handleTtsRoute(
       cached,
     });
 
-    if (!missing.length) { reply(res, 200, payload(true)); return true; }
+    if (!missing.length) {
+      // Touch every served clip so "oldest" in trimCache really means least
+      // recently used, not least recently created.
+      const now = new Date();
+      for (const segment of segments) { try { fs.utimesSync(segment.file, now, now); } catch { /* gone */ } }
+      reply(res, 200, payload(true));
+      return true;
+    }
 
     const job = queue.then(async () => {
       fs.mkdirSync(cacheDir, { recursive: true });
@@ -222,6 +272,7 @@ export async function handleTtsRoute(
           }
         }));
       }
+      trimCache(cacheDir);
       return payload(false);
     });
     // Keep the chain alive even when this call fails, or one error blocks speech.

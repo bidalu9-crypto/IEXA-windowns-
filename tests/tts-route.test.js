@@ -106,6 +106,15 @@ test('the route serves audio, caches it, and refuses what it cannot read', async
   assert.equal(cached.body.cached, true, 'a warm cache skips synthesis');
   assert.equal(cached.body.url, `/api/tts/audio/${key}.mp3`);
 
+  // A cache hit must refresh "last used", otherwise trimCache evicts by creation
+  // order and a clip read every day dies before one played once.
+  const clipPath = path.join(workspace, '.iexa-tts', `${key}.mp3`);
+  const before = fs.statSync(clipPath).mtimeMs;
+  await new Promise((r) => setTimeout(r, 40));
+  await post({ text });
+  const after = fs.statSync(clipPath).mtimeMs;
+  assert.ok(after > before, `a hit touches the file: ${before} -> ${after}`);
+
   const audio = await call(`/api/tts/audio/${key}.mp3`);
   assert.equal(audio.status, 200);
   assert.equal(audio.headers['Content-Type'], 'audio/mpeg');
