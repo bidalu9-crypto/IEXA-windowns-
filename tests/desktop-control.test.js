@@ -93,15 +93,36 @@ test('forcePointer requires one matching UIA no-effect result and fresh observat
 
 test('foreground loss blocks dispatch without falsely claiming the operation lease was revoked', async () => {
  const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
- const blocked = await f.run({ action: 'type', text: 'secret' });
+ const blocked = await f.run({ action: 'type', text: 'secret', focusPolicy: 'stop' });
  assert.equal(blocked.success, false); assert.equal(blocked.metadata.desktop.userTakeover, false); assert.equal(blocked.metadata.desktop.phase, 'failed');
  assert.match(blocked.output, /not foreground; no physical input dispatched/);
  assert.equal(blocked.metadata.desktop.dispatchedActions, 0); assert.equal(f.calls.some(c => c.action === 'type'), false);
  f.focus(true); await f.run({ action: 'observe' }); f.bind(20);
- assert.equal((await f.run({ action: 'click' })).success, false);
- await f.run({ action: 'observe' }); assert.equal((await f.run({ action: 'click', observationToken: 'stale' })).success, false);
- assert.equal((await f.run({ action: 'click' }, 'b')).success, false);
+ assert.equal((await f.run({ action: 'click', focusPolicy: 'stop' })).success, false);
+ await f.run({ action: 'observe' }); assert.equal((await f.run({ action: 'click', observationToken: 'stale', focusPolicy: 'stop' })).success, false);
+ assert.equal((await f.run({ action: 'click', focusPolicy: 'stop' }, 'b')).success, false);
  assert.equal(f.calls.some(c => c.action === 'click'), false);
+});
+test('the default focus policy reclaims the bound window and re-observes before input', async () => {
+ const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
+ const result = await f.run({ action: 'click', target: { automationId: 'saveButton' } });
+ assert.equal(result.success, true, result.output);
+ const actions = f.calls.map(call => call.action);
+ const activateAt = actions.lastIndexOf('activate');
+ assert.ok(activateAt > -1, 'the reclaim activates the bound window');
+ assert.ok(actions.lastIndexOf('observe') > activateAt, 'a fresh observation follows the activation');
+ assert.equal(result.metadata.desktop.dispatchedActions, 1);
+});
+test('a re-created window is re-acquired by pid instead of failing the control session', async () => {
+ const f = fixture();
+ await f.run({ action: 'observe' });
+ // The app re-created its window: the old handle is gone, the process is the same.
+ f.bind(21);
+ const result = await f.run({ action: 'type', text: 'hello' });
+ assert.equal(result.success, true, result.output);
+ const actions = f.calls.map(call => call.action);
+ assert.ok(actions.includes('list_windows'), 'the session looks the window up again');
+ assert.ok(actions.lastIndexOf('activate') > -1, 'the new handle is activated');
 });
 test('explicit focusPolicy wait pauses dispatch until user restores target focus, then re-observes', async () => {
  const f = fixture(); await f.run({ action: 'observe' }); f.focus(false);
@@ -247,7 +268,7 @@ test('desktop recovery journal survives actual Node process exit and prevents re
  assert.equal(failed.success,false);assert.equal(failed.dispatched,1);assert.equal(failed.calls.filter(action=>action==='click_element').length,1);
  const recovered=JSON.parse(execFileSync(process.execPath,[runner,'recover',root],{cwd:path.resolve(__dirname,'..'),encoding:'utf8'}));
  assert.equal(recovered.success,true);assert.equal(recovered.warning,true);assert.match(recovered.output,/action=click, phase=failed, dispatched=1/);
- assert.deepEqual(recovered.calls,['observe'],'fresh OS process must observe recovery without replaying old input');
+ assert.equal(recovered.calls[0],'observe');assert.equal(recovered.calls.some(action=>['click_element','type','key','hotkey','click'].includes(action)),false,'fresh OS process must observe recovery without replaying old input');
 });
 test('production DesktopAgent surfaces persisted recovery warning after a simulated restart', async t => {
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'iexa-desktop-agent-recovery-'));
@@ -414,8 +435,9 @@ test('desktop model schema exposes background and compact observations retain tr
  const {makeAgentTools}=require('../dist/main/tools/ToolDefinitions');
  const tool=makeAgentTools().find(t=>t.name==='desktop_control');
  assert.equal(tool.parameters.background.type,'boolean');
- assert.deepEqual(tool.parameters.focusPolicy.enumValues,['stop','wait']);
- assert.match(tool.parameters.focusPolicy.description,/never activates or steals focus/i);
+ assert.deepEqual(tool.parameters.focusPolicy.enumValues,['stop','wait','activate']);
+ assert.match(tool.parameters.focusPolicy.description,/default activate/i);
+ assert.match(tool.parameters.focusPolicy.description,/re-activates the bound window/i);
  assert.match(tool.parameters.backend.description,/user's explicit request/);
  assert.match(tool.parameters.includeOcr.description,/confidence:null/);
  const prompt=require('../dist/main/agent/SystemPrompt').buildSystemPrompt({});

@@ -1100,10 +1100,38 @@ internal static class Program
     static void ForceForeground(IntPtr h)
     {
         if (IsolatedDesktopHost.Requested) throw new InvalidOperationException("Isolated workspace never activates the input desktop.");
-        ShowWindow(h, 9); var fg = GetForegroundWindow();
-        var currentThread = GetCurrentThreadId(); var targetThread = GetWindowThreadProcessId(h, out _); var fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, out _);
-        try { if (fgThread != 0 && fgThread != currentThread) AttachThreadInput(currentThread, fgThread, true); if (targetThread != currentThread) AttachThreadInput(currentThread, targetThread, true); BringWindowToTop(h); SetForegroundWindow(h); SetFocus(h); }
-        finally { if (targetThread != currentThread) AttachThreadInput(currentThread, targetThread, false); if (fgThread != 0 && fgThread != currentThread) AttachThreadInput(currentThread, fgThread, false); }
+        // SetForegroundWindow is opportunistic: Windows refuses it while another
+        // process owns the input queue or a menu is open. Attaching to the
+        // foreground thread covers the common case; a topmost toggle and
+        // SwitchToThisWindow cover the rest. Retry long enough for an overlay to
+        // fade, then report the real failure instead of dispatching blind input.
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            ShowWindow(h, 9);
+            var fg = GetForegroundWindow();
+            var currentThread = GetCurrentThreadId();
+            var targetThread = GetWindowThreadProcessId(h, out _);
+            var fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, out _);
+            try
+            {
+                if (fgThread != 0 && fgThread != currentThread) AttachThreadInput(currentThread, fgThread, true);
+                if (targetThread != currentThread) AttachThreadInput(currentThread, targetThread, true);
+                BringWindowToTop(h); SetForegroundWindow(h); SetFocus(h);
+            }
+            finally
+            {
+                if (targetThread != currentThread) AttachThreadInput(currentThread, targetThread, false);
+                if (fgThread != 0 && fgThread != currentThread) AttachThreadInput(currentThread, fgThread, false);
+            }
+            if (GetForegroundWindow() == h) return;
+            // A z-order change is honoured in cases where activation is not.
+            SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SwitchToThisWindow(h, true);
+            Thread.Sleep(60);
+            if (GetForegroundWindow() == h) return;
+        }
+        throw new InvalidOperationException($"Foreground verification failed for handle {h.ToInt64()} after 5 attempts.");
     }
 
     static object Move(JsonObject req)
@@ -1630,6 +1658,11 @@ internal static class Program
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window,uint command);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr h, bool altTab);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+    const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
     [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
     [DllImport("user32.dll")] static extern bool AttachThreadInput(uint source, uint target, bool attach);
