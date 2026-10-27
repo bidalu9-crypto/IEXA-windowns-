@@ -677,6 +677,8 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
     if (imageData && imageMimeType && !(artifacts && artifacts.length)) {
       const image = document.createElement('button');
       image.type = 'button';
+      // The picture is the deliverable, not tab content: appending it to the
+      // output pane hid every generated image behind a tab that starts closed.
       image.className = 'tool-result-image';
       image.title = IexaI18n.t('tool.image.open');
       const img = document.createElement('img');
@@ -684,7 +686,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       img.alt = IexaI18n.t('tool.image.generated');
       image.appendChild(img);
       image.addEventListener('click', () => openImagePreview(img.src, IexaI18n.t('tool.image.generated'), img));
-      outputPane.appendChild(image);
+      bodyEl.appendChild(image);
     }
     if (fileChange && fileChange.path) {
       info.fileChange = fileChange;

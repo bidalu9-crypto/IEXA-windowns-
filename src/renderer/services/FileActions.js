@@ -57,7 +57,7 @@
   }
 
   function create(options) {
-    const { name, absolutePath, href } = options || {};
+    const { name, absolutePath, href, description } = options || {};
     const card = document.createElement('div');
     card.className = 'file-action-card';
 
@@ -72,6 +72,12 @@
     title.textContent = name || absolutePath || '';
     title.title = absolutePath || name || '';
     body.appendChild(title);
+    if (description) {
+      const note = document.createElement('span');
+      note.className = 'file-action-description';
+      note.textContent = description;
+      body.appendChild(note);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'file-action-buttons';

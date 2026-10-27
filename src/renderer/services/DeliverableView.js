@@ -291,6 +291,16 @@ function renderDeliverables(messageEl, files) {
   const filesEl = document.createElement('div');
   filesEl.className = 'turn-deliverable-files';
   for (const file of unique) {
+    if (window.IexaFileActions) {
+      // The DeepSeek Harness card: type icon, file name, one-line description
+      // and an explicit "Open ▾" menu (open / reveal / run / copy path).
+      filesEl.appendChild(window.IexaFileActions.create({
+        name: file.path.split(/[\\/]/).pop(),
+        absolutePath: file.absolutePath || file.path,
+        description: `${file.path} · +${Number(file.added) || 0} −${Number(file.removed) || 0}`,
+      }));
+      continue;
+    }
     const row = document.createElement('button');
     row.type = 'button'; row.className = 'turn-change-file'; row.title = file.path;
     row.innerHTML = `${uiIcon('file')}<span class="turn-deliverable-name">${escapeHtml(file.path)}</span><span class="turn-change-counts">${counts(file)}</span>`;
@@ -370,9 +380,9 @@ function renderDeliverables(messageEl, files) {
 
   actions.append(status, undo, review);
   panel.append(heading, body, actions);
-  // A turn that touched a dozen files must not push the answer off screen:
-  // the summary line is the default, and the file list opens on demand.
-  setCollapsed(messageEl._deliverablesCollapsed !== false);
+  // A handful of compact cards reads better than a folded line; a turn that
+  // touched dozens of files still starts folded so the answer stays in view.
+  setCollapsed(messageEl._deliverablesCollapsed === true || unique.length > 4);
 }
 
 async function openDeliverablePreview(path, absolutePath) {

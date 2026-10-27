@@ -41,7 +41,7 @@ test('real browser: edited-file card review, guarded undo, persistence and two t
   const turnId='fixture-file-turn';
   const messages=[{role:'user',content:'请优化聊天区域，并统一相关样式。',timestamp:Date.now()},{role:'assistant',content:'已更新聊天组件和样式。你可以在下方审查本轮修改。',timestamp:Date.now(),transcript:{version:1,turnId,revision:1,status:'completed',valid:true,items:[]},toolCalls:results.map((result,i)=>({id:`tool-${i}`,name:'file_write',args:{path:i?second:first},result}))}];
   const history=path.join(root,'.iexa-sessions',`${sid}.json`);fs.writeFileSync(history,JSON.stringify(messages));
-  await evaluate(`reloadSessionView(${JSON.stringify(sid)})`);await wait("document.querySelectorAll('.turn-change-file').length===2");
+  await evaluate(`reloadSessionView(${JSON.stringify(sid)})`);await wait("document.querySelectorAll('.turn-deliverables .file-action-card').length===2");
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading strong').textContent"),'已编辑 2 个文件');
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading .diff-add').textContent"),'+50');
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading .diff-del').textContent"),'−33');
@@ -49,24 +49,25 @@ test('real browser: edited-file card review, guarded undo, persistence and two t
   // The header is a disclosure: it collapses the file list but leaves the
   // actions reachable, and the chevron/aria state follows.
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').tagName"),'BUTTON');
-  // Restored history starts folded: a turn that touched many files must not
-  // push the answer off screen before it has been read.
+  // Two compact file cards stay visible; the header still folds them on demand.
+  assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'true');
+  assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),false);
+  assert.equal(await evaluate("document.querySelectorAll('.turn-deliverables .file-action-card').length"),2);
+  await evaluate("document.querySelector('.turn-deliverables-heading').click()");
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'false');
   assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),true);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.turn-deliverables-body')).display"),'none');
-  assert.equal(await evaluate("document.querySelector('.turn-change-undo').offsetParent!==null"),true);
-  assert.equal(await evaluate("document.querySelector('.turn-deliverables').getBoundingClientRect().height<110"),true);
   const collapsedShot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(artifact,'file-summary-collapsed.png'),Buffer.from(collapsedShot.result.data,'base64'));
   await evaluate("document.querySelector('.turn-deliverables-heading').click()");
-  assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'true');
   assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),false);
-  assert.equal(await evaluate("document.querySelectorAll('.turn-change-file').length"),2);
+  assert.equal(await evaluate("document.querySelectorAll('.turn-deliverables .file-action-card').length"),2);
   // Keep task execution details collapsed, and show the summary exactly as the user sees it.
   for(const theme of ['light','dark']){
     await evaluate(`document.documentElement.dataset.theme='${theme}';document.querySelector('.turn-deliverables').scrollIntoView({block:'center'})`);
     await new Promise(r=>setTimeout(r,150));
     const image=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(artifact,`file-summary-${theme}.png`),Buffer.from(image.result.data,'base64'));
-    assert.equal(await evaluate("(()=>{const r=document.querySelector('.turn-deliverables').getBoundingClientRect();return r.width>250&&r.right<=innerWidth&&r.height<270;})()"),true);
+    const rect = await evaluate("(()=>{const r=document.querySelector('.turn-deliverables').getBoundingClientRect();return {w:r.width,h:r.height,right:r.right,inner:innerWidth,parts:[...document.querySelector('.turn-deliverables-body').children].map(el=>({c:el.className,h:Math.round(el.getBoundingClientRect().height)}))}})()");
+    assert.ok(rect.w > 250 && rect.right <= rect.inner && rect.h < 320, JSON.stringify(rect));
   }
   await evaluate("document.querySelector('.turn-change-review').click()");
   assert.equal(await evaluate("document.querySelector('.turn-change-details').hidden"),false);

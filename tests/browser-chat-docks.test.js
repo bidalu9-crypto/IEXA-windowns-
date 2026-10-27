@@ -180,12 +180,11 @@ test('real browser: trajectory tab, composer docks and the folded turn card', { 
     return {
       collapsed: panel.classList.contains('is-collapsed'),
       bodyDisplay: body ? getComputedStyle(body).display : '',
-      files: panel.querySelectorAll('.turn-change-file').length,
+      files: panel.querySelectorAll('.turn-deliverables .file-action-card').length,
     };
   })()`);
   assert.ok(card, 'turn deliverables rendered');
-  assert.equal(card.collapsed, true);
-  assert.equal(card.bodyDisplay, 'none');
+  assert.equal(card.collapsed, false, 'two compact cards stay visible');
   assert.equal(card.files, 2);
 
   // A queued prompt is a chip above the composer, not a bubble in the transcript.

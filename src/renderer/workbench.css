@@ -830,7 +830,7 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .turn-deliverables.is-collapsed .turn-deliverables-chevron { transform:rotate(-45deg); }
 .turn-deliverables.is-collapsed .turn-deliverables-body { display:none; }
 .turn-change-counts { display:inline-flex; gap:8px; margin-left:auto; white-space:nowrap; font:calc(12px * var(--ui-font-scale, 1))/1.5 var(--font-mono,monospace); }
-.turn-deliverable-files { display:flex; flex-direction:column; gap:0; padding:0 8px 6px; }
+.turn-deliverable-files { display:flex; flex-direction:row; flex-wrap:wrap; gap:8px; padding:0 8px 6px; }
 .turn-change-file { display:flex; align-items:center; gap:9px; width:100%; min-width:0; min-height:34px; padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--text-primary); text-align:left; cursor:pointer; }
 .turn-change-file:hover { background:var(--bg-hover,rgba(128,128,128,.10)); }
 .turn-change-file .turn-deliverable-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:calc(12px * var(--ui-font-scale, 1))/1.5 var(--font-mono,monospace); }

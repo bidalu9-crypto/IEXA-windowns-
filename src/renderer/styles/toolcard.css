@@ -1,4 +1,4 @@
-/* Tool card v2: input/output tabs, an Inspect jump, and a diff pane. */
+﻿/* Tool card v2: input/output tabs, an Inspect jump, and a diff pane. */
 
 .tool-tabs {
   display: flex;
@@ -113,3 +113,6 @@
 }
 .file-action-item:hover { background: var(--bg-secondary); }
 .file-action-item.is-danger:hover { color: var(--error); }
+
+.file-action-description { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; font-size: calc(11px * var(--ui-font-scale, 1)); color: var(--text-muted); }
+.turn-deliverable-files .file-action-card { height: 58px; flex: 1 1 200px; max-width: 240px; }

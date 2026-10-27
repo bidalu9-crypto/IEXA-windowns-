@@ -506,6 +506,13 @@
     'dock.edit': { zh: '编辑', en: 'Edit', ja: '編集' },
     'dock.remove': { zh: '移除', en: 'Remove', ja: '削除' },
     'dock.attachmentsOnly': { zh: '仅附件', en: 'Attachments only', ja: '添付のみ' },
+
+    /* ---- file action card ---- */
+    'fileActions.open': { zh: '打开', en: 'Open', ja: '開く' },
+    'fileActions.reveal': { zh: '打开所在文件夹', en: 'Open containing folder', ja: '格納フォルダーを開く' },
+    'fileActions.run': { zh: '在终端运行', en: 'Run in terminal', ja: 'ターミナルで実行' },
+    'fileActions.copyPath': { zh: '复制路径', en: 'Copy path', ja: 'パスをコピー' },
+    'fileActions.runConfirm': { zh: '将在 IEXA 之外运行 {name}，是否继续？', en: 'Run {name} outside IEXA?', ja: 'IEXA の外で {name} を実行しますか？' },
   };
 
   const table = root.IexaI18nUiTable = root.IexaI18nUiTable || {};
