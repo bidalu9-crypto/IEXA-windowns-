@@ -109,18 +109,22 @@ app.whenReady().then(async () => {
     "(() => { const i = document.createElement('input'); i.id='probe'; document.body.appendChild(i); i.focus(); return true; })()",
   );
   win.webContents.insertText('clipboard-probe');
-  send('a', ['control']);
-  // Same dropped-event risk as the zoom keys: poll until the selection exists.
-  for (let i = 0; i < 40; i += 1) {
-    const selected = await win.webContents.executeJavaScript(
-      "(() => { const i = document.getElementById('probe'); return !!(i && i.selectionStart !== i.selectionEnd); })()",
-    );
-    if (selected) break;
-    await new Promise((r) => setTimeout(r, 50));
+  // A synthetic key can be dropped while the renderer is busy. Retry the select
+  // until the field actually reports a selection; reading once and asserting is
+  // what made this test fail intermittently.
+  let selectionProbe = null;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    send('a', ['control']);
+    for (let i = 0; i < 20; i += 1) {
+      selectionProbe = await win.webContents.executeJavaScript(
+        "(() => { const i = document.getElementById('probe'); return i ? [i.selectionStart, i.selectionEnd, i.value] : null; })()",
+      );
+      if (selectionProbe && selectionProbe[0] !== selectionProbe[1]) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (selectionProbe && selectionProbe[0] !== selectionProbe[1]) break;
   }
-  out.selectionProbe = await win.webContents.executeJavaScript(
-    "(() => { const i = document.getElementById('probe'); return i ? [i.selectionStart, i.selectionEnd, i.value] : null; })()",
-  );
+  out.selectionProbe = selectionProbe;
   out.hasMenu = Boolean(stripped);
   out.min = zoom.DEFAULTS.min;
   out.max = zoom.DEFAULTS.max;

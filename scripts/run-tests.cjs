@@ -69,14 +69,39 @@ async function main() {
     console.log(`[tests] shared Chrome at ${shared.http}`);
   }
 
-  let status = 1;
-  try {
-    const result = spawnSync(process.execPath, ['--test', `--test-concurrency=${concurrency}`, ...files], {
+  // Electron harness tests drive their own Electron process, and they are the
+  // tests most sensitive to CPU contention — one of them already needs retries to
+  // survive `sendInputEvent` timing. Running them while a shared Chrome is alive
+  // made that worse, so they get their own pass with the browser stopped.
+  const electronFiles = files.filter((file) => path.basename(file).startsWith('electron-'));
+  const restFiles = files.filter((file) => !electronFiles.includes(file));
+
+  const runPass = (subset) => {
+    if (!subset.length) return 0;
+    // spawnSync blocks forever if a test leaves a socket open against the shared
+    // Chrome; the run then looks hung with no output. A hard ceiling turns that
+    // into a failure with an explicit exit code.
+    const watchdogMs = Number(value('--watchdog-minutes', '20')) * 60_000;
+    const result = spawnSync(process.execPath, ['--test', `--test-concurrency=${concurrency}`, ...subset], {
       cwd: root,
       stdio: 'inherit',
       env,
+      timeout: watchdogMs,
+      killSignal: 'SIGKILL',
     });
-    status = result.status ?? 1;
+    if (result.error && result.error.code === 'ETIMEDOUT') {
+      console.error(`[tests] watchdog fired after ${watchdogMs / 60000} min — a test left a socket open`);
+      return 124;
+    }
+    return result.status ?? 1;
+  };
+
+  let status = 1;
+  try {
+    status = runPass(restFiles);
+    if (shared) { await shared.stop(); shared = null; }
+    const electronStatus = runPass(electronFiles);
+    if (electronStatus !== 0) status = electronStatus;
   } finally {
     if (shared) await shared.stop();
   }

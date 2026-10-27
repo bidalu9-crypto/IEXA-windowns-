@@ -96,9 +96,12 @@ async function fromOwnProcess() {
   };
 }
 
-async function launchPage() {
+async function launchPage(options = {}) {
   const shared = process.env.IEXA_TEST_CDP_HTTP;
-  return shared ? fromShared(shared) : fromOwnProcess();
+  // A few tests change behaviour that belongs to the browser process rather than
+  // the page — download handling, for one — and only behave inside a dedicated
+  // instance. `{ isolated: true }` keeps those on the old path.
+  return shared && !options.isolated ? fromShared(shared) : fromOwnProcess();
 }
 
 /** Minimal CDP client: one pending map, per-call timeout. */

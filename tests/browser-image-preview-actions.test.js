@@ -1,4 +1,4 @@
-// The preview must let the user take the picture with them: download it under
+﻿// The preview must let the user take the picture with them: download it under
 // its real name, or put it on the clipboard as PNG.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -31,7 +31,7 @@ test('real browser: the preview downloads and copies the current image', { skip:
     try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); } catch { /* windows lock */ }
   });
 
-  page = await launchPage();
+  page = await launchPage({ isolated: true });
   socket = page.socket;
 
   let sequence = 0;
@@ -115,3 +115,4 @@ test('real browser: the preview downloads and copies the current image', { skip:
   })()`);
   assert.ok(kbd && kbd.display !== 'none' && kbd.width > 10, 'Ctrl N stays visible when the UI is scaled: ' + JSON.stringify(kbd));
 });
+
