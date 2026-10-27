@@ -6,10 +6,10 @@
 // Classic script: declarations join app.js global scope. No DOM work on load.
 
 const PERMISSION_MODE_LABELS = {
-  plan: '仅规划（只读）',
-  ask: '请求批准',
-  risk: '帮我批准',
-  full: '完全访问权限',
+  plan: IexaI18n.t('permMode.plan'),
+  ask: IexaI18n.t('permMode.ask'),
+  risk: IexaI18n.t('permMode.auto'),
+  full: IexaI18n.t('permMode.full'),
 };
 let permissionMode = 'risk';
 
@@ -54,7 +54,7 @@ async function setPermissionMode(mode) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
     });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '权限模式保存失败');
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || IexaI18n.t('permMode.saveFailed'));
     setPermissionMenuOpen(false);
   } catch (error) {
     permissionMode = previous;

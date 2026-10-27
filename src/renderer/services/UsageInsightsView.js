@@ -73,11 +73,11 @@ function formatInsightBalance(value, currency) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
   if (currency === 'credits') {
-    return (Math.abs(number) >= 1000 ? (number / 1000).toFixed(1) + 'k' : number.toLocaleString('zh-CN', { maximumFractionDigits: 0 })) + ' 积分';
+    return (Math.abs(number) >= 1000 ? (number / 1000).toFixed(1) + 'k' : number.toLocaleString(IexaI18n.getLocale(), { maximumFractionDigits: 0 })) + IexaI18n.t('insights.creditsSuffix');
   }
   if (currency === 'USD') return '$' + number.toFixed(2);
   if (currency === 'CNY') return '¥' + number.toFixed(2);
-  return number.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  return number.toLocaleString(IexaI18n.getLocale(), { maximumFractionDigits: 2 });
 }
 
 function formatInsightPercent(ratio) {
@@ -133,12 +133,12 @@ function renderInsightMetrics(data) {
   const total = t.inputTokens + t.outputTokens;
   const cost = data.costIncomplete && t.costUsd !== null ? formatInsightCost(t.costUsd) + '+' : formatInsightCost(t.costUsd);
   return [
-    renderInsightMetric('活跃会话', String(t.sessions), `共 ${t.sessions} 个`),
-    renderInsightMetric('累计消耗', formatInsightTokens(total), `轮次 ${t.turns}`),
-    renderInsightMetric('费用', cost, t.costUsd === null ? '在模型设置里填单价' : `已计价 ${t.pricedSessions}/${t.sessions} 个会话`),
-    renderInsightMetric('缓存命中', formatInsightPercent(t.cacheHitRate), `含 ${t.sessions} 个会话`),
-    renderInsightMetric('工具调用', formatInsightTokens(t.toolCalls), `工具执行 ${formatInsightDuration(t.toolMs)}`),
-    renderInsightMetric('活跃时长', formatInsightDuration(t.activeMs), `模型调用 ${formatInsightTokens(t.modelCalls)}`),
+    renderInsightMetric(IexaI18n.t('insights.activeSessions'), String(t.sessions), IexaI18n.t('insights.sessionsTotal', { count: t.sessions })),
+    renderInsightMetric(IexaI18n.t('insights.totalUsage'), formatInsightTokens(total), IexaI18n.t('insights.turnsCount', { count: t.turns })),
+    renderInsightMetric(IexaI18n.t('insights.cost'), cost, t.costUsd === null ? IexaI18n.t('insights.costHint') : IexaI18n.t('insights.pricedSessions', { priced: t.pricedSessions, total: t.sessions })),
+    renderInsightMetric(IexaI18n.t('insights.cacheHit'), formatInsightPercent(t.cacheHitRate), IexaI18n.t('insights.includesSessions', { count: t.sessions })),
+    renderInsightMetric(IexaI18n.t('insights.toolCalls'), formatInsightTokens(t.toolCalls), IexaI18n.t('insights.toolExecutions', { duration: formatInsightDuration(t.toolMs) })),
+    renderInsightMetric(IexaI18n.t('insights.activeTime'), formatInsightDuration(t.activeMs), IexaI18n.t('insights.modelCalls', { count: formatInsightTokens(t.modelCalls) })),
   ].join('');
 }
 
@@ -164,14 +164,14 @@ function renderInsightBars(data) {
   return `<div class="insights-bars">${bars}</div>
     <div class="insights-bars-legend">
       <span><i class="is-token"></i>Token</span>
-      ${maxCost > 0 ? '<span><i class="is-cost"></i>费用（仅含已配置价格的模型）</span>' : ''}
+      ${maxCost > 0 ? `<span><i class="is-cost"></i>${IexaI18n.t('insights.costLegend')}</span>` : ''}
     </div>`;
 }
 
 /** Week rows × day columns, Monday first, with month labels above. */
 function renderInsightHeatmap(data) {
   const cells = data.activity;
-  if (!cells.length) return '<div class="insights-empty-small">这段时间没有活动</div>';
+  if (!cells.length) return `<div class="insights-empty-small">${IexaI18n.t('insights.noActivity')}</div>`;
   const max = Math.max(1, ...cells.map((cell) => cell.tokens));
   const byDay = new Map(cells.map((cell) => [cell.day, cell]));
   const first = new Date(cells[0].day + 'T00:00:00');
@@ -190,17 +190,17 @@ function renderInsightHeatmap(data) {
   const months = [];
   weeks.forEach((week, index) => {
     const firstOfWeek = new Date(start.getTime() + index * 7 * 86400000);
-    if (firstOfWeek.getDate() <= 7) months.push(`<span style="grid-column:${index + 1}">${firstOfWeek.getMonth() + 1} 月</span>`);
+    if (firstOfWeek.getDate() <= 7) months.push(`<span style="grid-column:${index + 1}">${IexaI18n.t('insights.monthLabel', { month: firstOfWeek.getMonth() + 1 })}</span>`);
   });
-  const days = ['一', '二', '三', '四', '五', '六', '日'];
-  const grid = weeks.map((week) => week.map((cell) => `<i class="is-level-${cell.level}" title="${cell.key} · ${formatInsightTokens(cell.tokens)} Token · ${cell.turns} 轮"></i>`).join('')).join('');
+  const days = [1, 2, 3, 4, 5, 6, 7].map((n) => IexaI18n.t('insights.dow.' + n));
+  const grid = weeks.map((week) => week.map((cell) => `<i class="is-level-${cell.level}" title="${cell.key} · ${formatInsightTokens(cell.tokens)} Token · ${IexaI18n.t('insights.turnsValue', { count: cell.turns })}"></i>`).join('')).join('');
   return `<div class="insights-heat">
     <div class="insights-heat-months" style="grid-template-columns:repeat(${weeks.length}, 14px)">${months.join('')}</div>
     <div class="insights-heat-body">
       <div class="insights-heat-days">${days.map((day) => `<span>${day}</span>`).join('')}</div>
       <div class="insights-heat-grid" style="grid-template-columns:repeat(${weeks.length}, 14px)">${grid}</div>
     </div>
-    <div class="insights-heat-legend"><span>少</span>${[0, 1, 2, 3, 4].map((level) => `<i class="is-level-${level}"></i>`).join('')}<span>多</span></div>
+    <div class="insights-heat-legend"><span>${IexaI18n.t('insights.less')}</span>${[0, 1, 2, 3, 4].map((level) => `<i class="is-level-${level}"></i>`).join('')}<span>${IexaI18n.t('insights.more')}</span></div>
   </div>`;
 }
 
@@ -226,10 +226,10 @@ function renderInsightSessions(data) {
   const list = insightFilteredSessions(data);
   const grand = Math.max(1, data.sessions.reduce((sum, session) => sum + session.inputTokens + session.outputTokens, 0));
   const chips = insightSessionModels(data).map((model) => {
-    const label = model === 'all' ? '全部' : model;
+    const label = model === 'all' ? IexaI18n.t('insights.all') : model;
     return `<button type="button" class="insights-chip${insightsState.model === model ? ' is-active' : ''}" data-insight-model="${escapeHtml(model)}">${escapeHtml(label)}</button>`;
   }).join('');
-  const sorts = [['recent', '最近更新'], ['tokens', 'Token 总用量'], ['cost', '费用']].map(([key, label]) =>
+  const sorts = [['recent', IexaI18n.t('insights.sortRecent')], ['tokens', IexaI18n.t('insights.sortTokens')], ['cost', IexaI18n.t('insights.cost')]].map(([key, label]) =>
     `<button type="button" class="insights-sort${insightsState.sort === key ? ' is-active' : ''}" data-insight-sort="${key}">${label}</button>`).join('');
   const cards = list.map((session) => {
     const tokens = session.inputTokens + session.outputTokens;
@@ -240,7 +240,7 @@ function renderInsightSessions(data) {
     const date = when ? `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}` : '';
     return `<article class="insights-session" data-session-id="${escapeHtml(session.id)}">
       <header>
-        <strong>${escapeHtml(session.title || '未命名会话')}</strong>
+        <strong>${escapeHtml(session.title || IexaI18n.t('insights.untitled'))}</strong>
         <span class="insights-session-when"><b>${escapeHtml(relative)}</b><small>${date}</small></span>
       </header>
       ${session.model ? `<span class="insights-session-tag">${escapeHtml(session.model)}</span>` : ''}
@@ -249,42 +249,42 @@ function renderInsightSessions(data) {
           <div><strong>${formatInsightTokens(tokens)}</strong><span>${percent}</span></div>
         </div>
         <dl>
-          <div><dt>轮次</dt><dd>${session.turns} 轮</dd></div>
-          <div><dt>总用量</dt><dd>${formatInsightTokens(tokens)}</dd></div>
-          <div><dt>费用</dt><dd>${formatInsightCost(session.costUsd)}</dd></div>
+          <div><dt>${IexaI18n.t('insights.turns')}</dt><dd>${IexaI18n.t('insights.turnsValue', { count: session.turns })}</dd></div>
+          <div><dt>${IexaI18n.t('insights.totalTokens')}</dt><dd>${formatInsightTokens(tokens)}</dd></div>
+          <div><dt>${IexaI18n.t('insights.cost')}</dt><dd>${formatInsightCost(session.costUsd)}</dd></div>
         </dl>
       </div>
-      ${session.lastMessage ? `<p class="insights-session-last"><span>最后消息</span>${escapeHtml(session.lastMessage)}</p>` : ''}
+      ${session.lastMessage ? `<p class="insights-session-last"><span>${IexaI18n.t('insights.lastMessage')}</span>${escapeHtml(session.lastMessage)}</p>` : ''}
     </article>`;
   }).join('');
   return `<div class="insights-sessions-tools">
-      <input type="search" id="insightsSearch" class="insights-search" placeholder="搜索标题 / 目录 / 最后消息…" value="${escapeHtml(insightsState.search)}" aria-label="搜索会话">
+      <input type="search" id="insightsSearch" class="insights-search" placeholder="${IexaI18n.t('insights.searchPlaceholder')}" value="${escapeHtml(insightsState.search)}" aria-label="${IexaI18n.t('insights.searchAria')}">
       <div class="insights-sorts">${sorts}</div>
     </div>
     <div class="insights-chips">${chips}</div>
-    <div class="insights-session-grid">${cards || '<div class="insights-empty-small">没有匹配的会话</div>'}</div>`;
+    <div class="insights-session-grid">${cards || `<div class="insights-empty-small">${IexaI18n.t('insights.noMatch')}</div>`}</div>`;
 }
 
 function insightsRangeLabel(range) {
-  if (range === '24h') return '近 24 小时';
-  if (range === '7d') return '近 7 天';
-  if (range === '30d') return '近 30 天';
-  return '全部';
+  if (range === '24h') return IexaI18n.t('insights.range24h');
+  if (range === '7d') return IexaI18n.t('insights.range7d');
+  if (range === '30d') return IexaI18n.t('insights.range30d');
+  return IexaI18n.t('insights.all');
 }
 
 function formatInsightRelative(timestamp) {
   const diff = Date.now() - timestamp;
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return Math.round(diff / 60_000) + ' 分钟前';
-  if (diff < 86_400_000) return Math.round(diff / 3_600_000) + ' 小时前';
-  return Math.round(diff / 86_400_000) + ' 天前';
+  if (diff < 60_000) return IexaI18n.t('insights.justNow');
+  if (diff < 3_600_000) return IexaI18n.t('insights.minutesAgo', { count: Math.round(diff / 60_000) });
+  if (diff < 86_400_000) return IexaI18n.t('insights.hoursAgo', { count: Math.round(diff / 3_600_000) });
+  return IexaI18n.t('insights.daysAgo', { count: Math.round(diff / 86_400_000) });
 }
 
 function renderUsageInsights() {
   const grid = insightsEl('insightsGrid');
   if (!grid) return;
   if (insightsState.loading && !insightsState.data) {
-    grid.innerHTML = '<div class="insights-loading">正在汇总…</div>';
+    grid.innerHTML = `<div class="insights-loading">${IexaI18n.t('insights.loading')}</div>`;
     return;
   }
   if (insightsState.error) {
@@ -295,8 +295,8 @@ function renderUsageInsights() {
   if (!data) return;
   if (!data.totals.turns) {
     grid.innerHTML = `<div class="insights-empty">
-      <strong>这段时间还没有调用记录</strong>
-      <p>发出第一条消息后，这里会出现 Token 构成、耗时分布和活跃度。</p>
+      <strong>${IexaI18n.t('insights.emptyTitle')}</strong>
+      <p>${IexaI18n.t('insights.emptyBody')}</p>
     </div>`;
     return;
   }
@@ -308,29 +308,29 @@ function renderUsageInsights() {
   grid.innerHTML = `
     <section class="insights-card insights-card-metrics">${renderInsightMetrics(data)}</section>
     <section class="insights-card insights-card-trend">
-      <header class="insights-card-head"><h3>${insightsRangeLabel(data.range)}用量</h3></header>
+      <header class="insights-card-head"><h3>${IexaI18n.t('insights.rangeTitle', { range: insightsRangeLabel(data.range) })}</h3></header>
       ${renderInsightBars(data)}
     </section>
     <section class="insights-card insights-card-token">
-      <header class="insights-card-head"><h3>Token 统计</h3>${data.tokenBreakdownEstimated ? '<span class="insights-badge" title="模型只返回输入总量，按消息内容估算来源">估算</span>' : ''}</header>
+      <header class="insights-card-head"><h3>${IexaI18n.t('insights.tokenTitle')}</h3>${data.tokenBreakdownEstimated ? `<span class="insights-badge" title="${IexaI18n.t('insights.estimatedHint')}">${IexaI18n.t('insights.estimated')}</span>` : ''}</header>
       <div class="insights-split">
-        ${renderInsightDonut(data.tokenBreakdown, formatInsightTokens(tokenTotal), '总用量', TOKEN_COLORS)}
+        ${renderInsightDonut(data.tokenBreakdown, formatInsightTokens(tokenTotal), IexaI18n.t('insights.totalTokens'), TOKEN_COLORS)}
         ${renderInsightLegend(data.tokenBreakdown, TOKEN_COLORS, (part) => '≈' + formatInsightTokens(part.tokens))}
       </div>
     </section>
     <section class="insights-card insights-card-time">
-      <header class="insights-card-head"><h3>耗时统计</h3>${rate > 0 ? `<span class="insights-badge is-quiet">${rate} tok/s</span>` : ''}</header>
+      <header class="insights-card-head"><h3>${IexaI18n.t('insights.timeTitle')}</h3>${rate > 0 ? `<span class="insights-badge is-quiet">${rate} tok/s</span>` : ''}</header>
       <div class="insights-split">
-        ${renderInsightDonut(data.timeBreakdown, formatInsightDuration(timeTotal), '活跃时长', TIME_COLORS)}
+        ${renderInsightDonut(data.timeBreakdown, formatInsightDuration(timeTotal), IexaI18n.t('insights.activeTime'), TIME_COLORS)}
         ${renderInsightLegend(data.timeBreakdown, TIME_COLORS, (part) => formatInsightDuration(part.ms))}
       </div>
     </section>
     <section class="insights-card insights-card-activity">
-      <header class="insights-card-head"><h3>活跃度</h3><span class="insights-stamp">按天</span></header>
+      <header class="insights-card-head"><h3>${IexaI18n.t('insights.activityTitle')}</h3><span class="insights-stamp">${IexaI18n.t('insights.perDay')}</span></header>
       ${renderInsightHeatmap(data)}
     </section>
     <section class="insights-card insights-card-sessions">
-      <header class="insights-card-head"><h3>会话 <span class="insights-count">${data.sessions.length}</span></h3></header>
+      <header class="insights-card-head"><h3>${IexaI18n.t('insights.sessionsTitle')} <span class="insights-count">${data.sessions.length}</span></h3></header>
       ${renderInsightSessions(data)}
     </section>`;
   bindInsightControls();
@@ -346,7 +346,7 @@ function bindInsightControls() {
       if (!grid || !data) return;
       // Repaint only the session list so the caret and scroll position survive.
       const host = grid.querySelector('.insights-card-sessions');
-      if (host) host.innerHTML = `<header class="insights-card-head"><h3>会话 <span class="insights-count">${data.sessions.length}</span></h3></header>${renderInsightSessions(data)}`;
+      if (host) host.innerHTML = `<header class="insights-card-head"><h3>${IexaI18n.t('insights.sessionsTitle')} <span class="insights-count">${data.sessions.length}</span></h3></header>${renderInsightSessions(data)}`;
       bindInsightControls();
       insightsEl('insightsSearch')?.focus();
       insightsEl('insightsSearch')?.setSelectionRange(insightsState.search.length, insightsState.search.length);
@@ -386,8 +386,8 @@ async function loadInsightsBalance() {
       return;
     }
     chip.hidden = false;
-    chip.textContent = `${active.model || active.provider || '余额'} · ${formatInsightBalance(data.remaining, data.currency)}`;
-    chip.title = data.source ? `来源：${data.source}` : '账户余额';
+    chip.textContent = `${active.model || active.provider || IexaI18n.t('insights.balance')} · ${formatInsightBalance(data.remaining, data.currency)}`;
+    chip.title = data.source ? IexaI18n.t('insights.source', { source: data.source }) : IexaI18n.t('insights.accountBalance');
   } catch {
     chip.hidden = true;
   }
@@ -399,10 +399,10 @@ async function loadUsageInsights() {
   renderUsageInsights();
   try {
     const response = await fetch(`${API_BASE}/api/usage/insights?range=${encodeURIComponent(insightsState.range)}`);
-    if (!response.ok) throw new Error('汇总失败，请稍后重试。');
+    if (!response.ok) throw new Error(IexaI18n.t('insights.summaryFailedDetail'));
     insightsState.data = await response.json();
   } catch (error) {
-    insightsState.error = error.message || '汇总失败';
+    insightsState.error = error.message || IexaI18n.t('insights.summaryFailed');
   } finally {
     insightsState.loading = false;
     renderUsageInsights();

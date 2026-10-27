@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {JSDOM}=require('jsdom');
 const script=fs.readFileSync(path.join(__dirname,'../src/renderer/components/PermissionDialog.js'),'utf8');
-function fixture(t){const dom=new JSDOM('<button id="original">Send</button>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window;w.IexaApi={json:async()=>({ok:true})};w.eval(script);w.document.getElementById('original').focus();return w;}
+function fixture(t){const dom=new JSDOM('<button id="original">Send</button>',{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window;require('./helpers/install-i18n')(w);w.IexaApi={json:async()=>({ok:true})};w.eval(script);w.document.getElementById('original').focus();return w;}
 const data={id:'permission-1',sessionId:'s',toolCallId:'c',runId:'r',tool:{name:'test',risk:'low'},args:{command:'<script>bad</script>'}};
 test('permission dialog renders text, traps keyboard focus and restores it on matched tool cancellation',t=>{
  const w=fixture(t);w.IexaPermissionDialog.show(data);const d=w.document;const overlay=d.querySelector('[role="dialog"]');assert.ok(overlay);assert.equal(d.querySelector('script'),null);assert.equal(d.activeElement.textContent,'拒绝');

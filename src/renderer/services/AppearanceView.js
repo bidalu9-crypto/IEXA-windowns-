@@ -73,8 +73,8 @@
     const label = $('skinEditorMode');
     if (label) {
       label.textContent = preset === 'default'
-        ? `默认主题 · 编辑任一颜色即创建自定义${mode === 'dark' ? '深色' : '浅色'}皮肤`
-        : `正在编辑${mode === 'dark' ? '深色' : '浅色'}配色`;
+        ? `${IexaI18n.t('skin.defaultTheme')} · ${mode === 'dark' ? IexaI18n.t('skin.dark') : IexaI18n.t('skin.light')}${IexaI18n.t('skin.suffix')}`
+        : `${IexaI18n.t('skin.editing')} · ${mode === 'dark' ? IexaI18n.t('skin.dark') : IexaI18n.t('skin.light')}${IexaI18n.t('skin.paletteSuffix')}`;
     }
     syncColorPair('accent', 'skinAccent', 'skinAccentHex');
     syncColorPair('canvas', 'skinCanvas', 'skinCanvasHex');
@@ -107,10 +107,10 @@
     );
     const badge = (label, value, threshold) => {
       const ok = value >= threshold;
-      return `<span class="contrast-pill${ok ? '' : ' is-warn'}" title="${label}对比度 ${value.toFixed(2)}:1（建议 ≥ ${threshold}:1）">
+      return `<span class="contrast-pill${ok ? '' : ' is-warn'}" title="${IexaI18n.t('skin.contrastTitle', { label, ratio: value.toFixed(2), min: threshold })}">
         <i aria-hidden="true"></i>${label} <b>${value.toFixed(1)}:1</b></span>`;
     };
-    report.innerHTML = badge('正文', text, 4.5) + badge('按钮', button, 3);
+    report.innerHTML = badge(IexaI18n.t('skin.bodyText'), text, 4.5) + badge(IexaI18n.t('skin.button'), button, 3);
   }
 
   /** Computed colours arrive as rgb(); the engine expects hex. */
@@ -188,7 +188,7 @@
       const error = window.IexaSkins.importPatch(JSON.parse(text));
       if (error) await window.IexaDialogs?.alert?.(error);
     } catch {
-      await window.IexaDialogs?.alert?.('无法读取这个皮肤文件，请确认它是从 IEXA 导出的 JSON。');
+      await window.IexaDialogs?.alert?.(IexaI18n.t('skin.badFile'));
     }
   }
 

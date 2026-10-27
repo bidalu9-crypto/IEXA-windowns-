@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 function setup(t, html = '') {
   const dom = new JSDOM(`<html data-motion="full"><body>${html}</body></html>`, { runScripts: 'outside-only', pretendToBeVisual: true, url: 'http://localhost' });
   t.after(() => dom.window.close());
-  const w = dom.window;
+  const w = dom.window;require('./helpers/install-i18n')(w);
   for (const name of ['ChatPresentation', 'PanelVisibility']) w.eval(fs.readFileSync(path.join(root, `src/renderer/services/${name}.js`), 'utf8'));
   return w;
 }

@@ -29,7 +29,7 @@
     composing: false,
     searchHits: [],
     searchIndex: -1,
-    status: { tone: 'idle', text: '就绪' },
+    status: { tone: 'idle', text: IexaI18n.t('doc.ready') },
   };
 
   let ui = null;
@@ -67,9 +67,9 @@
     // Header: name, path, primary actions.
     const head = el('div', 'doc-head');
     const headMain = el('div', 'doc-head-main');
-    const title = el('h2', 'doc-title', '未命名文档');
+    const title = el('h2', 'doc-title', IexaI18n.t('doc.untitled'));
     title.id = 'docTitle';
-    const pathEl = el('p', 'doc-path', '尚未保存到项目');
+    const pathEl = el('p', 'doc-path', IexaI18n.t('doc.unsaved'));
     pathEl.id = 'docPath';
     headMain.append(title, pathEl);
     const headActions = el('div', 'doc-head-actions');
@@ -80,10 +80,10 @@
       button.appendChild(el('span', null, label));
       return button;
     };
-    const btnNew = mk('新建', 'plus');
-    const btnOpen = mk('打开', 'folder');
-    const btnSave = mk('保存', 'check', 'is-primary');
-    const btnSaveAs = mk('另存为', 'copy');
+    const btnNew = mk(IexaI18n.t('doc.new'), 'plus');
+    const btnOpen = mk(IexaI18n.t('doc.open'), 'folder');
+    const btnSave = mk(IexaI18n.t('doc.save'), 'check', 'is-primary');
+    const btnSaveAs = mk(IexaI18n.t('doc.saveAs'), 'copy');
     btnNew.id = 'docNewBtn';
     btnOpen.id = 'docOpenBtn';
     btnSave.id = 'docSaveBtn';
@@ -95,36 +95,36 @@
     // Toolbar: history, search, layout.
     const toolbar = el('div', 'doc-toolbar');
     const history = el('div', 'doc-toolbar-group');
-    const btnUndo = mk('撤销', 'arrow-left');
-    const btnRedo = mk('重做', 'arrow-right');
+    const btnUndo = mk(IexaI18n.t('doc.undo'), 'arrow-left');
+    const btnRedo = mk(IexaI18n.t('doc.redo'), 'arrow-right');
     btnUndo.id = 'docUndoBtn';
     btnRedo.id = 'docRedoBtn';
-    btnUndo.title = '撤销 (Ctrl+Z)';
-    btnRedo.title = '重做 (Ctrl+Shift+Z)';
+    btnUndo.title = IexaI18n.t('doc.undoTitle');
+    btnRedo.title = IexaI18n.t('doc.redoTitle');
     history.append(btnUndo, btnRedo);
 
     const search = el('div', 'doc-toolbar-group doc-search');
     const searchInput = el('input', 'doc-search-input');
     searchInput.type = 'search';
     searchInput.id = 'docSearchInput';
-    searchInput.placeholder = '在文档中搜索';
-    searchInput.setAttribute('aria-label', '在文档中搜索');
+    searchInput.placeholder = IexaI18n.t('doc.searchPlaceholder');
+    searchInput.setAttribute('aria-label', IexaI18n.t('doc.searchPlaceholder'));
     const searchCount = el('span', 'doc-search-count', '');
     searchCount.id = 'docSearchCount';
     const btnPrev = el('button', 'doc-icon-btn');
     btnPrev.type = 'button';
-    btnPrev.title = '上一处';
-    btnPrev.setAttribute('aria-label', '上一处匹配');
+    btnPrev.title = IexaI18n.t('doc.prev');
+    btnPrev.setAttribute('aria-label', IexaI18n.t('doc.prevMatch'));
     btnPrev.appendChild(icon('arrow-up'));
     const btnNext = el('button', 'doc-icon-btn');
     btnNext.type = 'button';
-    btnNext.title = '下一处';
-    btnNext.setAttribute('aria-label', '下一处匹配');
+    btnNext.title = IexaI18n.t('doc.next');
+    btnNext.setAttribute('aria-label', IexaI18n.t('doc.nextMatch'));
     btnNext.appendChild(icon('arrow-down'));
     search.append(searchInput, searchCount, btnPrev, btnNext);
 
     const layout = el('div', 'doc-toolbar-group');
-    const btnPreview = mk('预览', 'eye');
+    const btnPreview = mk(IexaI18n.t('doc.preview'), 'eye');
     btnPreview.id = 'docPreviewBtn';
     btnPreview.setAttribute('aria-pressed', 'true');
     layout.append(btnPreview);
@@ -140,13 +140,13 @@
     editor.spellcheck = false;
     editor.setAttribute('autocorrect', 'off');
     editor.setAttribute('autocapitalize', 'off');
-    editor.setAttribute('aria-label', '文档正文');
+    editor.setAttribute('aria-label', IexaI18n.t('doc.body'));
     editorWrap.appendChild(editor);
 
     const previewWrap = el('div', 'doc-preview-wrap');
     const preview = el('div', 'doc-preview message-content');
     preview.id = 'docPreview';
-    preview.setAttribute('aria-label', '文档预览');
+    preview.setAttribute('aria-label', IexaI18n.t('doc.previewLabel'));
     previewWrap.appendChild(preview);
 
     body.append(editorWrap, previewWrap);
@@ -154,8 +154,8 @@
 
     // Footer: counts + save status.
     const footer = el('div', 'doc-footer');
-    const counts = el('span', 'doc-counts', '0 字 · 0 行');
-    const status = el('span', 'doc-status', '就绪');
+    const counts = el('span', 'doc-counts', IexaI18n.t('doc.zeroCounts'));
+    const status = el('span', 'doc-status', IexaI18n.t('doc.ready'));
     status.id = 'docStatus';
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
@@ -186,13 +186,13 @@
     const value = ui.editor.value;
     state.dirty = value !== state.savedText;
     ui.host.dataset.dirty = state.dirty ? 'true' : 'false';
-    const name = state.name || '未命名文档';
+    const name = state.name || IexaI18n.t('doc.untitled');
     ui.title.textContent = (state.dirty ? '• ' : '') + name;
     // A copy with no path is still savable even though it is not "modified":
     // otherwise the Save button would be dead on a brand-new document.
     ui.btnSave.disabled = (!state.dirty && Boolean(state.path)) || state.saving;
     ui.btnSaveAs.disabled = state.saving;
-    ui.pathEl.textContent = state.path ? state.path : '尚未保存到项目';
+    ui.pathEl.textContent = state.path ? state.path : IexaI18n.t('doc.unsaved');
   }
 
   function refreshCounts() {
@@ -201,7 +201,7 @@
     // Characters excluding whitespace, plus line count: what a writer expects.
     const chars = value.replace(/\s/g, '').length;
     const lines = value ? value.split('\n').length : 0;
-    ui.counts.textContent = `${chars} 字 · ${lines} 行`;
+    ui.counts.textContent = IexaI18n.t('doc.counts', { chars, lines });
   }
 
   function refreshHistoryButtons() {
@@ -266,7 +266,7 @@
     if (!ui) return;
     ui.editor.value = text;
     state.path = path || '';
-    state.name = name || '未命名文档';
+    state.name = name || IexaI18n.t('doc.untitled');
     state.mtimeMs = mtimeMs || 0;
     state.savedText = text;
     state.history = [text];
@@ -280,12 +280,12 @@
     refreshCounts();
     refreshHistoryButtons();
     renderPreview();
-    setStatus('idle', path ? '已打开' : '新文档，尚未保存');
+    setStatus('idle', path ? IexaI18n.t('doc.opened') : IexaI18n.t('doc.newUnsaved'));
   }
 
   function newDocument() {
-    loadDocument({ text: '', path: '', name: '未命名文档' });
-    setStatus('idle', '新文档');
+    loadDocument({ text: '', path: '', name: IexaI18n.t('doc.untitled') });
+    setStatus('idle', IexaI18n.t('doc.newDoc'));
     ui?.editor.focus();
   }
 
@@ -298,7 +298,7 @@
     init();
     const index = Number(messageEl.dataset.messageIndex);
     let text = '';
-    let title = '未命名文档';
+    let title = IexaI18n.t('doc.untitled');
     const contentEl = messageEl.querySelector('.message-content');
     // The live element keeps the exact source; a restored one has to be re-read.
     if (contentEl && typeof contentEl._markdownSource === 'string') text = contentEl._markdownSource;
@@ -306,35 +306,35 @@
       try {
         const sessionId = typeof currentSessionId === 'string' ? currentSessionId : '';
         const response = await fetch(`${base()}/api/sessions/${encodeURIComponent(sessionId)}`);
-        if (!response.ok) throw new Error('读取会话失败');
+        if (!response.ok) throw new Error(IexaI18n.t('doc.sessionLoadFailed'));
         const data = await response.json();
         const message = Number.isInteger(index) ? (data.messages || [])[index] : null;
         if (message && typeof message.content === 'string') text = message.content;
       } catch (error) {
-        setStatus('error', '无法读取这条回复：' + (error.message || error));
+        setStatus('error', IexaI18n.t('doc.readFailed', { error: error.message || error }));
         return;
       }
     }
-    if (!text) { setStatus('error', '这条回复没有可编辑的正文'); return; }
+    if (!text) { setStatus('error', IexaI18n.t('doc.noEditableBody')); return; }
     const sessionTitle = document.querySelector('.session-item.active .session-item-title')?.textContent?.trim();
     if (sessionTitle) title = sessionTitle.slice(0, 40);
     loadDocument({ text, path: '', name: `${title}.md` });
-    setStatus('idle', '已从回复创建副本，保存时选择位置');
+    setStatus('idle', IexaI18n.t('doc.copyCreated'));
     navigateToDoc();
   }
 
   async function openFile(relPath) {
     const path = String(relPath || '').replace(/\\/g, '/');
     if (!path) return;
-    setStatus('idle', '正在打开…');
+    setStatus('idle', IexaI18n.t('doc.opening'));
     try {
       const response = await fetch(`${base()}/api/fs/read?path=${encodeURIComponent(path)}`);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '打开失败');
+      if (!response.ok) throw new Error(data.error || IexaI18n.t('doc.openFailed'));
       loadDocument({ text: data.content || '', path: data.path || path, name: data.name || path.split('/').pop(), mtimeMs: data.mtimeMs });
-      setStatus('ok', '已打开 ' + (data.path || path));
+      setStatus('ok', '' + IexaI18n.t('doc.opened') + ' ' + (data.path || path));
     } catch (error) {
-      setStatus('error', '打开失败：' + (error.message || error));
+      setStatus('error', '' + IexaI18n.t('doc.openFailed') + '：' + (error.message || error));
     }
   }
 
@@ -350,7 +350,7 @@
     let target = state.path;
     if (saveAs || !target) {
       const initial = state.path || state.name || 'document.md';
-      const answer = await window.IexaDialogs?.prompt('保存为项目内的相对路径（.md 结尾）：', initial);
+      const answer = await window.IexaDialogs?.prompt(IexaI18n.t('doc.savePathPrompt'), initial);
       if (!answer) return;
       target = String(answer).trim().replace(/\\/g, '/');
       if (!target) return;
@@ -358,7 +358,7 @@
     }
     state.saving = true;
     refreshDirty();
-    setStatus('idle', '正在保存…');
+    setStatus('idle', IexaI18n.t('doc.saving'));
     try {
       const response = await fetch(`${base()}/api/fs/write`, {
         method: 'POST',
@@ -370,16 +370,16 @@
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || `保存失败（HTTP ${response.status}）`);
+      if (!response.ok) throw new Error(data.error || IexaI18n.t('doc.saveFailed', { status: response.status }));
       state.path = data.path || target;
       state.name = data.name || state.path.split('/').pop();
       state.mtimeMs = data.mtimeMs || 0;
       state.savedText = ui.editor.value;
       state.lastSavedAt = Date.now();
-      setStatus('ok', `已保存 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+      setStatus('ok', IexaI18n.t('doc.savedAt', { time: new Date().toLocaleTimeString(IexaI18n.getLocale(), { hour: '2-digit', minute: '2-digit' }) }));
     } catch (error) {
       // The buffer is never discarded: the user can retry or copy the text out.
-      setStatus('error', (error.message || String(error)) + '（内容仍保留在编辑器中）');
+      setStatus('error', (error.message || String(error)) + IexaI18n.t('doc.contentKept'));
     } finally {
       state.saving = false;
       refreshDirty();
@@ -416,7 +416,7 @@
       state.searchIndex = hits.length ? 0 : -1;
     }
     if (!state.searchHits.length) {
-      ui.searchCount.textContent = '无匹配';
+      ui.searchCount.textContent = IexaI18n.t('doc.noMatch');
       return;
     }
     if (state.searchIndex < 0) state.searchIndex = 0;
@@ -446,7 +446,7 @@
   async function listDirectory(rel) {
     const response = await fetch(`${base()}/api/fs/list?path=${encodeURIComponent(rel || '.')}`);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `列出目录失败（HTTP ${response.status}）`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('doc.listFailed', { status: response.status }));
     return data;
   }
 
@@ -457,15 +457,15 @@
     overlay.id = 'docPicker';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', '打开 Markdown 文件');
+    overlay.setAttribute('aria-label', IexaI18n.t('doc.openMarkdown'));
 
     const panel = el('div', 'doc-picker');
     const head = el('div', 'doc-picker-head');
-    const crumb = el('span', 'doc-picker-crumb', '项目根目录');
+    const crumb = el('span', 'doc-picker-crumb', IexaI18n.t('doc.projectRoot'));
     const close = el('button', 'doc-icon-btn');
     close.type = 'button';
-    close.title = '关闭';
-    close.setAttribute('aria-label', '关闭');
+    close.title = IexaI18n.t('doc.close');
+    close.setAttribute('aria-label', IexaI18n.t('doc.close'));
     close.appendChild(icon('close'));
     head.append(crumb, close);
     const list = el('div', 'doc-picker-list');
@@ -485,21 +485,21 @@
     document.addEventListener('keydown', onKey, true);
 
     const render = async (rel) => {
-      crumb.textContent = rel === '.' ? '项目根目录' : rel;
-      list.replaceChildren(el('div', 'doc-picker-empty', '正在读取…'));
+      crumb.textContent = rel === '.' ? IexaI18n.t('doc.projectRoot') : rel;
+      list.replaceChildren(el('div', 'doc-picker-empty', IexaI18n.t('doc.reading')));
       try {
         const data = await listDirectory(rel);
         const entries = (data.entries || []).filter((entry) =>
           entry.type === 'dir' ? true : /\.(md|markdown|txt)$/i.test(entry.name));
         if (!entries.length) {
-          list.replaceChildren(el('div', 'doc-picker-empty', '这个目录里没有 Markdown 文件'));
+          list.replaceChildren(el('div', 'doc-picker-empty', IexaI18n.t('doc.noMarkdown')));
           return;
         }
         const fragment = document.createDocumentFragment();
         if (rel !== '.') {
           const up = el('button', 'doc-picker-row');
           up.type = 'button';
-          up.appendChild(el('span', 'doc-picker-name', '… 上一级'));
+          up.appendChild(el('span', 'doc-picker-name', IexaI18n.t('doc.parent')));
           up.addEventListener('click', () => void render(rel.split('/').slice(0, -1).join('/') || '.'));
           fragment.appendChild(up);
         }
@@ -509,7 +509,7 @@
           row.dataset.type = entry.type;
           row.appendChild(el('span', 'doc-picker-name', entry.name));
           row.appendChild(el('span', 'doc-picker-meta', entry.type === 'dir'
-            ? '文件夹'
+            ? IexaI18n.t('doc.folder')
             : Math.max(1, Math.round(entry.size / 1024)) + ' KB'));
           row.addEventListener('click', () => {
             if (entry.type === 'dir') void render(entry.path);
@@ -565,12 +565,12 @@
 
     document.getElementById('docNewBtn').addEventListener('click', async () => {
       // A blocking window.confirm is what this project replaced app-wide.
-      if (state.dirty && !(await window.IexaDialogs?.confirm('当前文档有未保存的修改，新建会丢弃它们。继续？'))) return;
+      if (state.dirty && !(await window.IexaDialogs?.confirm(IexaI18n.t('doc.discardConfirm')))) return;
       newDocument();
     });
     document.getElementById('docOpenBtn').addEventListener('click', () => {
       const project = typeof projectRoot !== 'undefined' ? projectRoot : null;
-      if (!project) { setStatus('error', '请先在文件面板打开一个项目'); return; }
+      if (!project) { setStatus('error', IexaI18n.t('doc.noProject')); return; }
       openPicker('.');
     });
     document.getElementById('docSaveBtn').addEventListener('click', () => void save());
@@ -588,7 +588,7 @@
       ui.previewWrap.hidden = !showing;
       ui.editorWrap.hidden = showing;
       ui.btnPreview.setAttribute('aria-pressed', String(showing));
-      ui.btnPreview.querySelector('span:last-child').textContent = showing ? '编辑' : '预览';
+      ui.btnPreview.querySelector('span:last-child').textContent = showing ? IexaI18n.t('doc.edit') : IexaI18n.t('doc.preview');
       if (showing) renderPreview();
       else ui.editor.focus();
     });

@@ -23,7 +23,7 @@ function renderTerminalTabs() {
     const active = session.id === activeTerminalId;
     const state = session.running ? '●' : '○';
     return `<button type="button" class="terminal-tab${active ? ' active' : ''}${session.running ? '' : ' ended'}" data-terminal-id="${escapeHtml(session.id)}" title="${escapeHtml(session.cwd)}">${state} ${escapeHtml(session.shell)}</button>`;
-  }).join('') : '<span class="terminal-tabs-empty">没有运行中的终端</span>';
+  }).join('') : IexaI18n.t('term.emptyTabs');
   tabs.querySelectorAll('[data-terminal-id]').forEach((button) => {
     button.addEventListener('click', () => selectTerminalSession(button.dataset.terminalId));
   });
@@ -99,7 +99,7 @@ async function loadTerminalSessions() {
   try {
     const response = await fetch(`${API_BASE}/api/terminal/sessions`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取终端失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.loadFailed'));
     terminalSessions = data.sessions || [];
     if (!activeTerminalId || !terminalSessions.some((session) => session.id === activeTerminalId)) {
       activeTerminalId = terminalSessions.find((session) => session.running)?.id || terminalSessions[0]?.id || '';
@@ -108,13 +108,13 @@ async function loadTerminalSessions() {
       terminalPollBlockedFor = '';
       terminalPollInFlightFor = '';
       const output = document.getElementById('terminalOutput');
-      if (output) output.textContent = activeTerminalId ? '' : '点击“新建”启动终端。';
+      if (output) output.textContent = activeTerminalId ? '' : IexaI18n.t('term.startHint');
     }
     renderTerminalTabs();
     if (activeTerminalId) { resizeActiveTerminal(); pollTerminalOutput(); }
   } catch (error) {
     const output = document.getElementById('terminalOutput');
-    if (output) output.textContent = '终端不可用：' + (error.message || error);
+    if (output) output.textContent = IexaI18n.t('term.unavailable', { error: error.message || error });
   }
 }
 
@@ -125,7 +125,7 @@ async function createTerminalSession() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shell }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '创建终端失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.createFailed'));
     activeTerminalId = data.session.id;
     terminalLastSeq = 0;
     terminalPollErrorShownFor = '';
@@ -135,7 +135,7 @@ async function createTerminalSession() {
     if (output) output.textContent = `[${data.session.shell} · ${data.session.cwd}]\n`;
     await loadTerminalSessions();
   } catch (error) {
-    addError('创建终端失败：' + (error.message || error));
+    addError(IexaI18n.t('term.createFailedDetail') + (error.message || error));
   }
 }
 
@@ -150,7 +150,7 @@ async function pollTerminalOutput() {
   try {
     const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(id)}?after=${terminalLastSeq}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取终端输出失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.outputFailed'));
     if (id !== activeTerminalId) return;
     terminalPollErrorShownFor = '';
     terminalPollBlockedFor = '';
@@ -163,7 +163,7 @@ async function pollTerminalOutput() {
     // let the next session-list refresh recover if the backend becomes ready.
     if (terminalPollErrorShownFor !== id) {
       terminalPollErrorShownFor = id;
-      appendTerminalOutput(`\n[终端连接错误：${error.message || error}]\n`);
+      appendTerminalOutput(`\n[${IexaI18n.t('term.connectionError', { error: error.message || error })}]\n`);
     }
     terminalPollBlockedFor = id;
     // Give the backend a moment to recover, then refresh the session list and
@@ -190,10 +190,10 @@ async function executeTerminalCommand() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '终端命令执行失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.commandFailed'));
     setTimeout(pollTerminalOutput, 80);
   } catch (error) {
-    appendTerminalOutput(`[命令失败：${error.message || error}]\n`);
+    appendTerminalOutput(`[${IexaI18n.t('term.commandFailedLine', { error: error.message || error })}]\n`);
   }
 }
 
@@ -202,10 +202,10 @@ async function terminateTerminalSession() {
   try {
     const response = await fetch(`${API_BASE}/api/terminal/sessions/${encodeURIComponent(activeTerminalId)}/terminate`, { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '终止终端失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.killFailed'));
     setTimeout(loadTerminalSessions, 120);
   } catch (error) {
-    addError('终止终端失败：' + (error.message || error));
+    addError(IexaI18n.t('term.killFailedDetail') + (error.message || error));
   }
 }
 
@@ -216,10 +216,10 @@ async function interruptTerminalSession() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ input: '\u0003' }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '发送 Ctrl+C 失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('term.interruptFailed'));
     appendTerminalOutput('^C\n');
   } catch (error) {
-    addError('终端中断失败：' + (error.message || error));
+    addError(IexaI18n.t('term.interruptFailedDetail') + (error.message || error));
   }
 }
 

@@ -16,7 +16,7 @@
     let expanded = false;
     const update = () => {
       body.textContent = expanded ? text : preview;
-      toggle.textContent = expanded ? '收起' : `展开全文（${chars.length} 字）`;
+      toggle.textContent = expanded ? IexaI18n.t('chat.collapse') : IexaI18n.t('chat.expandFull', { count: chars.length });
       toggle.setAttribute('aria-expanded', String(expanded));
     };
     toggle.addEventListener('click', () => { expanded = !expanded; update(); });

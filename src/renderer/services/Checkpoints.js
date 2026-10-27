@@ -92,7 +92,7 @@ async function rewindCheckpoint(checkpointId) {
       body: JSON.stringify({ sessionId: currentSessionId, checkpointId }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || '回退失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('checkpoint.rewindFailed'));
     if (projectRoot) loadFilesList(filesCurrentPath, true);
     await renderCheckpoints();
   } catch (error) {

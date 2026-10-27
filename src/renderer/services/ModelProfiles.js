@@ -148,11 +148,11 @@ async function setThinkingLevel(level, opts) {
     const response = await fetch(API_BASE + '/api/thinking-level', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ thinkingLevel: next }),
     });
-    if (!response.ok) throw new Error(`保存失败 (${response.status})`);
+    if (!response.ok) throw new Error(IexaI18n.t('model.saveFailed', { status: response.status }));
   });
   try { await thinkingLevelSaveQueue; }
   catch (error) {
-    if (revision === thinkingLevelSaveRevision && feedback) { feedback.textContent = '档位尚未保存，请重试'; feedback.hidden = false; }
+    if (revision === thinkingLevelSaveRevision && feedback) { feedback.textContent = IexaI18n.t('model.levelSaveFailed'); feedback.hidden = false; }
     console.warn('save thinking level failed', error);
   }
 }
@@ -199,20 +199,20 @@ function syncFastModeUI() {
   button.classList.toggle('is-enabled', enabled);
   button.setAttribute('aria-pressed', String(enabled));
   button.title = enabled
-    ? 'Fast 已开启：请求使用 service_tier: priority'
-    : '开启 Codex Fast：请求使用 service_tier: priority';
+    ? IexaI18n.t('model.fastOn')
+    : IexaI18n.t('model.fastOff');
 }
 async function toggleFastMode() {
   const session = sessionsCache.find((item) => item.id === currentSessionId);
   const profile = activeSessionProfile();
   if (!session || !profile?.supportsFastMode) return;
-  if (isProcessing) { addError('当前会话正在执行任务，请结束或停止后再切换 Fast 模式。'); return; }
+  if (isProcessing) { addError(IexaI18n.t('model.fastBusy')); return; }
   const enabled = session.fastModeEnabled !== true;
   const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/fast`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) { addError(data.error || '切换 Fast 模式失败。'); return; }
+  if (!response.ok) { addError(data.error || IexaI18n.t('model.fastFailed')); return; }
   const index = sessionsCache.findIndex((item) => item.id === currentSessionId);
   if (index >= 0 && data.session) sessionsCache[index] = { ...sessionsCache[index], ...data.session };
   syncFastModeUI();
@@ -234,7 +234,7 @@ async function selectModelProfile(id) {
     return;
   }
   if (isProcessing) {
-    addError('当前会话正在执行任务，请结束或停止后再切换模型。');
+    addError(IexaI18n.t('model.modelBusy'));
     setModelMenuOpen(false);
     return;
   }
@@ -245,7 +245,7 @@ async function selectModelProfile(id) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    addError(data.error || '切换本会话模型失败。');
+    addError(data.error || IexaI18n.t('model.modelFailed'));
     return;
   }
   const index = sessionsCache.findIndex((session) => session.id === currentSessionId);
@@ -266,9 +266,9 @@ async function refreshModelSelector() {
   modelSelectorProfiles = data.profiles || [];
   list.innerHTML = '';
   if (!modelSelectorProfiles.length) {
-    label.textContent = '— 尚未配置模型 —';
+    label.textContent = IexaI18n.t('model.none');
     btn.disabled = true;
-    hint.textContent = '请在设置中添加模型';
+    hint.textContent = IexaI18n.t('model.addInSettings');
     return;
   }
 
@@ -280,9 +280,9 @@ async function refreshModelSelector() {
   // activeProfileId remains the global default used only for new sessions/settings.
   activeProfileId = data.activeProfileId || active.id;
   label.textContent = active.name || (active.provider + '/' + active.model);
-  btn.title = `本会话模型：${active.provider} / ${active.model}`;
+  btn.title = IexaI18n.t('model.sessionModel', { provider: active.provider, model: active.model });
   const routeName = active.provider === 'anthropic' ? 'Messages' : active.apiMode === 'responses' ? 'Responses' : 'Chat';
-  hint.textContent = `本会话 · ${active.provider} · ${active.model} · ${routeName}`;
+  hint.textContent = IexaI18n.t('model.sessionMeta', { provider: active.provider, model: active.model, route: routeName });
   syncFastModeUI();
   applyThinkingLevelUI(currentThinkingLevel);
   document.dispatchEvent(new Event('token-calculator-profile-change'));
@@ -366,12 +366,12 @@ const MAX_CONTEXT_COMPACTION_LIMIT = 10000000;
 const DEFAULT_CONTEXT_COMPACTION_THRESHOLD = 80;
 
 const CONTEXT_COMPACTION_OPTIONS = [
-  { limit: null, label: '自动', desc: '按模型上下文上限' },
-  { limit: 128000, label: '128K', desc: '约 12.8 万 token' },
-  { limit: 256000, label: '256K', desc: '约 25.6 万 token' },
-  { limit: 384000, label: '384K', desc: '约 38.4 万 token' },
-  { limit: 768000, label: '768K', desc: '约 76.8 万 token' },
-  { limit: 1000000, label: '1M', desc: '约 100 万 token' },
+  { limit: null, label: IexaI18n.t('model.auto'), desc: IexaI18n.t('model.autoHint') },
+  { limit: 128000, label: '128K', desc: IexaI18n.t('model.preset128') },
+  { limit: 256000, label: '256K', desc: IexaI18n.t('model.preset256') },
+  { limit: 384000, label: '384K', desc: IexaI18n.t('model.preset384') },
+  { limit: 768000, label: '768K', desc: IexaI18n.t('model.preset768') },
+  { limit: 1000000, label: '1M', desc: IexaI18n.t('model.preset1m') },
 ];
 
 /** Any integer at or above 128K; the presets are shortcuts, not a whitelist. */
@@ -394,7 +394,7 @@ function normalizeContextCompactionThreshold(value) {
 
 function formatContextCompactionLabel(limit) {
   const normalized = normalizeContextCompactionLimit(limit);
-  if (normalized === null) return '自动';
+  if (normalized === null) return IexaI18n.t('model.auto');
   const preset = CONTEXT_COMPACTION_OPTIONS.find((item) => item.limit === normalized);
   if (preset) return preset.label;
   // Custom windows read best as the same K/M shorthand the presets use.
@@ -407,7 +407,7 @@ function formatContextCompactionLabel(limit) {
 }
 
 function formatContextCompactionThreshold(percent) {
-  return percent === null ? '默认 80%' : `${percent}%`;
+  return percent === null ? IexaI18n.t('model.default80') : `${percent}%`;
 }
 
 function applyContextCompactionThresholdUI(percent) {
@@ -421,7 +421,7 @@ function applyContextCompactionThresholdUI(percent) {
   }
   if (value) value.textContent = formatContextCompactionThreshold(percent);
   if (hint) {
-    hint.textContent = percent === null ? '默认 80%，可选 50%–100%' : `达到容量的 ${percent}% 时压缩`;
+    hint.textContent = percent === null ? IexaI18n.t('model.thresholdHint') : IexaI18n.t('model.thresholdActive', { percent });
     hint.dataset.tone = 'ok';
   }
   document.querySelectorAll('.cc-chip[data-threshold]').forEach((el) => {
@@ -437,8 +437,8 @@ function applyContextCompactionUI(limit) {
   const limitValue = document.getElementById('ccLimitValue');
   const customInput = document.getElementById('contextCompactionCustomInput');
   const title = currentContextCompactionLimit
-    ? `自动压缩档位：${formatContextCompactionLabel(currentContextCompactionLimit)}（上限 ${formatTokenCount(currentContextCompactionLimit)} token）`
-    : '自动压缩档位：自动（按模型上下文上限）';
+    ? IexaI18n.t('model.compactionPreset', { label: formatContextCompactionLabel(currentContextCompactionLimit), limit: formatTokenCount(currentContextCompactionLimit) })
+    : IexaI18n.t('model.compactionAuto');
   if (btn) {
     btn.dataset.limit = currentContextCompactionLimit === null ? 'auto' : String(currentContextCompactionLimit);
     btn.title = title;
@@ -453,13 +453,13 @@ function applyContextCompactionUI(limit) {
   }
   if (limitValue) {
     limitValue.textContent = currentContextCompactionLimit === null
-      ? '按模型上限'
+      ? IexaI18n.t('model.byModelLimit')
       : `${formatContextCompactionLabel(currentContextCompactionLimit)} · ${formatTokenCount(currentContextCompactionLimit)}`;
   }
   if (limitHint) {
     limitHint.textContent = !isPreset && currentContextCompactionLimit !== null
-      ? `当前自定义容量 ${formatTokenCount(currentContextCompactionLimit)} token`
-      : '最低 128000';
+      ? IexaI18n.t('model.customCapacity', { limit: formatTokenCount(currentContextCompactionLimit) })
+      : IexaI18n.t('model.minCustom');
     limitHint.dataset.tone = 'ok';
   }
   const menu = document.getElementById('contextCompactionMenu');
@@ -510,7 +510,7 @@ async function putContextCompaction(payload) {
     body: JSON.stringify(payload),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || '保存上下文设置失败');
+  if (!response.ok) throw new Error(data.error || IexaI18n.t('model.contextSaveFailed'));
   return data;
 }
 
@@ -532,7 +532,7 @@ async function setContextCompactionThreshold(percent) {
   const next = percent === null ? null : normalizeContextCompactionThreshold(percent);
   const hint = document.getElementById('contextCompactionThresholdHint');
   if (percent !== null && next === null) {
-    if (hint) { hint.textContent = '请输入 50 到 100 之间的百分比'; hint.dataset.tone = 'error'; }
+    if (hint) { hint.textContent = IexaI18n.t('model.percentRange'); hint.dataset.tone = 'error'; }
     return;
   }
   try {
@@ -565,11 +565,11 @@ function applyLocalCompactionThreshold(percent) {
 function flashSaved(button) {
   if (!button) return;
   if (!button.dataset.label) button.dataset.label = button.textContent;
-  button.textContent = '已保存';
+  button.textContent = IexaI18n.t('model.saved');
   button.dataset.saved = 'true';
   clearTimeout(button._savedTimer);
   button._savedTimer = setTimeout(() => {
-    button.textContent = button.dataset.label || '应用';
+    button.textContent = button.dataset.label || IexaI18n.t('model.apply');
     delete button.dataset.saved;
   }, 1200);
 }
@@ -639,7 +639,7 @@ function initContextCompactionControl() {
     const raw = Number(customInput?.value);
     const hint = document.getElementById('contextCompactionCustomHint');
     if (!Number.isSafeInteger(raw) || raw < MIN_CONTEXT_COMPACTION_LIMIT || raw > MAX_CONTEXT_COMPACTION_LIMIT) {
-      if (hint) { hint.textContent = '请输入 128000 到 10000000 之间的整数'; hint.dataset.tone = 'error'; }
+      if (hint) { hint.textContent = IexaI18n.t('model.limitRange'); hint.dataset.tone = 'error'; }
       customInput?.focus();
       return;
     }
@@ -688,7 +688,7 @@ function initContextCompactionControl() {
     const raw = Number(thresholdInput?.value);
     const hint = document.getElementById('contextCompactionThresholdHint');
     if (!Number.isFinite(raw) || raw < 50 || raw > 100) {
-      if (hint) { hint.textContent = '请输入 50 到 100 之间的百分比'; hint.dataset.tone = 'error'; }
+      if (hint) { hint.textContent = IexaI18n.t('model.percentRange'); hint.dataset.tone = 'error'; }
       thresholdInput?.focus();
       return;
     }
@@ -714,8 +714,8 @@ async function loadVisionProfileSetting() {
   try {
     const response = await fetch(`${API_BASE}/api/vision-profile`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取视觉配置失败');
-    select.innerHTML = '<option value="">不使用视觉代理</option>' + (data.profiles || []).map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('model.visionLoadFailed'));
+    select.innerHTML = IexaI18n.t('model.visionNone') + (data.profiles || []).map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.model)}</option>`).join('');
     select.value = data.visionProfileId || '';
   } catch (error) { console.error('Failed to load vision profile:', error); }
 }
@@ -726,8 +726,8 @@ async function saveVisionProfileSetting() {
   try {
     const response = await fetch(`${API_BASE}/api/vision-profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visionProfileId: select.value }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '保存视觉配置失败');
-  } catch (error) { addError('保存视觉配置失败：' + (error.message || error)); }
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('model.visionSaveFailed'));
+  } catch (error) { addError(IexaI18n.t('model.visionSaveFailedDetail') + (error.message || error)); }
 }
 
 async function loadSettings() {
@@ -739,7 +739,7 @@ async function renderProfileList() {
   const data = await fetchProfiles();
 
   if (data.profiles.length === 0) {
-    list.innerHTML = '<div class="profile-empty">尚未配置模型。点击"＋ 添加模型"开始。</div>';
+    list.innerHTML = IexaI18n.t('model.empty');
     return;
   }
 
@@ -749,15 +749,15 @@ async function renderProfileList() {
       <div class="profile-card-info">
         <div class="profile-card-title">
           <span class="profile-card-name">${escapeHtml(p.name)}</span>
-          ${p.id === data.activeProfileId ? '<span class="profile-active-chip">当前</span>' : ''}
+          ${p.id === data.activeProfileId ? IexaI18n.t('model.current') : ''}
         </div>
         <div class="profile-card-detail"><span class="profile-model">${escapeHtml(p.model)}</span></div>
         ${p.baseURL ? `<div class="profile-card-url">${escapeHtml(p.baseURL)}</div>` : ''}
       </div>
       <span class="profile-provider-chip">${escapeHtml(p.provider)}</span>
       <div class="profile-card-actions" data-ui-action="stop">
-        <button data-ui-action="editProfile" data-ui-arg="${escapeHtml(p.id)}" title="编辑" aria-label="编辑">${uiIcon('edit')}</button>
-        <button class="danger" data-ui-action="deleteProfile" data-ui-arg="${escapeHtml(p.id)}" title="删除" aria-label="删除">${uiIcon('trash')}</button>
+        <button data-ui-action="editProfile" data-ui-arg="${escapeHtml(p.id)}" title="${IexaI18n.t('model.edit')}" aria-label="${IexaI18n.t('model.edit')}">${uiIcon('edit')}</button>
+        <button class="danger" data-ui-action="deleteProfile" data-ui-arg="${escapeHtml(p.id)}" title="${IexaI18n.t('model.delete')}" aria-label="${IexaI18n.t('model.delete')}">${uiIcon('trash')}</button>
       </div>
     </div>
   `).join('');
@@ -776,7 +776,7 @@ async function activateProfile(id) {
 }
 
 async function deleteProfile(id) {
-  if (!(await window.IexaDialogs.confirm('确定删除这个模型配置？'))) return;
+  if (!(await window.IexaDialogs.confirm(IexaI18n.t('model.deleteConfirm')))) return;
   await fetch(`${API_BASE}/api/profiles/${id}`, { method: 'DELETE' });
   renderProfileList();
   loadVisionProfileSetting();
@@ -786,7 +786,7 @@ async function deleteProfile(id) {
 // ---- Profile Editor ----
 function showProfileEditor(profile) {
   const overlay = document.getElementById('profileEditorOverlay');
-  document.getElementById('profileEditorTitle').textContent = profile ? '编辑模型' : '添加模型';
+  document.getElementById('profileEditorTitle').textContent = profile ? IexaI18n.t('model.editTitle') : IexaI18n.t('model.addTitle');
   document.getElementById('profileEditorId').value = profile ? profile.id : '';
   document.getElementById('profileEditorName').value = profile ? profile.name : '';
   document.getElementById('profileEditorProvider').value = profile ? profile.provider : 'anthropic';
@@ -798,7 +798,7 @@ function showProfileEditor(profile) {
   document.getElementById('profileEditorPriceCacheRead').value = rates.cacheRead ?? '';
   document.getElementById('profileEditorPriceCacheCreation').value = rates.cacheCreation ?? '';
   document.getElementById('profileEditorApiKey').value = '';
-  document.getElementById('profileEditorApiKey').placeholder = profile ? '已保存，留空即可继续使用' : 'sk-...';
+  document.getElementById('profileEditorApiKey').placeholder = profile ? IexaI18n.t('model.keyPlaceholder') : 'sk-...';
   document.getElementById('profileEditorBaseURL').value = profile ? (profile.baseURL || '') : '';
   document.getElementById('profileEditorUserAgent').value = profile?.userAgent || '';
   document.getElementById('profileEditorFastMode').checked = !!(profile && profile.fastModeSupported);
@@ -835,8 +835,8 @@ function updateEditorPlaceholders() {
   if (isAnthropic) apiMode.value = 'anthropic_messages';
   else if (apiMode.value === 'anthropic_messages') apiMode.value = 'chat_completions';
   document.getElementById('profileEditorApiModeHint').textContent = isAnthropic
-    ? 'Anthropic 原生 Messages 协议；服务商选 Anthropic 时自动使用 /v1/messages。'
-    : 'Responses 使用独立的消息、工具和流式事件协议；仅在端点实际支持时选择。';
+    ? IexaI18n.t('model.apiModeAnthropic')
+    : IexaI18n.t('model.apiModeResponses');
 }
 
 function formatContextTokensForDisplay(tokens) {
@@ -857,15 +857,15 @@ async function fetchModels() {
     baseURL = BASE_URL_HINTS[prov] || '';
   }
   if (!baseURL) {
-    hint.textContent = '请先填写接口地址。';
+    hint.textContent = IexaI18n.t('model.needBaseUrl');
     return;
   }
   if (!apiKey && !profileId) {
-    hint.textContent = '请先填写 API 密钥。';
+    hint.textContent = IexaI18n.t('model.needApiKey');
     return;
   }
 
-  hint.textContent = '⏳ 正在获取模型列表...';
+  hint.textContent = IexaI18n.t('model.fetching');
   btn.disabled = true;
   select.style.display = 'none';
   select.innerHTML = '';
@@ -877,7 +877,7 @@ async function fetchModels() {
     });
     const data = await resp.json();
     if (!resp.ok) {
-      hint.textContent = data.error || '获取失败';
+      hint.textContent = data.error || IexaI18n.t('model.fetchFailed');
       return;
     }
     // Models can be strings or objects { id, contextWindow?, maxOutputTokens? }
@@ -885,16 +885,16 @@ async function fetchModels() {
       if (typeof m === 'string') return { id: m };
       return { id: m.id, contextWindow: m.contextWindow };
     });
-    select.innerHTML = '<option value="">— 选择模型 —</option>' +
+    select.innerHTML = IexaI18n.t('model.chooseModel') +
       modelList.map(m => {
         const label = m.contextWindow ? m.id + '  (' + formatContextTokensForDisplay(m.contextWindow) + ')' : m.id;
         const contextWindow = m.contextWindow || '';
         return `<option value="${escapeHtml(m.id)}" data-context-window="${escapeHtml(String(contextWindow))}">${escapeHtml(label)}</option>`;
       }).join('');
     select.style.display = 'block';
-    hint.textContent = `找到 ${modelList.length} 个模型，请选择。`;
+    hint.textContent = IexaI18n.t('model.found', { count: modelList.length });
   } catch (err) {
-    hint.textContent = '获取失败：' + err.message;
+    hint.textContent = IexaI18n.t('model.fetchFailedDetail') + err.message;
   } finally {
     btn.disabled = false;
   }
@@ -937,8 +937,8 @@ async function saveProfile() {
       : document.getElementById('profileEditorApiMode').value === 'responses' ? 'responses' : 'chat_completions',
   };
 
-  if (!profile.name) profile.name = profile.model || '未命名';
-  if (!profile.model) { (await window.IexaDialogs.alert('请输入模型 ID。')); return; }
+  if (!profile.name) profile.name = profile.model || IexaI18n.t('model.untitled');
+  if (!profile.model) { (await window.IexaDialogs.alert(IexaI18n.t('model.needModelId'))); return; }
 
   const response = await fetch(`${API_BASE}/api/profiles`, {
     method: 'POST',
@@ -948,7 +948,7 @@ async function saveProfile() {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    await window.IexaDialogs.alert(error.error || '模型配置保存失败');
+    await window.IexaDialogs.alert(error.error || IexaI18n.t('model.saveProfileFailed'));
     return;
   }
   hideProfileEditor();

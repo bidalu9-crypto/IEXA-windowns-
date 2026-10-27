@@ -69,7 +69,7 @@ test('Markdown keeps highlighted code, tables, links, images and literal formula
   } finally { dom.window.close(); }
 });
 test('actual initial/history and streaming renderer functions share the sanitizer', () => {
-  const dom = fixture(); const w = dom.window;
+  const dom = fixture(); const w = dom.window;require('./helpers/install-i18n')(w);
   try {
     w.eval(`const renderSafeMarkdown = SafeMarkdown.renderSafeMarkdown;
       const chatMessages = document.getElementById('chatMessages');

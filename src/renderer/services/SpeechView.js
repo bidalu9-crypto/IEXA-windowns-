@@ -9,7 +9,7 @@
     if (!state.button) return;
     state.button.classList.remove('is-speaking', 'is-loading');
     state.button.setAttribute('aria-pressed', 'false');
-    state.button.setAttribute('title', '朗读内容');
+    state.button.setAttribute('title', IexaI18n.t('speech.readAloud'));
     state.button.style.removeProperty('--speech-progress');
   }
 
@@ -76,7 +76,7 @@
     state.loading = true;
     button.classList.add('is-loading');
     button.setAttribute('aria-pressed', 'true');
-    button.setAttribute('title', '正在合成…');
+    button.setAttribute('title', IexaI18n.t('speech.synthesising'));
 
     try {
       const response = await fetch('/api/tts/speak', {
@@ -86,7 +86,7 @@
       });
       const data = await response.json().catch(() => ({}));
       if (token !== state.token) return;
-      if (!response.ok) throw new Error(data.detail || data.error || '语音合成失败');
+      if (!response.ok) throw new Error(data.detail || data.error || IexaI18n.t('speech.failed'));
 
       const urls = Array.isArray(data.segments) && data.segments.length ? data.segments : [data.url];
       state.loading = false;
@@ -94,7 +94,7 @@
       state.messageEl = messageEl;
       button.classList.remove('is-loading');
       button.classList.add('is-speaking');
-      button.setAttribute('title', '停止朗读');
+      button.setAttribute('title', IexaI18n.t('speech.stop'));
 
       await playSegments(urls, button, token);
       if (token === state.token) stop();

@@ -18,14 +18,14 @@
     async request(route, options) {
       const response = await fetch(this.apiBase + route, options);
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '请求失败');
+      if (!response.ok) throw new Error(data.error || IexaI18n.t('prompt.requestFailed'));
       return data;
     }
     async loadScope() {
       const generation = ++this.generation;
       this.projectRoot = null;
       this.el('scopeSaveBtn').disabled = true;
-      this.el('scopeProjectRoot').textContent = '正在读取项目…';
+      this.el('scopeProjectRoot').textContent = IexaI18n.t('prompt.readingProject');
       this.el('scopeFeedback').textContent = '';
       for (const id of ['scopeTargets', 'scopeOperations', 'scopeNotes']) this.el(id).value = '';
       try {
@@ -55,7 +55,7 @@
             targets: lines('scopeTargets'), operations: lines('scopeOperations'), notes: this.el('scopeNotes').value,
           } }),
         });
-        if (generation === this.generation) this.el('scopeFeedback').textContent = '已保存；下一轮对话复用此范围。';
+        if (generation === this.generation) this.el('scopeFeedback').textContent = IexaI18n.t('prompt.savedScope');
       } catch (error) {
         if (generation === this.generation) this.el('scopeFeedback').textContent = error.message;
       } finally {
@@ -68,19 +68,19 @@
       const output = this.el('promptPreviewText'), status = this.el('promptPreviewStatus');
       clearTimeout(this.previewTimer);
       output.textContent = '';
-      if (!sessionId) { status.textContent = '请先选择会话'; return; }
+      if (!sessionId) { status.textContent = IexaI18n.t('prompt.pickSession'); return; }
       this.previewSession = sessionId;
       const requestId = this.previewRequestId = (this.previewRequestId || 0) + 1;
       try {
         const data = await this.request('/api/prompt-preview?sessionId=' + encodeURIComponent(sessionId), { method });
         if (requestId !== this.previewRequestId || sessionId !== this.getSessionId()) return;
         if (data.preview) {
-          status.textContent = `${data.preview.provider} / ${data.preview.model} · ${new Date(data.preview.capturedAt).toLocaleTimeString()}\n${data.preview.warning}${data.preview.truncated ? '\n预览超过 256,000 字符，已截断；模型输入未因此截断。' : ''}`;
+          status.textContent = `${data.preview.provider} / ${data.preview.model} · ${new Date(data.preview.capturedAt).toLocaleTimeString()}\n${data.preview.warning}${data.preview.truncated ? '\n' + IexaI18n.t('prompt.truncated') : ''}`;
           output.textContent = data.preview.text;
           // Remove displayed private content at the same deadline as the server snapshot.
           clearTimeout(this.previewTimer);
-          this.previewTimer = setTimeout(() => { output.textContent = ''; status.textContent = '预览已过期'; }, Math.max(0, data.preview.expiresAt - Date.now()));
-        } else status.textContent = data.armed ? '已启用一次采集。回到当前会话发送消息，再点击“读取预览”。5 分钟内有效。' : '暂无预览（未启用、已清除或已过期）。';
+          this.previewTimer = setTimeout(() => { output.textContent = ''; status.textContent = IexaI18n.t('prompt.previewExpired'); }, Math.max(0, data.preview.expiresAt - Date.now()));
+        } else status.textContent = data.armed ? IexaI18n.t('prompt.captureArmed') : IexaI18n.t('prompt.noPreview');
       } catch (error) {
         if (requestId === this.previewRequestId) status.textContent = error.message;
       }

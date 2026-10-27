@@ -9,13 +9,13 @@
         ? [previous.selectionStart, previous.selectionEnd, previous.selectionDirection] : null;
       const dialog = document.createElement('dialog');
       dialog.className = 'iexa-app-dialog';
-      dialog.setAttribute('aria-label', kind === 'prompt' ? '输入内容' : kind === 'confirm' ? '确认操作' : '提示');
+      dialog.setAttribute('aria-label', kind === 'prompt' ? IexaI18n.t('dlg.inputTitle') : kind === 'confirm' ? IexaI18n.t('dlg.confirmTitle') : IexaI18n.t('dlg.alertTitle'));
       const label = document.createElement('p'); label.textContent = String(message || '');
       const input = document.createElement('input'); input.type = 'text'; input.value = String(initial ?? '');
-      input.setAttribute('aria-label', String(message || '输入内容')); input.autocomplete = 'off';
+      input.setAttribute('aria-label', String(message || IexaI18n.t('dlg.inputTitle'))); input.autocomplete = 'off';
       const footer = document.createElement('div'); footer.className = 'iexa-app-dialog-actions';
-      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消';
-      const accept = document.createElement('button'); accept.type = 'button'; accept.textContent = '确定'; accept.className = 'btn-primary';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = IexaI18n.t('dlg.cancel');
+      const accept = document.createElement('button'); accept.type = 'button'; accept.textContent = IexaI18n.t('dlg.ok'); accept.className = 'btn-primary';
       const negative = kind === 'prompt' ? null : false;
       let settled = false;
       const finish = (value) => {

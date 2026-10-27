@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),ts=require('typescript');const {JSDOM}=require('jsdom');
-function fixture(t){const dom=new JSDOM('<!doctype html><textarea id="chatInput"></textarea><div id="slashMenu" style="display:none"></div>',{runScripts:'outside-only',pretendToBeVisual:true});t.after(()=>dom.window.close());const w=dom.window;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};for(const file of ['AppDialogs','ComposerInput'])w.eval(fs.readFileSync('src/renderer/services/'+file+'.js','utf8'));return w;}
+function fixture(t){const dom=new JSDOM('<!doctype html><textarea id="chatInput"></textarea><div id="slashMenu" style="display:none"></div>',{runScripts:'outside-only',pretendToBeVisual:true});t.after(()=>dom.window.close());const w=dom.window;require('./helpers/install-i18n')(w);w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};for(const file of ['AppDialogs','ComposerInput'])w.eval(fs.readFileSync('src/renderer/services/'+file+'.js','utf8'));return w;}
 const tick=()=>new Promise(r=>setImmediate(r));
 test('confirm is async, Escape cancels and restores draft focus and selection',async t=>{
  const w=fixture(t),input=w.document.getElementById('chatInput');input.value='未发送草稿';input.focus();input.setSelectionRange(1,3);

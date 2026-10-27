@@ -10,7 +10,7 @@
     const update = () => {
       for (const side of ['left', 'right']) {
         const shown = !root.classList.contains(`${side}-panel-hidden`) && !root.classList.contains('chat-focus-mode');
-        const label = `${shown ? '隐藏' : '展开'}${side === 'left' ? '左' : '右'}侧栏`;
+        const label = IexaI18n.t('panel.toggleLabel', { action: shown ? IexaI18n.t('panel.hide') : IexaI18n.t('panel.show'), side: side === 'left' ? IexaI18n.t('panel.left') : IexaI18n.t('panel.right') });
         buttons[side]?.setAttribute('aria-expanded', String(shown));
         buttons[side]?.setAttribute('aria-label', label);
         if (buttons[side]) buttons[side].title = label;

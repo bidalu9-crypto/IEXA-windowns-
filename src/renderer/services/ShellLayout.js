@@ -235,9 +235,9 @@ function initChatFocusMode() {
   const update = (focused) => {
     root.classList.toggle('chat-focus-mode', focused);
     button.setAttribute('aria-pressed', focused ? 'true' : 'false');
-    button.title = focused ? '恢复左右面板' : '隐藏左右面板，展开聊天区';
+    button.title = focused ? IexaI18n.t('layout.restorePanels') : IexaI18n.t('layout.hidePanels');
     const label = button.querySelector('.chat-focus-toggle-label');
-    if (label) label.textContent = focused ? '恢复面板' : '展开聊天';
+    if (label) label.textContent = focused ? IexaI18n.t('layout.restore') : IexaI18n.t('layout.expandChat');
   };
   update(saved);
   button.addEventListener('click', () => {

@@ -1,7 +1,7 @@
 /* Active-only agent dock and independent conversation inspector. Markdown uses the shared sanitized renderer. */
 (() => {
   'use strict';
-  const labels = { idle: '待命', queued: '排队中', running: '运行中', awaiting_approval: '等待批准', cancelling: '正在停止', completed: '已完成', failed: '失败', cancelled: '已停止', denied: '已拒绝', timed_out: '已超时', interrupted: '已中断', closed: '已关闭' };
+  const labels = { idle: IexaI18n.t('sub.status.idle'), queued: IexaI18n.t('sub.status.queued'), running: IexaI18n.t('sub.status.running'), awaiting_approval: IexaI18n.t('sub.status.awaiting'), cancelling: IexaI18n.t('sub.status.stopping'), completed: IexaI18n.t('sub.status.done'), failed: IexaI18n.t('sub.status.failed'), cancelled: IexaI18n.t('sub.status.stopped'), denied: IexaI18n.t('sub.status.denied'), timed_out: IexaI18n.t('sub.status.timeout'), interrupted: IexaI18n.t('sub.status.interrupted'), closed: IexaI18n.t('sub.status.closed') };
   const active = new Set(['queued', 'running', 'awaiting_approval', 'cancelling']);
   const node = (tag, cls, text) => { const n = document.createElement(tag); n.className = cls || ''; if (text !== undefined) n.textContent = text; return n; };
   let viewSequence = 0;
@@ -12,30 +12,30 @@
     const viewId = `subagent-inspector-${++viewSequence}`;
     host.classList.add('subagent-panel'); host.hidden = true;
     const toggle = node('button', 'subagent-toggle'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false');
-    const heading = node('span', 'subagent-heading', '子代理'), count = node('span', 'subagent-count');
+    const heading = node('span', 'subagent-heading', IexaI18n.t('sub.title')), count = node('span', 'subagent-count');
     const chevron = node('span', 'subagent-chevron', '›'); chevron.setAttribute('aria-hidden', 'true'); toggle.append(chevron, heading, count);
     const body = node('dialog', 'subagent-body subagent-dialog'); body.hidden = true; body.id = viewId; body.setAttribute('aria-labelledby', `${viewId}-title`); toggle.setAttribute('aria-controls', body.id); toggle.setAttribute('aria-haspopup', 'dialog');
-    const list = node('div', 'subagent-list'); list.setAttribute('aria-label', '子代理列表');
+    const list = node('div', 'subagent-list'); list.setAttribute('aria-label', IexaI18n.t('sub.list'));
     const detail = node('section', 'subagent-detail'); detail.hidden = true;
     const title = node('h3', 'subagent-detail-title'), meta = node('p', 'subagent-meta'), history = node('div', 'subagent-history');
     title.id = `${viewId}-title`;
     const head = node('header', 'subagent-dialog-header'), identity = node('div', 'subagent-identity');
-    const dismissButton = node('button', 'subagent-dismiss', '×'); dismissButton.type = 'button'; dismissButton.setAttribute('aria-label', '关闭代理详情');
+    const dismissButton = node('button', 'subagent-dismiss', '×'); dismissButton.type = 'button'; dismissButton.setAttribute('aria-label', IexaI18n.t('sub.closeDetail'));
     identity.append(title, meta); head.append(identity, dismissButton);
-    const info = node('details', 'subagent-info'), infoText = node('p'); info.append(node('summary', '', '任务信息'), infoText);
-    const continueButton = node('button', 'subagent-continue', '继续任务'); continueButton.type = 'button';
-    const actions = node('div', 'subagent-actions'), close = node('button', 'subagent-close-agent', '关闭代理'), resume = node('button', 'subagent-resume-agent', '恢复代理'); close.type = resume.type = 'button';
-    const form = node('form', 'subagent-input'), input = node('textarea'); input.rows = 2; input.maxLength = 64000; input.placeholder = '给这个子代理补充任务…'; input.setAttribute('aria-label', '子代理补充任务');
-    const interruptLabel = node('label', 'subagent-interrupt'), interrupt = node('input'); interrupt.type = 'checkbox'; interruptLabel.append(interrupt, document.createTextNode('中断当前任务'));
-    const send = node('button', '', '发送'); send.type = 'submit';
+    const info = node('details', 'subagent-info'), infoText = node('p'); info.append(node('summary', '', IexaI18n.t('sub.taskInfo')), infoText);
+    const continueButton = node('button', 'subagent-continue', IexaI18n.t('sub.continue')); continueButton.type = 'button';
+    const actions = node('div', 'subagent-actions'), close = node('button', 'subagent-close-agent', IexaI18n.t('sub.closeAgent')), resume = node('button', 'subagent-resume-agent', IexaI18n.t('sub.resumeAgent')); close.type = resume.type = 'button';
+    const form = node('form', 'subagent-input'), input = node('textarea'); input.rows = 2; input.maxLength = 64000; input.placeholder = IexaI18n.t('sub.followUpPlaceholder'); input.setAttribute('aria-label', IexaI18n.t('sub.followUpAria'));
+    const interruptLabel = node('label', 'subagent-interrupt'), interrupt = node('input'); interrupt.type = 'checkbox'; interruptLabel.append(interrupt, document.createTextNode(IexaI18n.t('sub.interrupt')));
+    const send = node('button', '', IexaI18n.t('sub.send')); send.type = 'submit';
     const feedback = node('p', 'subagent-feedback'); feedback.setAttribute('role', 'status');
     actions.append(continueButton, close, resume); form.append(input, interruptLabel, send); detail.append(history, info, actions, form); body.append(head, list, detail, feedback); host.append(toggle); document.body.append(body);
     const url = (suffix = '') => `${options.base || ''}/api/subagents${suffix}?sessionId=${encodeURIComponent(sessionId)}`;
-    async function request(path, init) { const response = await options.fetch(path, init); const data = await response.json(); if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`); return data; }
+    async function request(path, init) { const response = await options.fetch(path, init); const data = await response.json(); if (!response.ok) throw new Error(data.error || IexaI18n.t('sub.requestFailed', { status: response.status })); return data; }
     function render() {
       const running = [...records.values()].filter(r => active.has(r.status)).length;
       host.hidden = running === 0;
-      count.textContent = `${running} 个进行中`; toggle.dataset.active = String(running > 0);
+      count.textContent = IexaI18n.t('sub.runningCount', { count: running }); toggle.dataset.active = String(running > 0);
       for (const record of records.values()) {
         let row = rows.get(record.id);
         if (!row) {
@@ -52,8 +52,8 @@
       list.hidden = records.size < 2;
       const record = records.get(selected); detail.hidden = !record;
       if (record) {
-        title.textContent = record.nickname; meta.textContent = `${labels[record.status] || record.status} · ${record.model}${record.pendingCount ? ` · ${record.pendingCount} 条待处理` : ''}`;
-        infoText.textContent = `${record.prompt || ''}\n共享项目目录（非 worktree）${record.workspaceDir ? '\n' + record.workspaceDir : ''}`;
+        title.textContent = record.nickname; meta.textContent = `${labels[record.status] || record.status} · ${record.model}${record.pendingCount ? ' · ' + IexaI18n.t('sub.pendingCount', { count: record.pendingCount }) : ''}`;
+        infoText.textContent = `${record.prompt || ''}\n${IexaI18n.t('sub.sharedDir')}${record.workspaceDir ? '\n' + record.workspaceDir : ''}`;
         close.hidden = record.status === 'closed'; resume.hidden = !['closed', 'interrupted'].includes(record.status);
         input.disabled = send.disabled = ['closed', 'interrupted', 'cancelling'].includes(record.status);
         form.hidden = input.disabled || (!composing && !active.has(record.status) && record.status !== 'idle');
@@ -78,13 +78,13 @@
     }
     function thought(text, item = {}, live = false) {
       const block = node('details', `subagent-thought thinking-block${live ? '' : ' is-complete'}`);
-      const summary = node('summary'), label = node('span', 'thinking-title', '思考');
+      const summary = node('summary'), label = node('span', 'thinking-title', IexaI18n.t('sub.thinking'));
       summary.append(label, node('span', 'thinking-chevron'));
       const content = markdown(text); content.classList.add('thinking-content');
       block.append(summary, content); window.IexaChatActivity?.prepareThinking(block);
       if (Number.isFinite(item.durationMs) && item.durationMs >= 0) {
         const elapsed = block.querySelector('.thinking-elapsed');
-        if (elapsed) elapsed.textContent = item.durationMs < 1000 ? '· 不到 1 秒' : `· 持续了 ${Math.round(item.durationMs / 1000)} 秒`;
+        if (elapsed) elapsed.textContent = item.durationMs < 1000 ? IexaI18n.t('sub.underSecond') : IexaI18n.t('sub.lasted', { seconds: Math.round(item.durationMs / 1000) });
       }
       return block;
     }
@@ -126,7 +126,7 @@
         fragment.append(article);
       });
       if (record.error) fragment.append(node('p', 'subagent-error', record.error));
-      if (!fragment.childNodes.length) fragment.append(node('p', 'subagent-empty', active.has(record.status) ? '正在等待代理输出…' : '暂无消息记录'));
+      if (!fragment.childNodes.length) fragment.append(node('p', 'subagent-empty', active.has(record.status) ? IexaI18n.t('sub.waiting') : IexaI18n.t('sub.noMessages')));
       history.replaceChildren(fragment);
       for (const child of history.querySelectorAll('[data-key]')) {
         if (expanded.has(child.dataset.key)) {

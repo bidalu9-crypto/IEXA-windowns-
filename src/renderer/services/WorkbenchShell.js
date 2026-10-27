@@ -10,7 +10,7 @@
   forward('shellFocusBtn', 'chatFocusToggle');
   function syncView() {
     const active = document.querySelector('.nav-btn.active');
-    if ($('shellViewTitle')) $('shellViewTitle').textContent = active?.querySelector('span')?.textContent || '对话';
+    if ($('shellViewTitle')) $('shellViewTitle').textContent = active?.querySelector('span')?.textContent || IexaI18n.t('wb.chat');
     document.querySelectorAll('.nav-btn').forEach((button) => {
       if (button === active) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
@@ -20,12 +20,12 @@
   }
   function syncProject() {
     const title = $('filesPanelTitle')?.textContent?.trim();
-    const open = title && title !== '项目';
-    $('shellProjectName').textContent = open ? title : '打开项目文件夹';
-    $('shellProjectCrumb').textContent = open ? title : '本地工作区';
-    $('shellProjectBtn').title = open ? `${title} · 切换项目文件夹` : '打开项目文件夹';
-    $('shellProjectBtn').setAttribute('aria-label', open ? `切换项目文件夹：${title}` : '打开项目文件夹');
-    if ($('filesPanelTitle')) $('filesPanelTitle').title = open ? title : '项目';
+    const open = title && title !== '项目'; // i18n-exempt: compares against the rendered project title
+    $('shellProjectName').textContent = open ? title : IexaI18n.t('wb.openFolder');
+    $('shellProjectCrumb').textContent = open ? title : IexaI18n.t('wb.localWorkspace');
+    $('shellProjectBtn').title = open ? IexaI18n.t('wb.switchProject', { title }) : IexaI18n.t('wb.openFolder');
+    $('shellProjectBtn').setAttribute('aria-label', open ? `${IexaI18n.t('wb.switchFolderTitle')}${title}` : IexaI18n.t('wb.openFolder'));
+    if ($('filesPanelTitle')) $('filesPanelTitle').title = open ? title : IexaI18n.t('wb.project');
   }
   const observer = new MutationObserver(syncView);
   document.querySelectorAll('.nav-btn').forEach((el) => observer.observe(el, { attributes: true, attributeFilter: ['class'] }));

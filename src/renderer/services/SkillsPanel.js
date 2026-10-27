@@ -70,26 +70,26 @@ function renderSkills() {
   const visible = skillsCache.filter(SKILL_FILTERS[filter]).sort(SKILL_SORTS[sort]);
   if (!visible.length) {
     list.innerHTML = `<div class="skill-empty">${skillsCache.length
-      ? '当前筛选下没有 Skill。'
-      : '暂无 Skill。点击右上角「+」导入或创建。'}</div>`;
+      ? IexaI18n.t('skill.noMatch')
+      : IexaI18n.t('skill.empty')}</div>`;
     return;
   }
   list.innerHTML = visible.map((s) => {
     const enabled = s.enabled !== false;
     const name = s.name || s.id;
-    const description = s.description || '（无描述）';
+    const description = s.description || IexaI18n.t('skill.noDescription');
     const updated = skillUpdatedLabel(s.updatedAt);
-    const meta = `使用 ${Number(s.useCount) || 0} 次 · v${s.version || '1.0.0'}${updated ? ` · ${updated}` : ''}`;
-    const metaTitle = `使用 ${Number(s.useCount) || 0} 次 · v${s.version || '1.0.0'}`
-      + (s.updatedAt ? ` · 更新于 ${new Date(Number(s.updatedAt)).toLocaleString()}` : '');
-    const switchLabel = `${enabled ? '停用' : '启用'} ${name}`;
+    const meta = IexaI18n.t('skill.meta', { count: Number(s.useCount) || 0, version: s.version || '1.0.0' }) + (updated ? ` · ${updated}` : '');
+    const metaTitle = IexaI18n.t('skill.meta', { count: Number(s.useCount) || 0, version: s.version || '1.0.0' })
+      + (s.updatedAt ? ' · ' + IexaI18n.t('skill.updatedAt', { date: new Date(Number(s.updatedAt)).toLocaleString() }) : '');
+    const switchLabel = `${enabled ? IexaI18n.t('skill.disable') : IexaI18n.t('skill.enable')} ${name}`;
     return `<article class="skill-card${enabled ? '' : ' is-disabled'}" data-id="${skillAttr(s.id)}">
       <div class="skill-card-head">
         <div class="skill-card-title">
           <strong class="skill-card-name" title="${skillAttr(name)}">${escapeHtml(name)}</strong>
           <span class="skill-badge">${escapeHtml(s.source || 'file')}</span>
-          ${s.systemPrompt ? '<span class="skill-badge sys">系统级</span>' : ''}
-          ${enabled ? '' : '<span class="skill-badge off">已关闭</span>'}
+          ${s.systemPrompt ? '<span class="skill-badge sys">' + IexaI18n.t('skill.system') + '</span>' : ''}
+          ${enabled ? '' : '<span class="skill-badge off">' + IexaI18n.t('skill.off') + '</span>'}
         </div>
         <button type="button" class="skill-switch" role="switch" aria-checked="${enabled}" data-act="toggle" title="${skillAttr(switchLabel)}" aria-label="${skillAttr(switchLabel)}"></button>
       </div>
@@ -97,9 +97,9 @@ function renderSkills() {
       <div class="skill-card-foot">
         <span class="skill-card-meta" title="${skillAttr(metaTitle)}">${escapeHtml(meta)}</span>
         <div class="skill-card-actions">
-          <button type="button" class="skill-icon-btn${s.systemPrompt ? ' is-on' : ''}" data-act="sysprompt" aria-pressed="${!!s.systemPrompt}" title="${s.systemPrompt ? '取消系统级' : '设为系统级'}" aria-label="${s.systemPrompt ? '取消系统级' : '设为系统级'}">${uiIcon('pin')}</button>
-          <button type="button" class="skill-icon-btn" data-act="view" title="查看 / 编辑" aria-label="查看 / 编辑">${uiIcon('edit')}</button>
-          <button type="button" class="skill-icon-btn skill-del" data-act="delete" title="删除" aria-label="删除">${uiIcon('trash')}</button>
+          <button type="button" class="skill-icon-btn${s.systemPrompt ? ' is-on' : ''}" data-act="sysprompt" aria-pressed="${!!s.systemPrompt}" title="${s.systemPrompt ? IexaI18n.t('skill.unmarkSystem') : IexaI18n.t('skill.markSystem')}" aria-label="${s.systemPrompt ? IexaI18n.t('skill.unmarkSystem') : IexaI18n.t('skill.markSystem')}">${uiIcon('pin')}</button>
+          <button type="button" class="skill-icon-btn" data-act="view" title="${IexaI18n.t('skill.viewEdit')}" aria-label="${IexaI18n.t('skill.viewEdit')}">${uiIcon('edit')}</button>
+          <button type="button" class="skill-icon-btn skill-del" data-act="delete" title="${IexaI18n.t('skill.delete')}" aria-label="${IexaI18n.t('skill.delete')}">${uiIcon('trash')}</button>
         </div>
       </div>
     </article>`;
@@ -129,7 +129,7 @@ async function onSkillListClick(event) {
   else if (act === 'sysprompt') await setSkillFlag(id, { systemPrompt: !(skill && skill.systemPrompt) });
   else if (act === 'view') openSkillViewer(id);
   else if (act === 'delete') {
-    if (!(await window.IexaDialogs.confirm('确定删除该 Skill？'))) return;
+    if (!(await window.IexaDialogs.confirm(IexaI18n.t('skill.deleteConfirm')))) return;
     await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`, { method: 'DELETE' });
     await loadSkillsList();
   }
@@ -144,7 +144,7 @@ async function loadSkillsList() {
     skillsCache = Array.isArray(data.skills) ? data.skills : [];
     renderSkills();
   } catch (err) {
-    list.innerHTML = `<div class="skill-empty">加载失败：${escapeHtml(err.message || String(err))}</div>`;
+    list.innerHTML = `<div class="skill-empty">${IexaI18n.t('skill.loadFailed', { error: escapeHtml(err.message || String(err)) })}</div>`;
   }
 }
 
@@ -152,16 +152,16 @@ async function openSkillViewer(id) {
   try {
     const resp = await fetch(`${API_BASE}/api/skills/${encodeURIComponent(id)}`);
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '读取失败');
+    if (!resp.ok) throw new Error(data.error || IexaI18n.t('skill.readFailed'));
     const overlay = document.getElementById('skillEditorOverlay');
     const title = document.getElementById('skillEditorTitle');
     const content = document.getElementById('skillEditorContent');
     const saveBtn = document.getElementById('skillEditorSave');
     if (!overlay || !content) return;
-    title.textContent = '编辑 · ' + (data.skill?.name || id);
+    title.textContent = IexaI18n.t('skill.editingPrefix') + (data.skill?.name || id);
     content.value = data.content || '';
     content.dataset.editId = id;
-    saveBtn.textContent = '保存修改';
+    saveBtn.textContent = IexaI18n.t('skill.saveChanges');
     overlay.style.display = 'flex';
   } catch (err) {
     addError(err.message || String(err));
@@ -174,11 +174,11 @@ function openSkillImporter() {
   const content = document.getElementById('skillEditorContent');
   const saveBtn = document.getElementById('skillEditorSave');
   if (!overlay || !content) return;
-  title.textContent = '粘贴导入 Skill';
+  title.textContent = IexaI18n.t('skill.pasteImport');
   content.value = '';
   delete content.dataset.editId;
   delete content.dataset.importSource;
-  saveBtn.textContent = '保存';
+  saveBtn.textContent = IexaI18n.t('skill.save');
   overlay.style.display = 'flex';
   content.focus();
 }
@@ -195,7 +195,7 @@ async function importSkillContent(text, source) {
     body: JSON.stringify({ content: text, source: source || 'file' }),
   });
   const data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || '导入失败');
+  if (!resp.ok) throw new Error(data.error || IexaI18n.t('skill.importFailed'));
   return data.skill;
 }
 
@@ -204,7 +204,7 @@ async function saveSkillEditor() {
   if (!contentEl) return;
   const text = contentEl.value.trim();
   if (!text) {
-    addError('请填写或粘贴 SKILL.md 内容');
+    addError(IexaI18n.t('skill.needContent'));
     return;
   }
   try {
@@ -216,7 +216,7 @@ async function saveSkillEditor() {
         body: JSON.stringify({ content: text }),
       });
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || '保存失败');
+      if (!resp.ok) throw new Error(data.error || IexaI18n.t('skill.saveFailed'));
     } else {
       await importSkillContent(text, contentEl.dataset.importSource || 'paste');
     }
@@ -234,7 +234,7 @@ async function importSkillFromPicked(picked) {
     return;
   }
   if (!picked.content) {
-    addError('未能读取 SKILL.md');
+    addError(IexaI18n.t('skill.readSkillFailed'));
     return;
   }
   await importSkillContent(picked.content, 'file');
@@ -265,14 +265,14 @@ async function openSkillsDirectory() {
     const resp = await fetch(`${API_BASE}/api/skills`);
     const data = await resp.json();
     const dir = data.skillsDir;
-    if (!dir) throw new Error('无法获取 Skills 目录路径');
+    if (!dir) throw new Error(IexaI18n.t('skill.noDir'));
 
     if (window.iexaDesktop && typeof window.iexaDesktop.openPath === 'function') {
       const result = await window.iexaDesktop.openPath(dir);
       if (result && result.error) throw new Error(result.error);
     } else {
       // Browser fallback: show path
-      (await window.IexaDialogs.prompt('Skills 目录路径（请手动在资源管理器中打开）：', dir));
+      (await window.IexaDialogs.prompt(IexaI18n.t('skill.dirPath'), dir));
     }
     // Rescan after user may have edited files on disk
     setTimeout(() => loadSkillsList(), 800);
@@ -289,14 +289,14 @@ function onSkillFileInputChange(e) {
   reader.onload = async () => {
     try {
       const text = String(reader.result || '');
-      if (!text.trim()) throw new Error('文件为空');
+      if (!text.trim()) throw new Error(IexaI18n.t('skill.fileEmpty'));
       await importSkillContent(text, 'file');
       loadSkillsList();
     } catch (err) {
       addError(err.message || String(err));
     }
   };
-  reader.onerror = () => addError('读取文件失败');
+  reader.onerror = () => addError(IexaI18n.t('skill.fileReadFailed'));
   reader.readAsText(file);
 }
 

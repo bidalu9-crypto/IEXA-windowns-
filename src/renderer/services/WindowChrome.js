@@ -10,7 +10,7 @@
   function sync(state) {
     if (!state?.custom) return;
     document.documentElement.dataset.windowExpanded = String(!!(state.maximized || state.fullscreen));
-    const label = state.fullscreen ? '退出全屏' : state.maximized ? '还原窗口' : '最大化';
+    const label = state.fullscreen ? IexaI18n.t('chrome.exitFullscreen') : state.maximized ? IexaI18n.t('chrome.restore') : IexaI18n.t('chrome.maximise');
     maximize.title = label; maximize.setAttribute('aria-label', label);
   }
   sync(bridge.initialWindowState);

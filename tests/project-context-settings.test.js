@@ -93,7 +93,7 @@ test('real server chat uses saved scope; next turn refreshes cached agent and ca
 });
 test('actual settings UI persists explicit scope, keeps failed drafts and renders preview as text', async t => {
   const dom = new JSDOM(fs.readFileSync('src/renderer/index.html', 'utf8'), { runScripts: 'outside-only' });
-  t.after(() => dom.window.close()); const w = dom.window;
+  t.after(() => dom.window.close()); const w = dom.window;require('./helpers/install-i18n')(w);
   w.eval(fs.readFileSync('src/renderer/services/PromptSettings.js', 'utf8'));
   let sent;
   w.fetch = async (_url, options) => { if (options?.body) sent = JSON.parse(options.body); return { ok: true, json: async () => ({ projectRoot: a, scope }) }; };

@@ -11,7 +11,7 @@
     const label = make('div', 'plugin-result-identity');
     label.append(make('small', '', String(presentation.pluginName || presentation.pluginId).slice(0, 80)), make('strong', '', card.title.slice(0, 160))); head.append(label);
     if (options.openPanel !== false) {
-      const open = make('button', 'tool-toggle-params', '打开拓展'); open.type = 'button';
+      const open = make('button', 'tool-toggle-params', IexaI18n.t('pluginCard.open')); open.type = 'button';
       open.addEventListener('click', () => window.dispatchEvent(new CustomEvent('iexa:open-plugin', { detail: { id: presentation.pluginId } })));
       head.append(open);
     }

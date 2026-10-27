@@ -34,8 +34,8 @@ function pluginToolEditor(plugin, tool) {
   const disabled = !plugin.enabled || plugin.error;
   return `<button type="button" class="plugin-tool-row" data-plugin-tool-open="${escapeHtml(tool.name)}" ${disabled ? 'disabled' : ''}>
     <span class="plugin-tool-mark">${uiIcon('terminal')}</span>
-    <span class="plugin-tool-text"><b>${escapeHtml(tool.name)}</b><small>${escapeHtml(tool.description || '没有描述')}</small></span>
-    <span class="plugin-tool-schema" title="${required ? required + ' 个必填参数' : '全部参数可选'}">${params ? params + ' 参数' : '无参数'}</span>
+    <span class="plugin-tool-text"><b>${escapeHtml(tool.name)}</b><small>${escapeHtml(tool.description || IexaI18n.t('plugin.noDescription'))}</small></span>
+    <span class="plugin-tool-schema" title="${required ? IexaI18n.t('plugin.requiredParams', { count: required }) : IexaI18n.t('plugin.allOptional')}">${params ? IexaI18n.t('plugin.paramCount', { count: params }) : IexaI18n.t('plugin.noParams')}</span>
     <span class="plugin-tool-arrow">${uiIcon('chevron-right')}</span>
   </button>`;
 }
@@ -43,16 +43,16 @@ function pluginToolEditor(plugin, tool) {
 function pluginPanelChips(plugin) {
   const panels = Array.isArray(plugin.contributions?.panels) && plugin.contributions.panels.length
     ? plugin.contributions.panels
-    : [{ id: 'main', title: '主面板' }];
-  return panels.slice(0, 6).map((panel) => `<span class="plugin-panel-chip">${uiIcon('panel-left')}${escapeHtml(panel.title || panel.id || '面板')}</span>`).join('');
+    : [{ id: 'main', title: IexaI18n.t('plugin.mainPanel') }];
+  return panels.slice(0, 6).map((panel) => `<span class="plugin-panel-chip">${uiIcon('panel-left')}${escapeHtml(panel.title || panel.id || IexaI18n.t('plugin.panelFallback'))}</span>`).join('');
 }
 
 function pluginEmptyState(message) {
   return `<div class="plugin-empty">
     <span class="plugin-empty-icon">${uiIcon('puzzle')}</span>
-    <strong>${escapeHtml(message || '还没有安装拓展')}</strong>
-    <span>插件可以提供工具、可视化面板，并把结果渲染成聊天卡片。</span>
-    <button type="button" class="btn-secondary btn-sm" data-plugin-install>${uiIcon('upload')}<span>添加插件</span></button>
+    <strong>${escapeHtml(message || IexaI18n.t('plugin.empty'))}</strong>
+    <span>${IexaI18n.t('plugin.emptyHint')}</span>
+    <button type="button" class="btn-secondary btn-sm" data-plugin-install>${uiIcon('upload')}<span>${IexaI18n.t('plugin.add')}</span></button>
   </div>`;
 }
 
@@ -83,15 +83,15 @@ function renderPlugins(plugins) {
   list.innerHTML = plugins.map((plugin) => {
     const tools = plugin.tools || [];
     const compat = plugin.error
-      ? '<span class="plugin-compat is-broken" title="插件清单无法读取">清单异常</span>'
-      : `<span class="plugin-compat" title="插件清单 API 版本">清单 ${plugin.apiVersion === 2 ? 'v2' : 'v1'}</span>`;
+      ? '<span class="plugin-compat is-broken" title="' + IexaI18n.t('plugin.manifestUnreadable') + '">' + IexaI18n.t('plugin.manifestBroken') + '</span>'
+      : `<span class="plugin-compat" title="${IexaI18n.t('plugin.manifestApi')}">${IexaI18n.t('plugin.manifest')} ${plugin.apiVersion === 2 ? 'v2' : 'v1'}</span>`;
     const version = plugin.version && plugin.version !== 'unknown' ? `<span class="plugin-version">v${escapeHtml(plugin.version)}</span>` : '';
     const slug = [plugin.name === plugin.id ? '' : plugin.id, plugin.author || ''].filter(Boolean).join(' · ');
-    const description = plugin.error && !plugin.description ? '' : `<p class="plugin-description">${escapeHtml(plugin.description || '没有插件描述。')}</p>`;
+    const description = plugin.error && !plugin.description ? '' : `<p class="plugin-description">${escapeHtml(plugin.description || IexaI18n.t('plugin.noDescriptionLong'))}</p>`;
     const capabilities = plugin.error ? '' : `<div class="plugin-capabilities">
-        <span class="plugin-cap">${uiIcon('bolt')}${tools.length} 个工具</span>
-        <span class="plugin-cap">${uiIcon('panel-left')}${plugin.hasUI ? (plugin.contributions?.panels?.length || 1) + ' 个面板' : '无面板'}</span>
-        <span class="plugin-cap is-quiet">${uiIcon('box')}独立数据目录</span>
+        <span class="plugin-cap">${uiIcon('bolt')}${IexaI18n.t('plugin.toolCount', { count: tools.length })}</span>
+        <span class="plugin-cap">${uiIcon('panel-left')}${plugin.hasUI ? IexaI18n.t('plugin.panelCount', { count: plugin.contributions?.panels?.length || 1 }) : IexaI18n.t('plugin.noPanels')}</span>
+        <span class="plugin-cap is-quiet">${uiIcon('box')}${IexaI18n.t('plugin.dataDir')}</span>
       </div>`;
     return `<article class="plugin-card ${plugin.enabled ? 'is-enabled' : ''} ${plugin.error ? 'has-error' : ''}" data-plugin-id="${escapeHtml(plugin.id)}">
       <header class="plugin-card-head">
@@ -104,21 +104,21 @@ function renderPlugins(plugins) {
           </span>
           ${slug ? `<small class="plugin-slug">${escapeHtml(slug)}</small>` : ''}
         </span>
-        <label class="plugin-toggle" title="${plugin.enabled ? '停用插件' : '启用插件'}"><input type="checkbox" data-plugin-enable ${plugin.enabled ? 'checked' : ''} ${plugin.error ? 'disabled' : ''} aria-label="${escapeHtml(plugin.enabled ? '停用 ' : '启用 ') + escapeHtml(plugin.name)}"><span></span></label>
+        <label class="plugin-toggle" title="${plugin.enabled ? IexaI18n.t('plugin.disable') : IexaI18n.t('plugin.enable')}"><input type="checkbox" data-plugin-enable ${plugin.enabled ? 'checked' : ''} ${plugin.error ? 'disabled' : ''} aria-label="${escapeHtml(plugin.enabled ? IexaI18n.t('plugin.disableName') : IexaI18n.t('plugin.enableName')) + escapeHtml(plugin.name)}"><span></span></label>
       </header>
       ${description}
       ${capabilities}
       ${plugin.error ? `<div class="plugin-error">${uiIcon('alert')}<span>${escapeHtml(plugin.error)}</span></div>` : ''}
       ${tools.length ? `<div class="plugin-tool-list">${tools.map((tool) => pluginToolEditor(plugin, tool)).join('')}</div>` : ''}
       ${plugin.hasUI ? `<div class="plugin-visual">
-        <div class="plugin-visual-text"><span class="plugin-visual-label">可视化面板</span><div class="plugin-panel-chips">${pluginPanelChips(plugin)}</div></div>
-        <button type="button" class="plugin-open-btn" data-plugin-open ${!plugin.enabled || plugin.error ? 'disabled' : ''}>${uiIcon('external')}<span>打开工作台</span></button>
+        <div class="plugin-visual-text"><span class="plugin-visual-label">${IexaI18n.t('plugin.visualPanels')}</span><div class="plugin-panel-chips">${pluginPanelChips(plugin)}</div></div>
+        <button type="button" class="plugin-open-btn" data-plugin-open ${!plugin.enabled || plugin.error ? 'disabled' : ''}>${uiIcon('external')}<span>${IexaI18n.t('plugin.openWorkbench')}</span></button>
       </div>` : ''}
       <footer class="plugin-card-foot">
-        <span class="plugin-foot-note">${plugin.error ? '清单无法读取，插件未加载。' : plugin.enabled ? '工具已对后续 AI 会话生效。' : '启用后工具才会出现在 AI 工具列表。'}</span>
+        <span class="plugin-foot-note">${plugin.error ? IexaI18n.t('plugin.manifestUnloaded') : plugin.enabled ? IexaI18n.t('plugin.toolsLive') : IexaI18n.t('plugin.toolsIdle')}</span>
         <div class="plugin-foot-actions">
-          <button type="button" class="plugin-quiet" data-plugin-action="reload" title="重新读取清单与代码">${uiIcon('refresh')}<span>重载</span></button>
-          <button type="button" class="plugin-quiet is-danger" data-plugin-action="remove" title="卸载插件，保留数据目录">${uiIcon('trash')}<span>卸载</span></button>
+          <button type="button" class="plugin-quiet" data-plugin-action="reload" title="${IexaI18n.t('plugin.reloadTitle')}">${uiIcon('refresh')}<span>${IexaI18n.t('plugin.reload')}</span></button>
+          <button type="button" class="plugin-quiet is-danger" data-plugin-action="remove" title="${IexaI18n.t('plugin.uninstallTitle')}">${uiIcon('trash')}<span>${IexaI18n.t('plugin.uninstall')}</span></button>
         </div>
       </footer>
     </article>`;
@@ -149,11 +149,11 @@ async function loadPlugins() {
   try {
     const response = await fetch(`${API_BASE}/api/plugins`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取插件失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('plugin.loadFailed'));
     pluginState = { plugins: data.plugins || [], pluginsDir: data.pluginsDir || '' };
     renderPlugins(pluginState.plugins);
   } catch (error) {
-    if (list) list.innerHTML = `<div class="plugin-empty is-error"><span class="plugin-empty-icon">${uiIcon('alert')}</span><strong>读取失败</strong><span>${escapeHtml(error.message || String(error))}</span><button type="button" class="btn-secondary btn-sm" data-plugin-retry>${uiIcon('refresh')}<span>重试</span></button></div>`;
+    if (list) list.innerHTML = `<div class="plugin-empty is-error"><span class="plugin-empty-icon">${uiIcon('alert')}</span><strong>${IexaI18n.t('plugin.readFailed')}</strong><span>${escapeHtml(error.message || String(error))}</span><button type="button" class="btn-secondary btn-sm" data-plugin-retry>${uiIcon('refresh')}<span>${IexaI18n.t('plugin.retry')}</span></button></div>`;
   }
 }
 
@@ -161,15 +161,15 @@ async function installPlugin() {
   try {
     let source = null;
     if (window.iexaDesktop?.pickPluginFolder) source = await window.iexaDesktop.pickPluginFolder();
-    else source = (await window.IexaDialogs.prompt('输入包含 iexa-plugin.json 的插件文件夹绝对路径：', ''));
+    else source = (await window.IexaDialogs.prompt(IexaI18n.t('plugin.askPath'), ''));
     if (!source) return;
-    setPluginOutput('正在校验并安装插件…');
+    setPluginOutput(IexaI18n.t('plugin.installing'));
     const response = await fetch(`${API_BASE}/api/plugins/install`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: source }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '插件安装失败');
-    setPluginOutput(`已安装 ${data.plugin.name} v${data.plugin.version}，${data.plugin.tools.length} 个工具已对后续 AI 会话生效。`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('plugin.installFailed'));
+    setPluginOutput(IexaI18n.t('plugin.installed', { name: data.plugin.name, version: data.plugin.version, count: data.plugin.tools.length }));
     await loadPlugins();
-  } catch (error) { setPluginOutput('插件安装失败：' + (error.message || error)); }
+  } catch (error) { setPluginOutput(IexaI18n.t('plugin.installFailedDetail') + (error.message || error)); }
 }
 
 async function setPluginEnabled(id, enabled) {
@@ -178,36 +178,36 @@ async function setPluginEnabled(id, enabled) {
   try {
     const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}/enable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '插件状态更新失败');
-    setPluginOutput(`${data.plugin.name} 已${enabled ? '启用' : '停用'}。${enabled ? '插件工具将在后续 AI 请求中可用。' : ''}`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('plugin.stateFailed'));
+    setPluginOutput(IexaI18n.t(enabled ? 'plugin.enabledNotice' : 'plugin.disabledNotice', { name: data.plugin.name }));
     await loadPlugins();
-  } catch (error) { setPluginOutput('插件状态更新失败：' + (error.message || error)); await loadPlugins(); }
+  } catch (error) { setPluginOutput(IexaI18n.t('plugin.stateFailedDetail') + (error.message || error)); await loadPlugins(); }
 }
 
 async function runPluginAction(id, action) {
   pluginWorkspaceHost?.invalidated(id);
-  if (action === 'remove' && !(await window.IexaDialogs.confirm('确定卸载这个插件吗？插件数据目录将保留。'))) return;
+  if (action === 'remove' && !(await window.IexaDialogs.confirm(IexaI18n.t('plugin.uninstallConfirm')))) return;
   if (action === 'reload') pluginFocusAfterRender = { id, selector: '[data-plugin-action="reload"]' };
   try {
     const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}${action === 'remove' ? '' : `/${action}`}`, { method: action === 'remove' ? 'DELETE' : 'POST' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '插件操作失败');
-    setPluginOutput(action === 'remove' ? '插件已卸载。' : `${data.plugin.name} 已重新读取清单与代码。`);
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('plugin.actionFailed'));
+    setPluginOutput(action === 'remove' ? IexaI18n.t('plugin.removed') : IexaI18n.t('plugin.reloaded', { name: data.plugin.name }));
     await loadPlugins();
-  } catch (error) { setPluginOutput('插件操作失败：' + (error.message || error)); }
+  } catch (error) { setPluginOutput(IexaI18n.t('plugin.actionFailedDetail') + (error.message || error)); }
 }
 
 async function invokePluginTool(id, tool, json) {
   let args;
   try { args = json.trim() ? JSON.parse(json) : {}; if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error(); }
-  catch { setPluginOutput('工具参数必须是 JSON 对象。'); return; }
+  catch { setPluginOutput(IexaI18n.t('plugin.argsJson')); return; }
   try {
-    setPluginOutput(`正在运行 ${tool}…`);
+    setPluginOutput(IexaI18n.t('plugin.running', { tool }));
     const response = await fetch(`${API_BASE}/api/plugins/${encodeURIComponent(id)}/invoke`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool, arguments: args }) });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '插件工具执行失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('plugin.toolFailed'));
     setPluginOutput(data.result);
-  } catch (error) { setPluginOutput('插件工具执行失败：' + (error.message || error)); }
+  } catch (error) { setPluginOutput(IexaI18n.t('plugin.toolFailedDetail') + (error.message || error)); }
 }
 
 function initPluginPanel() {
@@ -215,7 +215,7 @@ function initPluginPanel() {
   document.getElementById('pluginOpenDirBtn')?.addEventListener('click', async () => {
     if (!pluginState.pluginsDir) await loadPlugins();
     if (pluginState.pluginsDir && window.iexaDesktop?.openPath) await window.iexaDesktop.openPath(pluginState.pluginsDir);
-    else setPluginOutput(pluginState.pluginsDir || '插件目录尚未就绪。');
+    else setPluginOutput(pluginState.pluginsDir || IexaI18n.t('plugin.dirNotReady'));
   });
   // The list is repainted after every mutation, so the empty state and the retry
   // affordance are handled by delegation rather than per-render listeners.

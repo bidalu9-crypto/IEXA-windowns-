@@ -6,7 +6,7 @@ async function login(event) {
   if (event) event.preventDefault();
   try {
     const response = await fetch('/api/auth/bootstrap', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token:code.value.trim()}) });
-    const data = await response.json(); if (!response.ok) throw new Error(data.error || '登录失败');
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || IexaI18n.t('auth.loginFailed'));
     code.value = ''; location.replace('/');
   } catch (error) { document.getElementById('status').textContent = error.message; }
 }
