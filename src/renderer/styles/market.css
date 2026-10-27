@@ -1,0 +1,71 @@
+/* Plugin market panel */
+
+.plugin-market {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.plugin-market-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plugin-market-head h3 {
+  margin: 0;
+  font-size: calc(14px * var(--ui-font-scale, 1));
+  font-weight: 620;
+}
+
+.plugin-market-body { margin-top: 10px; }
+.plugin-market-body[hidden] { display: none; }
+
+.plugin-market-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plugin-market-bar input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: calc(12.5px * var(--ui-font-scale, 1));
+}
+
+.plugin-market-hint {
+  margin: 8px 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--ui-font-scale, 1));
+}
+
+.plugin-market-hint[data-error="true"] { color: var(--error); }
+
+.plugin-market-list {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.market-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+.market-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.market-card-head strong { font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 600; }
+.market-version { color: var(--text-muted); font-size: calc(11px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.market-meta { margin: 0; color: var(--text-muted); font-size: calc(11.5px * var(--ui-font-scale, 1)); }
+.market-desc { margin: 0 0 6px; color: var(--text-secondary, var(--text-primary)); font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.45; }
+.market-card .btn-sm { align-self: flex-start; }

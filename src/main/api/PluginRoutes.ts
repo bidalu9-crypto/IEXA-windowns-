@@ -12,10 +12,12 @@ import * as http from 'http';
 import { URL } from 'url';
 import { jsonReply, readBody, HttpError } from './HttpServer';
 import { PluginManager } from '../plugins/PluginManager';
+import { PluginMarket } from '../plugins/PluginMarket';
 import { MIME_TYPES } from './FileRoutes';
 
 export interface PluginRouteContext {
   plugins: PluginManager;
+  market: PluginMarket;
   skillsChanged: () => void;
 }
 
@@ -35,6 +37,27 @@ if (url.pathname === '/api/plugins/install' && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req) || '{}') as { path?: string };
         const plugin = ctx.plugins.install(String(body.path || ''));
+        ctx.skillsChanged();
+        jsonReply(res, 201, { plugin });
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
+      return true;
+    }
+
+if (url.pathname === '/api/plugins/market/search' && req.method === 'GET') {
+      try {
+        const result = await ctx.market.search(
+          url.searchParams.get('url') || '',
+          url.searchParams.get('q') || '',
+        );
+        jsonReply(res, 200, result);
+      } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }
+      return true;
+    }
+
+if (url.pathname === '/api/plugins/market/install' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req) || '{}') as { url?: string; id?: string };
+        const plugin = await ctx.market.install(String(body.url || ''), String(body.id || ''), ctx.plugins);
         ctx.skillsChanged();
         jsonReply(res, 201, { plugin });
       } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); }

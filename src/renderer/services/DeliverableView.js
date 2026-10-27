@@ -68,26 +68,37 @@ function renderToolArtifacts(host, artifacts) {
       media.innerHTML = `<audio controls preload="metadata" src="${escapeHtml(src)}" aria-label="${escapeHtml(rel)}"></audio><span class="tool-artifact-caption"><span class="tool-artifact-name">${escapeHtml(rel)}</span><span class="tool-artifact-actions"><a class="tool-artifact-action" href="${escapeHtml(src)}" download title="${IexaI18n.t('deliverable.saveAudio')}" aria-label="${IexaI18n.t('deliverable.saveAudio')}" data-ui-action="stop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 20h14"/></svg></a></span></span>`;
       card.appendChild(media);
     } else {
-      const link = document.createElement('a');
-      link.className = 'tool-artifact-file';
-      link.dataset.artifactKey = src;
-      link.href = src;
-      link.textContent = rel;
       const htmlTarget = (isHtmlFilePath(rel) || String(artifact.mimeType || '').toLowerCase() === 'text/html')
         ? resolveHtmlPreviewTarget(artifact.path)
         : null;
       if (htmlTarget) {
-        link.classList.add('is-html-preview');
+        const link = document.createElement('a');
+        link.className = 'tool-artifact-file is-html-preview';
+        link.dataset.artifactKey = src;
+        link.href = src;
+        link.textContent = rel;
         link.title = IexaI18n.t('deliverable.previewHtml');
         link.addEventListener('click', (event) => {
           event.preventDefault();
           openHtmlPreview(htmlTarget);
         });
+        card.appendChild(link);
+      } else if (window.IexaFileActions) {
+        card.appendChild(window.IexaFileActions.create({
+          name: rel.split('/').pop() || rel,
+          absolutePath: artifact.absolutePath || artifact.path,
+          href: src,
+        }));
       } else {
+        const link = document.createElement('a');
+        link.className = 'tool-artifact-file';
+        link.dataset.artifactKey = src;
+        link.href = src;
+        link.textContent = rel;
         link.target = '_blank';
         link.rel = 'noreferrer';
+        card.appendChild(link);
       }
-      card.appendChild(link);
     }
   }
   if (card.children.length && card !== host && card.parentElement !== host) host.appendChild(card);

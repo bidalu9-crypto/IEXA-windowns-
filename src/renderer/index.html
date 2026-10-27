@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="styles/dock.css">
 <link rel="stylesheet" href="styles/trajectory.css">
 <link rel="stylesheet" href="styles/toolcard.css">
+<link rel="stylesheet" href="styles/market.css">
 <link rel="stylesheet" href="styles/settings.css">
 <link rel="stylesheet" href="styles/skills.css">
 <link rel="stylesheet" href="styles/refinements.css">
@@ -611,6 +612,21 @@
           <span class="plugin-sandbox-note"><svg class="ui-icon"><use href="#ui-code"/></svg><span data-i18n="ui.69">子进程隔离 · iframe 沙箱</span></span>
         </div>
         <div class="plugin-list" id="pluginList"></div>
+        <section class="plugin-market" id="pluginMarketSection">
+          <header class="plugin-market-head">
+            <h3>插件市场</h3>
+            <button type="button" class="btn-secondary btn-sm" id="pluginMarketToggle" aria-expanded="false">展开</button>
+          </header>
+          <div class="plugin-market-body" id="pluginMarketBody" hidden>
+            <div class="plugin-market-bar">
+              <input type="url" id="pluginMarketIndex" placeholder="索引地址（index.json）" spellcheck="false" autocomplete="off">
+              <input type="search" id="pluginMarketQuery" placeholder="搜索插件" spellcheck="false">
+              <button type="button" class="btn-secondary btn-sm" id="pluginMarketSearchBtn">搜索</button>
+            </div>
+            <p class="plugin-market-hint" id="pluginMarketHint"></p>
+            <div class="plugin-market-list" id="pluginMarketList"></div>
+          </div>
+        </section>
         <section class="plugin-console" id="pluginConsole" aria-label="运行输出" data-i18n-aria="tip.runOutput" hidden>
           <header class="plugin-console-head"><span data-i18n="ui.70">运行输出</span><button type="button" class="plugin-console-clear" id="pluginConsoleClear" data-i18n="ui.71">清空</button></header>
           <pre class="plugin-output" id="pluginOutput" aria-live="polite"></pre>
@@ -1538,6 +1554,7 @@ version: 1.0.0
 <script src="services/ModelProfiles.js"></script>
 <script src="services/BalanceView.js"></script>
 <script src="services/ComposerHint.js"></script>
+<script src="services/FileActions.js"></script>
 <script src="services/TrajectoryView.js"></script>
 <script src="services/ComposerDock.js"></script>
 <script src="services/PlanDock.js"></script>
@@ -1545,6 +1562,7 @@ version: 1.0.0
 <script src="services/TerminalPanel.js"></script>
 <script src="services/McpPanel.js"></script>
 <script src="services/PluginPanel.js"></script>
+<script src="services/PluginMarket.js"></script>
 <script src="services/FilesPanel.js"></script>
 <script src="services/HeroWorkspace.js"></script>
 <script src="services/SkillsPanel.js"></script>

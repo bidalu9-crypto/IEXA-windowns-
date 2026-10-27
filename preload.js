@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('iexaDesktop', {
   pickPluginFolder: () => ipcRenderer.invoke('iexa:pick-plugin-folder'),
   pickSkillFile: () => ipcRenderer.invoke('iexa:pick-skill-file'),
   openPath: (p) => ipcRenderer.invoke('iexa:open-path', p),
+  openFile: (p) => ipcRenderer.invoke('iexa:open-file', p),
+  runFile: (p) => ipcRenderer.invoke('iexa:run-file', p),
   openExternal: (url) => ipcRenderer.invoke('iexa:open-external', url),
   revealPath: (p) => ipcRenderer.invoke('iexa:reveal-path', p),
   openDesktopLiveWindow: () => ipcRenderer.invoke('iexa:desktop-live-open'),

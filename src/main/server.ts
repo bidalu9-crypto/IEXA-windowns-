@@ -86,6 +86,7 @@ import { VisionFallback } from './vision/VisionFallback';
 import { loadHookSpecs } from './runtime/HookRunner';
 import { imageDimensions } from './vision/ImageMetadata';
 import { PluginManager } from './plugins/PluginManager';
+import { PluginMarket } from './plugins/PluginMarket';
 import { MobileBridgeDevice, MobileBridgeManager } from './mobile/MobileBridgeManager';
 import * as QRCode from 'qrcode';
 import { StreamBatcher } from './api/StreamBatcher';
@@ -1664,7 +1665,7 @@ function createServer(auth: LocalApiAuth): http.Server {
   const skillRouteContext: SkillRouteContext = { skills: skillStore, skillsChanged: invalidateAllAgentsForNextTurn };
   const terminalRouteContext: TerminalRouteContext = { terminals: terminalManager, getProjectRoot, workspaceDir: WORKSPACE_DIR };
   const mcpRouteContext: McpRouteContext = { mcp: mcpManager };
-  const pluginRouteContext: PluginRouteContext = { plugins: pluginManager, skillsChanged: invalidateAllAgentsForNextTurn };
+  const pluginRouteContext: PluginRouteContext = { plugins: pluginManager, market: new PluginMarket(), skillsChanged: invalidateAllAgentsForNextTurn };
   let bridge: MobileTlsListener;
   let bridgeTransition: Promise<unknown> = Promise.resolve();
   const handle = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {

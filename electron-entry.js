@@ -7,6 +7,7 @@ const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, scr
 const { autoUpdater } = require('electron-updater');
 const { UpdateService } = require('./dist/main/update/UpdateService');
 const path = require('path');
+const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const net = require('net');
@@ -636,6 +637,47 @@ ipcMain.handle('iexa:open-path', async (_evt, targetPath) => {
     return { ok: true, path: abs };
   } catch (e) {
     return { ok: false, error: e.message || '打开失败' };
+  }
+});
+
+ipcMain.handle('iexa:open-file', async (_evt, targetPath) => {
+  if (!targetPath || typeof targetPath !== 'string') return { ok: false, error: '路径无效' };
+  try {
+    const abs = path.resolve(targetPath);
+    if (!fs.existsSync(abs)) return { ok: false, error: '文件不存在' };
+    const error = await shell.openPath(abs);
+    if (error) return { ok: false, error };
+    return { ok: true, path: abs };
+  } catch (e) {
+    return { ok: false, error: e.message || '打开失败' };
+  }
+});
+
+const RUNNABLE_EXTENSIONS = new Set(['.bat', '.cmd', '.ps1', '.py', '.sh', '.exe', '.js', '.vbs']);
+
+ipcMain.handle('iexa:run-file', async (_evt, targetPath) => {
+  if (!targetPath || typeof targetPath !== 'string') return { ok: false, error: '路径无效' };
+  try {
+    const abs = path.resolve(targetPath);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return { ok: false, error: '文件不存在' };
+    const ext = path.extname(abs).toLowerCase();
+    if (!RUNNABLE_EXTENSIONS.has(ext)) return { ok: false, error: '该类型不支持直接运行' };
+    let command = abs;
+    let args = [];
+    if (ext === '.ps1') { command = 'powershell.exe'; args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', abs]; }
+    else if (ext === '.py') { command = 'python'; args = [abs]; }
+    else if (ext === '.js') { command = 'node'; args = [abs]; }
+    else if (ext === '.sh') { command = 'bash'; args = [abs]; }
+    const child = spawn(command, args, {
+      cwd: path.dirname(abs),
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+    child.unref();
+    return { ok: true, path: abs, pid: child.pid || null };
+  } catch (e) {
+    return { ok: false, error: e.message || '运行失败' };
   }
 });
 
