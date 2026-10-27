@@ -2,7 +2,7 @@ const { test } = require('node:test'); const assert = require('node:assert/stric
 const { TranscriptRecorder } = require('../dist/main/session/TranscriptRecorder');
 const pause = () => new Promise(r => setTimeout(r, 10));
 function fixture(t, customFetch) {
- const dom = new JSDOM('<textarea id="chatInput"></textarea><aside id="panel"></aside>', {url:'http://localhost',runScripts:'outside-only',pretendToBeVisual:true}); const w=dom.window;
+ const dom = new JSDOM('<textarea id="chatInput"></textarea><aside id="panel"></aside>', {url:'http://localhost',runScripts:'outside-only',pretendToBeVisual:true}); const w=dom.window; require('./helpers/install-i18n')(w);
  for(const file of ['vendor/marked.umd.js','vendor/highlight.min.js','vendor/purify.min.js','services/SafeMarkdown.js']) w.eval(fs.readFileSync(path.join(__dirname,'../src/renderer',file),'utf8'));
  for(const script of ['ChatActivityView','TranscriptView','SubAgentView']) w.eval(fs.readFileSync(path.join(__dirname,`../src/renderer/services/${script}.js`),'utf8'));
  const r=new TranscriptRecorder();r.recordText('先说正文');r.recordThinking('再思考');r.recordTool('tool','file_read');r.recordText('先说正文然后总结');r.finish('completed');

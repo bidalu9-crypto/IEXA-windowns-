@@ -4,6 +4,7 @@ const tree=ts.createSourceFile('app.js',app,ts.ScriptTarget.Latest,true,ts.Scrip
 function functions(names){return tree.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text)).map(n=>n.getText(tree)).join('\n');}
 function create(t){
  const dom=new JSDOM('<body><div id="messages"></div></body>',{runScripts:'outside-only',pretendToBeVisual:true,url:'http://localhost'});if(t)t.after(()=>dom.window.close());const w=dom.window;
+ require('./install-i18n')(w);
  for(const f of ['ChatActivityView','TranscriptView','TurnSummaryView'])w.eval(fs.readFileSync(path.join(root,`src/renderer/services/${f}.js`),'utf8'));
  const message=w.document.createElement('div');message.className='message assistant';message._assistantText='';message.innerHTML='<div class="message-content"></div><div class="assistant-message-footer"></div>';w.document.getElementById('messages').appendChild(message);
  Object.assign(w,{currentAssistantMsg:message,currentSessionId:'s',visibleSessionId:'s',currentToolBlocks:{},currentTaskToolCount:0,currentThinkingLevel:'medium',activeChatTurnToken:1,currentTaskSummary:null,

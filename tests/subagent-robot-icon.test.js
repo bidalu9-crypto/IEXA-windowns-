@@ -29,7 +29,7 @@ test('each sub-agent operation has its own icon; ordinary tools keep their ident
 });
 
 test('robot is a single valid vector symbol and history rows follow the tool mapping',t=>{
- const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window,d=w.document;
+ const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only'});t.after(()=>dom.window.close());const w=dom.window,d=w.document;require('./helpers/install-i18n')(w);
  w.toolIcon=(name)=>'<svg class="ui-icon" aria-hidden="true"><use href="#ui-'+((expected[name])||'box')+'"/></svg>';
  w.eval(fs.readFileSync(path.join(root,'services/ChatActivityView.js'),'utf8'));
  const symbol=d.querySelector('#ui-robot');assert.equal(d.querySelectorAll('#ui-robot').length,1);assert.equal(symbol.getAttribute('viewBox'),'0 0 24 24');assert.ok(symbol.querySelector('rect'));assert.ok(symbol.querySelector('circle'));assert.equal(symbol.querySelector('image,foreignObject,script'),null);

@@ -8,7 +8,7 @@ const html=fs.readFileSync(path.join(root,'src/renderer/index.html'),'utf8');
 const initial=fs.readFileSync(path.join(root,'src/renderer/services/InitialAppearance.js'),'utf8');
 const app=require('./helpers/renderer-bundle').source.replace(/\r\n/g,'\n');
 const appearance=app.slice(app.indexOf('function formatTaskElapsed('),app.indexOf('function taskSummaryForCurrentMessage()'))+'\n'+app.slice(app.indexOf('const ACCENT_PRESETS = ['),app.indexOf('async function init('));
-function fixture(t){const dom=new JSDOM(html,{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());const w=dom.window;w.API_BASE='';return w;}
+function fixture(t){const dom=new JSDOM(html,{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());const w=dom.window;require('./helpers/install-i18n')(w);w.API_BASE='';return w;}
 
 test('initial paint honors saved full motion even when host preferences would reduce it',t=>{
  const w=fixture(t);w.iexaDesktop={initialAppearance:{theme:'dark',accent:'blue',motion:'full'}};

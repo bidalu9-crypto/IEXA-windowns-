@@ -8,6 +8,7 @@ const { JSDOM } = require('jsdom');
 function boot() {
   const dom = new JSDOM(fs.readFileSync('src/renderer/index.html', 'utf8'), { runScripts: 'outside-only', url: 'http://127.0.0.1:19840/' });
   const w = dom.window;
+require('./helpers/install-i18n')(w);
   w.console = console;
   w.eval(`var API_BASE = ''; var currentSessionId = 's1';`);
   w.eval(fs.readFileSync('src/renderer/services/GoalBanner.js', 'utf8'));

@@ -31,14 +31,17 @@ function renderGoalBanner(goal) {
     bar.removeAttribute('title');
     return;
   }
-  const status = goal.status === 'done' ? '已完成' : goal.status === 'blocked' ? '受阻' : '进行中';
+  const status = goal.status === 'done' ? IexaI18n.t('goal.status.done')
+    : goal.status === 'blocked' ? IexaI18n.t('goal.status.blocked')
+      : IexaI18n.t('goal.status.active');
   const notes = Array.isArray(goal.notes) ? goal.notes : [];
   document.getElementById('goalBarText').textContent = goal.objective;
-  document.getElementById('goalBarStatus').textContent = `${status}${notes.length ? ` · ${notes.length} 条进度` : ''}`;
+  const noteCount = notes.length ? ' · ' + IexaI18n.t('goal.notes', { count: notes.length }) : '';
+  document.getElementById('goalBarStatus').textContent = `${status}${noteCount}`;
   bar.dataset.status = goal.status || 'active';
   bar.title = [
     goal.objective,
-    goal.doneWhen ? `完成标准：${goal.doneWhen}` : '',
+    goal.doneWhen ? IexaI18n.t('goal.doneWhen', { value: goal.doneWhen }) : '',
     ...notes.slice(-3),
   ].filter(Boolean).join('\n');
   bar.hidden = false;

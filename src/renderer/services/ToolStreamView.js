@@ -5,33 +5,8 @@
 // app.js, so callers keep working unchanged. Keep this file free of load-time
 // side effects — it evaluates before app.js and before the DOM is ready.
 
-const TOOL_LABELS = {
-  todo_write: '更新计划',
-  shell_execute: '执行命令',
-  shell_session: '持久终端',
-  job_list: '任务列表',
-  job_output: '任务输出',
-  goal: '任务目标',
-  file_read: '读取文件',
-  file_write: '写入文件',
-  file_edit: '编辑文件',
-  grep: '搜索代码',
-  glob: '查找文件',
-  browser_fetch: '抓取网页',
-  web_search: '联网搜索',
-  memory_write: '写入记忆',
-  memory_get: '读取记忆',
-  ask_user: '向用户提问',
-  desktop_control: '操作桌面',
-  display_file: '展示文件',
-  project_instructions: '项目规范',
-  read_image: '读取图片',
-  spawn_agent: '派生子代理',
-  send_input: '发送输入',
-  wait_agent: '等待代理',
-  close_agent: '关闭代理',
-  resume_agent: '恢复代理',
-};
+// Labels live in the i18n table as tool.<name>; a tool with no entry simply
+// shows its canonical name, so adding a tool never means editing two lists.
 
 // One icon per tool. Duplicates here are what made two different calls look
 // identical in the transcript, so every entry must stay distinct.
@@ -85,8 +60,7 @@ function toolDisplayName(name) {
   if (canonical.startsWith('mcp_')) return 'MCP · ' + canonical.slice(4);
   const key = 'tool.' + canonical;
   const translated = IexaI18n.t(key);
-  if (translated !== key) return translated;
-  return TOOL_LABELS[canonical] || canonical;
+  return translated !== key ? translated : canonical;
 }
 
 function toolIcon(name) {
@@ -98,9 +72,9 @@ function toolIcon(name) {
 
 function formatTaskElapsed(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return seconds + ' 秒';
+  if (seconds < 60) return IexaI18n.t('tool.elapsed.seconds', { seconds });
   const minutes = Math.floor(seconds / 60);
-  return minutes + ' 分 ' + String(seconds % 60).padStart(2, '0') + ' 秒';
+  return IexaI18n.t('tool.elapsed.minutes', { minutes, seconds: String(seconds % 60).padStart(2, '0') });
 }
 
 /** Create the compact task pill. Click it to show or hide the tool capsules. */
@@ -146,7 +120,7 @@ function applyConsecutiveToolFold(host, summary, collapsed) {
   host.classList.toggle('is-collapsed', enabled && collapsed);
   summary.hidden = !enabled;
   summary.setAttribute('aria-expanded', String(!(enabled && collapsed)));
-  summary.title = enabled && collapsed ? '点击展开连续工具' : '点击收起连续工具';
+  summary.title = enabled && collapsed ? IexaI18n.t('tool.fold.expand') : IexaI18n.t('tool.fold.collapse');
 }
 
 function refreshToolGroupSummary(host) {
@@ -157,8 +131,8 @@ function refreshToolGroupSummary(host) {
   const errors = blocks.filter((block) => block.classList.contains('is-error') || ['failed', 'denied', 'timed_out', 'error'].includes(block.dataset.executionStatus || block.dataset.status || '')).length;
   const countEl = summary.querySelector('.task-summary-count');
   const errorEl = summary.querySelector('.task-summary-errors');
-  if (countEl) countEl.textContent = blocks.length + ' 次调用';
-  if (errorEl) errorEl.textContent = errors > 0 ? errors + ' 个报错' : '';
+  if (countEl) countEl.textContent = IexaI18n.t('tool.calls', { count: blocks.length });
+  if (errorEl) errorEl.textContent = errors > 0 ? IexaI18n.t('tool.errors', { count: errors }) : '';
   const terminal = new Set(['done', 'completed', 'error', 'failed', 'denied', 'cancelled', 'timed-out', 'timed_out', 'unknown']);
   const running = blocks.some((block) => !terminal.has(block.dataset.executionStatus || '') && (block.classList.contains('is-active') || !terminal.has(block.dataset.status || 'running')));
   const started = blocks.map((block) => Number(block.dataset.startedAt)).filter(Number.isFinite);
@@ -168,7 +142,7 @@ function refreshToolGroupSummary(host) {
   const timeEl = summary.querySelector('.task-summary-time');
   if (timeEl) timeEl.textContent = formatTaskElapsed(end - start);
   const labelEl = summary.querySelector('.task-summary-label');
-  if (labelEl) labelEl.textContent = running ? '正在执行工具' : '已执行工具';
+  if (labelEl) labelEl.textContent = running ? IexaI18n.t('tool.running') : IexaI18n.t('tool.ran');
   summary.classList.toggle('is-running', running);
   summary.classList.toggle('is-complete', !running && blocks.length > 0);
   const spinner = summary.querySelector('.task-summary-spinner');
@@ -183,12 +157,12 @@ function createTaskSummary(toolCount) {
   summary.setAttribute('aria-expanded', 'false');
   summary.innerHTML =
     '<span class="task-summary-spinner" aria-hidden="true"></span>' +
-    '<span class="task-summary-label">正在执行工具</span>' +
-    '<span class="task-summary-count">' + (Number(toolCount) || 0) + ' 次调用</span>' +
+    '<span class="task-summary-label">' + IexaI18n.t('tool.running') + '</span>' +
+    '<span class="task-summary-count">' + IexaI18n.t('tool.calls', { count: Number(toolCount) || 0 }) + '</span>' +
     '<span class="task-summary-errors"></span>' +
-    '<span class="task-summary-time">0 秒</span>' +
+    '<span class="task-summary-time">' + IexaI18n.t('tool.elapsed.seconds', { seconds: 0 }) + '</span>' +
     '<span class="task-summary-chevron" aria-hidden="true"></span>';
-  summary.title = '点击展开连续工具';
+  summary.title = IexaI18n.t('tool.fold.expand');
   summary.addEventListener('click', function () {
     const host = summary.closest('.tool-steps');
     if (!host || !consecutiveToolFoldEnabled()) return;
@@ -413,9 +387,9 @@ function setToolStepStatus(block, status, label) {
   if (!statusEl) return;
   statusEl.className = 'tool-status ' + status;
   if (label != null) statusEl.textContent = label;
-  else if (status === 'running' || status === 'streaming') statusEl.textContent = '运行中';
-  else if (status === 'done') statusEl.innerHTML = uiIcon('check') + '<span>完成</span>';
-  else if (status === 'error') statusEl.innerHTML = uiIcon('alert') + '<span>出错</span>';
+  else if (status === 'running' || status === 'streaming') statusEl.textContent = IexaI18n.t('tool.status.running');
+  else if (status === 'done') statusEl.innerHTML = uiIcon('check') + '<span>' + IexaI18n.t('tool.status.done') + '</span>';
+  else if (status === 'error') statusEl.innerHTML = uiIcon('alert') + '<span>' + IexaI18n.t('tool.status.error') + '</span>';
   block.dataset.status = status;
   block.classList.toggle('is-active', status === 'running' || status === 'streaming');
   block.classList.toggle('is-done', status === 'done');
@@ -439,33 +413,33 @@ function toolKind(name) {
 function toolMeta(name, args) {
   const source = args && typeof args === 'object' ? args : {};
   const canonical = canonicalToolName(name);
-  if (canonical === 'shell_execute') return source.shell ? `${source.shell} · 工作区命令` : '工作区命令';
+  if (canonical === 'shell_execute') return source.shell ? `${source.shell} · ${IexaI18n.t('tool.meta.workspaceCommand')}` : IexaI18n.t('tool.meta.workspaceCommand');
   if (canonical === 'shell_session') return `${source.action || 'open'}${source.session_id ? ' · ' + String(source.session_id).slice(0, 8) : ''}`;
-  if (canonical === 'job_list') return '最近任务';
-  if (canonical === 'job_output') return String(source.job_id || '任务输出');
+  if (canonical === 'job_list') return IexaI18n.t('tool.meta.recentJobs');
+  if (canonical === 'job_output') return String(source.job_id || IexaI18n.t('tool.meta.jobOutput'));
   if (canonical === 'goal') return `${source.action || 'get'}${source.objective ? ' · ' + String(source.objective).slice(0, 40) : ''}`;
-  if (canonical.startsWith('mcp_')) return 'MCP 工具';
-  if (canonical === 'read_image') return String(source.path || '视觉代理');
-  if (canonical === 'display_file') return String(source.path || '交付物');
-  if (canonical === 'browser_fetch') return String(source.url || '网页读取');
-  if (canonical === 'web_search') return String(source.query || '公开资料');
-  if (canonical === 'desktop_control') return String(source.action || '桌面');
-  if (canonical === 'project_instructions') return String(source.path || source.kind || '项目根');
-  if (canonical === 'grep') return source.path ? `${source.path} · ${source.pattern || ''}` : String(source.pattern || '工作区');
-  if (canonical === 'glob') return String(source.pattern || '工作区');
-  if (canonical === 'memory_get') return String(source.keywords || '全部记忆');
-  if (canonical === 'memory_write') return String(source.content || '').slice(0, 40) || '长期记忆';
-  if (canonical === 'ask_user') return '等待你的选择';
+  if (canonical.startsWith('mcp_')) return IexaI18n.t('tool.meta.mcp');
+  if (canonical === 'read_image') return String(source.path || IexaI18n.t('tool.meta.vision'));
+  if (canonical === 'display_file') return String(source.path || IexaI18n.t('tool.meta.deliverable'));
+  if (canonical === 'browser_fetch') return String(source.url || IexaI18n.t('tool.meta.webPage'));
+  if (canonical === 'web_search') return String(source.query || IexaI18n.t('tool.meta.publicInfo'));
+  if (canonical === 'desktop_control') return String(source.action || IexaI18n.t('tool.meta.desktop'));
+  if (canonical === 'project_instructions') return String(source.path || source.kind || IexaI18n.t('tool.meta.projectRoot'));
+  if (canonical === 'grep') return source.path ? `${source.path} · ${source.pattern || ''}` : String(source.pattern || IexaI18n.t('tool.meta.workspace'));
+  if (canonical === 'glob') return String(source.pattern || IexaI18n.t('tool.meta.workspace'));
+  if (canonical === 'memory_get') return String(source.keywords || IexaI18n.t('tool.meta.allMemory'));
+  if (canonical === 'memory_write') return String(source.content || '').slice(0, 40) || IexaI18n.t('tool.meta.longTermMemory');
+  if (canonical === 'ask_user') return IexaI18n.t('tool.meta.awaitingChoice');
   if (canonical === 'todo_write') {
     const count = Array.isArray(source.todos) ? source.todos.length : 0;
-    return count ? `${count} 项计划` : '任务计划';
+    return count ? IexaI18n.t('tool.meta.planCount', { count }) : IexaI18n.t('tool.meta.plan');
   }
-  if (canonical === 'spawn_agent') return String(source.nickname || '子代理');
-  if (canonical === 'send_input') return String(source.id || '子代理');
-  if (canonical === 'wait_agent') return Array.isArray(source.ids) ? `${source.ids.length} 个子代理` : '子代理';
-  if (canonical === 'close_agent' || canonical === 'resume_agent') return String(source.id || '子代理');
+  if (canonical === 'spawn_agent') return String(source.nickname || IexaI18n.t('tool.meta.subagent'));
+  if (canonical === 'send_input') return String(source.id || IexaI18n.t('tool.meta.subagent'));
+  if (canonical === 'wait_agent') return Array.isArray(source.ids) ? IexaI18n.t('tool.meta.subagentCount', { count: source.ids.length }) : IexaI18n.t('tool.meta.subagent');
+  if (canonical === 'close_agent' || canonical === 'resume_agent') return String(source.id || IexaI18n.t('tool.meta.subagent'));
   if (source.path) return String(source.path);
-  return TOOL_LABELS[canonical] || 'IEXA 工具';
+  return IexaI18n.t('tool.meta.unknown');
 }
 
 function handleToolStart(id, name) {
@@ -483,7 +457,7 @@ function handleToolStart(id, name) {
     if (!info.block.querySelector('.tool-name').dataset.locked) {
       info.block.querySelector('.tool-name').textContent = toolDisplayName(info.name);
     }
-    setToolStepStatus(info.block, 'streaming', '准备中');
+    setToolStepStatus(info.block, 'streaming', IexaI18n.t('tool.status.preparing'));
     scrollToBottom();
     return;
   }
@@ -500,11 +474,11 @@ function handleToolStart(id, name) {
   block.innerHTML =
     '<div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-' + escapeHtml(id) + '">' +
       '<span class="tool-icon">' + toolIcon(name) + '</span><span class="tool-heading"><span class="tool-name">' + escapeHtml(toolDisplayName(name)) + '</span><span class="tool-meta">' + escapeHtml(toolMeta(name)) + '</span></span>' +
-      '<span class="tool-status running">准备中</span>' +
+      '<span class="tool-status running">' + IexaI18n.t('tool.status.preparing') + '</span>' +
       '<span class="tool-chevron" aria-hidden="true"></span>' +
     '</div>' +
     '<div class="tool-body" id="tool-body-' + escapeHtml(id) + '" style="display:none;">' +
-      '<div class="tool-section-label">输入</div><pre class="tool-args">准备中...</pre>' +
+      '<div class="tool-section-label">' + IexaI18n.t('tool.section.input') + '</div><pre class="tool-args">' + IexaI18n.t('tool.preparing.placeholder') + '</pre>' +
     '</div>';
 
   // Insert the compact task bar once, above the individual capsules.
@@ -585,7 +559,7 @@ function handleToolInput(name, args, id) {
     tool_title: extractPartialStringValue('tool_title', String(args || '')),
   };
   window.IexaChatActivity.updateTool(info.block, name || info.name, activityArgs);
-  setToolStepStatus(info.block, 'streaming', '流式中');
+  setToolStepStatus(info.block, 'streaming', IexaI18n.t('tool.status.streaming'));
   updateTaskSummary(toolLiveTitle(name || info.name, args));
   scrollToBottom();
 }
@@ -618,7 +592,7 @@ function handleToolComplete(id, name, args) {
   }
 
   window.IexaChatActivity.updateTool(info.block, name || info.name, args);
-  if (!info.block.dataset.executionStatus) setToolStepStatus(info.block, 'queued', '排队中');
+  if (!info.block.dataset.executionStatus) setToolStepStatus(info.block, 'queued', IexaI18n.t('tool.status.queued'));
   updateTaskSummary(toolLiveTitle(name || info.name, args));
   scrollToBottom();
 }
@@ -639,9 +613,9 @@ function setPagedText(element, text, options) {
     const next = document.createElement('button');
     const copy = document.createElement('button');
     const label = document.createElement('span');
-    previous.textContent = '上一页';
-    next.textContent = '下一页';
-    copy.textContent = '复制全文';
+    previous.textContent = IexaI18n.t('tool.pager.prev');
+    next.textContent = IexaI18n.t('tool.pager.next');
+    copy.textContent = IexaI18n.t('tool.pager.copy');
     for (const button of [previous, next, copy]) button.type = 'button';
     controls.append(previous, label, next, copy);
     element.after(controls);
@@ -683,7 +657,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       resultPre.className = 'tool-result';
       const outputLabel = document.createElement('div');
       outputLabel.className = 'tool-section-label tool-output-label';
-      outputLabel.textContent = '输出';
+      outputLabel.textContent = IexaI18n.t('tool.section.output');
       bodyEl.appendChild(outputLabel);
       bodyEl.appendChild(resultPre);
     }
@@ -697,12 +671,12 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
       const image = document.createElement('button');
       image.type = 'button';
       image.className = 'tool-result-image';
-      image.title = '点击查看图片';
+      image.title = IexaI18n.t('tool.image.open');
       const img = document.createElement('img');
       img.src = `data:${imageMimeType};base64,${imageData}`;
-      img.alt = '工具生成的图片';
+      img.alt = IexaI18n.t('tool.image.generated');
       image.appendChild(img);
-      image.addEventListener('click', () => openImagePreview(img.src, '工具生成的图片', img));
+      image.addEventListener('click', () => openImagePreview(img.src, IexaI18n.t('tool.image.generated'), img));
       bodyEl.appendChild(image);
     }
     if (fileChange && fileChange.path) {
@@ -713,7 +687,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
     const mediaArtifacts = artifacts && artifacts.length
       ? artifacts
       : imageData && imageMimeType
-        ? [{ kind: 'image', path: '生成图片', mimeType: imageMimeType, url: `data:${imageMimeType};base64,${imageData}` }]
+        ? [{ kind: 'image', path: IexaI18n.t('tool.image.generated'), mimeType: imageMimeType, url: `data:${imageMimeType};base64,${imageData}` }]
         : [];
     if (mediaArtifacts.length) {
       // display_file is an explicit model instruction. Place its media after

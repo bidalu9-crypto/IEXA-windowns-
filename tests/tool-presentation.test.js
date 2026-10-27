@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const root = path.join(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'src/renderer/services/ToolStreamView.js'), 'utf8');
@@ -23,7 +24,14 @@ function objectLiteral(name) {
   return entries;
 }
 
-const labels = objectLiteral('TOOL_LABELS');
+/** Labels live in the i18n table, so every tool needs a `tool.<id>` row there. */
+function loadUiDictionary() {
+  const sandbox = { window: {} };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/renderer/services/I18nUi.js'), 'utf8'), sandbox, { filename: 'I18nUi.js' });
+  return sandbox.window.IexaI18nUi;
+}
+
 const icons = objectLiteral('TOOL_ICONS');
 const aliases = objectLiteral('TOOL_ALIASES');
 
@@ -38,13 +46,23 @@ const REGISTERED = [
 const DYNAMIC = ['read_image', 'spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'];
 const ALL = [...REGISTERED, ...DYNAMIC];
 
-test('every tool has a label and an icon, and nothing extra is declared', () => {
+const UI = loadUiDictionary();
+const labels = {};
+for (const name of ALL) if (UI.zh['tool.' + name]) labels[name] = UI.zh['tool.' + name];
+
+test('every tool has a label in all three locales, and an icon', () => {
   const missingLabels = ALL.filter((name) => !labels[name]);
   const missingIcons = ALL.filter((name) => !icons[name]);
   assert.deepEqual(missingLabels, [], 'tools without a label fall back to their raw id');
   assert.deepEqual(missingIcons, [], 'tools without an icon fall back to a generic gear');
-  const extra = Object.keys(labels).filter((name) => !ALL.includes(name));
-  assert.deepEqual(extra, [], 'a label for a tool that no longer exists');
+  const blank = [];
+  for (const name of ALL) {
+    for (const locale of ['zh', 'en', 'ja']) {
+      const value = UI[locale]['tool.' + name];
+      if (typeof value !== 'string' || !value.trim()) blank.push(`${locale}:${name}`);
+    }
+  }
+  assert.deepEqual(blank, [], 'no locale may leave a tool unnamed');
   assert.deepEqual(Object.keys(icons).filter((name) => !ALL.includes(name)), [], 'a stale icon entry');
 });
 

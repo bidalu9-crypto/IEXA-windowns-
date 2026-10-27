@@ -2,7 +2,8 @@
 (() => {
   'use strict';
   let bodySequence = 0;
-  const operations = { file_read: '读取', file_write: '写入', file_edit: '编辑', grep: '搜索', glob: '查找', shell_execute: '运行', browser_fetch: '浏览', project_instructions: '读取指令', todo_write: '计划', memory_get: '检索记忆', memory_write: '记录记忆', display_file: '查看' };
+  const operations = { file_read: 'activity.op.file_read', file_write: 'activity.op.file_write', file_edit: 'activity.op.file_edit', grep: 'activity.op.grep', glob: 'activity.op.glob', shell_execute: 'activity.op.shell_execute', browser_fetch: 'activity.op.browser_fetch', project_instructions: 'activity.op.project_instructions', todo_write: 'activity.op.todo_write', memory_get: 'activity.op.memory_get', memory_write: 'activity.op.memory_write', display_file: 'activity.op.display_file' };
+  const opLabel = (name) => IexaI18n.t(operations[name] || 'activity.op.unknown');
   const make = (tag, cls, text) => { const el = document.createElement(tag); el.className = cls; if (text !== undefined) el.textContent = text; return el; };
   function bindTool(block) {
     if (block.dataset.activityBound) return;
@@ -38,7 +39,7 @@
     const text = typeof output?._fullText === 'string' ? output._fullText : output?.textContent || '';
     const placeholder = panel.querySelector('.tool-output-placeholder');
     placeholder.hidden = text.length > 0;
-    placeholder.textContent = block._activityHasResult ? '无文本输出' : '等待输出…';
+    placeholder.textContent = block._activityHasResult ? IexaI18n.t('activity.emptyOutput') : IexaI18n.t('activity.waitingOutput');
     panel.querySelector('.tool-copy-result').disabled = text.length === 0;
     const overflow = viewport.scrollHeight > viewport.clientHeight + 2;
     viewport.dataset.overflow = String(overflow);
@@ -52,8 +53,8 @@
       const bar = make('div', 'tool-detail-bar');
       const title = make('span', 'tool-detail-title');
       const actions = make('div', 'tool-detail-actions');
-      const params = make('button', 'tool-toggle-params', '参数'); params.type = 'button';
-      const copy = make('button', 'tool-copy-result', '复制输出'); copy.type = 'button';
+      const params = make('button', 'tool-toggle-params', IexaI18n.t('activity.params')); params.type = 'button';
+      const copy = make('button', 'tool-copy-result', IexaI18n.t('activity.copy')); copy.type = 'button';
       const feedback = make('span', 'tool-detail-feedback'); feedback.setAttribute('role', 'status');
       const raw = make('div', 'tool-raw-input'); raw.hidden = true; raw.id = `${body.id}-params`;
       params.setAttribute('aria-controls', raw.id); params.setAttribute('aria-expanded', 'false');
@@ -77,8 +78,8 @@
         try {
           if (typeof window.writeClipboardText === 'function') await window.writeClipboardText(text);
           else await navigator.clipboard.writeText(text);
-          feedback.textContent = '已复制';
-        } catch { feedback.textContent = '复制未完成，请选择文本复制'; }
+          feedback.textContent = IexaI18n.t('activity.copied');
+        } catch { feedback.textContent = IexaI18n.t('activity.copyFailed'); }
         finally { refreshDetail(block); }
       });
       actions.append(feedback, params, copy); bar.append(title, actions); panel.append(bar, viewport, raw); body.prepend(panel);
@@ -94,7 +95,7 @@
     const isShell = name === 'shell_execute' || name.startsWith('terminal_');
     const title = isShell ? 'Shell' : name.startsWith('file_') ? 'File' : name === 'browser_fetch' ? 'Web' : 'Tool';
     panel.querySelector('.tool-detail-title').textContent = title;
-    panel.querySelector('.tool-console-viewport').setAttribute('aria-label', `${title} 命令与输出`);
+    panel.querySelector('.tool-console-viewport').setAttribute('aria-label', IexaI18n.t('activity.commandAndOutput', { title }));
     const command = panel.querySelector('.tool-command');
     const preview = isShell ? input.command : input.path || input.url;
     command.textContent = typeof preview === 'string' && preview ? `${isShell ? '$ ' : ''}${preview}` : '';
@@ -121,7 +122,7 @@
     }).observe(document.body, { childList: true, subtree: true });
   }
 
-  const agentOperations = { spawn_agent: '创建子代理', send_input: '发送任务', wait_agent: '等待子代理', close_agent: '关闭子代理', resume_agent: '恢复子代理' };
+  const agentOperations = { spawn_agent: 'activity.agent.spawn', send_input: 'activity.agent.send', wait_agent: 'activity.agent.wait', close_agent: 'activity.agent.close', resume_agent: 'activity.agent.resume' };
   function updateTool(block, name, args, result) {
     if (!block) return;
     name = typeof name === 'string' && name ? name : block.dataset.toolName || 'tool';
@@ -147,7 +148,7 @@
       const current = icon.querySelector('use')?.getAttribute('href');
       if (current !== '#' + target) icon.innerHTML = markup;
     }
-    header.querySelector('.activity-operation').textContent = agentOperations[name] || operations[name] || '调用';
+    header.querySelector('.activity-operation').textContent = IexaI18n.t(agentOperations[name] || operations[name] || 'activity.op.unknown');
     const title = header.querySelector('.tool-name'), meta = header.querySelector('.tool-meta');
     const file = typeof input.path === 'string' ? input.path : typeof result?.fileChange?.path === 'string' ? result.fileChange.path : '';
     if (file) {
@@ -155,7 +156,7 @@
       const slash = normalized.lastIndexOf('/');
       title.textContent = normalized.slice(slash + 1) || normalized;
       meta.textContent = slash >= 0 ? normalized.slice(0, slash + 1) : '';
-      header.title = `${operations[name] || name} ${file} · 点击查看详情`;
+      header.title = `${opLabel(name)} ${file} · ${IexaI18n.t('activity.openDetail')}`;
       block.dataset.fileType = normalized.split('.').at(-1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
     } else {
       const preview = name === 'shell_execute' ? input.command : name === 'browser_fetch' ? input.url : input.tool_title;
@@ -163,12 +164,12 @@
       meta.textContent = '';
       header.title = title.textContent;
       if (agentOperations[name]) {
-        title.textContent = String(input.nickname || input.message || (Array.isArray(input.ids) ? `${input.ids.length} 个代理` : input.id || '')).replace(/\s+/g, ' ').slice(0, 100);
-        header.title = `${agentOperations[name]} ${title.textContent}`;
+        title.textContent = String(input.nickname || input.message || (Array.isArray(input.ids) ? IexaI18n.t('activity.agentsCount', { count: input.ids.length }) : input.id || '')).replace(/\s+/g, ' ').slice(0, 100);
+        header.title = `${IexaI18n.t(agentOperations[name])} ${title.textContent}`;
       }
       if (name === 'shell_execute' || name.startsWith('terminal_')) {
         header.querySelector('.activity-operation').textContent = '';
-        title.textContent = result?.success === true ? '已运行命令' : '运行命令';
+        title.textContent = result?.success === true ? IexaI18n.t('activity.shell.ran') : IexaI18n.t('activity.shell.running');
       }
     }
     if (agentOperations[name] && result !== undefined) {
@@ -180,7 +181,7 @@
           const agents = Array.isArray(data.agents) ? data.agents : data.id ? [data] : [];
           for (const agent of agents.slice(0, 6)) {
             if (typeof agent.id !== 'string' || !agent.id) continue;
-            const link = make('button', 'tool-toggle-params tool-agent-link', agent.nickname ? `查看 ${agent.nickname}` : '查看代理');
+            const link = make('button', 'tool-toggle-params tool-agent-link', agent.nickname ? IexaI18n.t('activity.viewNamed', { name: agent.nickname }) : IexaI18n.t('activity.viewAgent'));
             link.type = 'button'; link.addEventListener('click', () => window.dispatchEvent(new CustomEvent('iexa:open-subagent', { detail: { id: agent.id } })));
             actions.prepend(link);
           }
@@ -196,7 +197,7 @@
         for (const [key, prefix, cls] of [['added', '+', 'diff-add'], ['removed', '−', 'diff-del']]) {
           if (Number.isSafeInteger(change[key]) && change[key] > 0) stats.appendChild(make('span', cls, `${prefix}${change[key]}`));
         }
-        if (stats.textContent) stats.setAttribute('aria-label', `新增 ${change.added || 0} 行，删除 ${change.removed || 0} 行`);
+        if (stats.textContent) stats.setAttribute('aria-label', IexaI18n.t('activity.diff.aria', { added: change.added || 0, removed: change.removed || 0 }));
       }
     }
   }
@@ -222,12 +223,12 @@
     const duration = Math.max(0, now - start) + Math.max(0, Number(block.dataset.priorDurationMs) || 0);
     block.dataset.durationMs = String(duration);
     const label = block.querySelector('.thinking-elapsed');
-    label.textContent = duration < 1000 ? '· 不到 1 秒' : `· 持续了 ${Math.round(duration / 1000)} 秒`;
+    label.textContent = duration < 1000 ? IexaI18n.t('activity.elapsed.subSecond') : IexaI18n.t('activity.elapsed.seconds', { seconds: Math.round(duration / 1000) });
   }
   function createWaiting() {
     const indicator = make('div', 'waiting-indicator');
     indicator.setAttribute('role', 'status'); indicator.setAttribute('aria-live', 'polite');
-    indicator.appendChild(make('span', 'waiting-indicator__label', 'IEXA正在处理...'));
+    indicator.appendChild(make('span', 'waiting-indicator__label', IexaI18n.t('activity.waitingLabel')));
     window.IexaLabelGlow?.attach(indicator.querySelector('.waiting-indicator__label'));
     return indicator;
   }
