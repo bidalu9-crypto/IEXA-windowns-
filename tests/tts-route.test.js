@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
-const { stripForSpeech, DEFAULT_TTS_VOICE, handleTtsRoute } = require('../dist/main/api/TtsRoutes');
+const { stripForSpeech, splitForSpeech, DEFAULT_TTS_VOICE, handleTtsRoute } = require('../dist/main/api/TtsRoutes');
 
 test('markdown is reduced to prose before it is spoken', () => {
   const source = [
@@ -34,6 +34,36 @@ test('markdown is reduced to prose before it is spoken', () => {
   assert.match(spoken, /正常一段话，带 重点 和 行内代码。/);
   assert.match(spoken, /这个链接/, 'the label survives');
   assert.match(spoken, /图/, 'image alt text survives');
+});
+
+test('long prose is split at sentence boundaries so nothing is cut off', () => {
+  // edge_tts stops at 600 s of audio (measured: 3000 chars -> 579 s, 6000 chars ->
+  // exactly 600 s at double the rate). Chunks must therefore stay well under that.
+  const sentence = '这一句大约二十来个汉字，用来测试切分是否落在句号后面。';
+  const long = Array.from({ length: 120 }, () => sentence).join('');
+  assert.ok(long.length > 2500, 'the fixture must be long enough to need chunks: ' + long.length);
+
+  const chunks = splitForSpeech(long);
+  assert.ok(chunks.length >= 3, 'a 2500+ char reply needs several chunks: ' + chunks.length);
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 1100, `chunk of ${chunk.length} chars exceeds the limit`);
+    assert.ok(chunk.length > 0);
+  }
+  // Every chunk ends on a sentence mark, so no word is cut in half.
+  for (const chunk of chunks.slice(0, -1)) {
+    assert.match(chunk, /[。！？；]$/, 'chunk should end on punctuation: ' + chunk.slice(-6));
+  }
+  // Nothing is lost: joining the chunks reproduces the source.
+  assert.equal(chunks.join(''), long.replace(/\s+/g, ' ').trim().replace(/\s+/g, ''), 'no character may be dropped');
+
+  // A single run-on sentence longer than the limit is cut by force, not skipped.
+  const runOn = '字'.repeat(2500);
+  const forced = splitForSpeech(runOn);
+  assert.ok(forced.length >= 3);
+  assert.equal(forced.join('').length, 2500, 'a run-on sentence keeps every character');
+
+  assert.deepEqual(splitForSpeech(''), []);
+  assert.deepEqual(splitForSpeech('短句。'), ['短句。']);
 });
 
 test('the route serves audio, caches it, and refuses what it cannot read', async (t) => {
@@ -88,7 +118,9 @@ test('the route serves audio, caches it, and refuses what it cannot read', async
   assert.equal(codeOnly.status, 400);
   assert.match(codeOnly.body.error, /没有可朗读/);
 
-  const tooLong = await post({ text: '字'.repeat(6001) });
+  // The cap exists so one request cannot trigger minutes of synthesis; the route
+  // splits anything below it into pieces, so the limit is generous.
+  const tooLong = await post({ text: '字'.repeat(20001) });
   assert.equal(tooLong.status, 413);
 
   // A plain ../ is normalised away by URL parsing, so the route never sees it;

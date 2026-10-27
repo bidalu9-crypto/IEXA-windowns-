@@ -25,8 +25,46 @@ const VOICES = new Set([
 
 export const DEFAULT_TTS_VOICE = 'zh-CN-YunyangNeural';
 const DEFAULT_RATE = '-4%';
-const MAX_CHARS = 6000;
-const SPAWN_TIMEOUT_MS = 60_000;
+const MAX_CHARS = 20000;
+const SPAWN_TIMEOUT_MS = 90_000;
+
+/**
+ * `edge_tts` stops at 600 s of audio — 3,600,000 bytes, measured by calling the
+ * CLI directly: 1500 characters gave 290 s, 3000 gave 579 s, 6000 gave exactly
+ * 600 s at twice the speaking rate, i.e. truncated. So a long reply is split at
+ * sentence boundaries and synthesized piece by piece; the client plays the
+ * pieces back to back and hears the whole thing.
+ */
+const CHUNK_CHARS = 1100;
+const PARALLEL_CHUNKS = 3;
+
+/** Split prose into chunks that respect sentence boundaries. */
+export function splitForSpeech(text: string, limit = CHUNK_CHARS): string[] {
+  const source = String(text || '').trim();
+  if (!source) return [];
+  if (source.length <= limit) return [source];
+
+  const chunks: string[] = [];
+  // Split after sentence-ending punctuation, keeping the mark with its sentence.
+  const sentences = source.match(/[^。！？!?；;\n]+[。！？!?；;]?|\n+/g) || [source];
+  let current = '';
+  for (const sentence of sentences) {
+    if (!sentence) continue;
+    if (current && current.length + sentence.length > limit) {
+      chunks.push(current.trim());
+      current = '';
+    }
+    // A single sentence longer than the limit is cut by force.
+    let rest = sentence;
+    while (rest.length > limit) {
+      chunks.push(rest.slice(0, limit).trim());
+      rest = rest.slice(limit);
+    }
+    current += rest;
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.filter(Boolean);
+}
 
 /** One synthesis at a time: each call pays a Python start plus a websocket leg. */
 let queue: Promise<unknown> = Promise.resolve();
@@ -149,25 +187,42 @@ export async function handleTtsRoute(
     if (!spoken) { reply(res, 400, { error: '这条回复没有可朗读的文字' }); return true; }
     if (spoken.length > MAX_CHARS) { reply(res, 413, { error: `文字过长（上限 ${MAX_CHARS} 字）` }); return true; }
 
-    const key = crypto.createHash('sha1').update(`${voice}|${DEFAULT_RATE}|${spoken}`).digest('hex').slice(0, 20);
-    const audioFile = path.join(cacheDir, `${key}.mp3`);
-    const audioUrl = `/api/tts/audio/${key}.mp3`;
+    const chunks = splitForSpeech(spoken);
+    const segments = chunks.map((chunk) => {
+      const hash = crypto.createHash('sha1').update(`${voice}|${DEFAULT_RATE}|${chunk}`).digest('hex').slice(0, 20);
+      return { text: chunk, file: path.join(cacheDir, `${hash}.mp3`), url: `/api/tts/audio/${hash}.mp3` };
+    });
+    const missing = segments.filter((segment) => !(fs.existsSync(segment.file) && fs.statSync(segment.file).size > 512));
 
-    if (fs.existsSync(audioFile) && fs.statSync(audioFile).size > 512) {
-      reply(res, 200, { ok: true, url: audioUrl, voice, cached: true, chars: spoken.length });
-      return true;
-    }
+    const payload = (cached: boolean) => ({
+      ok: true,
+      url: segments[0].url,
+      segments: segments.map((segment) => segment.url),
+      chars: spoken.length,
+      chunks: segments.length,
+      voice,
+      cached,
+    });
+
+    if (!missing.length) { reply(res, 200, payload(true)); return true; }
 
     const job = queue.then(async () => {
       fs.mkdirSync(cacheDir, { recursive: true });
-      const textFile = path.join(cacheDir, `${key}.txt`);
-      fs.writeFileSync(textFile, spoken, 'utf8');
-      try {
-        await synthesize(textFile, audioFile, voice, DEFAULT_RATE);
-      } finally {
-        try { fs.unlinkSync(textFile); } catch { /* already removed */ }
+      // Three at a time: each call pays a Python start plus a websocket leg, and
+      // the service tolerates a short burst without throttling.
+      for (let index = 0; index < missing.length; index += PARALLEL_CHUNKS) {
+        const batch = missing.slice(index, index + PARALLEL_CHUNKS);
+        await Promise.all(batch.map(async (segment) => {
+          const textFile = path.join(cacheDir, `${path.basename(segment.file, '.mp3')}.txt`);
+          fs.writeFileSync(textFile, segment.text, 'utf8');
+          try {
+            await synthesize(textFile, segment.file, voice, DEFAULT_RATE);
+          } finally {
+            try { fs.unlinkSync(textFile); } catch { /* already removed */ }
+          }
+        }));
       }
-      return { ok: true, url: audioUrl, voice, cached: false, chars: spoken.length };
+      return payload(false);
     });
     // Keep the chain alive even when this call fails, or one error blocks speech.
     queue = job.catch(() => undefined);

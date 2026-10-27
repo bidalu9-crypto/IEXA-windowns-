@@ -1,9 +1,16 @@
-/* Read-aloud button: progress is a bottom bar that follows real playback time,
-   so the control reports what the audio is doing instead of guessing. */
+/* Read-aloud button: a play triangle that becomes a rounded stop square while it
+   speaks, plus a bottom bar that follows real playback time.
+   No `overflow: hidden` here: the button's own `::after` tooltip is drawn above
+   the box and would be clipped along with the progress bar. */
 .assistant-message-action[data-action="speak"] {
   position: relative;
-  overflow: hidden;
 }
+
+/* Only one shape is in the box at a time; the swap is a state change, not a
+   second icon layered underneath. */
+.assistant-message-action[data-action="speak"] .speak-stop { display: none; }
+.assistant-message-action[data-action="speak"].is-speaking .speak-play { display: none; }
+.assistant-message-action[data-action="speak"].is-speaking .speak-stop { display: block; }
 
 .assistant-message-action[data-action="speak"].is-loading > .ui-icon {
   animation: speech-pulse 1s ease-in-out infinite;
@@ -13,21 +20,23 @@
   color: var(--accent);
 }
 
-.assistant-message-action[data-action="speak"].is-speaking > .ui-icon {
-  animation: speech-breathe 2.2s ease-in-out infinite;
-}
-
-/* Filled by the timeupdate handler: 0–100 across the clip. */
-.assistant-message-action[data-action="speak"].is-speaking::after {
+/* Filled by the timeupdate handler: 0–100 across the whole reply, not one clip.
+   `::before`, not `::after`: every action button already uses `::after` for its
+   title tooltip, and reusing it turned the 2px bar into a padded white block. */
+.assistant-message-action[data-action="speak"].is-speaking::before {
   content: '';
   position: absolute;
-  left: 0;
-  bottom: 0;
+  left: 2px;
+  bottom: 1px;
   height: 2px;
-  width: calc(var(--speech-progress, 0) * 1%);
+  /* Inset by the button's corner radius instead of clipping the whole button,
+     so the bar never pokes past the rounded bottom edge. */
+  width: max(0px, calc(var(--speech-progress, 0) * 1% - 4px));
+  border-radius: 1px;
   background: currentColor;
   opacity: .7;
   transition: width .25s linear;
+  pointer-events: none;
 }
 
 .assistant-message-action[data-action="speak"].is-failed {
@@ -39,14 +48,8 @@
   50% { opacity: 1; }
 }
 
-@keyframes speech-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .assistant-message-action[data-action="speak"].is-loading > .ui-icon,
-  .assistant-message-action[data-action="speak"].is-speaking > .ui-icon {
+  .assistant-message-action[data-action="speak"].is-loading > .ui-icon {
     animation: none;
   }
 }
