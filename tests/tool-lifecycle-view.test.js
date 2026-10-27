@@ -37,7 +37,7 @@ test('unknown or malformed events are ignored without touching DOM',t=>{
 function stopFixture(fetchImpl){
  const start=appSource.indexOf('async function stopProcessing(options) {');const end=appSource.indexOf('\n}\n',start)+2;assert.ok(start>=0&&end>start);
  const runtime={};let processingCalls=0;const errors=[];const calls=[];
- const sandbox={protectLiveTurnDom(){},runtimeForSession:()=>runtime,currentSessionId:'s 1',hideWaitingIndicator(){},API_BASE:'',fetch:async(...args)=>{calls.push(args);return fetchImpl(...args);},statusText:{textContent:''},addError:e=>errors.push(e),setProcessing:()=>processingCalls++,finishTaskSummary:()=>assert.fail('cleanup not finished')};
+ const sandbox={protectLiveTurnDom(){},runtimeForSession:()=>runtime,currentSessionId:'s 1',hideWaitingIndicator(){},API_BASE:'',fetch:async(...args)=>{calls.push(args);return fetchImpl(...args);},statusText:{textContent:''},addError:e=>errors.push(e),setProcessing:()=>processingCalls++,finishTaskSummary:()=>assert.fail('cleanup not finished'),IexaI18n:{t:key=>({'msg.pausing':'正在暂停…'}[key]||key)}};
  vm.createContext(sandbox);vm.runInContext(appSource.slice(start,end),sandbox);return {sandbox,runtime,errors,calls,get processingCalls(){return processingCalls;}};
 }
 test('the stop button parks the turn so it can be continued',async()=>{

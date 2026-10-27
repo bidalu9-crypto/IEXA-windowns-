@@ -979,6 +979,17 @@
     'deliverable.editedPrefix': { zh: '已编辑 ', en: 'Edited ', ja: '編集済み ' },
     /* ---- tool stream ---- */
     'tool.meta.jobOutput': { zh: '任务输出', en: 'Job output', ja: 'ジョブ出力' },
+    /* ---- status bar and voice ---- */
+    'msg.interrupted': { zh: '已中断', en: 'Interrupted', ja: '中断しました' },
+    'msg.paused': { zh: '已暂停', en: 'Paused', ja: '一時停止しました' },
+    'msg.pausing': { zh: '正在暂停…', en: 'Pausing…', ja: '一時停止中…' },
+    'msg.steerQueued': { zh: '立即插入未成功，已转为排队', en: 'Could not insert right away — queued instead', ja: '即時挿入できなかったため、待機に切り替えました' },
+    'msg.steerQueueFallback': { zh: '插入未送达，已转为排队', en: 'The insert did not go through — queued instead', ja: '挿入が届かなかったため、待機に切り替えました' },
+    'msg.uploading': { zh: '上传 {name}：{percent}%', en: 'Uploading {name}: {percent}%', ja: '{name} をアップロード中：{percent}%' },
+    'voice.denied': { zh: '麦克风权限被拒绝', en: 'Microphone access denied', ja: 'マイクの権限が拒否されました' },
+    'voice.failed': { zh: '语音输入失败：{error}', en: 'Voice input failed: {error}', ja: '音声入力に失敗しました：{error}' },
+    'voice.deniedHint': { zh: '请在系统设置中允许麦克风访问。', en: 'Allow microphone access in system settings.', ja: 'システム設定でマイクへのアクセスを許可してください。' },
+    'voice.input': { zh: '语音输入', en: 'Voice input', ja: '音声入力' },
   };
 
   const pick = (lang) => {
