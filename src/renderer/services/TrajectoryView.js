@@ -352,7 +352,18 @@
     sessionId = id;
     const token = ++loadToken;
 
-    let messages = messagesFromRuntime();
+    // The runtime snapshot is captured when the conversation is first mounted
+    // and never grows with the turn, so a forced refresh has to go back to the
+    // persisted session — otherwise the button re-renders the same array and
+    // looks dead.
+    let messages = force ? null : messagesFromRuntime();
+    const button = el.refresh;
+    if (button) {
+      button.disabled = true;
+      button.classList.add('is-busy');
+      button.dataset.label = button.textContent;
+      button.textContent = t('trajectory.refreshing', 'Refreshing…');
+    }
     if (!messages) {
       try {
         const response = await fetch(`${typeof API_BASE === 'string' ? API_BASE : ''}/api/sessions/${encodeURIComponent(id)}`);
@@ -360,13 +371,47 @@
         const data = await response.json();
         messages = Array.isArray(data.messages) ? data.messages : [];
       } catch {
-        messages = [];
+        messages = force ? messagesFromRuntime() : null;
+        messages = messages || [];
       }
     }
     if (token !== loadToken) return;
     records = build(messages || []);
-    shown = WINDOW;
+    shown = Math.max(shown, WINDOW);
     render();
+    if (button) {
+      button.disabled = false;
+      button.classList.remove('is-busy', 'has-updates');
+      button.textContent = button.dataset.label || t('trajectory.refresh', 'Refresh');
+    }
+  }
+
+  function refreshIfVisible() {
+    if (view !== 'trajectory') return;
+    // The runtime snapshot does not grow with the turn, so the turn-end refresh
+    // has to read the persisted session as well.
+    refresh(true);
+  }
+
+  /** Called when a session switch makes the current ledger stale. */
+  function switchSession() {
+    records = [];
+    shown = WINDOW;
+    selectedSeq = 0;
+    if (ui) {
+      ui.list.replaceChildren();
+      ui.inspector.hidden = true;
+      ui.count.textContent = '';
+    }
+    if (view === 'trajectory') refresh(true);
+  }
+
+  /** A turn is still running: the persisted session lags, so flag the button
+   *  instead of refetching the whole conversation on every tool result. */
+  function markStale() {
+    if (view !== 'trajectory' || !ui || !ui.refresh) return;
+    ui.refresh.classList.add('has-updates');
+    ui.refresh.title = t('trajectory.pendingUpdates', 'New records arrive when the turn ends');
   }
 
   function focusCall(callId) {
@@ -410,7 +455,7 @@
     ensure();
   }
 
-  window.IexaTrajectory = { init, setView, refresh, focusCall, reset, getRecords: () => records };
+  window.IexaTrajectory = { init, setView, refresh, refreshIfVisible, switchSession, markStale, focusCall, reset, getRecords: () => records };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
 })();

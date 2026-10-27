@@ -58,6 +58,27 @@ test('the ledger projects user, thinking, tool and reply records', async () => {
   }
 });
 
+test('a forced refresh re-reads the session even when a runtime snapshot exists', async () => {
+  const { dom, w } = fixture(MESSAGES);
+  try {
+    const fresh = MESSAGES.concat([
+      { role: 'user', content: '补充要求', timestamp: 1793000010000 },
+      { role: 'assistant', content: '新的回复', timestamp: 1793000015000 },
+    ]);
+    w.fetch = async () => ({ ok: true, json: async () => ({ messages: fresh }) });
+    // A stale snapshot is exactly what the first cut rendered forever.
+    w.sessionRuntimes = new Map([['s1', { historyMessages: MESSAGES.slice() }]]);
+    w.IexaTrajectory.setView('trajectory');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const count = Number(w.document.getElementById('trajectoryCount').textContent);
+    assert.equal(count, 6, 'setView must fetch the persisted session, not the stale snapshot');
+    const button = w.document.getElementById('trajectoryRefresh');
+    assert.equal(button.disabled, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('switching back restores the conversation surface', async () => {
   const { dom, w } = fixture(MESSAGES);
   try {

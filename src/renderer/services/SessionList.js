@@ -748,6 +748,7 @@ async function switchSession(id, updateList = true) {
   }
   currentSessionId = id;
   visibleSessionId = id;
+  window.IexaTrajectory?.switchSession?.();
   window.IexaPlanDock?.reset();
   window.IexaQueueDock?.reset();
   window.IexaTrajectory?.reset();

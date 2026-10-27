@@ -23,6 +23,16 @@
       header.setAttribute('aria-expanded', String(open));
       body.style.display = open ? 'block' : 'none';
       block.classList.toggle('is-expanded', open);
+      // DSH opens a settled call on its result. The command that produced it
+      // is one tab away when the reader wants to check the arguments.
+      if (open && window.IexaToolCard && body.querySelector('.tool-tabs')) {
+        const current = block.dataset.activeToolTab;
+        const pane = body.querySelector('[data-pane="output"]');
+        const hasResult = block.dataset.hasResult === '1' || Boolean(pane && pane.textContent.trim());
+        if (!current || current === 'input') {
+          window.IexaToolCard.showTab(block, hasResult ? 'output' : 'input');
+        }
+      }
     });
     oldHeader.replaceWith(header);
     // The row already leads with its variant verb and trails its argument
@@ -48,6 +58,25 @@
   }
   function prepareDetail(block, name, input) {
     const body = block.querySelector('.tool-body');
+    // New cards own one surface: input/output/diff tabs. The legacy console
+    // panel stacked a second Shell box above those tabs and pushed the real
+    // output below the fold, so it is skipped when the card has tabs.
+    if (body.querySelector('.tool-tabs')) {
+      const output = body.querySelector('[data-pane="output"]');
+      if (output) {
+        const isShell = name === 'shell_execute' || name.startsWith('terminal_');
+        const preview = isShell ? input.command : '';
+        let command = output.querySelector('.tool-command');
+        if (typeof preview === 'string' && preview.trim()) {
+          if (!command) { command = make('pre', 'tool-command'); output.prepend(command); }
+          command.textContent = '$ ' + preview.trim();
+          command.hidden = false;
+        } else if (command) {
+          command.remove();
+        }
+      }
+      return;
+    }
     let panel = body.querySelector('.tool-detail-panel');
     if (!panel) {
       panel = make('section', 'tool-detail-panel');
@@ -175,8 +204,8 @@
     }
     if (agentOperations[name] && result !== undefined) {
       const actions = block.querySelector('.tool-detail-actions');
-      actions.querySelectorAll('.tool-agent-link').forEach(button => button.remove());
-      if (result.success === true && typeof result.output === 'string') {
+      actions?.querySelectorAll('.tool-agent-link').forEach(button => button.remove());
+      if (actions && result.success === true && typeof result.output === 'string') {
         try {
           const data = JSON.parse(result.output);
           const agents = Array.isArray(data.agents) ? data.agents : data.id ? [data] : [];

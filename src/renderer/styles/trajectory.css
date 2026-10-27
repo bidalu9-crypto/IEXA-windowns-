@@ -193,3 +193,6 @@
   .trajectory-list { padding: 8px 10px 20px; }
   .trajectory-inspector { position: absolute; inset: 0; width: auto; z-index: 3; }
 }
+.trajectory-refresh.is-busy { opacity: .55; cursor: progress; }
+.trajectory-refresh.has-updates { position: relative; color: var(--accent); }
+.trajectory-refresh.has-updates::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }

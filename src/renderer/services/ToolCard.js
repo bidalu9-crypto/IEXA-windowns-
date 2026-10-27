@@ -23,7 +23,7 @@
     for (const pane of body.querySelectorAll('[data-pane]')) {
       pane.hidden = pane.dataset.pane !== name;
     }
-    block.dataset.toolTab = name;
+    block.dataset.activeToolTab = name;
   }
 
   /* The tab strip and its panes. Live tool cards and restored history must
@@ -61,7 +61,10 @@
   }
 
   document.addEventListener('click', (event) => {
-    const tab = event.target.closest && event.target.closest('[data-tool-tab]');
+    // Only the tab buttons own data-tool-tab. Matching the bare attribute also
+    // hit the block itself once a tab had been chosen, which swallowed the
+    // header click and made the card impossible to collapse.
+    const tab = event.target.closest && event.target.closest('.tool-tab[data-tool-tab]');
     if (tab) {
       event.preventDefault();
       event.stopPropagation();

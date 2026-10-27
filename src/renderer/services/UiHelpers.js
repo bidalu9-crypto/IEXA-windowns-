@@ -819,11 +819,11 @@ function setProcessing(processing) {
     statusText.textContent = IexaI18n.t('msg.ready');
   }
   updateComposerForQueue();
+  if (!processing) window.IexaTrajectory?.refreshIfVisible?.();
   if (currentSessionId) {
     renderSessionList();
   }
-  if (!processing && pendingCurrentSessionSync && currentSessionId === visibleSessionId) {
-    pendingCurrentSessionSync = false;
+  if (!processing && pendingCurrentSessionSync && currentSessionId === visibleSessionId) {    pendingCurrentSessionSync = false;
     const completedSessionId = currentSessionId;
     window.setTimeout(() => { if (visibleSessionId === completedSessionId) syncConversationMetadata(true, completedSessionId); }, 0);
   }

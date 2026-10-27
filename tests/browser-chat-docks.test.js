@@ -137,6 +137,21 @@ test('real browser: trajectory tab, composer docks and the folded turn card', { 
   assert.deepEqual(trajectory.kinds, ['assistant', 'thinking', 'tool', 'user']);
   assert.equal(trajectory.messagesHidden, true);
 
+  // The refresh button has to re-read the persisted session, not re-render the
+  // snapshot taken when the conversation was mounted. Append a turn behind the
+  // page's back, click 刷新, and require the ledger to grow.
+  const beforeRefresh = Number(trajectory.count);
+  const sessionFile = path.join(workspace, '.iexa-sessions', sessionId + '.json');
+  const stored = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+  stored.push({ role: 'user', content: '再补一条要求', timestamp: at + 9000 });
+  fs.writeFileSync(sessionFile, JSON.stringify(stored));
+  await evaluate(`document.getElementById('trajectoryRefresh').click(); true`);
+  await wait(`Number(document.getElementById('trajectoryCount').textContent) > ${beforeRefresh}`);
+  const afterRefresh = await evaluate(`({ count: Number(document.getElementById('trajectoryCount').textContent), label: document.getElementById('trajectoryRefresh').textContent, disabled: document.getElementById('trajectoryRefresh').disabled })`);
+  assert.ok(afterRefresh.count > beforeRefresh, 'refresh re-read the session: ' + beforeRefresh + ' -> ' + afterRefresh.count);
+  assert.equal(afterRefresh.disabled, false, 'the refresh button is usable again');
+  assert.notEqual(afterRefresh.label, 'Refreshing…');
+
   // Selecting a tool row opens the inspector with its input.
   await evaluate(`document.querySelector('.trajectory-row[data-call-id="call_edit"]').click(); true`);
   await wait("document.getElementById('trajectoryInspector').hidden === false");

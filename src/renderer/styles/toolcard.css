@@ -116,3 +116,4 @@
 
 .file-action-description { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; font-size: calc(11px * var(--ui-font-scale, 1)); color: var(--text-muted); }
 .turn-deliverable-files .file-action-card { height: 58px; flex: 1 1 200px; max-width: 240px; }
+.tool-pane[data-pane="output"] .tool-command { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--code-bg); color: var(--text-secondary); font: calc(.72rem * var(--ui-font-scale, 1))/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
