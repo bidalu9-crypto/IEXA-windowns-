@@ -256,8 +256,7 @@ function ensureAnswerContentEl() {
 
 function stableMarkdownSplit(source) {
   // The split sits after the last blank line that is outside a fenced block.
-  // Everything before it never changes again during this stream, so its HTML
-  // can be parsed once and reused.
+  // Everything before it never changes again during this stream.
   let inFence = false;
   let split = 0;
   let position = 0;
@@ -269,17 +268,52 @@ function stableMarkdownSplit(source) {
   return split;
 }
 
+// A settled chunk stays small enough to re-render inside a frame. Re-parsing
+// the whole prefix whenever a paragraph closes was the one remaining spike in
+// a long reply: at 16k characters that single frame cost ~30ms.
+const STREAM_CHUNK = 1200;
+
+function streamingChunks(stable) {
+  const chunks = [];
+  let current = '';
+  let inFence = false;
+  const lines = stable.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence;
+    current += (index ? '\n' : '') + line;
+    if (!inFence && /^\s*$/.test(line) && current.length >= STREAM_CHUNK) {
+      chunks.push(current);
+      current = '';
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 function streamingMarkdownHtml(contentEl, source) {
+  // Short replies are cheaper to render whole than to bookkeep.
   if (source.length < 1500) return null;
   const split = stableMarkdownSplit(source);
-  if (split <= 0 || split >= source.length) return null;
-  const stable = source.slice(0, split);
-  let cached = contentEl._streamStable;
-  if (!cached || cached.source !== stable) {
-    cached = { source: stable, html: renderSafeMarkdown(stable, { highlight: false }) };
-    contentEl._streamStable = cached;
+  if (split <= 0) return null;
+  const texts = streamingChunks(source.slice(0, split));
+  let cache = contentEl._streamChunks;
+  if (!cache || !Array.isArray(cache.texts)) {
+    cache = { texts: [], html: [] };
+    contentEl._streamChunks = cache;
   }
-  return cached.html + renderSafeMarkdown(source.slice(split), { highlight: false });
+  // A chunk that already closed never changes again, so its HTML is reused
+  // verbatim; only the chunk that just closed is rendered.
+  let shared = 0;
+  while (shared < texts.length && shared < cache.texts.length && texts[shared] === cache.texts[shared]) shared += 1;
+  const html = new Array(texts.length);
+  for (let index = 0; index < texts.length; index += 1) {
+    html[index] = index < shared ? cache.html[index] : renderSafeMarkdown(texts[index], { highlight: false });
+  }
+  cache.texts = texts;
+  cache.html = html;
+  const live = source.slice(split);
+  return html.join('') + (live ? renderSafeMarkdown(live, { highlight: false }) : '');
 }
 
 function renderMarkdownContent(contentEl, markdown, finalRender = false) {
@@ -299,7 +333,7 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
       const partial = streamingMarkdownHtml(contentEl, source);
       window.IexaChatPresentation.renderStream(contentEl, partial || renderSafeMarkdown(source, { highlight: false }));
     } else {
-      contentEl._streamStable = null;
+      contentEl._streamChunks = null;
       contentEl.innerHTML = renderSafeMarkdown(source, { highlight: finalRender });
     }
     contentEl._renderedMarkdownFinal = finalRender;
