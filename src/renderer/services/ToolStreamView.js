@@ -605,6 +605,7 @@ function handleToolInput(name, args, id) {
   if (nameEl) {
     const live = toolLiveTitle(name || info.name, args);
     nameEl.textContent = live;
+    nameEl.title = live;
     if (typeof args === 'string' && extractPartialStringValue('tool_title', args)) {
       nameEl.dataset.locked = '1';
     } else if (args && typeof args === 'object' && args.tool_title) {
@@ -648,6 +649,7 @@ function handleToolComplete(id, name, args) {
   const nameEl = info.block.querySelector('.tool-name');
   if (nameEl) {
     nameEl.textContent = toolLiveTitle(name || info.name, args);
+    nameEl.title = nameEl.textContent;
     if (args && args.tool_title) nameEl.dataset.locked = '1';
   }
 
