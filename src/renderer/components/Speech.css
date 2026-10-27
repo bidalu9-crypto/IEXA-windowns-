@@ -1,0 +1,52 @@
+/* Read-aloud button: progress is a bottom bar that follows real playback time,
+   so the control reports what the audio is doing instead of guessing. */
+.assistant-message-action[data-action="speak"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.assistant-message-action[data-action="speak"].is-loading > .ui-icon {
+  animation: speech-pulse 1s ease-in-out infinite;
+}
+
+.assistant-message-action[data-action="speak"].is-speaking {
+  color: var(--accent);
+}
+
+.assistant-message-action[data-action="speak"].is-speaking > .ui-icon {
+  animation: speech-breathe 2.2s ease-in-out infinite;
+}
+
+/* Filled by the timeupdate handler: 0–100 across the clip. */
+.assistant-message-action[data-action="speak"].is-speaking::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: calc(var(--speech-progress, 0) * 1%);
+  background: currentColor;
+  opacity: .7;
+  transition: width .25s linear;
+}
+
+.assistant-message-action[data-action="speak"].is-failed {
+  color: var(--error);
+}
+
+@keyframes speech-pulse {
+  0%, 100% { opacity: .35; }
+  50% { opacity: 1; }
+}
+
+@keyframes speech-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-message-action[data-action="speak"].is-loading > .ui-icon,
+  .assistant-message-action[data-action="speak"].is-speaking > .ui-icon {
+    animation: none;
+  }
+}

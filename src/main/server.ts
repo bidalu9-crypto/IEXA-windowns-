@@ -66,6 +66,7 @@ import { handleRuntimeRoute } from './api/RuntimeRoutes';
 import { handleBalanceRoute } from './api/BalanceRoutes';
 import { fetchProviderBalance } from './providers/BalanceService';
 import { handleFileRoute, FileRouteContext, MIME_TYPES, isPrivateFile, sanitizeFileName } from './api/FileRoutes';
+import { handleTtsRoute } from './api/TtsRoutes';
 import { handleGitRoute, GitRouteContext } from './api/GitRoutes';
 import { handleSkillRoute, SkillRouteContext } from './api/SkillRoutes';
 import { handleTerminalRoute, TerminalRouteContext } from './api/TerminalRoutes';
@@ -3494,12 +3495,11 @@ ${recentMemories}
 
     // ===== MCP server catalog and desktop-side tool calls =====
 
-    // ===== Local extension plugins: install, lifecycle, tools and sandboxed UI =====
-
-    // Feature routes live in api/; each reports whether it owned the request.
+    // ===== Local extension plugins: install, lifecycle, tools and sandboxed UI =====\; each reports whether it owned the request.
     // Order matters only where prefixes overlap, which they do not here.
     if (await handleGitRoute(req, res, url, gitRouteContext)) return;
     if (await handleFileRoute(req, res, url, fileRouteContext)) return;
+    if (await handleTtsRoute(req, res, url, { workspaceDir: WORKSPACE_DIR })) return;
 
     if (url.pathname.startsWith('/api/')) throw new HttpError(404, 'API 不存在或方法不匹配。');
     serveStatic(req, res);

@@ -92,7 +92,7 @@ test('real browser: an exchange is shared as JSON and as plain text', { skip: !b
   // The button sits after 重新生成, which is where the screenshot pointed.
   assert.deepEqual(
     await evaluate(`Array.from(document.querySelectorAll('.message.assistant .assistant-message-action')).map((b) => b.dataset.action)`),
-    ['translate', 'copy', 'retry', 'share', 'doc']);
+    ['translate', 'copy', 'retry', 'share', 'doc', 'speak']);
 
   // Capture what the page would copy or download.
   await evaluate(`(() => {

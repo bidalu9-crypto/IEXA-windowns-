@@ -174,7 +174,10 @@ function appendAssistantMessageActions(messageEl) {
     <button type="button" class="assistant-message-action" data-action="copy" title="复制回复" aria-label="复制回复">${uiIcon('copy')}</button>
     <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>
     <button type="button" class="assistant-message-action" data-action="share" title="分享这条回复" aria-label="分享这条回复" aria-haspopup="menu" aria-expanded="false">${uiIcon('share')}</button>
-    <button type="button" class="assistant-message-action" data-action="doc" title="在文档编辑器中打开（复制一份，不改动这条回复）" aria-label="在文档编辑器中打开">${uiIcon('file')}</button>`;
+    <button type="button" class="assistant-message-action" data-action="doc" title="在文档编辑器中打开（复制一份，不改动这条回复）" aria-label="在文档编辑器中打开">${uiIcon('file')}</button>
+    <button type="button" class="assistant-message-action" data-action="speak" title="朗读这条回复（云扬）" aria-label="朗读这条回复" aria-pressed="false">
+      <svg class="ui-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 9a4 4 0 0 1 0 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M17.6 6.6a7.5 7.5 0 0 1 0 10.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>`;
   actions.querySelector('[data-action="translate"]').addEventListener('click', function () {
     translateAssistantMessage(messageEl, this);
   });
@@ -193,6 +196,11 @@ function appendAssistantMessageActions(messageEl) {
     event.preventDefault();
     event.stopPropagation();
     window.IexaDoc?.openFromMessage(messageEl);
+  });
+  actions.querySelector('[data-action="speak"]').addEventListener('click', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    window.IexaSpeech?.toggle(messageEl, this);
   });
   footer.appendChild(actions);
   messageEl.appendChild(footer);
