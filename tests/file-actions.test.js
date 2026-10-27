@@ -26,6 +26,37 @@ function fixture() {
   return { dom, w, calls };
 }
 
+test('a file inside the open project offers a code preview', () => {
+  const { dom, w } = fixture();
+  try {
+    const opened = [];
+    w.IexaFilePreview = { root: () => 'C:/work', open: (rel) => opened.push(rel) };
+    const card = w.IexaFileActions.create({ name: 'app.js', absolutePath: 'C:/work/src/app.js' });
+    w.document.body.appendChild(card);
+    card.querySelector('.file-action-main').click();
+    const items = [...card.querySelectorAll('.file-action-item')];
+    assert.equal(items[0].textContent, 'Preview');
+    items[0].click();
+    assert.deepEqual(opened, ['src/app.js']);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a file outside the project has no preview entry', () => {
+  const { dom, w } = fixture();
+  try {
+    w.IexaFilePreview = { root: () => 'C:/work', open: () => {} };
+    const card = w.IexaFileActions.create({ name: 'notes.txt', absolutePath: 'D:/elsewhere/notes.txt' });
+    w.document.body.appendChild(card);
+    card.querySelector('.file-action-main').click();
+    const items = [...card.querySelectorAll('.file-action-item')].map((item) => item.textContent);
+    assert.equal(items.includes('Preview'), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('a runnable artifact offers open, reveal, run and copy', () => {
   const { dom, w } = fixture();
   try {

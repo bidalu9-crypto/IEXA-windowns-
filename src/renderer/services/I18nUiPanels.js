@@ -517,10 +517,20 @@
 
     /* ---- file action card ---- */
     'fileActions.open': { zh: '打开', en: 'Open', ja: '開く' },
+    'fileActions.preview': { zh: '预览代码', en: 'Preview code', ja: 'コードをプレビュー' },
     'fileActions.reveal': { zh: '打开所在文件夹', en: 'Open containing folder', ja: '格納フォルダーを開く' },
     'fileActions.run': { zh: '在终端运行', en: 'Run in terminal', ja: 'ターミナルで実行' },
     'fileActions.copyPath': { zh: '复制路径', en: 'Copy path', ja: 'パスをコピー' },
     'fileActions.runConfirm': { zh: '将在 IEXA 之外运行 {name}，是否继续？', en: 'Run {name} outside IEXA?', ja: 'IEXA の外で {name} を実行しますか？' },
+
+    /* ---- code preview ---- */
+    'codePreview.meta': { zh: '{language} · {lines} 行', en: '{language} · {lines} lines', ja: '{language} · {lines} 行' },
+    'codePreview.plainText': { zh: '纯文本', en: 'Plain text', ja: 'プレーンテキスト' },
+    'codePreview.wrap': { zh: '自动换行', en: 'Wrap lines', ja: '行を折り返す' },
+    'codePreview.copy': { zh: '复制全文', en: 'Copy all', ja: 'すべてコピー' },
+    'codePreview.openExternal': { zh: '用默认程序打开', en: 'Open in default app', ja: '既定のアプリで開く' },
+    'codePreview.close': { zh: '关闭预览', en: 'Close preview', ja: 'プレビューを閉じる' },
+    'codePreview.showAll': { zh: '显示全部 {total} 行', en: 'Show all {total} lines', ja: '全 {total} 行を表示' },
   };
 
   const table = root.IexaI18nUiTable = root.IexaI18nUiTable || {};

@@ -56,6 +56,18 @@
     }
   }
 
+  /** Project-relative path when the file sits inside the open project. */
+  function windowsPreviewPath(absolutePath) {
+    const root = window.IexaFilePreview && window.IexaFilePreview.root ? window.IexaFilePreview.root() : null;
+    if (!root || !absolutePath) return '';
+    const normalize = (value) => String(value).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const base = normalize(root);
+    const target = normalize(absolutePath);
+    if (target === base) return '';
+    if (!target.startsWith(base + '/')) return '';
+    return String(absolutePath).slice(root.length + 1).replace(/\\/g, '/');
+  }
+
   function create(options) {
     const { name, absolutePath, href, description } = options || {};
     const card = document.createElement('div');
@@ -109,12 +121,18 @@
     };
 
     const canRun = RUNNABLE.test(String(name || absolutePath || ''));
-    menu.append(
+    const previewPath = windowsPreviewPath(absolutePath);
+    const items = [];
+    if (previewPath) {
+      items.push(item(t('fileActions.preview', 'Preview'), () => window.IexaFilePreview.open(previewPath)));
+    }
+    items.push(
       item(t('fileActions.open', 'Open'), () => openFile(absolutePath)),
       item(t('fileActions.reveal', 'Open containing folder'), () => revealFile(absolutePath)),
     );
-    if (canRun) menu.appendChild(item(t('fileActions.run', 'Run in terminal'), () => runFile(absolutePath, name), 'is-danger'));
-    menu.appendChild(item(t('fileActions.copyPath', 'Copy path'), () => copyPath(absolutePath)));
+    if (canRun) items.push(item(t('fileActions.run', 'Run in terminal'), () => runFile(absolutePath, name), 'is-danger'));
+    items.push(item(t('fileActions.copyPath', 'Copy path'), () => copyPath(absolutePath)));
+    menu.append(...items);
 
     function close() {
       menu.hidden = true;

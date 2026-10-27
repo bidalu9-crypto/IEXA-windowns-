@@ -586,6 +586,10 @@ async function openFilePreview(relPath) {
   const nameEl = document.getElementById('filesPreviewName');
   const bodyEl = document.getElementById('filesPreviewBody');
   if (!box || !bodyEl || !projectRoot) return;
+  // Reaching this from a chat card must not open a panel the user has hidden.
+  if (document.body.classList.contains('right-panel-hidden')) {
+    document.getElementById('rightPanelToggle')?.click();
+  }
   try {
     filesSelectedPath = relPath;
     const ext = (relPath.split('.').pop() || '').toLowerCase();
@@ -601,7 +605,17 @@ async function openFilePreview(relPath) {
     if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.readFailed'));
     box.dataset.open = 'true';
     box.style.display = 'flex';
-    if (nameEl) nameEl.textContent = data.name || relPath;
+    const name = data.name || relPath.split('/').pop() || relPath;
+    if (window.IexaCodePreview) {
+      window.IexaCodePreview.open({
+        path: relPath,
+        absolute: projectRoot ? `${projectRoot}/${relPath}`.replace(/\/+/g, '/') : '',
+        name,
+        content: data.content || '',
+      });
+      return;
+    }
+    if (nameEl) nameEl.textContent = name;
     bodyEl.textContent = data.content || '';
   } catch (err) {
     box.dataset.open = 'true';
@@ -729,4 +743,15 @@ function initFilesPanel() {
 function refreshFilesPanelSoft() {
   if (projectRoot) loadFilesList(filesCurrentPath, true).catch(() => {});
 }
+
+// Other surfaces (the transcript's file cards, the tool rows) open a file by
+// asking the panel that owns the project root, so the relative path stays in
+// one place instead of being re-derived by every caller. Wrapped so this file
+// still only contains declarations and IIFEs at the top level.
+(function () {
+  window.IexaFilePreview = {
+    open: (relPath) => openFilePreview(relPath),
+    root: () => projectRoot,
+  };
+})();
 
