@@ -38,7 +38,7 @@ function stopFixture(fetchImpl){
  const start=appSource.indexOf('async function stopProcessing(options) {');const end=appSource.indexOf('\n}\n',start)+2;assert.ok(start>=0&&end>start);
  const runtime={};let processingCalls=0;const errors=[];const calls=[];
  const sandbox={protectLiveTurnDom(){},runtimeForSession:()=>runtime,currentSessionId:'s 1',hideWaitingIndicator(){},API_BASE:'',fetch:async(...args)=>{calls.push(args);return fetchImpl(...args);},statusText:{textContent:''},addError:e=>errors.push(e),setProcessing:()=>processingCalls++,finishTaskSummary:()=>assert.fail('cleanup not finished'),IexaI18n:{t:key=>({'msg.pausing':'正在暂停…'}[key]||key)}};
- vm.createContext(sandbox);vm.runInContext(appSource.slice(start,end),sandbox);return {sandbox,runtime,errors,calls,get processingCalls(){return processingCalls;}};
+ sandbox.setStatusText=(text)=>{sandbox.statusText.textContent=text;};vm.createContext(sandbox);vm.runInContext(appSource.slice(start,end),sandbox);return {sandbox,runtime,errors,calls,get processingCalls(){return processingCalls;}};
 }
 test('the stop button parks the turn so it can be continued',async()=>{
  const f=stopFixture(async()=>({ok:true}));await f.sandbox.stopProcessing();assert.equal(f.calls[0][0],'/api/pause?sessionId=s%201');assert.equal(f.calls[0][1].method,'POST');assert.equal(f.runtime.pausePending,true);assert.equal(f.runtime.turnStopPending,undefined,'pausing is not a cancellation');assert.equal(f.processingCalls,0);assert.match(f.sandbox.statusText.textContent,/正在暂停/);

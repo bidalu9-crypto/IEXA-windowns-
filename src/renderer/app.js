@@ -486,7 +486,7 @@ function syncActiveSessionUI() {
   chatInput.disabled = false;
   if (typeof attachBtn !== 'undefined' && attachBtn) attachBtn.disabled = false;
   statusDot.className = processing ? 'status-dot processing' : 'status-dot';
-  statusText.textContent = processing ? IexaI18n.t('msg.processing') : IexaI18n.t('msg.ready');
+  setStatusText(processing ? IexaI18n.t('msg.processing') : IexaI18n.t('msg.ready'));
   if (latestContextStatus) applySessionContextStatus(currentSessionId);
   else resetContextStatus();
   updateComposerForQueue();
@@ -1028,7 +1028,7 @@ chatInput.addEventListener('keydown', (e) => {
   recognition = new SpeechRecognition(); recognition.continuous = true; recognition.interimResults = true; recognition.lang = navigator.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : (navigator.language || 'en-US');
   recognition.onstart = () => { clearTimeout(stopTimer); if (voiceState === 'stopping') { recognition.abort(); return; } voiceState = 'listening'; baseText = chatInput.value.trimEnd(); interimText = ''; setVoiceState('listening', '正在聆听，点击停止'); chatInput.classList.add('is-voice-live'); chatInput.focus(); };
   recognition.onresult = event => { let finalText = '', liveText = ''; for (let i = event.resultIndex; i < event.results.length; i++) { const text = event.results[i][0].transcript; if (event.results[i].isFinal) finalText += text; else liveText += text; } if (finalText) baseText = `${baseText}${baseText ? ' ' : ''}${finalText}`; interimText = liveText; internalUpdate = true; chatInput.value = `${baseText}${interimText ? `${baseText ? ' ' : ''}${interimText}` : ''}`; chatInput.dispatchEvent(new Event('input', { bubbles: true })); internalUpdate = false; };
-  recognition.onerror = event => { clearTimeout(stopTimer); const intentional = voiceState === 'stopping' || event.error === 'aborted'; voiceState = 'idle'; chatInput.classList.remove('is-voice-live'); if (!intentional) { setVoiceState('error', event.error === 'not-allowed' ? IexaI18n.t('voice.denied') : IexaI18n.t('voice.failed', { error: event.error })); statusText.textContent = event.error === 'not-allowed' ? IexaI18n.t('voice.deniedHint') : IexaI18n.t('voice.failed', { error: event.error }); } else setVoiceState('idle', IexaI18n.t('voice.input')); };
+  recognition.onerror = event => { clearTimeout(stopTimer); const intentional = voiceState === 'stopping' || event.error === 'aborted'; voiceState = 'idle'; chatInput.classList.remove('is-voice-live'); if (!intentional) { setVoiceState('error', event.error === 'not-allowed' ? IexaI18n.t('voice.denied') : IexaI18n.t('voice.failed', { error: event.error })); setStatusText(event.error === 'not-allowed' ? IexaI18n.t('voice.deniedHint') : IexaI18n.t('voice.failed', { error: event.error })); } else setVoiceState('idle', IexaI18n.t('voice.input')); };
   recognition.onend = () => { clearTimeout(stopTimer); const wasStopping = voiceState === 'stopping'; voiceState = 'idle'; interimText = ''; chatInput.classList.remove('is-voice-live'); setVoiceState('idle', wasStopping ? '语音输入已停止' : '语音输入'); };
   voiceBtn?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); if (voiceState === 'listening' || voiceState === 'starting') { voiceState = 'stopping'; setVoiceState('stopping', '正在停止语音输入'); try { recognition.stop(); } catch {} stopTimer = setTimeout(() => { try { recognition.abort(); } catch {} voiceState = 'idle'; chatInput.classList.remove('is-voice-live'); setVoiceState('idle', '语音输入已停止'); }, 700); return; } if (voiceState === 'stopping') return; setVoiceState('starting', '正在启动语音输入'); try { recognition.start(); } catch { setVoiceState('error', '语音输入启动失败'); } });
   window.addEventListener('beforeunload', () => { try { recognition.abort(); } catch {} });
@@ -1372,7 +1372,7 @@ function enqueuePrompt(opts) {
   // Assigning .value fires no input event, and the overlay owns the empty state.
   window.IexaComposerHint?.refresh?.();
   updateComposerForQueue();
-  if (isProcessing) statusText.textContent = followUpStatusText();
+  if (isProcessing) setStatusText(followUpStatusText());
   console.log('[Queue] enqueued', id, 'mode=', mode, 'size=', promptQueue.length);
   if (interrupt) requestImmediateQueueHandoff(currentSessionId);
 }
@@ -1391,7 +1391,7 @@ function requestImmediateQueueHandoff(sessionId = currentSessionId) {
   runtime.turnStopPending = true;
   runtime.suppressQueueDrain = false;
   snapshotActiveSessionRuntime();
-  statusText.textContent = followUpStatusText();
+  setStatusText(followUpStatusText());
   hideWaitingIndicator();
   fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
     .then((response) => {
@@ -1408,7 +1408,7 @@ function requestImmediateQueueHandoff(sessionId = currentSessionId) {
       runtime.queueHandoffPending = false;
       console.warn('[Queue] immediate handoff failed', error);
       // Keep the prompt queued; a normal completion can still drain it.
-      if (sessionId === currentSessionId) statusText.textContent = IexaI18n.t('msg.steerQueued');
+      if (sessionId === currentSessionId) setStatusText(IexaI18n.t('msg.steerQueued'));
       if (!runtime.isProcessing) scheduleQueueDrain(sessionId);
       snapshotActiveSessionRuntime();
     });
@@ -1420,7 +1420,7 @@ function withdrawQueuedMessage(queueId) {
   const el = chatMessages.querySelector('.message.user.is-queued[data-queue-id="' + queueId + '"]');
   if (el) el.remove();
   updateComposerForQueue();
-  if (isProcessing) statusText.textContent = followUpStatusText();
+  if (isProcessing) setStatusText(followUpStatusText());
   console.log('[Queue] withdrew', queueId, 'size=', promptQueue.length);
 }
 window.withdrawQueuedMessage = withdrawQueuedMessage;
@@ -1446,7 +1446,7 @@ async function steerPrompt() {
   // Assigning .value fires no input event, and the overlay owns the empty state.
   window.IexaComposerHint?.refresh?.();
   scrollToBottom(false, true);
-  if (sessionId === visibleSessionId) statusText.textContent = '正在插入对话…';
+  if (sessionId === visibleSessionId) setStatusText('正在插入对话…');
 
   try {
     const prepared = await prepareAttachmentsForChat(attachments, sessionId, { forceUpload: true });
@@ -1475,7 +1475,7 @@ async function steerPrompt() {
   } catch (error) {
     console.warn('[Steer] falling back to queue', error);
     demoteSteerToQueue(steerId, displayText, attachments, error.message);
-    if (sessionId === visibleSessionId) statusText.textContent = IexaI18n.t('msg.steerQueueFallback');
+    if (sessionId === visibleSessionId) setStatusText(IexaI18n.t('msg.steerQueueFallback'));
   }
 }
 
@@ -1910,7 +1910,7 @@ async function uploadLargeAttachment(attachment, sessionId) {
     if (!response.ok) throw new Error(result.error || `大文件上传失败（${offset}/${file.size}）。`);
     offset = Number(result.received);
     if (!Number.isFinite(offset) || offset <= 0) throw new Error('服务器返回了无效的上传偏移。');
-    if (typeof statusText !== 'undefined' && statusText) statusText.textContent = IexaI18n.t('msg.uploading', { name: attachment.name, percent: Math.floor(offset / file.size * 100) });
+    if (typeof statusText !== 'undefined' && statusText) setStatusText(IexaI18n.t('msg.uploading', { name: attachment.name, percent: Math.floor(offset / file.size * 100) }));
   }
   const completeResponse = await fetch(API_BASE + '/api/uploads/complete', {
     method: 'POST',
@@ -1949,7 +1949,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
 
   try {
     const preparedAttachments = await prepareAttachmentsForChat(attachments, sessionId);
-    if (typeof statusText !== 'undefined' && statusText) statusText.textContent = IexaI18n.t('msg.processing');
+    if (typeof statusText !== 'undefined' && statusText) setStatusText(IexaI18n.t('msg.processing'));
     const response = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId, 'X-IEXA-Stream': 'delta' },
@@ -2394,7 +2394,7 @@ function syncPausedBanner() {
     }
     const resume = document.getElementById('pausedResume');
     if (resume && !resume.dataset.busy) resume.textContent = '继续';
-    statusText.textContent = interrupted ? IexaI18n.t('msg.interrupted') : IexaI18n.t('msg.paused');
+    setStatusText(interrupted ? IexaI18n.t('msg.interrupted') : IexaI18n.t('msg.paused'));
     statusDot.className = 'status-dot paused';
     // A parked turn cannot accept follow-ups: typing would queue against a
     // stream that is not consuming, so the composer waits with it. The banner
@@ -2417,7 +2417,7 @@ function syncPausedBanner() {
   if (typeof screenshotBtn !== 'undefined' && screenshotBtn) screenshotBtn.disabled = false;
   if (!isProcessing) {
     statusDot.className = 'status-dot';
-    statusText.textContent = IexaI18n.t('msg.ready');
+    setStatusText(IexaI18n.t('msg.ready'));
   }
 }
 window.syncPausedBanner = syncPausedBanner;
@@ -2460,13 +2460,13 @@ async function pauseProcessing() {
   if (runtime.isPaused || runtime.pausePending) return;
   runtime.pausePending = true;
   hideWaitingIndicator();
-  statusText.textContent = IexaI18n.t('msg.pausing');
+  setStatusText(IexaI18n.t('msg.pausing'));
   try {
     const response = await fetch(API_BASE + '/api/pause?sessionId=' + encodeURIComponent(currentSessionId), { method: 'POST' });
     if (!response.ok) throw new Error('暂停请求失败，请重试。');
   } catch (error) {
     runtime.pausePending = false;
-    statusText.textContent = isProcessing ? IexaI18n.t('msg.processing') : IexaI18n.t('msg.ready');
+    setStatusText(isProcessing ? IexaI18n.t('msg.processing') : IexaI18n.t('msg.ready'));
     addError(error.message || '暂停请求失败，请重试。');
   }
 }
@@ -2482,7 +2482,7 @@ async function resumeProcessing() {
   if (button) { button.disabled = true; button.dataset.busy = '1'; button.textContent = '继续中…'; }
   runtime.pausedTurn = null;
   runtime.interruptedTurn = null;
-  statusText.textContent = '继续中…';
+  setStatusText('继续中…');
   hidePausedBanner();
   try {
     await runChatTurn('', '', [], { continueTurn: true });
@@ -2575,8 +2575,8 @@ async function stopProcessing(options) {
       syncPausedBanner();
       return;
     }
-    if (hard && runtime.turnStopPending) statusText.textContent = '正在停止，等待执行器清理…';
-    if (!hard && runtime.pausePending) statusText.textContent = IexaI18n.t('msg.pausing');
+    if (hard && runtime.turnStopPending) setStatusText('正在停止，等待执行器清理…');
+    if (!hard && runtime.pausePending) setStatusText(IexaI18n.t('msg.pausing'));
   } catch (e) {
     runtime.turnStopPending = false;
     runtime.pausePending = false;
@@ -2623,16 +2623,21 @@ if (settingsBtn) {
 
 async function loadSystemInfo() {
   const el = document.getElementById('sysVersion');
-  if (!el) return;
+  const badge = document.getElementById('appVersion');
   try {
     const resp = await fetch(`${API_BASE}/api/system`);
     const data = await resp.json();
-    if (data && data.label) {
+    if (badge && data && data.version) {
+      badge.textContent = `Ver ${data.version}`;
+      badge.title = `IEXA-WIN ${data.version}`;
+      badge.hidden = false;
+    }
+    if (el && data && data.label) {
       el.textContent = data.label;
       el.title = data.release ? `内核 ${data.release}` : data.label;
     }
   } catch {
-    el.textContent = 'Windows';
+    if (el) el.textContent = 'Windows';
   }
 }
 

@@ -1611,12 +1611,7 @@ function applyFallbackTitle(
   try { sendTitle?.(fallback); } catch { /* */ }
 }
 
-function getSystemInfo(): {
-  platform: string;
-  release: string;
-  arch: string;
-  label: string;
-} {
+function getSystemInfo(): { platform: string; release: string; arch: string; label: string; version: string } {
   const platform = process.platform;
   const release = os.release();
   const arch = os.arch();
@@ -1645,7 +1640,7 @@ function getSystemInfo(): {
     label = `${os.type()} ${release}`;
   }
 
-  return { platform, release, arch, label };
+  return { platform, release, arch, label, version: APP_VERSION };
 }
 
 // ---- Create Server ----

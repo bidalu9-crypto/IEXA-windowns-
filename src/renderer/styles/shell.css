@@ -586,6 +586,18 @@ html[data-motion="system"] .session-item.is-running::before {
   color: var(--text-muted);
   flex: 0 0 auto;
   padding-top: 8px;
+  /* The footer is one line: status, dots and version share 240px, so the
+     status label yields with an ellipsis instead of wrapping onto a second row
+     where it would collide with the version pill. */
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.sidebar-footer > #statusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .accent-dot {
@@ -651,6 +663,50 @@ html[data-motion="system"] .session-item.is-running::before {
 @keyframes status-ring-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Live status: the busy ellipsis is drawn rather than typed, so three dots can
+   ripple while a turn runs and disappear the moment it stops. One cycle is one
+   second; each dot starts a sixth of a cycle after the previous one. */
+.status-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 9px;
+  margin-left: 1px;
+  flex: 0 0 auto;
+}
+.status-dots[hidden] { display: none; }
+.status-dots i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: .55;
+  animation: status-wave 1s ease-in-out infinite;
+}
+.status-dots i:nth-child(2) { animation-delay: .16s; }
+.status-dots i:nth-child(3) { animation-delay: .32s; }
+@keyframes status-wave {
+  0%, 55%, 100% { transform: translateY(0); opacity: .55; }
+  25% { transform: translateY(-4px); opacity: 1; }
+}
+html[data-motion="reduced"] .status-dots i,
+html[data-motion="system"] .status-dots i { animation: none; }
+
+/* Version badge: reads from /api/system so it can never drift from package.json. */
+.status-version {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text-muted);
+  font-size: calc(0.62rem * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.status-version[hidden] { display: none; }
 
 /* Main */
 .main {

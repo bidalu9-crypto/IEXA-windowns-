@@ -671,6 +671,25 @@ function addError(message) {
   scrollToBottom();
 }
 
+/* Status line: the busy ellipsis is rendered as three rippling dots, so the
+ * text must never carry its own dots. Every writer goes through here. */
+function setStatusText(text) {
+  const el = document.getElementById('statusText');
+  if (!el) return;
+  const raw = String(text == null ? '' : text);
+  const busy = /(处理中|Working|Pausing|正在停止|继续中|Resuming)/i.test(raw);
+  // The footer shares ~240px with the version pill. A queue count written out
+  // in full would truncate the label, so it collapses to a compact suffix and
+  // the full sentence stays in the tooltip.
+  el.textContent = raw
+    .replace(/\s*(?:\.{2,}|…)\s*/g, '')
+    .replace(/[（(]\s*(\d+)\s*(?:条待发送|queued[^)）]*)\s*[)）]/i, ' · $1')
+    .trim();
+  el.title = raw;
+  el.classList.toggle('is-busy', busy);
+  const dots = document.getElementById('statusDots');
+  if (dots) dots.hidden = !busy;
+}
 function isChatNearBottom() {
   return visibleChatMessages.scrollHeight - visibleChatMessages.scrollTop - visibleChatMessages.clientHeight < 72;
 }
@@ -813,10 +832,10 @@ function setProcessing(processing) {
   if (processing) {
     statusDot.className = 'status-dot processing';
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    statusText.textContent = qn > 0 ? IexaI18n.t('msg.processingQueued', { count: qn }) : IexaI18n.t('msg.processing');
+    setStatusText(qn > 0 ? IexaI18n.t('msg.processingQueued', { count: qn }) : IexaI18n.t('msg.processing'));
   } else {
     statusDot.className = 'status-dot';
-    statusText.textContent = IexaI18n.t('msg.ready');
+    setStatusText(IexaI18n.t('msg.ready'));
   }
   updateComposerForQueue();
   if (!processing) window.IexaTrajectory?.refreshIfVisible?.();
