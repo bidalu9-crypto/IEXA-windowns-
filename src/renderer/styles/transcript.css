@@ -1098,28 +1098,7 @@ body.chat-focus-mode .message.user {
   -webkit-mask: var(--icon-globe) center / contain no-repeat;
   mask: var(--icon-globe) center / contain no-repeat;
 }
-/* Emphasis is already rendered in the link colour; a faint wash behind it makes
-   bold segments read as one unit instead of a colour that fades into the prose.
-   `clone` keeps round corners on every wrapped line rather than just the first.
-   Scoped to assistant replies: a user bubble already carries its own fill, and a
-   tinted pill inside it reads as a box within a box. */
-.message-content strong {
-  color: var(--link);
-  font-weight: 620;
-}
-
-.message.assistant .message-content strong {
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--link) 11%, transparent);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-
-.message.assistant .message-content :is(h1, h2, h3, h4, h5, h6) strong {
-  padding: 0;
-  background: none;
-}
+.message-content strong { color: var(--link); font-weight: 620; }
 .message-content mark {
   padding: 0 2px;
   border-radius: 3px;

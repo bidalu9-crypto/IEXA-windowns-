@@ -1,0 +1,34 @@
+/**
+ * Emphasis wash.
+ *
+ * Bold text in a reply is already tinted with `--link`, so it reads as emphasis
+ * by hue alone — a colour that drifts through the paragraph rather than a segment
+ * with edges. A faint tint behind it groups the words without competing with
+ * inline code, which keeps its own neutral fill.
+ *
+ * Lives here rather than in transcript.css: that layer sits at its 1600-line
+ * budget, and this is one self-contained visual idea.
+ */
+
+.message.assistant .message-content strong {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--link) 11%, transparent);
+  /* A run of bold that wraps should read as two rounded pieces, not one box
+     sliced mid-sentence. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* A pill inside a 24px title looks like a badge; headings keep the bare colour. */
+.message.assistant .message-content :is(h1, h2, h3, h4, h5, h6) strong {
+  padding: 0;
+  background: none;
+}
+
+/* User bubbles already have their own fill (#e8e8e8 / #303030). A tinted pill
+   inside them reads as a box within a box, so only assistant prose gets a wash. */
+.message.user .message-content strong {
+  padding: 0;
+  background: none;
+}
