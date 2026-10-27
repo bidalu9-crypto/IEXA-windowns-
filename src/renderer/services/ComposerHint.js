@@ -11,15 +11,17 @@
 // =============================================================================
 const COMPOSER_HINT_INTERVAL = 2000;
 const COMPOSER_HINT_SWAP_MS = 380;
-const COMPOSER_HINT_STATIC = ['有问题，随便问', '输入 / 查看命令'];
+function composerHintStatic() {
+  return [IexaI18n.t('hint.askAnything'), IexaI18n.t('hint.slashCommands')];
+}
 // Only while a turn is running: with an idle composer Esc does nothing and the
 // follow-up modifier has nothing to interrupt, so these would be lies.
 const COMPOSER_HINT_SHORTCUTS = [
-  () => `Ctrl+Shift+Enter 本条改为${composerHintFollowUpLabel()}`,
-  () => '输入 / 打开技能与命令',
-  () => 'Ctrl+K 打开命令面板',
-  () => 'Esc 停止当前任务',
-  () => 'Ctrl+Shift+S 截图标注',
+  () => IexaI18n.t('hint.followUp', { action: composerHintFollowUpLabel() }),
+  () => IexaI18n.t('hint.skills'),
+  () => IexaI18n.t('hint.palette'),
+  () => IexaI18n.t('hint.stop'),
+  () => IexaI18n.t('hint.screenshot'),
 ];
 const composerHintState = {
   input: null,
@@ -51,7 +53,7 @@ function composerHintContextEntry() {
     const used = Math.max(0, Number(context.usedTokens) || 0);
     const windowTokens = Math.max(1, Number(context.contextWindow) || 128000);
     if (used <= 0) return '';
-    return `上下文已用 ${Math.min(100, Math.round((used / windowTokens) * 100))}%`;
+    return IexaI18n.t('hint.contextUsed', { percent: Math.min(100, Math.round((used / windowTokens) * 100)) });
   } catch { return ''; }
 }
 
@@ -63,7 +65,7 @@ function composerHintBalanceEntry() {
     if (!data || data.status !== 'ok') return '';
     const remaining = Number(data.remaining);
     if (!Number.isFinite(remaining)) return '';
-    return `当前站点余额 ${formatBalanceMoney(remaining, data.currency)}`;
+    return IexaI18n.t('hint.balance', { amount: formatBalanceMoney(remaining, data.currency) });
   } catch { return ''; }
 }
 
@@ -72,7 +74,7 @@ function composerHintEntries() {
   // Idle: one static line. Rotating an invitation would draw the eye to a
   // control that has nothing to say, and the shortcut tips are only true while
   // a turn is running.
-  if (!composerHintBusy()) return [COMPOSER_HINT_STATIC[0]];
+  if (!composerHintBusy()) return [composerHintStatic()[0]];
   const entries = [];
   const context = composerHintContextEntry();
   if (context) entries.push(context);
@@ -100,9 +102,9 @@ function composerHintBusy() {
 /** What Ctrl/Cmd+Shift+Enter would do right now, in the setting's own words. */
 function composerHintFollowUpLabel() {
   try {
-    if (typeof followUpMode === 'undefined') return '排队';
-    return followUpMode === 'queue' ? '立即插入' : '排队';
-  } catch { return '排队'; }
+    if (typeof followUpMode === 'undefined') return IexaI18n.t('hint.queue');
+    return followUpMode === 'queue' ? IexaI18n.t('hint.steer') : IexaI18n.t('hint.queue');
+  } catch { return IexaI18n.t('hint.queue'); }
 }
 
 /** Pin the overlay to the textarea's first line; it grows with the content. */

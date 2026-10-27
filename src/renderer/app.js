@@ -1578,16 +1578,16 @@ function updateComposerForQueue() {
     sendBtn.style.display = 'none';
     stopBtn.style.display = 'flex';
     sendBtn.disabled = false;
-    chatInput.placeholder = '有问题，随便问';
+    chatInput.placeholder = IexaI18n.t('hint.askAnything');
     if (attachBtn) attachBtn.disabled = false;
     chatInput.disabled = false;
   } else {
     sendBtn.style.display = 'flex';
     stopBtn.style.display = 'none';
     sendBtn.classList.remove('is-queue-mode');
-    sendBtn.title = '发送 (Enter)';
-    sendBtn.setAttribute('aria-label', '发送');
-    chatInput.placeholder = '有问题，随便问';
+    sendBtn.title = IexaI18n.t('tip.sendEnter');
+    sendBtn.setAttribute('aria-label', IexaI18n.t('tip.send'));
+    chatInput.placeholder = IexaI18n.t('hint.askAnything');
   }
 }
 

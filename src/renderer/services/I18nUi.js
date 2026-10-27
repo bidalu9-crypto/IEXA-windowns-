@@ -990,6 +990,19 @@
     'voice.failed': { zh: '语音输入失败：{error}', en: 'Voice input failed: {error}', ja: '音声入力に失敗しました：{error}' },
     'voice.deniedHint': { zh: '请在系统设置中允许麦克风访问。', en: 'Allow microphone access in system settings.', ja: 'システム設定でマイクへのアクセスを許可してください。' },
     'voice.input': { zh: '语音输入', en: 'Voice input', ja: '音声入力' },
+
+    /* ---- composer hint rotation ---- */
+    'hint.askAnything': { zh: '有问题，随便问', en: 'Ask anything', ja: '何でも聞いてください' },
+    'hint.slashCommands': { zh: '输入 / 查看命令', en: 'Type / for commands', ja: '/ でコマンド一覧' },
+    'hint.followUp': { zh: 'Ctrl+Shift+Enter 本条改为{action}', en: 'Ctrl+Shift+Enter sets this turn to {action}', ja: 'Ctrl+Shift+Enter でこのターンを{action}に' },
+    'hint.queue': { zh: '排队', en: 'queue', ja: 'キュー' },
+    'hint.steer': { zh: '立即插入', en: 'steer', ja: '割り込み' },
+    'hint.skills': { zh: '输入 / 打开技能与命令', en: 'Type / to open skills and commands', ja: '/ でスキルとコマンドを開く' },
+    'hint.palette': { zh: 'Ctrl+K 打开命令面板', en: 'Ctrl+K opens the command palette', ja: 'Ctrl+K でコマンドパレット' },
+    'hint.stop': { zh: 'Esc 停止当前任务', en: 'Esc stops the running turn', ja: 'Esc で実行中のターンを停止' },
+    'hint.screenshot': { zh: 'Ctrl+Shift+S 截图标注', en: 'Ctrl+Shift+S to annotate a screenshot', ja: 'Ctrl+Shift+S でスクリーンショットに注釈' },
+    'hint.contextUsed': { zh: '上下文已用 {percent}%', en: '{percent}% of context used', ja: 'コンテキスト使用率 {percent}%' },
+    'hint.balance': { zh: '当前站点余额 {amount}', en: 'Site balance {amount}', ja: 'サイト残高 {amount}' },
   };
 
   const pick = (lang) => {
