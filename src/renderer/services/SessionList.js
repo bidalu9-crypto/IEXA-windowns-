@@ -237,7 +237,7 @@ function renderSessionList() {
   document.querySelector('.session-menu')?.remove();
   const visibleSessions = sessionsCache.filter(session => session.archived !== true);
   if (visibleSessions.length === 0) {
-    sessionsList.innerHTML = '<div class="sessions-empty">暂无会话</div>';
+    sessionsList.innerHTML = '<div class="sessions-empty">' + IexaI18n.t('ui.2') + '</div>';
     return;
   }
 
@@ -245,7 +245,7 @@ function renderSessionList() {
   for (const session of visibleSessions) {
     const root = session.projectRoot || '';
     const key = root.toLowerCase();
-    if (!groups.has(key)) groups.set(key, { root, name: session.projectName || (root ? root.split(/[\\/]/).pop() : '无项目'), sessions: [] });
+    if (!groups.has(key)) groups.set(key, { root, name: session.projectName || (root ? root.split(/[\\/]/).pop() : IexaI18n.t('session.noProject')), sessions: [] });
     groups.get(key).sessions.push(session);
   }
   const currentKey = String(projectRoot || '').toLowerCase();
@@ -261,16 +261,16 @@ function renderSessionList() {
     return `
       <div class="session-item${active}${pinned}" data-id="${escapeHtml(s.id)}">
         <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
-          <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="${escapeHtml(s.title)}" aria-label="${escapeHtml(s.title)}，点击重命名">${escapeHtml(s.title)}</span>
-          <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="正在进行"></i>' : ''}${timeStr}</span>
+          <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="${escapeHtml(s.title)}" aria-label="${escapeHtml(s.title)}${IexaI18n.t('session.renameHint')}">${escapeHtml(s.title)}</span>
+          <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="' + IexaI18n.t('session.running') + '"></i>' : ''}${timeStr}</span>
         </div>
-        <button type="button" class="session-item-more" data-ui-action="openSessionMenu" data-session-menu="${escapeHtml(s.id)}" data-ui-arg="${escapeHtml(s.id)}" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">${uiIcon('more')}</button>
+        <button type="button" class="session-item-more" data-ui-action="openSessionMenu" data-session-menu="${escapeHtml(s.id)}" data-ui-arg="${escapeHtml(s.id)}" title="${IexaI18n.t('session.more')}" aria-label="${IexaI18n.t('session.more')}" aria-haspopup="menu" aria-expanded="false">${uiIcon('more')}</button>
       </div>`;
   };
   sessionsList.innerHTML = orderedGroups.map(group => {
     const sorted = [...group.sessions].sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || (Number(b.pinnedAt) || 0) - (Number(a.pinnedAt) || 0) || Number(b.updated) - Number(a.updated));
     return `<section class="session-project-group" data-project-root="${escapeHtml(group.root)}">
-      <div class="session-project-heading" title="${escapeHtml(group.root || '未绑定项目')}">${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || '无项目')}</span><b>${sorted.length}</b></div>
+      <div class="session-project-heading" title="${escapeHtml(group.root || IexaI18n.t('session.unboundProject'))}">${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || IexaI18n.t('session.noProject'))}</span><b>${sorted.length}</b></div>
       <div class="session-project-items">${sorted.map(renderItem).join('')}</div>
     </section>`;
   }).join('');
@@ -324,16 +324,16 @@ function openSessionMenu(sessionId, trigger) {
   const session = sessionsCache.find(item => item.id === button.dataset.sessionMenu);
   if (!session) return false;
   const id = session.id;
-  const pinLabel = session.pinned === true ? '取消置顶' : '置顶会话';
+  const pinLabel = session.pinned === true ? IexaI18n.t('session.unpin') : IexaI18n.t('session.pin');
   const menu = document.createElement('div');
   menu.className = 'session-menu';
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', '会话操作');
+  menu.setAttribute('aria-label', IexaI18n.t('session.actions'));
   menu.innerHTML = `
     <button type="button" role="menuitem" class="session-menu-item" data-ui-action="toggleSessionPin" data-ui-arg="${escapeHtml(id)}">${uiIcon('pin')}<span>${pinLabel}</span></button>
-    <button type="button" role="menuitem" class="session-menu-item" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('archive')}<span>存档会话</span></button>
+    <button type="button" role="menuitem" class="session-menu-item" data-ui-action="archiveSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('archive')}<span>${IexaI18n.t('session.archive')}</span></button>
     <div class="session-menu-sep" role="separator"></div>
-    <button type="button" role="menuitem" class="session-menu-item is-danger" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('trash')}<span>删除会话</span></button>`;
+    <button type="button" role="menuitem" class="session-menu-item is-danger" data-ui-action="deleteSession" data-ui-arg="${escapeHtml(id)}">${uiIcon('trash')}<span>${IexaI18n.t('session.delete')}</span></button>`;
   document.body.appendChild(menu);
   button.setAttribute('aria-expanded', 'true');
 
@@ -385,7 +385,7 @@ async function toggleSessionPin(sessionId) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: session.pinned !== true }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '置顶操作失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('session.pinFailed'));
     const index = sessionsCache.findIndex(item => item.id === sessionId);
     if (index >= 0) sessionsCache[index] = data.session;
     renderSessionList();
@@ -399,7 +399,7 @@ async function setSessionArchived(sessionId, archived) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '存档操作失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('session.archiveFailed'));
     const index = sessionsCache.findIndex(session => session.id === sessionId);
     if (index >= 0) sessionsCache[index] = data.session;
     renderSessionList();
@@ -412,28 +412,28 @@ async function showArchiveManager() {
   const previous = document.activeElement;
   const dialog = document.createElement('dialog');
   dialog.id = 'archiveManagerDialog'; dialog.className = 'iexa-app-dialog archive-manager';
-  dialog.setAttribute('aria-label', '已存档的聊天');
-  const title = document.createElement('h2'); title.textContent = '已存档的聊天';
+  dialog.setAttribute('aria-label', IexaI18n.t('session.archivedTitle'));
+  const title = document.createElement('h2'); title.textContent = IexaI18n.t('session.archivedTitle');
   const list = document.createElement('div'); list.className = 'archive-manager-list';
-  const close = document.createElement('button'); close.type = 'button'; close.textContent = '关闭'; close.className = 'archive-close';
+  const close = document.createElement('button'); close.type = 'button'; close.textContent = IexaI18n.t('msg.close'); close.className = 'archive-close';
   close.addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => { dialog.remove(); if (previous?.isConnected) previous.focus(); }, { once: true });
   const render = () => {
     list.replaceChildren();
     const archived = sessionsCache.filter(session => session.archived === true);
-    if (!archived.length) { const empty = document.createElement('p'); empty.textContent = '暂无已存档的聊天'; list.append(empty); }
+    if (!archived.length) { const empty = document.createElement('p'); empty.textContent = IexaI18n.t('session.archivedEmpty'); list.append(empty); }
     for (const session of archived) {
       const row = document.createElement('div'); row.className = 'archive-manager-row';
       const open = document.createElement('button'); open.type = 'button'; open.className = 'archive-chat-title'; open.textContent = session.title;
-      open.title = '查看会话';
+      open.title = IexaI18n.t('session.view');
       open.addEventListener('click', () => { dialog.close(); switchSession(session.id); });
-      const restore = document.createElement('button'); restore.type = 'button'; restore.textContent = '取消存档';
+      const restore = document.createElement('button'); restore.type = 'button'; restore.textContent = IexaI18n.t('session.unarchive');
       restore.addEventListener('click', async () => {
         restore.disabled = true;
         await setSessionArchived(session.id, false);
         if (dialog.isConnected) { render(); close.focus(); }
       });
-      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '删除';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = IexaI18n.t('ui.56');
       remove.addEventListener('click', async () => { await deleteSession(session.id); if (dialog.isConnected) { render(); close.focus(); } });
       row.append(open, restore, remove); list.append(row);
     }
@@ -453,10 +453,10 @@ function formatTime(ts) {
   const diffHr = Math.floor(diffMs / 3600000);
   const diffDay = Math.floor(diffMs / 86400000);
 
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin} 分钟前`;
-  if (diffHr < 24) return `${diffHr} 小时前`;
-  if (diffDay < 7) return `${diffDay} 天前`;
+  if (diffMin < 1) return IexaI18n.t('time.justNow');
+  if (diffMin < 60) return IexaI18n.t('time.minutesAgo', { count: diffMin });
+  if (diffHr < 24) return IexaI18n.t('time.hoursAgo', { count: diffHr });
+  if (diffDay < 7) return IexaI18n.t('time.daysAgo', { count: diffDay });
   return d.toLocaleDateString();
 }
 
@@ -515,7 +515,7 @@ function activateCachedSession(id) {
   const run = async () => {
     const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(id)}/activate`, { method: 'POST' });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '切换会话失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('session.switchFailed'));
     if (visibleSessionId === id) { activatedSessionId = id; applySessionProject(data.project); }
     return data;
   };
@@ -551,7 +551,7 @@ function renderHistoryMessage(msg, messageIndex) {
             thinkBlock._reasoning = String(msg.thinking);
             const level = normalizeThinkingLevel(msg.thinkingLevel || currentThinkingLevel);
             thinkBlock.dataset.thinkingLevel = level;
-            thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">思考</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
+            thinkBlock.innerHTML = `<summary>${uiIcon('brain')}<span class="thinking-title">${IexaI18n.t('msg.thinking')}</span><span class="thinking-effort">${escapeHtml(thinkingEffortLabelFor(level))}</span><span class="thinking-token-count">0</span><span class="thinking-chevron" aria-hidden="true"></span></summary><pre class="thinking-content"></pre>`;
             window.IexaChatActivity.prepareThinking(thinkBlock);
             const content = thinkBlock.querySelector('.thinking-content');
             updateThinkingTokenCount(thinkBlock, String(msg.thinking));
@@ -587,11 +587,11 @@ function renderHistoryMessage(msg, messageIndex) {
                 <div class="tool-header" data-ui-action="toggleToolBody" data-ui-arg="tool-body-${escapeHtml(tc.id)}">
                   <span class="tool-icon">${toolIcon(tc.name)}</span>
                   <span class="tool-heading"><span class="tool-name">${escapeHtml(histTitle)}</span><span class="tool-meta">${escapeHtml(toolMeta(tc.name, tc.args))}</span></span>
-                  <span class="tool-status done">${uiIcon('check')}<span>完成</span></span>
+                  <span class="tool-status done">${uiIcon('check')}<span>${IexaI18n.t('tool.status.done')}</span></span>
                   <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
                 <div class="tool-body" id="tool-body-${escapeHtml(tc.id)}" style="display:none;">
-                  <div class="tool-section-label">输入</div><pre class="tool-args"></pre>
+                  <div class="tool-section-label">${IexaI18n.t('tool.section.input')}</div><pre class="tool-args"></pre>
                 </div>
               `;
               window.IexaToolLifecycleView.applyResult(block, tc.result, setToolStepStatus);
@@ -665,7 +665,7 @@ function showLoadEarlierAffordance(sessionId, runtime) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'load-earlier-messages';
-  button.textContent = `加载更早的消息（还有 ${runtime.historyStartIndex} 条）`;
+  button.textContent = IexaI18n.t('session.loadEarlier', { count: runtime.historyStartIndex });
   button.addEventListener('click', () => { void loadEarlierHistory(sessionId); });
   chatMessages.insertBefore(button, chatMessages.firstChild);
 }
@@ -678,7 +678,7 @@ async function loadEarlierHistory(sessionId) {
   const messages = runtime.historyMessages;
   if (!mobileHistoryWindow() || !Array.isArray(messages) || runtime.historyStartIndex <= 0) return;
   const button = chatMessages.querySelector('.load-earlier-messages');
-  if (button) { button.disabled = true; button.textContent = '正在加载…'; }
+  if (button) { button.disabled = true; button.textContent = IexaI18n.t('common.loading'); }
 
   const nextStart = Math.max(0, runtime.historyStartIndex - MOBILE_HISTORY_CHUNK);
   const added = runtime.historyStartIndex - nextStart;
@@ -762,7 +762,7 @@ async function switchSession(id, updateList = true) {
     const loading = document.createElement('div');
     loading.className = 'history-loading';
     loading.setAttribute('role', 'status');
-    loading.textContent = '正在加载对话…';
+    loading.textContent = IexaI18n.t('session.loadingConversation');
     chatMessages.appendChild(loading);
     setProcessing(false);
 
@@ -852,7 +852,7 @@ async function switchSession(id, updateList = true) {
     chatMessages.replaceChildren();
     const retry = document.createElement('button');
     retry.className = 'history-loading';
-    retry.textContent = '对话加载失败，点击重试';
+    retry.textContent = IexaI18n.t('session.loadFailed');
     retry.addEventListener('click', () => switchSession(id));
     chatMessages.appendChild(retry);
   }
@@ -874,7 +874,7 @@ async function switchSession(id, updateList = true) {
 }
 
 async function deleteSession(id) {
-  if (!(await window.IexaDialogs.confirm('确定删除这个会话？'))) return;
+  if (!(await window.IexaDialogs.confirm(IexaI18n.t('session.confirmDelete')))) return;
 
   try {
     const resp = await fetch(`${API_BASE}/api/sessions/${id}`, { method: 'DELETE' });
@@ -936,7 +936,7 @@ function startRename(sessionId) {
     span.setAttribute('data-sid', sessionId);
     span.textContent = newTitle;
     span.title = newTitle;
-    span.setAttribute('aria-label', `${newTitle}，点击重命名`);
+    span.setAttribute('aria-label', `${newTitle}${IexaI18n.t('session.renameHint')}`);
     span.onclick = (e) => { e.stopPropagation(); startRename(sessionId); };
     input.replaceWith(span);
 
@@ -1020,13 +1020,13 @@ function showWelcome() {
     <div class="welcome">
       <div class="welcome-head">
         <img class="welcome-logo" src="mobile-pair-logo.png" width="34" height="34" alt="IEXA">
-        <h2>今天想构建什么？</h2>
+        <h2>${IexaI18n.t('ui.9')}</h2>
       </div>
-      <p>从一个想法、一处问题，或一个项目开始。</p>
+      <p>${IexaI18n.t('ui.10')}</p>
       <div class="quick-actions">
-        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="列出当前目录的文件">${uiIcon('folder')}<span>列出文件</span></button>
-        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="我的操作系统和硬件配置是什么？">${uiIcon('monitor')}<span>系统信息</span></button>
-        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="创建一个简单的 Python Web 服务器脚本">${uiIcon('code')}<span>生成 Python 脚本</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="${IexaI18n.t('quick.listFiles')}">${uiIcon('folder')}<span>${IexaI18n.t('ui.11')}</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="${IexaI18n.t('quick.systemInfo')}">${uiIcon('monitor')}<span>${IexaI18n.t('ui.12')}</span></button>
+        <button class="quick-btn" data-ui-action="sendQuick" data-ui-arg="${IexaI18n.t('quick.pythonServer')}">${uiIcon('code')}<span>${IexaI18n.t('ui.13')}</span></button>
       </div>
     </div>
   `;

@@ -130,3 +130,37 @@ test('hover titles and aria labels follow the locale in the real markup', () => 
   assert.equal(button.getAttribute('aria-label'), '打开导航');
   dom.window.close();
 });
+
+// A call site can name a key the dictionary never received; at runtime that
+// falls back to printing the key itself, which no locale test above would see.
+test('every literal IexaI18n.t() key exists in all three locales', () => {
+  const dict = loadI18n().IexaI18n.dictionaries;
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'vendor') walk(full);
+      } else if (entry.name.endsWith('.js')) files.push(full);
+    }
+  };
+  walk(RENDERER);
+
+  const unknown = [];
+  let calls = 0;
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    for (const m of source.matchAll(/IexaI18n\.t\('([^']+)'/g)) {
+      const key = m[1];
+      if (key.endsWith('.')) continue; // a dynamic prefix such as 'permission.' + mode
+      calls += 1;
+      if (!dict['zh-CN'][key] || !dict['en-US'][key] || !dict['ja-JP'][key]) {
+        unknown.push(path.relative(RENDERER, file) + ': ' + key);
+      }
+    }
+  }
+  assert.ok(calls > 300, 'the renderer should call t() at many sites: ' + calls);
+  assert.deepEqual([...new Set(unknown)], [], 't() keys missing from a locale');
+});

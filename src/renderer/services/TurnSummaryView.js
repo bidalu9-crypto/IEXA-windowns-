@@ -60,8 +60,8 @@ function createTurnSummaryBar() {
   bar.className = 'turn-summary';
   bar.setAttribute('aria-expanded', 'true');
   bar.innerHTML =
-    '<span class="turn-summary-label">用时</span>' +
-    '<span class="turn-summary-time">0 秒</span>' +
+    '<span class="turn-summary-label">' + IexaI18n.t('turn.elapsed') + '</span>' +
+    '<span class="turn-summary-time">' + IexaI18n.t('time.secondsShort', { seconds: 0 }) + '</span>' +
     '<span class="turn-summary-count"></span>' +
     '<span class="turn-summary-errors"></span>' +
     '<span class="turn-summary-chevron" aria-hidden="true"></span>';
@@ -79,19 +79,19 @@ function refreshTurnSummary(messageEl) {
   const labelEl = bar.querySelector('.turn-summary-label');
   const timeEl = bar.querySelector('.turn-summary-time');
   const hasTime = !!(duration && Number.isFinite(duration.ms) && duration.ms >= 0);
-  if (labelEl) labelEl.textContent = hasTime ? '用时' : '过程';
+  if (labelEl) labelEl.textContent = hasTime ? IexaI18n.t('turn.elapsed') : IexaI18n.t('turn.process');
   if (timeEl) {
     timeEl.hidden = !hasTime;
     if (hasTime) {
       timeEl.textContent = typeof formatTurnDuration === 'function'
         ? formatTurnDuration(duration.ms)
-        : Math.round(duration.ms / 1000) + ' 秒';
+        : IexaI18n.t('time.secondsShort', { seconds: Math.round(duration.ms / 1000) });
     }
   }
   const countEl = bar.querySelector('.turn-summary-count');
-  if (countEl) countEl.textContent = stats.calls ? stats.calls + ' 次调用' : '';
+  if (countEl) countEl.textContent = stats.calls ? IexaI18n.t('turn.calls', { count: stats.calls }) : '';
   const errorEl = bar.querySelector('.turn-summary-errors');
-  if (errorEl) errorEl.textContent = stats.failed ? stats.failed + ' 个报错' : '';
+  if (errorEl) errorEl.textContent = stats.failed ? IexaI18n.t('turn.errors', { count: stats.failed }) : '';
   bar.classList.toggle('has-errors', stats.failed > 0);
 }
 
@@ -106,7 +106,7 @@ function setTurnActivityCollapsed(messageEl, collapsed) {
   messageEl.classList.add('is-activity-settled');
   messageEl.classList.toggle('is-activity-collapsed', collapsed);
   bar.setAttribute('aria-expanded', String(!collapsed));
-  bar.title = collapsed ? '展开本轮的思考与工具调用' : '收起本轮的思考与工具调用';
+  bar.title = collapsed ? IexaI18n.t('turn.expand') : IexaI18n.t('turn.collapse');
   return collapsed;
 }
 

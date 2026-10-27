@@ -8,6 +8,11 @@
  *   { "files": ["services/ToolStreamView.js"],
  *     "rows": [{ "zh": "更新计划", "key": "tool.todo_write", "en": "…", "ja": "…" }] }
  *
+ * Two shapes are handled:
+ *   - the literal is exactly the Chinese text  -> IexaI18n.t('key')
+ *   - the text sits inside a markup string     -> '…' + IexaI18n.t('key') + '…'
+ *     (a template literal gets ${…} instead, so attribute values stay intact)
+ *
  * Refuses to guess: a literal used for comparison, a property name or one that
  * carries escapes is reported and left alone, because replacing it would change
  * behaviour rather than only the text.
@@ -32,8 +37,16 @@ const batch = JSON.parse(fs.readFileSync(batchPath, 'utf8'));
 const byText = new Map();
 for (const row of batch.rows) {
   if (byText.has(row.zh)) throw new Error('duplicate zh in batch: ' + row.zh);
+  // The dictionary is a single-quoted JS table: an apostrophe in any locale would
+  // close the string and break every translation at load time.
+  for (const field of ['zh', 'en', 'ja']) {
+    if (typeof row[field] !== 'string') throw new Error(`row ${row.key} is missing ${field}`);
+    if (row[field].includes("'")) throw new Error(`row ${row.key} ${field} contains an apostrophe: ${row[field]}`);
+  }
   byText.set(row.zh, row);
 }
+// Longest first, so "刷新中…" wins over "刷新".
+const orderedRows = [...batch.rows].sort((a, b) => b.zh.length - a.zh.length);
 
 const EQUALITY = new Set([
   ts.SyntaxKind.EqualsEqualsToken,
@@ -43,7 +56,7 @@ const EQUALITY = new Set([
 ]);
 const STRING_TESTS = new Set(['includes', 'startsWith', 'endsWith', 'indexOf', 'match', 'test']);
 
-function isGuarded(node, source) {
+function isGuarded(node) {
   let cur = node;
   while (cur.parent) {
     const parent = cur.parent;
@@ -66,32 +79,85 @@ const missing = new Set();
 for (const rel of batch.files) {
   const file = path.join(RENDERER, rel);
   const text = fs.readFileSync(file, 'utf8');
+  const lines = text.split('\n');
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const edits = [];
 
-  const consider = (node, textStart, textEnd, kind) => {
+  /** Where the literal's text starts, how wide the quote is, and what syntax a split needs. */
+  const body = (node) => {
+    const start = node.getStart(source);
+    if (ts.isStringLiteral(node)) {
+      const quote = text[start];
+      return { start: start + 1, end: node.getEnd() - 1, quote, template: false, node };
+    }
+    if (ts.isNoSubstitutionTemplateLiteral(node)) {
+      return { start: start + 1, end: node.getEnd() - 1, quote: '`', template: true, node };
+    }
+    return { start: start + 1, end: node.getEnd() - 2, quote: '`', template: true, node };
+  };
+
+  const consider = (node) => {
     const value = node.text;
     if (!CJK.test(value)) return;
-    const row = byText.get(value);
-    if (!row) { missing.add(`${rel}: ${value}`); return; }
-    if (/[<>]/.test(value)) { skipped.push(`${rel}:${node.getStart(source)} markup ${JSON.stringify(value)}`); return; }
-    const raw = text.slice(textStart, textEnd);
-    if (raw !== value) { skipped.push(`${rel}:${node.getStart(source)} escape ${JSON.stringify(value)}`); return; }
-    const guard = isGuarded(node, source);
-    if (guard) { skipped.push(`${rel}:${node.getStart(source)} ${guard} ${JSON.stringify(value)}`); return; }
-    const call = `IexaI18n.t('${row.key}')`;
-    edits.push({ start: textStart, end: textEnd, replacement: kind === 'plain' ? call : '${' + call + '}' });
+    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
+    if (/i18n-exempt/.test(lines[line] || '')) return;
+
+    const { start, end, quote, template } = body(node);
+    const raw = text.slice(start, end);
+    if (raw !== value) {
+      skipped.push(`${rel}:${node.getStart(source)} escape ${JSON.stringify(value)}`);
+      return;
+    }
+
+    const split = template ? (key) => '${IexaI18n.t(\'' + key + '\')}' : (key) => quote + ' + IexaI18n.t(\'' + key + '\') + ' + quote;
+    const whole = template ? (key) => '${IexaI18n.t(\'' + key + '\')}' : (key) => 'IexaI18n.t(\'' + key + '\')';
+
+    const exact = byText.get(value);
+    if (exact) {
+      const guard = isGuarded(node);
+      if (guard) {
+        skipped.push(`${rel}:${node.getStart(source)} ${guard} ${JSON.stringify(value)}`);
+        return;
+      }
+      if (template) {
+        // Inside a template literal the call has to stay inside the text, so the
+        // chunk keeps its delimiters and gains an interpolation.
+        edits.push({ start, end, replacement: whole(exact.key) });
+      } else {
+        // A quoted literal is replaced whole (quotes included), otherwise the
+        // call would end up wrapped in the old quotes.
+        edits.push({ start: node.getStart(source), end: node.getEnd(), replacement: whole(exact.key) });
+      }
+      return;
+    }
+
+    // A fragment of a bigger string: only inside markup, and never on a value
+    // that is compared rather than rendered.
+    let out = value;
+    const used = [];
+    for (const row of orderedRows) {
+      if (!out.includes(row.zh)) continue;
+      out = out.split(row.zh).join(split(row.key));
+      used.push(row.key);
+    }
+    if (!used.length) {
+      if (/[<>]/.test(value)) return; // markup with nothing mapped: leave alone
+      missing.add(`${rel}: ${value}`);
+      return;
+    }
+    const guard = isGuarded(node);
+    if (guard) {
+      skipped.push(`${rel}:${node.getStart(source)} ${guard} ${JSON.stringify(value)}`);
+      return;
+    }
+    edits.push({ start, end, replacement: out });
   };
 
   const visit = (node) => {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const start = node.getStart(source);
-      consider(node, start, node.getEnd(), 'plain');
-    } else if (ts.isTemplateExpression(node)) {
-      consider(node.head, node.head.getStart(source) + 1, node.head.getEnd() - 2, 'part');
-      for (const span of node.templateSpans) {
-        consider(span.literal, span.literal.getStart(source) + 1, span.literal.getEnd() - 2, 'part');
-      }
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) consider(node);
+    else if (ts.isTemplateExpression(node)) {
+      consider(node.head);
+      for (const span of node.templateSpans) consider(span.literal);
     }
     ts.forEachChild(node, visit);
   };

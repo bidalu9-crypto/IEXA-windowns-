@@ -34,7 +34,7 @@ function addMessage(role, content, attachments, opts) {
 
   const label = document.createElement('div');
   label.className = 'message-label';
-  label.textContent = role === 'user' ? '你' : soulName();
+  label.textContent = role === 'user' ? IexaI18n.t('msg.you') : soulName();
 
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
@@ -54,15 +54,15 @@ function addMessage(role, content, attachments, opts) {
   if (queued) {
     const badge = document.createElement('div');
     badge.className = 'queued-badge';
-    badge.innerHTML = '<span class="queued-badge-icon">⤵</span><span class="queued-badge-text">排队中 · 当前任务结束后自动执行</span>';
+    badge.innerHTML = '<span class="queued-badge-icon">⤵</span><span class="queued-badge-text">' + IexaI18n.t('msg.queued') + '</span>';
     if (queueId) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'queued-withdraw';
-      btn.title = '撤销排队';
-      btn.setAttribute('aria-label', '撤销排队');
+      btn.title = IexaI18n.t('msg.withdrawQueue');
+      btn.setAttribute('aria-label', IexaI18n.t('msg.withdrawQueue'));
       btn.innerHTML = uiIcon('close');
-      btn.setAttribute('aria-label', '移除排队消息');
+      btn.setAttribute('aria-label', IexaI18n.t('msg.removeQueued'));
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         withdrawQueuedMessage(queueId);
@@ -75,7 +75,7 @@ function addMessage(role, content, attachments, opts) {
   if (steering) {
     const badge = document.createElement('div');
     badge.className = 'steer-badge';
-    badge.innerHTML = '<span class="steer-badge-icon">↳</span><span class="steer-badge-text">插入中 · 正在接入本轮</span>';
+    badge.innerHTML = '<span class="steer-badge-icon">↳</span><span class="steer-badge-text">' + IexaI18n.t('msg.steering') + '</span>';
     msg.appendChild(badge);
   }
   if (attachments && attachments.length) {
@@ -88,14 +88,15 @@ function addMessage(role, content, attachments, opts) {
         const src = a.dataUrl || a.previewUrl;
         item.type = 'button';
         item.classList.add('message-image-attach');
-        item.title = `点击查看「${a.name || '图片附件'}」`;
-        item.setAttribute('aria-label', `查看图片：${a.name || '图片附件'}`);
+        const attachName = a.name || IexaI18n.t('msg.imageAttachment');
+        item.title = IexaI18n.t('msg.viewImage', { name: attachName });
+        item.setAttribute('aria-label', IexaI18n.t('msg.viewImageAria', { name: attachName }));
         item.addEventListener('click', function () {
-          openImagePreview(src, a.name || '图片附件', item.querySelector('img'));
+          openImagePreview(src, attachName, item.querySelector('img'));
         });
         const img = document.createElement('img');
         img.src = src;
-        img.alt = a.name || '图片附件';
+        img.alt = a.name || IexaI18n.t('msg.imageAttachment');
         item.appendChild(img);
       } else {
         const icon = document.createElement('span');
@@ -104,7 +105,7 @@ function addMessage(role, content, attachments, opts) {
       }
       const name = document.createElement('span');
       name.className = 'message-attach-name';
-      name.textContent = a.name || '附件';
+      name.textContent = a.name || IexaI18n.t('msg.attachment');
       name.title = a.name || '';
       item.appendChild(name);
       box.appendChild(item);
@@ -119,11 +120,11 @@ function addMessage(role, content, attachments, opts) {
     actions.className = 'user-message-actions';
     const timeText = formatMessageTimestamp(timestamp);
     actions.innerHTML = `
-      ${timeText ? `<time class="user-message-time" datetime="${new Date(timestamp).toISOString()}" title="发送时间：${new Date(timestamp).toLocaleString()}">${timeText}</time>` : ''}
-      <button type="button" class="user-message-action user-message-edit" data-action="edit" title="重新编辑" aria-label="重新编辑">${uiIcon('edit')}</button>
-      <button type="button" class="user-message-action user-message-resend" data-action="resend" title="重新发送" aria-label="重新发送">${uiIcon('send')}</button>
-      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="重置到此处" aria-label="重置到此处" aria-hidden="false">${uiIcon('branch')}</button>
-      <button type="button" class="user-message-action" data-action="copy" title="复制消息" aria-label="复制消息">
+      ${timeText ? `<time class="user-message-time" datetime="${new Date(timestamp).toISOString()}" title="${IexaI18n.t('msg.sentAtPrefix')}${new Date(timestamp).toLocaleString()}">${timeText}</time>` : ''}
+      <button type="button" class="user-message-action user-message-edit" data-action="edit" title="${IexaI18n.t('msg.edit')}" aria-label="${IexaI18n.t('msg.edit')}">${uiIcon('edit')}</button>
+      <button type="button" class="user-message-action user-message-resend" data-action="resend" title="${IexaI18n.t('msg.resend')}" aria-label="${IexaI18n.t('msg.resend')}">${uiIcon('send')}</button>
+      <button type="button" class="user-message-action user-message-reset" data-action="reset" title="${IexaI18n.t('msg.resetHere')}" aria-label="${IexaI18n.t('msg.resetHere')}" aria-hidden="false">${uiIcon('branch')}</button>
+      <button type="button" class="user-message-action" data-action="copy" title="${IexaI18n.t('msg.copyMessage')}" aria-label="${IexaI18n.t('msg.copyMessage')}">
         ${uiIcon('copy')}
       </button>`;
     actions.querySelector('[data-action="edit"]').addEventListener('click', function () {
@@ -168,14 +169,14 @@ function appendAssistantMessageActions(messageEl) {
   const actions = document.createElement('div');
   actions.className = 'assistant-message-actions';
   actions.setAttribute('role', 'group');
-  actions.setAttribute('aria-label', '回复操作');
+  actions.setAttribute('aria-label', IexaI18n.t('msg.replyActions'));
   actions.innerHTML = `
-    <button type="button" class="assistant-message-action" data-action="translate" title="中英互译（调用当前会话模型，会计入模型用量）" aria-label="中英互译">${uiIcon('translate')}</button>
-    <button type="button" class="assistant-message-action" data-action="copy" title="复制回复" aria-label="复制回复">${uiIcon('copy')}</button>
-    <button type="button" class="assistant-message-action" data-action="retry" title="重新生成" aria-label="重新生成">${uiIcon('retry')}</button>
-    <button type="button" class="assistant-message-action" data-action="share" title="分享这条回复" aria-label="分享这条回复" aria-haspopup="menu" aria-expanded="false">${uiIcon('share')}</button>
-    <button type="button" class="assistant-message-action" data-action="doc" title="在文档编辑器中打开（复制一份，不改动这条回复）" aria-label="在文档编辑器中打开">${uiIcon('file')}</button>
-    <button type="button" class="assistant-message-action" data-action="speak" title="朗读内容" aria-label="朗读内容" aria-pressed="false">
+    <button type="button" class="assistant-message-action" data-action="translate" title="${IexaI18n.t('msg.translateTitle')}" aria-label="${IexaI18n.t('msg.translate')}">${uiIcon('translate')}</button>
+    <button type="button" class="assistant-message-action" data-action="copy" title="${IexaI18n.t('msg.copyReply')}" aria-label="${IexaI18n.t('msg.copyReply')}">${uiIcon('copy')}</button>
+    <button type="button" class="assistant-message-action" data-action="retry" title="${IexaI18n.t('msg.regenerate')}" aria-label="${IexaI18n.t('msg.regenerate')}">${uiIcon('retry')}</button>
+    <button type="button" class="assistant-message-action" data-action="share" title="${IexaI18n.t('msg.share')}" aria-label="${IexaI18n.t('msg.share')}" aria-haspopup="menu" aria-expanded="false">${uiIcon('share')}</button>
+    <button type="button" class="assistant-message-action" data-action="doc" title="${IexaI18n.t('msg.openDocTitle')}" aria-label="${IexaI18n.t('msg.openDoc')}">${uiIcon('file')}</button>
+    <button type="button" class="assistant-message-action" data-action="speak" title="${IexaI18n.t('msg.speak')}" aria-label="${IexaI18n.t('msg.speak')}" aria-pressed="false">
       <svg class="ui-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path class="speak-play" d="M8.2 5.4a.8.8 0 0 1 1.2-.7l9.1 6.6a.8.8 0 0 1 0 1.4l-9.1 6.6a.8.8 0 0 1-1.2-.7z" fill="currentColor" stroke="none"/><rect class="speak-stop" x="6.6" y="6.6" width="10.8" height="10.8" rx="2.6" fill="currentColor"/></svg>
     </button>`;
   actions.querySelector('[data-action="translate"]').addEventListener('click', function () {
@@ -260,8 +261,8 @@ async function translateAssistantMessage(messageEl, button) {
     const visible = existing.hidden;
     existing.hidden = !visible;
     button.classList.toggle('is-translated', visible);
-    button.title = visible ? '隐藏译文' : '显示译文';
-    button.setAttribute('aria-label', visible ? '隐藏译文' : '显示译文');
+    button.title = visible ? IexaI18n.t('msg.hideTranslation') : IexaI18n.t('msg.showTranslation');
+    button.setAttribute('aria-label', visible ? IexaI18n.t('msg.hideTranslation') : IexaI18n.t('msg.showTranslation'));
     return;
   }
 
@@ -269,8 +270,8 @@ async function translateAssistantMessage(messageEl, button) {
   if (!source.trim()) return;
   button.disabled = true;
   button.classList.add('is-translating');
-  button.title = '正在翻译…';
-  button.setAttribute('aria-label', '正在翻译');
+  button.title = IexaI18n.t('msg.translating');
+  button.setAttribute('aria-label', IexaI18n.t('msg.translatingAria'));
   try {
     const response = await fetch(`${API_BASE}/api/translate`, {
       method: 'POST',
@@ -278,12 +279,12 @@ async function translateAssistantMessage(messageEl, button) {
       body: JSON.stringify({ text: source, sessionId: currentSessionId }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || '翻译服务暂时不可用。');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('msg.translateUnavailable'));
     const translated = document.createElement('section');
     translated.className = 'assistant-translation';
     const heading = document.createElement('div');
     heading.className = 'assistant-translation-heading';
-    heading.textContent = `${data.direction === 'zh-CN|en' ? '英文译文' : '中文译文'} · 当前模型`;
+    heading.textContent = `${data.direction === 'zh-CN|en' ? IexaI18n.t('msg.englishTranslation') : IexaI18n.t('msg.chineseTranslation')}${IexaI18n.t('msg.currentModelSuffix')}`;
     const content = document.createElement('div');
     content.className = 'assistant-translation-content';
     translated.append(heading, content);
@@ -292,10 +293,10 @@ async function translateAssistantMessage(messageEl, button) {
     renderMarkdownContent(content, String(data.text || ''), true);
     messageEl._translationElement = translated;
     button.classList.add('is-translated');
-    button.title = '隐藏译文';
-    button.setAttribute('aria-label', '隐藏译文');
+    button.title = IexaI18n.t('msg.hideTranslation');
+    button.setAttribute('aria-label', IexaI18n.t('msg.hideTranslation'));
   } catch (error) {
-    addError(`翻译失败：${error.message || error}`);
+    addError(`${IexaI18n.t('msg.translateFailedPrefix')}${error.message || error}`);
   } finally {
     if (button.isConnected) {
       button.disabled = false;
@@ -311,18 +312,18 @@ async function copyAssistantMessage(messageEl, button) {
     await writeClipboardText(text);
     button.classList.add('is-copied');
     button.innerHTML = uiIcon('check');
-    button.title = '已复制';
-    button.setAttribute('aria-label', '已复制');
+    button.title = IexaI18n.t('msg.copied');
+    button.setAttribute('aria-label', IexaI18n.t('msg.copied'));
     setTimeout(() => {
       if (!button.isConnected) return;
       button.classList.remove('is-copied');
       button.innerHTML = uiIcon('copy');
-      button.title = '复制回复';
-      button.setAttribute('aria-label', '复制回复');
+      button.title = IexaI18n.t('msg.copyReply');
+      button.setAttribute('aria-label', IexaI18n.t('msg.copyReply'));
     }, 1300);
   } catch (err) {
     console.error('Failed to copy assistant message:', err);
-    addError('复制回复失败，请重试。');
+    addError(IexaI18n.t('msg.copyReplyFailed'));
   }
 }
 
@@ -372,32 +373,32 @@ async function retryAssistantMessage(messageEl, button) {
   const userEl = precedingUserMessage(messageEl);
   const messageIndex = Number(userEl && userEl.dataset.messageIndex);
   if (!Number.isInteger(messageIndex) || messageIndex < 0) {
-    addError('没有找到这条回复对应的提问。');
+    addError(IexaI18n.t('msg.noPromptForReply'));
     return;
   }
 
   const sessionId = currentSessionId;
   button.disabled = true;
   button.classList.add('is-retrying');
-  button.title = '正在重新生成';
-  button.setAttribute('aria-label', '正在重新生成');
+  button.title = IexaI18n.t('msg.regenerating');
+  button.setAttribute('aria-label', IexaI18n.t('msg.regenerating'));
   try {
     const sessionResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
     const sessionData = await sessionResponse.json().catch(() => ({}));
-    if (!sessionResponse.ok) throw new Error(sessionData.error || '读取会话失败');
+    if (!sessionResponse.ok) throw new Error(sessionData.error || IexaI18n.t('msg.loadSessionFailed'));
     const source = Array.isArray(sessionData.messages) ? sessionData.messages[messageIndex] : null;
-    if (!source || source.role !== 'user') throw new Error('没有找到这条回复对应的提问');
+    if (!source || source.role !== 'user') throw new Error(IexaI18n.t('msg.noPromptForReplyBare'));
 
     const prompt = String(source.content || '');
     const attachments = cloneAttachments(source.attachments || []);
-    const displayText = prompt || (attachments.length ? `（附件：${attachments.map((item) => item.name).join('、')}）` : '');
+    const displayText = prompt || (attachments.length ? IexaI18n.t('msg.attachmentsInline', { names: attachments.map((item) => item.name).join(IexaI18n.t('common.listSeparator')) }) : '');
     const resetResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageIndex, retainSelected: false }),
     });
     const resetData = await resetResponse.json().catch(() => ({}));
-    if (!resetResponse.ok) throw new Error(resetData.error || '重试前重置会话失败');
+    if (!resetResponse.ok) throw new Error(resetData.error || IexaI18n.t('msg.resetBeforeRetryFailed'));
 
     await reloadSessionView(sessionId);
     window.dismissWelcome?.();
@@ -405,13 +406,13 @@ async function retryAssistantMessage(messageEl, button) {
     suppressQueueDrain = false;
     await runChatTurn(prompt || displayText, displayText, attachments, { fromRetry: true });
   } catch (err) {
-    if (currentSessionId === sessionId) addError(err.message || '重新生成失败');
+    if (currentSessionId === sessionId) addError(err.message || IexaI18n.t('msg.regenerateFailed'));
   } finally {
     if (button.isConnected) {
       button.disabled = false;
       button.classList.remove('is-retrying');
-      button.title = '重新生成';
-      button.setAttribute('aria-label', '重新生成');
+      button.title = IexaI18n.t('msg.regenerate');
+      button.setAttribute('aria-label', IexaI18n.t('msg.regenerate'));
     }
   }
 }
@@ -431,10 +432,10 @@ async function copyUserMessage(content, button) {
       area.remove();
     }
     button.classList.add('is-copied');
-    button.title = '已复制';
+    button.title = IexaI18n.t('msg.copied');
     setTimeout(() => {
       button.classList.remove('is-copied');
-      button.title = '复制消息';
+      button.title = IexaI18n.t('msg.copyMessage');
     }, 1300);
   } catch (err) {
     console.error('Failed to copy message:', err);
@@ -491,13 +492,13 @@ async function resolvePersistedUserIndex(sessionId, userEl, content) {
 
 async function resetConversationToMessage(messageEl) {
   if (!messageEl || !currentSessionId) return;
-  if (!(await window.IexaDialogs.confirm('重置到此处将移除这条消息之后的对话，是否继续？'))) return;
+  if (!(await window.IexaDialogs.confirm(IexaI18n.t('msg.resetConfirm')))) return;
 
   const content = String(messageEl.querySelector('.message-content')?.innerText || '').trim();
   const sessionId = currentSessionId;
   const messageIndex = await resolvePersistedUserIndex(sessionId, messageEl, content);
   if (!Number.isInteger(messageIndex) || messageIndex < 0) {
-    addError('没有找到这条消息在会话中的位置。');
+    addError(IexaI18n.t('msg.noMessagePosition'));
     return;
   }
   if (currentSessionId !== sessionId) return;
@@ -513,7 +514,7 @@ async function resetConversationToMessage(messageEl) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageIndex }),
     });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || '重置失败');
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || IexaI18n.t('msg.resetFailed'));
     // Trim the visible transcript in place instead of refetching the whole
     // session: a full reload flashes the "正在加载对话…" placeholder and can
     // strand it when a metadata refresh bumps the view epoch mid-flight.
@@ -523,7 +524,7 @@ async function resetConversationToMessage(messageEl) {
     applySessionContextStatus(currentSessionId, null);
     scrollToBottom(true);
   } catch (err) {
-    addError(err.message || '重置对话失败');
+    addError(err.message || IexaI18n.t('msg.resetConversationFailed'));
   } finally {
     suppressQueueDrain = false;
   }
@@ -539,7 +540,7 @@ async function resetConversationToMessage(messageEl) {
 async function resendUserMessage(messageEl, button) {
   if (!messageEl || !currentSessionId) return;
   if (isProcessing) {
-    addError('当前任务仍在处理中，请先停止后再重新发送。');
+    addError(IexaI18n.t('msg.busyResend'));
     return;
   }
 
@@ -547,7 +548,7 @@ async function resendUserMessage(messageEl, button) {
   const sessionId = currentSessionId;
   const messageIndex = await resolvePersistedUserIndex(sessionId, messageEl, content);
   if (!Number.isInteger(messageIndex) || messageIndex < 0) {
-    addError('没有找到这条消息在会话中的位置。');
+    addError(IexaI18n.t('msg.noMessagePosition'));
     return;
   }
   if (currentSessionId !== sessionId) return;
@@ -555,8 +556,8 @@ async function resendUserMessage(messageEl, button) {
   if (button) {
     button.disabled = true;
     button.classList.add('is-retrying');
-    button.title = '正在重新发送';
-    button.setAttribute('aria-label', '正在重新发送');
+    button.title = IexaI18n.t('msg.resending');
+    button.setAttribute('aria-label', IexaI18n.t('msg.resending'));
   }
 
   // Hard branch point: drop queued prompts and stop any live request first.
@@ -567,13 +568,13 @@ async function resendUserMessage(messageEl, button) {
   try {
     const sessionResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`);
     const sessionData = await sessionResponse.json().catch(() => ({}));
-    if (!sessionResponse.ok) throw new Error(sessionData.error || '读取会话失败');
+    if (!sessionResponse.ok) throw new Error(sessionData.error || IexaI18n.t('msg.loadSessionFailed'));
     const source = Array.isArray(sessionData.messages) ? sessionData.messages[messageIndex] : null;
-    if (!source || source.role !== 'user') throw new Error('没有找到这条消息对应的提问');
+    if (!source || source.role !== 'user') throw new Error(IexaI18n.t('msg.noPromptForMessage'));
 
     const prompt = String(source.content || '');
     const attachments = cloneAttachments(source.attachments || []);
-    const displayText = prompt || (attachments.length ? `（附件：${attachments.map((item) => item.name).join('、')}）` : '');
+    const displayText = prompt || (attachments.length ? IexaI18n.t('msg.attachmentsInline', { names: attachments.map((item) => item.name).join(IexaI18n.t('common.listSeparator')) }) : '');
 
     const resetResponse = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
       method: 'POST',
@@ -581,7 +582,7 @@ async function resendUserMessage(messageEl, button) {
       body: JSON.stringify({ messageIndex, retainSelected: false }),
     });
     const resetData = await resetResponse.json().catch(() => ({}));
-    if (!resetResponse.ok) throw new Error(resetData.error || '重新发送前重置会话失败');
+    if (!resetResponse.ok) throw new Error(resetData.error || IexaI18n.t('msg.resetBeforeResendFailed'));
 
     // Truncate in place rather than reloadSessionView(): the heavy reload mounts
     // the "正在加载对话…" placeholder and can strand it when a concurrent
@@ -594,13 +595,13 @@ async function resendUserMessage(messageEl, button) {
     await runChatTurn(prompt || displayText, displayText, attachments, { fromRetry: true });
   } catch (err) {
     suppressQueueDrain = false;
-    if (currentSessionId === sessionId) addError(err.message || '重新发送失败');
+    if (currentSessionId === sessionId) addError(err.message || IexaI18n.t('msg.resendFailed'));
   } finally {
     if (button && button.isConnected) {
       button.disabled = false;
       button.classList.remove('is-retrying');
-      button.title = '重新发送';
-      button.setAttribute('aria-label', '重新发送');
+      button.title = IexaI18n.t('msg.resend');
+      button.setAttribute('aria-label', IexaI18n.t('msg.resend'));
     }
   }
 }
@@ -653,7 +654,7 @@ function addError(message) {
   err.setAttribute('role', 'alert');
   err.innerHTML = uiIcon('alert')
     + '<span class="error-message-text">' + escapeHtml(message) + '</span>'
-    + '<button type="button" class="error-message-close" aria-label="关闭提示" title="关闭">' + uiIcon('close') + '</button>';
+    + '<button type="button" class="error-message-close" aria-label="' + IexaI18n.t('msg.closeNotice') + '" title="' + IexaI18n.t('msg.close') + '">' + uiIcon('close') + '</button>';
   const text = err.querySelector('.error-message-text');
   if (text) text.title = String(message);
   err.querySelector('.error-message-close')?.addEventListener('click', () => dismissErrorNotice(err));
@@ -811,10 +812,10 @@ function setProcessing(processing) {
   if (processing) {
     statusDot.className = 'status-dot processing';
     const qn = promptQueue.filter((p) => p.sessionId === currentSessionId).length;
-    statusText.textContent = qn > 0 ? ('处理中…（' + qn + ' 条待发送）') : '处理中...';
+    statusText.textContent = qn > 0 ? IexaI18n.t('msg.processingQueued', { count: qn }) : IexaI18n.t('msg.processing');
   } else {
     statusDot.className = 'status-dot';
-    statusText.textContent = '就绪';
+    statusText.textContent = IexaI18n.t('msg.ready');
   }
   updateComposerForQueue();
   if (currentSessionId) {

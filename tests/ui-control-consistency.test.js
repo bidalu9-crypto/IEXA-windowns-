@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path');
 const {JSDOM}=require('jsdom');
 const {functions}=require('./helpers/transcript-harness.cjs');
 const root=path.resolve(__dirname,'../src/renderer');
-function setup(t){const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());return dom.window;}
+function setup(t){const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());require('./helpers/install-i18n')(dom.window);return dom.window;}
 
 test('both project open controls are independent labelled SVG buttons, not text glyphs or nested buttons',t=>{
  const w=setup(t),d=w.document;

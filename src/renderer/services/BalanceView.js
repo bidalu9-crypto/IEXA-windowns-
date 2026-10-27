@@ -32,7 +32,7 @@ function formatBalanceMoney(value, currency, compact = true) {
     const body = compact && Math.abs(number) >= 1000
       ? (number / 1000).toFixed(1) + 'k'
       : number.toLocaleString('zh-CN', { maximumFractionDigits: compact ? 0 : 2 });
-    return body + ' 积分';
+    return IexaI18n.t('balance.credits', { amount: body });
   }
   const symbol = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : currency === 'EUR' ? '€' : '';
   const absolute = Math.abs(number);
@@ -70,11 +70,11 @@ function renderBalancePopover(data) {
     // The chip is hidden in this state, so this is only a defensive path.
     const message = document.createElement('p');
     message.className = 'balance-empty';
-    message.textContent = data?.message || '暂时无法读取余额。';
+    message.textContent = data?.message || IexaI18n.t('balance.unavailable');
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.className = 'balance-refresh';
-    retry.textContent = '重试';
+    retry.textContent = IexaI18n.t('common.retry');
     retry.addEventListener('click', () => refreshBalance(true));
     popover.append(message, retry);
     return;
@@ -84,10 +84,10 @@ function renderBalancePopover(data) {
   head.className = 'balance-pop-head';
   const title = document.createElement('span');
   title.className = 'balance-pop-title';
-  title.textContent = '账户余额';
+  title.textContent = IexaI18n.t('balance.title');
   const source = document.createElement('span');
   source.className = 'balance-source';
-  source.textContent = data.source || '服务商接口';
+  source.textContent = data.source || IexaI18n.t('balance.source');
   head.append(title, source);
 
   const total = document.createElement('strong');
@@ -106,20 +106,20 @@ function renderBalancePopover(data) {
     row.append(key, amount);
     rows.append(row);
   };
-  addRow('已用', data.used);
-  addRow('赠送', data.granted);
-  addRow('充值', data.toppedUp);
-  addRow('总额', data.total);
+  addRow(IexaI18n.t('balance.used'), data.used);
+  addRow(IexaI18n.t('balance.granted'), data.granted);
+  addRow(IexaI18n.t('balance.toppedUp'), data.toppedUp);
+  addRow(IexaI18n.t('balance.total'), data.total);
 
   const foot = document.createElement('div');
   foot.className = 'balance-foot';
   const stamp = document.createElement('span');
   const at = new Date(data.updatedAt || Date.now());
-  stamp.textContent = '更新于 ' + at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  stamp.textContent = IexaI18n.t('balance.updatedAt', { time: at.toLocaleTimeString(IexaI18n.getLocale(), { hour: '2-digit', minute: '2-digit' }) });
   const refresh = document.createElement('button');
   refresh.type = 'button';
   refresh.className = 'balance-refresh';
-  refresh.textContent = balanceView.loading ? '刷新中…' : '刷新';
+  refresh.textContent = balanceView.loading ? IexaI18n.t('balance.refreshing') : IexaI18n.t('balance.refresh');
   refresh.disabled = balanceView.loading;
   refresh.addEventListener('click', () => refreshBalance(true));
   foot.append(stamp, refresh);
@@ -132,7 +132,7 @@ function renderBalancePopover(data) {
 function syncBalanceRefreshButton() {
   const button = document.querySelector('#balancePopover .balance-refresh');
   if (!button) return;
-  button.textContent = balanceView.loading ? '刷新中…' : '刷新';
+  button.textContent = balanceView.loading ? IexaI18n.t('balance.refreshing') : IexaI18n.t('balance.refresh');
   button.disabled = balanceView.loading;
 }
 
@@ -164,7 +164,9 @@ function renderBalanceChip() {
   const low = balanceIsLow(data);
   value.textContent = text;
   chip.dataset.state = low ? 'low' : 'ok';
-  const title = `账户余额 ${text}${low ? ' · 余额偏低' : ''}，点击查看明细`;
+  const title = low
+    ? IexaI18n.t('balance.chipLow', { amount: text })
+    : IexaI18n.t('balance.chipTitle', { amount: text });
   chip.title = title;
   chip.setAttribute('aria-label', title);
   chip.setAttribute('aria-busy', String(balanceView.loading));
@@ -190,10 +192,10 @@ async function refreshBalance(force = false) {
     const response = await fetch(`${API_BASE}/api/profiles/${encodeURIComponent(profileId)}/balance${query}`);
     const data = await response.json().catch(() => null);
     if (balanceView.profileId !== profileId) return;
-    balanceView.data = response.ok && data ? data : { status: 'error', message: data?.error || '余额读取失败', updatedAt: Date.now() };
+    balanceView.data = response.ok && data ? data : { status: 'error', message: data?.error || IexaI18n.t('balance.readFailed'), updatedAt: Date.now() };
   } catch (error) {
     if (balanceView.profileId !== profileId) return;
-    balanceView.data = { status: 'error', message: error.message || '网络错误', updatedAt: Date.now() };
+    balanceView.data = { status: 'error', message: error.message || IexaI18n.t('common.networkError'), updatedAt: Date.now() };
   } finally {
     if (balanceView.profileId === profileId) {
       balanceView.loading = false;

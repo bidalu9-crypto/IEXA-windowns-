@@ -11,6 +11,7 @@ function setup(t) {
   const dom = new JSDOM('<body><div id="sessionsList"></div></body>', { runScripts: 'outside-only', url: 'http://localhost' });
   t.after(() => dom.window.close());
   const w = dom.window;
+  require('./helpers/install-i18n')(w);
   Object.assign(w, {
     API_BASE: '', sessionsList: w.document.getElementById('sessionsList'), currentSessionId: 'a-new', projectRoot: 'C:\\work\\alpha',
     sessionsCache: [], sessionRuntimes: new Map(), escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),

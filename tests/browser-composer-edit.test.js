@@ -18,7 +18,7 @@ const root = path.join(__dirname, '..');
 
 test('source: the edit action and the previewable chip are wired', () => {
   const helpers = fs.readFileSync(path.join(root, 'src/renderer/services/UiHelpers.js'), 'utf8');
-  assert.match(helpers, /data-action="edit"[^>]*title="重新编辑"/);
+  assert.match(helpers, /data-action="edit"[^>]*title="\$\{IexaI18n\.t\('msg\.edit'\)\}"/);
   assert.match(helpers, /window\.startEditingMessage\?\.\(msg\)/);
   const app = fs.readFileSync(path.join(root, 'src/renderer/app.js'), 'utf8');
   assert.match(app, /window\.startEditingMessage = startEditingMessage;/);

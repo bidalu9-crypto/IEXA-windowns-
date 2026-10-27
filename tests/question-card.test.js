@@ -10,6 +10,7 @@ function fixture(t, jsonImpl) {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>', { runScripts: 'outside-only' });
   t.after(() => dom.window.close());
   const w = dom.window;
+  require('./helpers/install-i18n')(w);
   w.IexaApi = { json: jsonImpl || (async () => ({ ok: true })) };
   w.eval(script);
   return w;

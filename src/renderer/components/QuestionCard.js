@@ -30,14 +30,14 @@
   }
 
   function answerValue(question, record) {
-    if (!record) return '（未回答）';
+    if (!record) return IexaI18n.t('question.unanswered');
     var parts = [];
     if (record.selected && record.selected.length) parts.push(record.selected.join('、'));
     var free = String(record.freeText || '').trim();
-    if (free) parts.push(parts.length ? '补充：' + free : free);
+    if (free) parts.push(parts.length ? IexaI18n.t('question.supplement') + free : free);
     if (parts.length) return parts.join('；');
-    if (record.skipped) return '（跳过）';
-    return '（未回答）';
+    if (record.skipped) return IexaI18n.t('question.skipped');
+    return IexaI18n.t('question.unanswered');
   }
 
   function createEntry(data, options) {
@@ -85,7 +85,7 @@
     var titleId = 'qcard-title-' + entry.id.replace(/[^a-z0-9_-]/gi, '');
     var head = el('div', 'question-card-head');
     head.appendChild(iconSvg());
-    var titleText = data.title ? String(data.title) : '需要你的回答';
+    var titleText = data.title ? String(data.title) : IexaI18n.t('question.needsAnswer');
     var titleEl = el('span', 'question-card-title', titleText);
     titleEl.id = titleId;
     root.setAttribute('aria-labelledby', titleId);
@@ -96,22 +96,22 @@
     var progressEl = el('span', 'question-card-progress', '');
     head.appendChild(progressEl);
     var toggleBtn = makeButton('', 'question-card-toggle');
-    toggleBtn.title = '展开回答详情';
-    toggleBtn.setAttribute('aria-label', '展开回答详情');
+    toggleBtn.title = IexaI18n.t('question.expandDetails');
+    toggleBtn.setAttribute('aria-label', IexaI18n.t('question.expandDetails'));
     toggleBtn.setAttribute('aria-expanded', 'false');
     var toggleChevron = el('span', 'question-card-chevron');
     toggleChevron.setAttribute('aria-hidden', 'true');
     toggleBtn.appendChild(toggleChevron);
     head.appendChild(toggleBtn);
     var closeBtn = makeButton('×', 'question-card-close');
-    closeBtn.title = '取消提问';
-    closeBtn.setAttribute('aria-label', '取消提问');
+    closeBtn.title = IexaI18n.t('question.cancel');
+    closeBtn.setAttribute('aria-label', IexaI18n.t('question.cancel'));
     head.appendChild(closeBtn);
     root.appendChild(head);
 
     var previewEl = el('div', 'question-card-preview');
     previewEl.hidden = true;
-    previewEl.title = '点击展开回答详情';
+    previewEl.title = IexaI18n.t('question.clickExpand');
     root.appendChild(previewEl);
 
     var dotsEl = el('div', 'question-card-dots');
@@ -123,10 +123,10 @@
     root.appendChild(bodyEl);
 
     var actionsEl = el('div', 'question-card-actions');
-    var backBtn = makeButton('上一题', 'question-nav question-back');
+    var backBtn = makeButton(IexaI18n.t('question.prev'), 'question-nav question-back');
     var spacer = el('span', 'question-card-spacer');
-    var skipBtn = makeButton('跳过', 'question-nav question-skip');
-    var nextBtn = makeButton('下一题', 'question-nav question-next is-primary');
+    var skipBtn = makeButton(IexaI18n.t('question.skip'), 'question-nav question-skip');
+    var nextBtn = makeButton(IexaI18n.t('question.next'), 'question-nav question-next is-primary');
     actionsEl.appendChild(backBtn);
     actionsEl.appendChild(spacer);
     actionsEl.appendChild(skipBtn);
@@ -157,20 +157,20 @@
         if (dotIndex === index) dot.classList.add('is-current');
         if (answers.get(question.id).skipped) dot.classList.add('is-skipped');
         else if (isAnswered(question)) dot.classList.add('is-done');
-        dot.title = '第 ' + (dotIndex + 1) + ' 题';
+        dot.title = IexaI18n.t('question.item', { index: dotIndex + 1 });
         dotsEl.appendChild(dot);
       });
     }
 
     function syncActions() {
       var last = index === questions.length - 1;
-      progressEl.textContent = questions.length > 1 ? '第 ' + (index + 1) + ' / ' + questions.length + ' 题' : '';
+      progressEl.textContent = questions.length > 1 ? IexaI18n.t('question.of', { index: index + 1, total: questions.length }) : '';
       progressEl.hidden = questions.length <= 1;
       backBtn.disabled = index === 0 || entry.state !== 'awaiting';
       skipBtn.hidden = currentQuestion().kind === 'confirm';
       skipBtn.disabled = entry.state !== 'awaiting';
       skipBtn.classList.toggle('is-active', currentAnswer().skipped === true);
-      nextBtn.textContent = last ? '提交' : '下一题';
+      nextBtn.textContent = last ? IexaI18n.t('question.submit') : IexaI18n.t('question.next');
       nextBtn.disabled = entry.state !== 'awaiting' || !isAnswered(currentQuestion()) || (last && !allSettled());
       closeBtn.disabled = entry.state !== 'awaiting';
       renderDots();
@@ -231,7 +231,7 @@
         var textarea = el('textarea', 'question-free-input');
         textarea.rows = 2;
         textarea.value = record.freeText || '';
-        textarea.placeholder = question.placeholder || (question.options.length ? '其他补充（可选）…' : '输入你的回答…');
+        textarea.placeholder = question.placeholder || (question.options.length ? IexaI18n.t('question.otherPlaceholder') : IexaI18n.t('question.answerPlaceholder'));
         textarea.addEventListener('input', function () {
           if (entry.state !== 'awaiting') return;
           var recordNow = answers.get(question.id);
@@ -289,7 +289,7 @@
           return answerValue(question, answers.get(question.id));
         }).join(' · ');
       } else {
-        previewEl.textContent = noteEl.textContent || '未收到回答';
+        previewEl.textContent = noteEl.textContent || IexaI18n.t('question.noAnswer');
       }
     }
 
@@ -297,7 +297,7 @@
       var collapsed = isTerminal() && entry.collapsed === true;
       root.classList.toggle('is-collapsed', collapsed);
       toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-      var label = collapsed ? '展开回答详情' : '收起回答详情';
+      var label = collapsed ? IexaI18n.t('question.expandDetails') : IexaI18n.t('question.hideDetails');
       toggleBtn.title = label;
       toggleBtn.setAttribute('aria-label', label);
       previewEl.title = label;
@@ -308,7 +308,7 @@
         ? String(questions[0].question)
         : titleText;
       var showMore = collapsed && questions.length > 1;
-      if (showMore) qmoreEl.textContent = '共 ' + questions.length + ' 题';
+      if (showMore) qmoreEl.textContent = IexaI18n.t('question.total', { count: questions.length });
       qmoreEl.hidden = !showMore;
       if (collapsed) {
         refreshPreview();
@@ -359,7 +359,7 @@
       if (entry.state !== 'awaiting' || !allSettled()) return;
       setState('submitting');
       noteEl.hidden = false;
-      noteEl.textContent = '正在提交…';
+      noteEl.textContent = IexaI18n.t('question.submitting');
       syncActions();
       var payload = {
         id: entry.id,
@@ -375,17 +375,17 @@
         });
         if (entry.timer) { clearTimeout(entry.timer); entry.timer = undefined; }
         setState('submitted');
-        renderSummary('已提交，IEXA 将继续处理。');
+        renderSummary(IexaI18n.t('question.submitted'));
       } catch (error) {
         var message = String((error && error.message) || error || '');
-        if (message.indexOf('不存在') !== -1 || message.indexOf('已结束') !== -1) {
-          finalize(entry, 'closed', '该提问已结束，未能提交回答。');
+        if (message.indexOf('不存在') !== -1 || message.indexOf('已结束') !== -1) { // i18n-exempt: matches server error text
+          finalize(entry, 'closed', IexaI18n.t('question.endedSubmit'));
           return;
         }
         setState('awaiting');
-        noteEl.textContent = '提交失败，请重试。';
+        noteEl.textContent = IexaI18n.t('question.submitFailed');
         syncActions();
-        if (typeof entry.options.onError === 'function') entry.options.onError('回答提交失败：' + (message || '未知错误'));
+        if (typeof entry.options.onError === 'function') entry.options.onError(IexaI18n.t('question.submitFailedPrefix') + (message || IexaI18n.t('common.unknownError')));
       }
     }
 
@@ -393,7 +393,7 @@
       if (entry.state !== 'awaiting') return;
       var confirmed = true;
       if (window.IexaDialogs && typeof window.IexaDialogs.confirm === 'function') {
-        try { confirmed = await window.IexaDialogs.confirm('取消这次提问？IEXA 将不会收到你的回答。'); } catch (e) { confirmed = false; }
+        try { confirmed = await window.IexaDialogs.confirm(IexaI18n.t('question.confirmCancel')); } catch (e) { confirmed = false; }
       }
       if (!confirmed || entry.state !== 'awaiting') return;
       closeBtn.disabled = true;
@@ -401,16 +401,16 @@
         await window.IexaApi.json((entry.options.apiBase || '') + '/api/questions/cancel', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: entry.id }),
         });
-        finalize(entry, 'closed', '已取消，IEXA 未收到回答。');
+        finalize(entry, 'closed', IexaI18n.t('question.cancelled'));
       } catch (error) {
         var message = String((error && error.message) || error || '');
-        if (message.indexOf('不存在') !== -1 || message.indexOf('已结束') !== -1) {
-          finalize(entry, 'closed', '该提问已结束。');
+        if (message.indexOf('不存在') !== -1 || message.indexOf('已结束') !== -1) { // i18n-exempt: matches server error text
+          finalize(entry, 'closed', IexaI18n.t('question.ended'));
           return;
         }
         closeBtn.disabled = false;
         noteEl.hidden = false;
-        noteEl.textContent = '取消失败，请重试。';
+        noteEl.textContent = IexaI18n.t('question.cancelFailed');
       }
     }
 
@@ -463,7 +463,7 @@
 
     if (data.expiresAt && Number.isFinite(Number(data.expiresAt))) {
       entry.timer = setTimeout(function () {
-        if (entry.state === 'awaiting') finalize(entry, 'closed', '提问已超时，未收到回答。');
+        if (entry.state === 'awaiting') finalize(entry, 'closed', IexaI18n.t('question.timedOut'));
       }, Math.min(2147483647, Math.max(0, Number(data.expiresAt) - Date.now())));
     }
 
@@ -515,7 +515,7 @@
     for (var pair of Array.from(cards)) {
       var entry = pair[1];
       if (entry.sessionId === String(sessionId) && entry.state === 'awaiting' && !current.has(entry.id)) {
-        entry.expire('该提问已结束，未能回答。');
+        entry.expire(IexaI18n.t('question.endedNoAnswer'));
       }
     }
     if (typeof options.isCurrent === 'function' && !options.isCurrent()) return;
@@ -528,10 +528,10 @@
     if (!TOOL_TERMINAL[status]) return;
     for (var entry of forToolCall(toolCallId)) {
       if (entry.state !== 'awaiting') continue;
-      if (status === 'cancelled') entry.interrupt('任务已停止，本次提问未作答。');
-      else if (status === 'timed_out') entry.expire('提问已超时，未收到回答。');
-      else if (status === 'completed') entry.complete('该提问已处理完毕。');
-      else entry.expire('提问已结束，未收到回答。');
+      if (status === 'cancelled') entry.interrupt(IexaI18n.t('question.taskStopped'));
+      else if (status === 'timed_out') entry.expire(IexaI18n.t('question.timedOut'));
+      else if (status === 'completed') entry.complete(IexaI18n.t('question.handled'));
+      else entry.expire(IexaI18n.t('question.endedNoReply'));
     }
   }
 
@@ -545,7 +545,7 @@
     if (!sessionId) return;
     for (var entry of cards.values()) {
       if (entry.sessionId === String(sessionId) && entry.state === 'awaiting') {
-        entry.interrupt(reason === 'cancelled' ? '本轮已停止，本次提问未作答。' : '提问已结束，未收到回答。');
+        entry.interrupt(reason === 'cancelled' ? IexaI18n.t('question.turnStopped') : IexaI18n.t('question.endedNoReply'));
       }
     }
   }

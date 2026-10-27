@@ -57,15 +57,15 @@ function renderGitStatus(data) {
   if (!panel) return;
   const commitDraft = panel.querySelector('#gitCommitMessage')?.value || '';
   if (!projectRoot) {
-    panel.innerHTML = '<div class="workbench-empty">打开项目后可查看 Git 更改。</div>';
+    panel.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('git.openProjectHint') + '</div>';
     return;
   }
   if (!data.available || data.error) {
-    panel.innerHTML = `<div class="workbench-empty">${escapeHtml(data.error || '无法读取 Git 状态。')}</div>`;
+    panel.innerHTML = `<div class="workbench-empty">${escapeHtml(data.error || IexaI18n.t('git.statusUnavailable'))}</div>`;
     return;
   }
   if (!data.repository) {
-    panel.innerHTML = '<div class="workbench-empty">当前项目不是 Git 仓库。</div>';
+    panel.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('git.notRepo') + '</div>';
     return;
   }
   const files = data.files || [];
@@ -79,30 +79,30 @@ function renderGitStatus(data) {
     const working = file.workTree && file.workTree !== ' ';
     const label = `${staged ? file.index : ' '}${working ? file.workTree : ' '}`.trim() || '??';
     const action = `${staged
-      ? '<button type="button" class="git-file-action" data-git-action="unstage">取消暂存</button>'
-      : '<button type="button" class="git-file-action" data-git-action="stage">暂存</button>'}${working ? '<button type="button" class="git-file-action git-file-restore" data-git-action="restore">回滚</button>' : ''}`;
+      ? '<button type="button" class="git-file-action" data-git-action="unstage">' + IexaI18n.t('git.unstage') + '</button>'
+      : '<button type="button" class="git-file-action" data-git-action="stage">' + IexaI18n.t('git.stage') + '</button>'}${working ? '<button type="button" class="git-file-action git-file-restore" data-git-action="restore">' + IexaI18n.t('git.restore') + '</button>' : ''}`;
     return `<div class="git-file" data-path="${escapeHtml(file.path)}" data-staged="${staged && !working ? '1' : '0'}">
       <span class="git-file-status${staged ? ' is-staged' : ''}">${escapeHtml(label)}</span>
       <span class="git-file-path" title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span>
       <span class="git-file-actions">${action}</span>
     </div>`;
-  }).join('') : '<div class="workbench-empty">工作区干净，没有待提交的更改。</div>';
+  }).join('') : '<div class="workbench-empty">' + IexaI18n.t('git.clean') + '</div>';
   const branchOptions = branches.map((branch) => `<option value="${escapeHtml(branch.name)}"${branch.current ? ' selected' : ''}>${escapeHtml(branch.name)}</option>`).join('');
-  const commitHtml = commits.length ? commits.map((commit) => `<div class="git-log-entry" title="${escapeHtml(`${commit.hash}\n${commit.author}\n${commit.committedAt}`)}"><code>${escapeHtml(commit.shortHash)}</code><span>${escapeHtml(commit.subject)}</span></div>`).join('') : '<div class="git-log-empty">暂无提交记录</div>';
+  const commitHtml = commits.length ? commits.map((commit) => `<div class="git-log-entry" title="${escapeHtml(`${commit.hash}\n${commit.author}\n${commit.committedAt}`)}"><code>${escapeHtml(commit.shortHash)}</code><span>${escapeHtml(commit.subject)}</span></div>`).join('') : '<div class="git-log-empty">' + IexaI18n.t('git.noCommits') + '</div>';
   panel.innerHTML = `
     <div class="git-overview">
       <span class="git-branch" title="${escapeHtml(data.branch || '')}">⌥ ${escapeHtml(data.branch || '(detached HEAD)')}</span>
-      <span class="git-counts">${escapeHtml(counts.join(' ') || (files.length ? `${files.length} 项更改` : '已同步'))}</span>
+      <span class="git-counts">${escapeHtml(counts.join(' ') || (files.length ? IexaI18n.t('git.changedFiles', { count: files.length }) : IexaI18n.t('git.synced')))}</span>
     </div>
     <div class="git-toolbar">
-      <select id="gitBranchSelect" aria-label="切换 Git 分支">${branchOptions || `<option>${escapeHtml(data.branch || '(detached HEAD)')}</option>`}</select>
-      <button type="button" data-git-operation="create-branch" title="新建分支">＋</button>
-      <button type="button" data-git-operation="pull" title="拉取（仅 fast-forward）">↓</button>
-      <button type="button" data-git-operation="push" title="推送当前分支">↑</button>
+      <select id="gitBranchSelect" aria-label="${IexaI18n.t('git.switchBranch')}">${branchOptions || `<option>${escapeHtml(data.branch || '(detached HEAD)')}</option>`}</select>
+      <button type="button" data-git-operation="create-branch" title="${IexaI18n.t('git.createBranch')}">＋</button>
+      <button type="button" data-git-operation="pull" title="${IexaI18n.t('git.pull')}">↓</button>
+      <button type="button" data-git-operation="push" title="${IexaI18n.t('git.push')}">↑</button>
     </div>
-    ${files.length ? `<div class="git-section-label">更改 (${files.length})</div>${fileHtml}` : fileHtml}
-    ${files.length ? `<div class="git-commit-box"><button type="button" class="git-stage-all" data-git-operation="stage-all">暂存全部</button><textarea id="gitCommitMessage" rows="2" placeholder="提交信息"></textarea><button type="button" class="git-commit-submit" data-git-operation="commit">提交</button></div>` : ''}
-    <div class="git-section-label">最近提交</div>
+    ${files.length ? `<div class="git-section-label">${IexaI18n.t('git.changesLabel')}${files.length})</div>${fileHtml}` : fileHtml}
+    ${files.length ? `<div class="git-commit-box"><button type="button" class="git-stage-all" data-git-operation="stage-all">${IexaI18n.t('git.stageAll')}</button><textarea id="gitCommitMessage" rows="2" placeholder="${IexaI18n.t('git.commitMessage')}"></textarea><button type="button" class="git-commit-submit" data-git-operation="commit">${IexaI18n.t('git.commit')}</button></div>` : ''}
+    <div class="git-section-label">${IexaI18n.t('git.recentCommits')}</div>
     <div class="git-log">${commitHtml}</div>
     <div id="gitDiffHost"></div>
   `;
@@ -113,7 +113,7 @@ function renderGitStatus(data) {
       if (!target) return;
       if (action) {
         event.stopPropagation();
-        if (action.dataset.gitAction === 'restore' && !(await window.IexaDialogs.confirm(`确定回滚「${target}」的未暂存修改吗？`))) return;
+        if (action.dataset.gitAction === 'restore' && !(await window.IexaDialogs.confirm(IexaI18n.t('git.confirmRestore', { path: target })))) return;
         runGitMutation(action.dataset.gitAction, target);
       } else {
         openGitDiff(target, row.dataset.staged === '1');
@@ -127,7 +127,7 @@ function renderGitStatus(data) {
     button.addEventListener('click', async () => {
       const operation = button.dataset.gitOperation;
       if (operation === 'create-branch') {
-        const branch = (await window.IexaDialogs.prompt('输入新分支名称：'));
+        const branch = (await window.IexaDialogs.prompt(IexaI18n.t('git.newBranchPrompt')));
         if (branch && branch.trim()) runGitOperation(operation, { branch: branch.trim() });
         return;
       }
@@ -163,7 +163,7 @@ async function loadGitWorkbench(force = false) {
   try {
     const response = await fetch(`${API_BASE}/api/git/status`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取 Git 状态失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('git.readStatusFailed'));
     if (data.repository) {
       const [branchesResponse, logResponse] = await Promise.all([
         fetch(`${API_BASE}/api/git/branches`),
@@ -201,10 +201,10 @@ async function runGitOperation(operation, body) {
       body: JSON.stringify(body || {}),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Git 操作失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('git.operationFailed'));
     await loadGitWorkbench(true);
   } catch (error) {
-    addError('Git 操作失败：' + (error.message || error));
+    addError(IexaI18n.t('git.operationFailedPrefix') + (error.message || error));
   }
 }
 
@@ -216,26 +216,26 @@ async function runGitMutation(action, target) {
       body: JSON.stringify({ paths: [target] }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Git 操作失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('git.operationFailed'));
     await loadGitWorkbench(true);
   } catch (error) {
-    addError('Git 操作失败：' + (error.message || error));
+    addError(IexaI18n.t('git.operationFailedPrefix') + (error.message || error));
   }
 }
 
 async function openGitDiff(target, staged) {
   const host = document.getElementById('gitDiffHost');
   if (!host) return;
-  host.innerHTML = '<div class="workbench-empty">正在加载 Diff…</div>';
+  host.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('git.loadingDiff') + '</div>';
   try {
     const response = await fetch(`${API_BASE}/api/git/diff?path=${encodeURIComponent(target)}&staged=${staged ? '1' : '0'}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '读取 Diff 失败');
-    const title = `${data.staged ? '已暂存' : '未暂存'} · ${data.path || target}`;
-    host.innerHTML = `<div class="git-diff-head"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><button type="button" class="git-diff-close ui-icon-button" aria-label="关闭 Diff">${uiIcon('close')}</button></div><pre class="git-diff"></pre>`;
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('git.readDiffFailed'));
+    const title = `${data.staged ? IexaI18n.t('git.staged') : IexaI18n.t('git.unstaged')} · ${data.path || target}`;
+    host.innerHTML = `<div class="git-diff-head"><strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong><button type="button" class="git-diff-close ui-icon-button" aria-label="${IexaI18n.t('git.closeDiff')}">${uiIcon('close')}</button></div><pre class="git-diff"></pre>`;
     const diff = host.querySelector('.git-diff');
-    if (diff) diff.textContent = data.content || '没有可显示的差异。';
-    if (data.truncated && diff) diff.textContent += '\n\n… Diff 已截断（最大 512 KB）';
+    if (diff) diff.textContent = data.content || IexaI18n.t('git.noDiff');
+    if (data.truncated && diff) diff.textContent += '\n\n' + IexaI18n.t('git.diffTruncated');
     host.querySelector('.git-diff-close')?.addEventListener('click', () => { host.innerHTML = ''; });
   } catch (error) {
     host.innerHTML = `<div class="workbench-empty">${escapeHtml(error.message || String(error))}</div>`;
@@ -248,22 +248,22 @@ async function searchWorkspaceText(query) {
   const trimmed = String(query || '').trim();
   const epoch = ++workspaceSearchEpoch;
   if (!projectRoot) {
-    resultsHost.innerHTML = '<div class="workbench-empty">请先打开项目。</div>';
+    resultsHost.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('files.openFirst') + '</div>';
     return;
   }
   if (trimmed.length < 2) {
-    resultsHost.innerHTML = '<div class="workbench-empty">输入至少 2 个字符以搜索项目内容。</div>';
+    resultsHost.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('search.minChars') + '</div>';
     return;
   }
-  resultsHost.innerHTML = '<div class="workbench-empty">正在搜索…</div>';
+  resultsHost.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('search.searching') + '</div>';
   try {
     const response = await fetch(`${API_BASE}/api/fs/search?q=${encodeURIComponent(trimmed)}&limit=100`);
     const data = await response.json();
     if (epoch !== workspaceSearchEpoch) return;
-    if (!response.ok) throw new Error(data.error || '搜索失败');
+    if (!response.ok) throw new Error(data.error || IexaI18n.t('search.failed'));
     const results = data.results || [];
     if (!results.length) {
-      resultsHost.innerHTML = '<div class="workbench-empty">没有找到匹配内容。</div>';
+      resultsHost.innerHTML = '<div class="workbench-empty">' + IexaI18n.t('search.noResults') + '</div>';
       return;
     }
     resultsHost.innerHTML = results.map((result) => `<button type="button" class="workspace-search-result" data-path="${escapeHtml(result.path)}" title="${escapeHtml(result.path)}:${result.line}"><span class="workspace-search-path">${escapeHtml(result.path)}:${result.line}:${result.column}</span><span class="workspace-search-preview">${escapeHtml(result.preview)}</span></button>`).join('');
@@ -292,40 +292,40 @@ function fileIcon(entry) {
 
   if (entry.type === 'dir') {
     const folders = {
-      '.git': ['git-folder', 'Git 文件夹', '◆'], '.github': ['github-folder', 'GitHub 文件夹', '◆'],
-      'node_modules': ['node-folder', 'Node 依赖', '⬡'], 'src': ['source-folder', '源代码', '‹›'],
-      'dist': ['build-folder', '构建产物', '▣'], 'build': ['build-folder', '构建目录', '▣'],
-      'out': ['build-folder', '输出目录', '▣'], 'public': ['assets-folder', '公共资源', '◈'],
-      'assets': ['assets-folder', '资源目录', '◈'], 'images': ['assets-folder', '图片目录', '◈'],
-      'workspace': ['workspace-folder', '工作区', '⌘'], 'scripts': ['scripts-folder', '脚本目录', '>_'],
-      'test': ['test-folder', '测试目录', 'T'], 'tests': ['test-folder', '测试目录', 'T'],
+      '.git': ['git-folder', IexaI18n.t('filetype.git'), '◆'], '.github': ['github-folder', IexaI18n.t('filetype.github'), '◆'],
+      'node_modules': ['node-folder', IexaI18n.t('filetype.nodeModules'), '⬡'], 'src': ['source-folder', IexaI18n.t('filetype.source'), '‹›'],
+      'dist': ['build-folder', IexaI18n.t('filetype.buildOutput'), '▣'], 'build': ['build-folder', IexaI18n.t('filetype.buildDir'), '▣'],
+      'out': ['build-folder', IexaI18n.t('filetype.distDir'), '▣'], 'public': ['assets-folder', IexaI18n.t('filetype.public'), '◈'],
+      'assets': ['assets-folder', IexaI18n.t('filetype.assets'), '◈'], 'images': ['assets-folder', IexaI18n.t('filetype.images'), '◈'],
+      'workspace': ['workspace-folder', IexaI18n.t('tool.meta.workspace'), '⌘'], 'scripts': ['scripts-folder', IexaI18n.t('filetype.scripts'), '>_'],
+      'test': ['test-folder', IexaI18n.t('filetype.tests'), 'T'], 'tests': ['test-folder', IexaI18n.t('filetype.tests'), 'T'],
     };
-    const found = folders[name] || ['folder', '文件夹', ''];
+    const found = folders[name] || ['folder', IexaI18n.t('filetype.folder'), ''];
     return icon(found[0], found[1], found[2]);
   }
 
   const byName = {
-    '.gitignore': ['git', 'Git 忽略文件', '◆'], '.gitattributes': ['git', 'Git 属性文件', '◆'],
-    'package.json': ['npm', 'npm 配置', 'NPM'], 'package-lock.json': ['npm', 'npm 锁定文件', 'NPM'],
-    'tsconfig.json': ['typescript', 'TypeScript 配置', 'TS'], 'readme.md': ['markdown', 'Markdown 文档', 'M↓'],
-    'license': ['license', '许可证', '§'], 'dockerfile': ['docker', 'Docker 文件', '▣'],
-    '.env': ['env', '环境变量', 'E'], '.env.local': ['env', '环境变量', 'E'],
+    '.gitignore': ['git', IexaI18n.t('filetype.gitignore'), '◆'], '.gitattributes': ['git', IexaI18n.t('filetype.gitattributes'), '◆'],
+    'package.json': ['npm', IexaI18n.t('filetype.npmConfig'), 'NPM'], 'package-lock.json': ['npm', IexaI18n.t('filetype.npmLock'), 'NPM'],
+    'tsconfig.json': ['typescript', IexaI18n.t('filetype.tsConfig'), 'TS'], 'readme.md': ['markdown', IexaI18n.t('filetype.markdown'), 'M↓'],
+    'license': ['license', IexaI18n.t('filetype.license'), '§'], 'dockerfile': ['docker', IexaI18n.t('filetype.docker'), '▣'],
+    '.env': ['env', IexaI18n.t('filetype.env'), 'E'], '.env.local': ['env', IexaI18n.t('filetype.env'), 'E'],
   };
   const byExt = {
     js: ['javascript', 'JavaScript', 'JS'], mjs: ['javascript', 'JavaScript', 'JS'], cjs: ['javascript', 'JavaScript', 'JS'],
-    ts: ['typescript', 'TypeScript', 'TS'], tsx: ['react', 'TSX React 组件', 'R'], jsx: ['react', 'JSX React 组件', 'R'],
+    ts: ['typescript', 'TypeScript', 'TS'], tsx: ['react', IexaI18n.t('filetype.tsx'), 'R'], jsx: ['react', IexaI18n.t('filetype.jsx'), 'R'],
     py: ['python', 'Python', 'Py'], json: ['json', 'JSON', '{}'], md: ['markdown', 'Markdown', 'M↓'], mdx: ['markdown', 'Markdown', 'M↓'],
     html: ['html', 'HTML', '5'], htm: ['html', 'HTML', '5'], css: ['css', 'CSS', '#'], scss: ['sass', 'SCSS', 'S'], sass: ['sass', 'Sass', 'S'], less: ['sass', 'Less', 'L'],
-    yml: ['yaml', 'YAML', 'Y'], yaml: ['yaml', 'YAML', 'Y'], xml: ['xml', 'XML', 'XML'], toml: ['config', 'TOML', 'CFG'], ini: ['config', 'INI', 'CFG'], conf: ['config', '配置', 'CFG'],
-    sh: ['shell', 'Shell 脚本', '>_'], bash: ['shell', 'Bash 脚本', '>_'], zsh: ['shell', 'Zsh 脚本', '>_'], bat: ['terminal', '批处理脚本', '>_'], cmd: ['terminal', '命令脚本', '>_'], ps1: ['powershell', 'PowerShell 脚本', 'PS'],
-    png: ['image', 'PNG 图片', '▧'], jpg: ['image', 'JPG 图片', '▧'], jpeg: ['image', 'JPEG 图片', '▧'], gif: ['image', 'GIF 图片', '▧'], webp: ['image', 'WebP 图片', '▧'], svg: ['image', 'SVG 图片', '▧'], ico: ['image', '图标文件', '▧'],
-    txt: ['text', '文本文件', '≡'], log: ['log', '日志文件', '≡'], csv: ['table', 'CSV 数据', '▦'], xlsx: ['table', 'Excel 表格', '▦'],
-    zip: ['archive', '压缩文件', '▤'], rar: ['archive', '压缩文件', '▤'], '7z': ['archive', '压缩文件', '▤'],
-    patch: ['diff', '补丁文件', '±'], diff: ['diff', '差异文件', '±'],
-    c: ['c', 'C 源文件', 'C'], h: ['c', 'C/C++ 头文件', 'H'], cpp: ['cpp', 'C++ 源文件', 'C+'], hpp: ['cpp', 'C++ 头文件', 'H+'],
+    yml: ['yaml', 'YAML', 'Y'], yaml: ['yaml', 'YAML', 'Y'], xml: ['xml', 'XML', 'XML'], toml: ['config', 'TOML', 'CFG'], ini: ['config', 'INI', 'CFG'], conf: ['config', IexaI18n.t('filetype.config'), 'CFG'],
+    sh: ['shell', IexaI18n.t('filetype.sh'), '>_'], bash: ['shell', IexaI18n.t('filetype.bash'), '>_'], zsh: ['shell', IexaI18n.t('filetype.zsh'), '>_'], bat: ['terminal', IexaI18n.t('filetype.bat'), '>_'], cmd: ['terminal', IexaI18n.t('filetype.cmd'), '>_'], ps1: ['powershell', IexaI18n.t('filetype.ps1'), 'PS'],
+    png: ['image', IexaI18n.t('filetype.png'), '▧'], jpg: ['image', IexaI18n.t('filetype.jpg'), '▧'], jpeg: ['image', IexaI18n.t('filetype.jpeg'), '▧'], gif: ['image', IexaI18n.t('filetype.gif'), '▧'], webp: ['image', IexaI18n.t('filetype.webp'), '▧'], svg: ['image', IexaI18n.t('filetype.svg'), '▧'], ico: ['image', IexaI18n.t('filetype.icon'), '▧'],
+    txt: ['text', IexaI18n.t('filetype.text'), '≡'], log: ['log', IexaI18n.t('filetype.log'), '≡'], csv: ['table', IexaI18n.t('filetype.csv'), '▦'], xlsx: ['table', IexaI18n.t('filetype.excel'), '▦'],
+    zip: ['archive', IexaI18n.t('filetype.archive'), '▤'], rar: ['archive', IexaI18n.t('filetype.archive'), '▤'], '7z': ['archive', IexaI18n.t('filetype.archive'), '▤'],
+    patch: ['diff', IexaI18n.t('filetype.patch'), '±'], diff: ['diff', IexaI18n.t('filetype.diff'), '±'],
+    c: ['c', IexaI18n.t('filetype.c'), 'C'], h: ['c', IexaI18n.t('filetype.h'), 'H'], cpp: ['cpp', IexaI18n.t('filetype.cpp'), 'C+'], hpp: ['cpp', IexaI18n.t('filetype.hpp'), 'H+'],
     java: ['java', 'Java', 'J'], go: ['go', 'Go', 'Go'], rs: ['rust', 'Rust', 'R'], php: ['php', 'PHP', 'PHP'], rb: ['ruby', 'Ruby', 'Rb'],
   };
-  const found = byName[name] || byExt[ext] || ['file', '文件', ''];
+  const found = byName[name] || byExt[ext] || ['file', IexaI18n.t('filetype.file'), ''];
   return icon(found[0], found[1], found[2]);
 }
 
@@ -338,7 +338,7 @@ function showFilesEmpty(recent) {
   const closeProj = document.getElementById('filesCloseProjectBtn');
   closeFilePreview();
   if (title) {
-    title.textContent = '项目';
+    title.textContent = IexaI18n.t('ui.43');
     title.removeAttribute('title');
     title.removeAttribute('aria-label');
   }
@@ -351,7 +351,7 @@ function showFilesEmpty(recent) {
   let recentHtml = '';
   const items = recent || projectRecent || [];
   if (items.length) {
-    recentHtml = `<div class="files-recent"><div class="files-recent-label">最近打开</div>` +
+    recentHtml = `<div class="files-recent"><div class="files-recent-label">${IexaI18n.t('files.recent')}</div>` +
       items.map((r) => {
         const p = typeof r === 'string' ? r : r.path;
         const n = typeof r === 'string' ? (r.split(/[/\\]/).pop() || r) : (r.name || r.path);
@@ -362,9 +362,9 @@ function showFilesEmpty(recent) {
   list.innerHTML = `
     <div class="files-empty-state" id="filesEmptyState">
       <div class="files-empty-icon">${uiIcon('folder')}</div>
-      <p>尚未打开项目</p>
-      <p class="files-empty-hint">打开一个文件夹后，这里会显示项目文件</p>
-      <button type="button" class="btn-primary btn-sm" id="filesOpenBtnMain">打开项目</button>
+      <p>${IexaI18n.t('files.noProject')}</p>
+      <p class="files-empty-hint">${IexaI18n.t('files.emptyHint')}</p>
+      <button type="button" class="btn-primary btn-sm" id="filesOpenBtnMain">${IexaI18n.t('ui.6')}</button>
       ${recentHtml}
     </div>
   `;
@@ -386,7 +386,7 @@ function renderFilesCrumb(relPath, rootName) {
     return;
   }
   el.style.display = 'flex';
-  let html = `<button type="button" data-path="." aria-label="返回项目根目录">${escapeHtml(rootName || '项目')}</button>`;
+  let html = `<button type="button" data-path="." aria-label="${IexaI18n.t('files.backToRoot')}">${escapeHtml(rootName || IexaI18n.t('ui.43'))}</button>`;
   let acc = '';
   for (const p of parts) {
     acc = acc ? acc + '/' + p : p;
@@ -426,7 +426,7 @@ async function openProjectPath(rootPath) {
       body: JSON.stringify({ root: rootPath }),
     });
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '打开失败');
+    if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.openFailed'));
     projectRoot = data.root || null;
     projectName = data.name || null;
     projectRecent = data.recent || [];
@@ -444,7 +444,7 @@ async function openProjectPath(rootPath) {
     if (workbenchView === 'git') loadGitWorkbench();
     window.syncHeroWorkspace?.();
   } catch (err) {
-    addError('打开项目失败：' + (err.message || err));
+    addError(IexaI18n.t('files.openFailedPrefix') + (err.message || err));
   }
 }
 
@@ -460,7 +460,7 @@ async function openProjectPicker() {
     }
   }
   // Fallback: prompt for path (browser / no preload)
-  const p = (await window.IexaDialogs.prompt('输入项目文件夹完整路径：'));
+  const p = (await window.IexaDialogs.prompt(IexaI18n.t('files.pathPrompt')));
   if (p && p.trim()) await openProjectPath(p.trim());
 }
 
@@ -498,10 +498,10 @@ async function loadFilesList(relPath, silent) {
 
   const target = relPath == null ? filesCurrentPath : relPath;
   try {
-    if (!silent) list.innerHTML = '<div class="files-empty">加载中…</div>';
+    if (!silent) list.innerHTML = '<div class="files-empty">' + IexaI18n.t('files.loading') + '</div>';
     const resp = await fetch(`${API_BASE}/api/fs/list?path=${encodeURIComponent(target)}`);
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '加载失败');
+    if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.loadFailed'));
 
     if (data.empty || !data.root) {
       projectRoot = null;
@@ -514,9 +514,9 @@ async function loadFilesList(relPath, silent) {
     filesCurrentPath = data.path || '.';
 
     if (title) {
-      title.textContent = projectName || '项目';
-      title.title = data.root || projectRoot || projectName || '项目';
-      title.setAttribute('aria-label', `${projectName || '项目'}：${data.root || projectRoot || ''}`);
+      title.textContent = projectName || IexaI18n.t('ui.43');
+      title.title = data.root || projectRoot || projectName || IexaI18n.t('ui.43');
+      title.setAttribute('aria-label', `${projectName || IexaI18n.t('ui.43')}：${data.root || projectRoot || ''}`);
     }
     // The project name already identifies the root. Keep the absolute path available
     // as a tooltip and only render breadcrumbs after entering a child directory.
@@ -535,7 +535,7 @@ async function loadFilesList(relPath, silent) {
     filesLastSig = sig;
 
     if (entries.length === 0) {
-      list.innerHTML = '<div class="files-empty">空目录</div>';
+      list.innerHTML = '<div class="files-empty">' + IexaI18n.t('files.emptyDir') + '</div>';
       return;
     }
 
@@ -576,7 +576,7 @@ async function loadFilesList(relPath, silent) {
       });
     });
   } catch (err) {
-    if (!silent) list.innerHTML = `<div class="files-empty">加载失败：${escapeHtml(err.message || String(err))}</div>`;
+    if (!silent) list.innerHTML = `<div class="files-empty">${IexaI18n.t('files.loadFailedPrefix')}${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -598,7 +598,7 @@ async function openFilePreview(relPath) {
     }
     const resp = await fetch(`${API_BASE}/api/fs/read?path=${encodeURIComponent(relPath)}`);
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '读取失败');
+    if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.readFailed'));
     box.dataset.open = 'true';
     box.style.display = 'flex';
     if (nameEl) nameEl.textContent = data.name || relPath;
@@ -607,7 +607,7 @@ async function openFilePreview(relPath) {
     box.dataset.open = 'true';
     box.style.display = 'flex';
     if (nameEl) nameEl.textContent = relPath;
-    bodyEl.textContent = '无法预览：' + (err.message || err);
+    bodyEl.textContent = IexaI18n.t('files.previewFailedPrefix') + (err.message || err);
   }
 }
 
@@ -669,8 +669,8 @@ function initFilesPanel() {
       const type = contextTarget.dataset.type;
 
       if (action === 'delete') {
-        const label = type === 'dir' ? '目录' : '文件';
-        if (!(await window.IexaDialogs.confirm(`确定删除${label}「${name}」吗？\n此操作不可撤销！`))) return;
+        const label = type === 'dir' ? IexaI18n.t('files.dir') : IexaI18n.t('filetype.file');
+        if (!(await window.IexaDialogs.confirm(IexaI18n.t('files.confirmDelete', { label, name })))) return;
         try {
           const resp = await fetch(`${API_BASE}/api/fs/delete`, {
             method: 'POST',
@@ -678,10 +678,10 @@ function initFilesPanel() {
             body: JSON.stringify({ path }),
           });
           const data = await resp.json();
-          if (!resp.ok) throw new Error(data.error || '删除失败');
+          if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.deleteFailed'));
           loadFilesList(filesCurrentPath);
         } catch (err) {
-          (await window.IexaDialogs.alert('删除失败：' + (err.message || err)));
+          (await window.IexaDialogs.alert(IexaI18n.t('files.deleteFailedPrefix') + (err.message || err)));
         }
       } else if (action === 'copy') {
         try {
