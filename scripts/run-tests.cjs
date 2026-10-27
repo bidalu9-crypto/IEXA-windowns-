@@ -69,12 +69,14 @@ async function main() {
     console.log(`[tests] shared Chrome at ${shared.http}`);
   }
 
-  // Electron harness tests drive their own Electron process, and they are the
-  // tests most sensitive to CPU contention — one of them already needs retries to
-  // survive `sendInputEvent` timing. Running them while a shared Chrome is alive
-  // made that worse, so they get their own pass with the browser stopped.
+  // Three passes, most to least CPU-sensitive. Browser tests wait on real
+  // timers and real rendering, so running them beside a CPU-bound unit test
+  // (streaming benchmarks, transcript simulations) makes them flap: the page
+  // misses its own deadline and a 30 s wait expires. Electron comes last for
+  // the same reason it always did.
   const electronFiles = files.filter((file) => path.basename(file).startsWith('electron-'));
-  const restFiles = files.filter((file) => !electronFiles.includes(file));
+  const browserFiles = files.filter((file) => !electronFiles.includes(file) && path.basename(file).startsWith('browser-'));
+  const plainFiles = files.filter((file) => !electronFiles.includes(file) && !browserFiles.includes(file));
 
   const runPass = (subset) => {
     if (!subset.length) return 0;
@@ -96,9 +98,12 @@ async function main() {
     return result.status ?? 1;
   };
 
-  let status = 1;
+  let status = 0;
   try {
-    status = runPass(restFiles);
+    const plainStatus = runPass(plainFiles);
+    if (plainStatus !== 0) status = plainStatus;
+    const browserStatus = runPass(browserFiles);
+    if (browserStatus !== 0) status = browserStatus;
     if (shared) { await shared.stop(); shared = null; }
     const electronStatus = runPass(electronFiles);
     if (electronStatus !== 0) status = electronStatus;

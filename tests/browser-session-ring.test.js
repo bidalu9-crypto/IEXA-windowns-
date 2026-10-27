@@ -131,12 +131,18 @@ test('real browser: a running session carries a travelling ring', { skip: !brows
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('.session-item[data-id="${runningId}"]'), '::before').backgroundImage.includes('conic-gradient')`), true, 'the static arc still marks the session');
 
   // With motion restored, two samples must differ: the angle is advancing.
+  // Under the parallel browser suite Chrome may throttle a background tab, so
+  // the page is brought forward and the angle is polled instead of sampled once.
   await evaluate(`document.documentElement.setAttribute('data-motion', 'full'); true`);
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await cdp('Page.bringToFront');
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const angle = () => evaluate(`getComputedStyle(document.querySelector('.session-item[data-id="${runningId}"]'), '::before').getPropertyValue('--session-ring-angle').trim()`);
   const first = await angle();
-  await new Promise((resolve) => setTimeout(resolve, 420));
-  const second = await angle();
+  let second = first;
+  for (let attempt = 0; attempt < 25 && second === first; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    second = await angle();
+  }
   assert.notEqual(first, second, 'the ring angle advances over time (' + first + ' -> ' + second + ')');
 
   // Finishing removes the ring at once.
