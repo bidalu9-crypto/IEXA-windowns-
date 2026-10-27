@@ -125,8 +125,8 @@
   </defs>
 </svg>
 <div class="app">
-  <button type="button" class="mobile-toolbar-button mobile-menu-button" id="mobileMenuBtn" title="打开导航" aria-label="打开导航"><svg class="ui-icon"><use href="#ui-menu"/></svg></button>
-  <button type="button" class="mobile-toolbar-button mobile-files-button" id="mobileFilesBtn" title="打开项目工具" aria-label="打开项目工具"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+  <button type="button" class="mobile-toolbar-button mobile-menu-button" id="mobileMenuBtn" title="打开导航" data-i18n-title="tip.openNav" aria-label="打开导航" data-i18n-aria="tip.openNav"><svg class="ui-icon"><use href="#ui-menu"/></svg></button>
+  <button type="button" class="mobile-toolbar-button mobile-files-button" id="mobileFilesBtn" title="打开项目工具" data-i18n-title="tip.projectTools" aria-label="打开项目工具" data-i18n-aria="tip.projectTools"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
   <div class="mobile-drawer-backdrop" id="mobileDrawerBackdrop" hidden></div>
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
@@ -139,9 +139,9 @@
           <span class="version" id="sysVersion">Windows</span>
         </div>
       </div>
-      <button type="button" class="shell-new-thread" id="shellNewThread" title="新建任务 (Ctrl N)"><span class="shell-new-thread-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-new-session"/></svg></span><span data-i18n="nav.newTask">新建任务</span><kbd>Ctrl N</kbd></button>
+      <button type="button" class="shell-new-thread" id="shellNewThread" title="新建任务 (Ctrl N)" data-i18n-title="tip.newTaskShortcut"><span class="shell-new-thread-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-new-session"/></svg></span><span data-i18n="nav.newTask">新建任务</span><kbd>Ctrl N</kbd></button>
     </div>
-    <nav class="sidebar-nav" aria-label="工作区导航">
+    <nav class="sidebar-nav" aria-label="工作区导航" data-i18n-aria="tip.workspaceNav">
       <div class="sidebar-primary"><button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span data-i18n="nav.chat">对话</span></button>
 <button class="nav-btn" data-view="skills"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span data-i18n="nav.skills">技能</span></button>
 <button class="nav-btn nav-btn-scheduled" data-view="scheduled"><svg class="ui-icon" aria-hidden="true"><use href="#ui-clock"/></svg><span data-i18n="nav.scheduled">定时任务</span><b class="nav-task-badge" id="navScheduledBadge" hidden>0</b></button></div>
@@ -182,15 +182,15 @@
     <div class="sidebar-project">
       <div class="sidebar-section-header">
         <span class="sidebar-section-label" data-i18n="nav.projects">项目</span>
-        <button type="button" class="ui-icon-button" id="shellAddProject" title="打开项目文件夹" aria-label="打开项目文件夹"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+        <button type="button" class="ui-icon-button" id="shellAddProject" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
       </div>
-      <button type="button" class="shell-project-button" id="shellProjectBtn" title="打开项目文件夹"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectName" data-i18n="nav.openProject">打开项目文件夹</span><svg class="ui-icon project-row-chevron" aria-hidden="true"><use href="#ui-chevron-right"/></svg></button>
+      <button type="button" class="shell-project-button" id="shellProjectBtn" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectName" data-i18n="nav.openProject">打开项目文件夹</span><svg class="ui-icon project-row-chevron" aria-hidden="true"><use href="#ui-chevron-right"/></svg></button>
     </div>
     <div class="sidebar-sessions">
       <div class="sessions-header">
         <span class="sessions-title" data-i18n="ui.1">项目与对话</span>
-        <button type="button" class="sessions-archive-manager ui-icon-button" id="archiveManagerBtn" title="管理已存档会话" aria-label="管理已存档会话"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
-        <button class="sessions-new-btn ui-icon-button" id="newSessionBtn" title="新建会话" aria-label="新建会话">
+        <button type="button" class="sessions-archive-manager ui-icon-button" id="archiveManagerBtn" title="管理已存档会话" data-i18n-title="tip.archivedSessions" aria-label="管理已存档会话" data-i18n-aria="tip.archivedSessions"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
+        <button class="sessions-new-btn ui-icon-button" id="newSessionBtn" title="新建会话" data-i18n-title="tip.newSession" aria-label="新建会话" data-i18n-aria="tip.newSession">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M13.5 4.5H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V10.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="m14 5.5 4.5 4.5M13 11l6.3-6.3a1.6 1.6 0 1 0-2.3-2.3L10.7 8.7 10 11.7l3-.7Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
@@ -199,7 +199,7 @@
       </div>
       <div class="search-box">
         <input type="text" id="searchInput" class="search-input" placeholder="搜索会话" data-i18n-placeholder="ui.p1" aria-label="搜索会话" data-i18n-placeholder="search.sessions" data-i18n-aria="search.sessions">
-        <button type="button" class="search-clear ui-icon-button" id="searchClear" title="清除搜索" style="display:none;" aria-label="清除搜索"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+        <button type="button" class="search-clear ui-icon-button" id="searchClear" title="清除搜索" data-i18n-title="tip.clearSearch" style="display:none;" aria-label="清除搜索" data-i18n-aria="tip.clearSearch"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
       </div>
       <div class="search-results" id="searchResults" style="display:none;"></div>
       <div class="sessions-list" id="sessionsList">
@@ -218,15 +218,15 @@
     <header class="workbench-header">
       <div class="workbench-breadcrumb"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectCrumb" data-i18n="ui.4">本地工作区</span><span class="breadcrumb-divider">/</span><strong id="shellViewTitle" data-i18n="ui.5">对话</strong></div>
       <div class="workbench-header-actions">
-        <button type="button" class="shell-toolbar-button" id="leftPanelToggle" aria-label="隐藏左侧栏" aria-expanded="true" aria-controls="sidebar" title="隐藏左侧栏"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-left"/></svg></button>
-        <button type="button" class="shell-toolbar-button" id="rightPanelToggle" aria-label="隐藏右侧栏" aria-expanded="true" aria-controls="filesPanel" title="隐藏右侧栏"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-right"/></svg></button>
+        <button type="button" class="shell-toolbar-button" id="leftPanelToggle" aria-label="隐藏左侧栏" data-i18n-aria="tip.hideSidebar" aria-expanded="true" aria-controls="sidebar" title="隐藏左侧栏" data-i18n-title="tip.hideSidebar"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-left"/></svg></button>
+        <button type="button" class="shell-toolbar-button" id="rightPanelToggle" aria-label="隐藏右侧栏" data-i18n-aria="tip.hideRightPanel" aria-expanded="true" aria-controls="filesPanel" title="隐藏右侧栏" data-i18n-title="tip.hideRightPanel"><svg class="ui-icon" aria-hidden="true"><use href="#ui-panel-right"/></svg></button>
         <button type="button" class="shell-toolbar-button" id="shellOpenProject"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span data-i18n="ui.6">打开项目</span></button>
-        <button type="button" class="shell-toolbar-button" id="shellFocusBtn" aria-label="切换专注布局" aria-pressed="false" title="切换专注布局"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg></button>
+        <button type="button" class="shell-toolbar-button" id="shellFocusBtn" aria-label="切换专注布局" data-i18n-aria="tip.focusLayout" aria-pressed="false" title="切换专注布局" data-i18n-title="tip.focusLayout"><svg class="ui-icon" aria-hidden="true"><use href="#ui-monitor"/></svg></button>
       </div>
-      <div class="window-controls" id="windowControls" role="toolbar" aria-label="窗口控制" hidden>
-        <button type="button" id="windowMinimize" class="window-control" aria-label="最小化" title="最小化"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10"/></svg></button>
-        <button type="button" id="windowMaximize" class="window-control" aria-label="最大化" title="最大化"><svg viewBox="0 0 16 16" aria-hidden="true"><rect class="window-maximize-icon" x="3.5" y="3.5" width="9" height="9"/><path class="window-restore-icon" d="M5.5 5.5v-3h8v8h-3m-8-5h8v8h-8z"/></svg></button>
-        <button type="button" id="windowClose" class="window-control window-control-close" aria-label="关闭窗口" title="关闭窗口"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg></button>
+      <div class="window-controls" id="windowControls" role="toolbar" aria-label="窗口控制" data-i18n-aria="tip.windowControls" hidden>
+        <button type="button" id="windowMinimize" class="window-control" aria-label="最小化" data-i18n-aria="tip.minimize" title="最小化" data-i18n-title="tip.minimize"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5h10"/></svg></button>
+        <button type="button" id="windowMaximize" class="window-control" aria-label="最大化" data-i18n-aria="tip.maximize" title="最大化" data-i18n-title="tip.maximize"><svg viewBox="0 0 16 16" aria-hidden="true"><rect class="window-maximize-icon" x="3.5" y="3.5" width="9" height="9"/><path class="window-restore-icon" d="M5.5 5.5v-3h8v8h-3m-8-5h8v8h-8z"/></svg></button>
+        <button type="button" id="windowClose" class="window-control window-control-close" aria-label="关闭窗口" data-i18n-aria="tip.closeWindow" title="关闭窗口" data-i18n-title="tip.closeWindow"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 3.5 9 9m0-9-9 9"/></svg></button>
       </div>
     </header>
     <!-- Chat View -->
@@ -234,7 +234,7 @@
       <div class="chat-layout">
         <div class="chat-container">
           <div class="chat-focus-reveal" aria-hidden="false">
-            <button type="button" class="chat-focus-toggle" id="chatFocusToggle" aria-pressed="false" title="隐藏左右面板，展开聊天区">
+            <button type="button" class="chat-focus-toggle" id="chatFocusToggle" aria-pressed="false" title="隐藏左右面板，展开聊天区" data-i18n-title="tip.hidePanels">
               <svg class="chat-focus-toggle-icon chat-focus-icon-expand" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <svg class="chat-focus-toggle-icon chat-focus-icon-collapse" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 3-6 6m0-6v6h6M15 21l6-6m0 6v-6h-6M3 15l6 6m-6 0h6v-6M21 9l-6-6m6 0h-6v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span class="chat-focus-toggle-label" data-i18n="ui.7">展开聊天</span>
@@ -245,7 +245,7 @@
             <span class="goal-bar-label" data-i18n="ui.8">目标</span>
             <span class="goal-bar-text" id="goalBarText"></span>
             <span class="goal-bar-status" id="goalBarStatus"></span>
-            <button type="button" class="goal-bar-clear" id="goalBarClear" title="清除目标" aria-label="清除目标"><svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg></button>
+            <button type="button" class="goal-bar-clear" id="goalBarClear" title="清除目标" data-i18n-title="tip.clearGoal" aria-label="清除目标" data-i18n-aria="tip.clearGoal"><svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg></button>
           </div>
           <div class="chat-messages-area">
             <div class="chat-messages" id="chatMessages">
@@ -263,11 +263,11 @@
               </div>
             </div>
             <div class="chat-messages-overlay" aria-hidden="true">
-              <button type="button" class="scroll-to-bottom-btn" id="scrollToBottomBtn" title="回到最新消息" aria-label="回到最新消息" style="display:none;"><span aria-hidden="true"></span></button>
+              <button type="button" class="scroll-to-bottom-btn" id="scrollToBottomBtn" title="回到最新消息" data-i18n-title="tip.jumpToLatest" aria-label="回到最新消息" data-i18n-aria="tip.jumpToLatest" style="display:none;"><span aria-hidden="true"></span></button>
             </div>
           </div>
-          <aside id="subAgentPanel" aria-label="子代理调度" hidden></aside>
-          <div class="paused-banner" id="pausedBanner" role="region" aria-label="任务已暂停" hidden>
+          <aside id="subAgentPanel" aria-label="子代理调度" data-i18n-aria="tip.subagentScheduling" hidden></aside>
+          <div class="paused-banner" id="pausedBanner" role="region" aria-label="任务已暂停" data-i18n-aria="tip.taskPaused" hidden>
             <span class="paused-banner-icon" aria-hidden="true"><svg class="ui-icon"><use href="#ui-pause"/></svg></span>
             <div class="paused-banner-text" role="status" aria-live="polite">
               <strong data-i18n="ui.14">任务已暂停</strong>
@@ -279,7 +279,7 @@
             </div>
           </div>
           <div class="hero-workspace" id="heroWorkspace">
-            <button type="button" class="hero-workspace-chip" id="heroWorkspaceChip" aria-haspopup="menu" aria-expanded="false" title="切换或打开项目文件夹">
+            <button type="button" class="hero-workspace-chip" id="heroWorkspaceChip" aria-haspopup="menu" aria-expanded="false" title="切换或打开项目文件夹" data-i18n-title="tip.switchProject">
               <svg class="ui-icon hero-workspace-folder" aria-hidden="true"><use href="#ui-folder"/></svg>
               <span class="hero-workspace-label" id="heroWorkspaceLabel" data-i18n="ui.18">打开项目文件夹</span>
               <svg class="ui-icon hero-workspace-chevron" aria-hidden="true"><use href="#ui-chevron-down"/></svg>
@@ -290,57 +290,57 @@
             <div class="model-bar" id="modelBar">
               <span class="model-bar-label" data-i18n="ui.19">模型：</span>
               <div class="model-selector-wrap" id="modelSelectorWrap">
-                <button type="button" id="modelSelector" class="model-selector" title="选择模型" aria-haspopup="dialog" aria-expanded="false">
+                <button type="button" id="modelSelector" class="model-selector" title="选择模型" data-i18n-title="tip.selectModel" aria-haspopup="dialog" aria-expanded="false">
                   <span class="model-selector-label" id="modelSelectorLabel" data-i18n="ui.20">— 尚未配置模型 —</span>
                   <span class="model-selector-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="model-selector-menu" id="modelSelectorMenu" role="dialog" aria-label="选择模型" style="display:none;">
-                  <div class="model-selector-list" id="modelSelectorList" role="listbox" aria-label="模型列表"></div>
+                <div class="model-selector-menu" id="modelSelectorMenu" role="dialog" aria-label="选择模型" data-i18n-aria="tip.selectModel" style="display:none;">
+                  <div class="model-selector-list" id="modelSelectorList" role="listbox" aria-label="模型列表" data-i18n-aria="tip.modelList"></div>
                   <div class="model-selector-footer">
-                    <button type="button" class="model-selector-refresh" id="modelSelectorRefresh" title="重新拉取模型列表">
+                    <button type="button" class="model-selector-refresh" id="modelSelectorRefresh" title="重新拉取模型列表" data-i18n-title="tip.refreshModels">
                       <svg class="ui-icon" aria-hidden="true"><use href="#ui-refresh"/></svg>
                       <span data-i18n="ui.21">刷新列表</span>
                     </button>
                   </div>
                 </div>
               </div>
-              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
+              <button type="button" class="fast-mode-btn" id="fastModeBtn" title="Codex Fast：请求 service_tier: priority" data-i18n-title="tip.codexFast" aria-pressed="false" style="display:none;"><svg class="fast-mode-bolt" viewBox="0 0 24 24" aria-hidden="true"><use href="#ui-bolt"></use></svg><span>Fast</span></button>
               <div class="thinking-level-wrap" id="thinkingLevelWrap">
-                <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" aria-haspopup="dialog" aria-expanded="false" data-level="medium">
+                <button type="button" class="thinking-level-btn" id="thinkingLevelBtn" title="思考档位" data-i18n-title="tip.reasoningLevel" aria-haspopup="dialog" aria-expanded="false" data-level="medium">
                   <span class="thinking-level-icon" aria-hidden="true">
                     <svg class="ui-icon" aria-hidden="true"><use href="#ui-reasoning"/></svg>
                   </span>
                   <span class="thinking-level-label" id="thinkingLevelLabel" data-i18n="ui.22">标准</span>
                   <span class="thinking-level-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="thinking-level-menu" id="thinkingLevelMenu" role="dialog" aria-label="思考档位" style="display:none;">
+                <div class="thinking-level-menu" id="thinkingLevelMenu" role="dialog" aria-label="思考档位" data-i18n-aria="tip.reasoningLevel" style="display:none;">
                   <div class="thinking-slider-header">
                     <span class="thinking-slider-value" id="thinkingSliderValue">标准<span aria-hidden="true"> ›</span></span>
-                    <button type="button" class="thinking-slider-reset" id="thinkingSliderReset" title="恢复默认档位" aria-label="恢复默认思考档位"><svg class="ui-icon" aria-hidden="true"><use href="#ui-retry"/></svg></button>
+                    <button type="button" class="thinking-slider-reset" id="thinkingSliderReset" title="恢复默认档位" data-i18n-title="tip.resetLevel" aria-label="恢复默认思考档位" data-i18n-aria="tip.resetReasoning"><svg class="ui-icon" aria-hidden="true"><use href="#ui-retry"/></svg></button>
                   </div>
                   <div class="thinking-slider-track" id="thinkingSliderTrack">
                     <div class="thinking-slider-rail" aria-hidden="true">
                       <span class="thinking-slider-fill"><span class="thinking-slider-sheen"></span><span class="thinking-slider-flow"></span></span>
                     </div>
-                    <input type="range" id="thinkingLevelSlider" min="0" max="4" step="1" value="2" aria-label="思考档位" aria-valuetext="标准">
+                    <input type="range" id="thinkingLevelSlider" min="0" max="4" step="1" value="2" aria-label="思考档位" data-i18n-aria="tip.reasoningLevel" aria-valuetext="标准">
                     <div class="thinking-slider-ticks" id="thinkingSliderTicks" aria-hidden="true"></div>
                   </div>
                   <span class="thinking-slider-feedback" id="thinkingSliderFeedback" role="status" hidden></span>
                 </div>
               </div>
               <div class="context-compaction-wrap" id="contextCompactionWrap">
-                <button type="button" class="context-compaction-btn" id="contextCompactionBtn" title="自动压缩档位" aria-haspopup="listbox" aria-expanded="false" data-limit="auto">
+                <button type="button" class="context-compaction-btn" id="contextCompactionBtn" title="自动压缩档位" data-i18n-title="tip.autoCompress" aria-haspopup="listbox" aria-expanded="false" data-limit="auto">
                   <svg class="context-compaction-icon ui-icon" aria-hidden="true"><use href="#ui-compact"/></svg>
                   <span class="context-compaction-label" id="contextCompactionLabel" data-i18n="ui.23">自动</span>
                   <span class="thinking-level-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="context-compaction-menu" id="contextCompactionMenu" role="dialog" aria-label="上下文容量与压缩触发点" style="display:none;">
+                <div class="context-compaction-menu" id="contextCompactionMenu" role="dialog" aria-label="上下文容量与压缩触发点" data-i18n-aria="tip.contextCapacityAndTrigger" style="display:none;">
                   <section class="cc-section" aria-labelledby="ccLimitLabel">
                     <div class="cc-section-head">
                       <span class="cc-section-title" id="ccLimitLabel" data-i18n="ui.24">上下文容量</span>
                       <span class="cc-section-value" id="ccLimitValue" data-i18n="ui.23">自动</span>
                     </div>
-                    <div class="cc-grid" role="listbox" aria-label="上下文容量">
+                    <div class="cc-grid" role="listbox" aria-label="上下文容量" data-i18n-aria="tip.contextCapacity">
                       <button type="button" class="cc-chip" data-limit="auto" role="option" aria-selected="true" data-i18n="ui.23">自动</button>
                       <button type="button" class="cc-chip" data-limit="128000" role="option" aria-selected="false">128K</button>
                       <button type="button" class="cc-chip" data-limit="256000" role="option" aria-selected="false">256K</button>
@@ -351,12 +351,12 @@
                     </div>
                     <div class="cc-inline" id="contextCompactionCustom" hidden>
                       <div class="cc-stepper">
-                        <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-label="自定义上下文容量" aria-describedby="contextCompactionCustomHint">
+                        <input type="number" id="contextCompactionCustomInput" min="128000" max="10000000" step="1000" inputmode="numeric" placeholder="200000" aria-label="自定义上下文容量" data-i18n-aria="tip.customContextCapacity" aria-describedby="contextCompactionCustomHint">
                         <div class="cc-stepper-buttons" aria-hidden="true">
-                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="1" aria-label="增加">
+                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="1" aria-label="增加" data-i18n-aria="tip.increase">
                             <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 7.5 6 4l3.5 3.5"/></svg>
                           </button>
-                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="-1" aria-label="减少">
+                          <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionCustomInput" data-delta="1000" data-dir="-1" aria-label="减少" data-i18n-aria="tip.decrease">
                             <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
                           </button>
                         </div>
@@ -371,7 +371,7 @@
                         <span class="cc-section-title" id="ccThresholdLabel" data-i18n="ui.28">压缩触发点</span>
                         <span class="cc-section-value" id="ccThresholdValue" data-i18n="ui.29">默认 80%</span>
                       </div>
-                      <div class="cc-grid cc-grid-six" role="group" aria-label="压缩触发点预设">
+                      <div class="cc-grid cc-grid-six" role="group" aria-label="压缩触发点预设" data-i18n-aria="tip.triggerPreset">
                         <button type="button" class="cc-chip" data-threshold="50">50%</button>
                         <button type="button" class="cc-chip" data-threshold="60">60%</button>
                         <button type="button" class="cc-chip" data-threshold="70">70%</button>
@@ -381,12 +381,12 @@
                       </div>
                       <div class="cc-inline">
                         <div class="cc-stepper">
-                          <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" aria-describedby="contextCompactionThresholdHint">
+                          <input type="number" id="contextCompactionThresholdInput" min="50" max="100" step="1" inputmode="numeric" placeholder="80" aria-label="自定义压缩触发点百分比" data-i18n-aria="tip.customTrigger" aria-describedby="contextCompactionThresholdHint">
                           <div class="cc-stepper-buttons" aria-hidden="true">
-                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="1" aria-label="增加">
+                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="1" aria-label="增加" data-i18n-aria="tip.increase">
                               <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 7.5 6 4l3.5 3.5"/></svg>
                             </button>
-                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="-1" aria-label="减少">
+                            <button type="button" class="cc-step" tabindex="-1" data-step="contextCompactionThresholdInput" data-delta="1" data-dir="-1" aria-label="减少" data-i18n-aria="tip.decrease">
                               <svg class="cc-step-icon" viewBox="0 0 12 12"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
                             </button>
                           </div>
@@ -399,11 +399,11 @@
                 </div>
               </div>
               <div class="permission-mode-wrap" id="permissionModeWrap">
-                <button type="button" class="permission-mode-btn" id="permissionModeBtn" title="权限模式" aria-haspopup="menu" aria-expanded="false">
+                <button type="button" class="permission-mode-btn" id="permissionModeBtn" title="权限模式" data-i18n-title="tip.permissionMode" aria-haspopup="menu" aria-expanded="false">
                   <svg class="permission-mode-btn-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path class="permission-shield-check" d="m8.8 12 2.1 2.1 4.4-4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path class="permission-shield-alert" d="M12 7.5v5M12 16h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
                   <span id="permissionModeLabel" data-i18n="ui.31">帮我批准</span><span class="thinking-level-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="permission-mode-menu" id="permissionModeMenu" role="menu" aria-label="权限模式" style="display:none;">
+                <div class="permission-mode-menu" id="permissionModeMenu" role="menu" aria-label="权限模式" data-i18n-aria="tip.permissionMode" style="display:none;">
                   <div class="permission-menu-heading" data-i18n="ui.32">应如何批准 IEXA 操作？</div>
                   <button type="button" data-permission-menu-mode="plan" role="menuitemradio" aria-checked="false"><svg class="permission-option-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="M8.8 12.4l2.1 2.1 4.3-4.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="permission-option-text"><strong data-i18n="ui.33">仅规划（只读）</strong><small data-i18n="ui.34">只读文件和探索，不执行任何改动</small></span><svg class="permission-option-check ui-icon" aria-hidden="true"><use href="#ui-check"/></svg></button>
                   <button type="button" data-permission-menu-mode="ask" role="menuitemradio" aria-checked="false"><svg class="permission-option-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8 7.5 9.5 4.4-1.5 7.5-4.9 7.5-9.5V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5v5M12 16h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="permission-option-text"><strong data-i18n="ui.35">请求批准</strong><small data-i18n="ui.36">编辑、命令和网络操作始终询问</small></span><svg class="permission-option-check ui-icon" aria-hidden="true"><use href="#ui-check"/></svg></button>
@@ -412,13 +412,13 @@
                 </div>
               </div>
               <div class="checkpoint-wrap">
-                <button type="button" class="checkpoint-btn" id="checkpointBtn" title="检查点与回退" aria-label="检查点与回退" aria-haspopup="dialog" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#ui-checkpoint"/></svg><span class="checkpoint-label" data-i18n="ui.40">检查点</span></button>
-                <div class="checkpoint-popover" id="checkpointPopover" role="dialog" aria-label="检查点与回退" hidden>
+                <button type="button" class="checkpoint-btn" id="checkpointBtn" title="检查点与回退" data-i18n-title="tip.checkpoints" aria-label="检查点与回退" data-i18n-aria="tip.checkpoints" aria-haspopup="dialog" aria-expanded="false"><svg class="ui-icon" aria-hidden="true"><use href="#ui-checkpoint"/></svg><span class="checkpoint-label" data-i18n="ui.40">检查点</span></button>
+                <div class="checkpoint-popover" id="checkpointPopover" role="dialog" aria-label="检查点与回退" data-i18n-aria="tip.checkpoints" hidden>
                   <div class="checkpoint-head"><strong data-i18n="checkpoint.title">检查点</strong><button type="button" id="checkpointRefresh" class="checkpoint-refresh" data-i18n="checkpoint.refresh">刷新</button></div>
                   <div class="checkpoint-list" id="checkpointList"></div>
                 </div>
               </div>
-              <button type="button" class="context-progress" id="contextProgress" title="上下文用量：正在估算" aria-label="查看上下文用量" data-state="ok">
+              <button type="button" class="context-progress" id="contextProgress" title="上下文用量：正在估算" data-i18n-title="tip.contextEstimating" aria-label="查看上下文用量" data-i18n-aria="tip.contextUsage" data-state="ok">
                 <svg class="context-progress-ring" viewBox="0 0 36 36" aria-hidden="true">
                   <circle class="context-progress-track" cx="18" cy="18" r="15.5"></circle>
                   <circle class="context-progress-value" id="contextProgressValue" cx="18" cy="18" r="15.5" pathLength="100"></circle>
@@ -427,18 +427,18 @@
                 <span class="context-progress-percent" id="contextProgressPercent" aria-hidden="true">0%</span>
               </button>
               <div class="balance-wrap" id="balanceWrap" hidden>
-                <button type="button" class="balance-chip" id="balanceChip" aria-haspopup="dialog" aria-controls="balancePopover" aria-expanded="false" title="账户余额">
+                <button type="button" class="balance-chip" id="balanceChip" aria-haspopup="dialog" aria-controls="balancePopover" aria-expanded="false" title="账户余额" data-i18n-title="tip.balance">
                   <svg class="ui-icon balance-icon" aria-hidden="true"><use href="#ui-wallet"/></svg>
                   <span class="balance-value" id="balanceValue"></span>
                 </button>
-                <div class="balance-popover" id="balancePopover" role="dialog" aria-label="账户余额" hidden></div>
+                <div class="balance-popover" id="balancePopover" role="dialog" aria-label="账户余额" data-i18n-aria="tip.balance" hidden></div>
               </div>
               <span class="model-bar-hint" id="modelBarHint"></span>
             </div>
     <div class="composer-edit-strip" id="composerEditStrip" hidden></div>
     <div class="attach-preview" id="attachPreview" style="display:none;"></div>
             <div class="chat-input-wrapper">
-              <button type="button" id="attachBtn" class="attach-btn ui-icon-button" title="添加附件" aria-label="添加附件"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg></button>
+              <button type="button" id="attachBtn" class="attach-btn ui-icon-button" title="添加附件" data-i18n-title="tip.addAttachment" aria-label="添加附件" data-i18n-aria="tip.addAttachment"><svg class="ui-icon" aria-hidden="true"><use href="#ui-plus"/></svg></button>
               <input type="file" id="attachInput" multiple hidden
                 accept="image/*,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.html,.css,.xml,.csv,.log,.yml,.yaml,.toml,.ini,.cfg,.conf,.sh,.bat,.ps1,.sql,.c,.cpp,.h,.java,.go,.rs,.rb,.php,.swift,.kt,.vue,.svelte">
               <textarea id="chatInput" placeholder="描述任务，使用 / 查看命令" data-i18n-placeholder="ui.p2" rows="1" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
@@ -447,10 +447,10 @@
                 <span class="composer-hint-line"></span>
               </span>
               <div class="input-actions">
-                <button type="button" id="screenshotBtn" class="screenshot-btn" title="截图标注 (Ctrl+Shift+S)" aria-label="截图标注">
+                <button type="button" id="screenshotBtn" class="screenshot-btn" title="截图标注 (Ctrl+Shift+S)" data-i18n-title="tip.annotateShortcut" aria-label="截图标注" data-i18n-aria="tip.annotate">
                   <svg class="screenshot-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="#ui-camera"/></svg>
                 </button>
-                <button type="button" id="voiceBtn" class="voice-btn" title="语音输入" aria-label="开始语音输入">
+                <button type="button" id="voiceBtn" class="voice-btn" title="语音输入" data-i18n-title="tip.voiceInput" aria-label="开始语音输入" data-i18n-aria="tip.startVoice">
                   <svg class="voice-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <defs>
                       <linearGradient id="voice-gradient" gradientUnits="userSpaceOnUse" x1="12" y1="22" x2="12" y2="2">
@@ -463,13 +463,13 @@
                   </svg>
                   <span class="voice-level" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
                 </button>
-                <button type="button" id="sendBtn" title="发送 (Enter)" aria-label="发送">
+                <button type="button" id="sendBtn" title="发送 (Enter)" data-i18n-title="tip.sendEnter" aria-label="发送" data-i18n-aria="tip.send">
                   <svg class="send-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M22 2 11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     <path d="M22 2 15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </button>
-                <button type="button" id="stopBtn" title="停止" aria-label="停止" style="display:none;"></button>
+                <button type="button" id="stopBtn" title="停止" data-i18n-title="tip.stop" aria-label="停止" data-i18n-aria="tip.stop" style="display:none;"></button>
               </div>
             </div>
             <div class="input-hint" data-i18n="ui.42">AI也有犯错的时候，生成内容仅供参考</div>
@@ -483,14 +483,14 @@
             <div class="files-panel-title">
               <span id="filesPanelTitle" data-i18n="ui.43">项目</span>
               <div class="files-panel-actions">
-                <button type="button" class="files-icon-btn ui-icon-button" id="filesOpenBtn" title="打开项目文件夹" aria-label="打开项目文件夹"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
-                <button type="button" class="files-icon-btn ui-icon-button" id="filesRefreshBtn" title="刷新项目文件" style="display:none;" aria-label="刷新项目文件"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-refresh"/></svg></button>
-                <button type="button" class="files-icon-btn ui-icon-button" id="filesCloseProjectBtn" title="关闭项目" style="display:none;" aria-label="关闭项目"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesOpenBtn" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesRefreshBtn" title="刷新项目文件" data-i18n-title="tip.refreshFiles" style="display:none;" aria-label="刷新项目文件" data-i18n-aria="tip.refreshFiles"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-refresh"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesCloseProjectBtn" title="关闭项目" data-i18n-title="tip.closeProject" style="display:none;" aria-label="关闭项目" data-i18n-aria="tip.closeProject"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
               </div>
             </div>
             <div class="files-path" id="filesPath" style="display:none;"></div>
             <div class="files-crumb" id="filesCrumb" style="display:none;"></div>
-            <div class="workbench-tabs" id="workbenchTabs" aria-label="项目工作台">
+            <div class="workbench-tabs" id="workbenchTabs" aria-label="项目工作台" data-i18n-aria="tip.projectWorkbench">
               <button type="button" class="workbench-tab active" data-workbench-view="files" data-i18n="ui.44">文件</button>
               <button type="button" class="workbench-tab" data-workbench-view="git" data-i18n="ui.45">更改</button>
               <button type="button" class="workbench-tab" data-workbench-view="search" data-i18n="ui.46">搜索</button>
@@ -506,10 +506,10 @@
               <div class="files-recent" id="filesRecent" style="display:none;"></div>
             </div>
           </div>
-          <section class="workbench-panel git-panel" id="gitPanel" style="display:none;" aria-label="Git 更改">
+          <section class="workbench-panel git-panel" id="gitPanel" style="display:none;" aria-label="Git 更改" data-i18n-aria="tip.gitChanges">
             <div class="workbench-empty" data-i18n="ui.50">打开项目后可查看 Git 更改。</div>
           </section>
-          <section class="workbench-panel search-panel" id="searchPanel" style="display:none;" aria-label="项目搜索">
+          <section class="workbench-panel search-panel" id="searchPanel" style="display:none;" aria-label="项目搜索" data-i18n-aria="tip.projectSearch">
             <div class="workspace-search-box">
               <input id="workspaceSearchInput" type="search" placeholder="搜索项目内容（至少 2 个字符）" data-i18n-placeholder="ui.p3" autocomplete="off">
             </div>
@@ -517,17 +517,17 @@
               <div class="workbench-empty" data-i18n="ui.51">输入内容以搜索项目文件。</div>
             </div>
           </section>
-          <section class="workbench-panel terminal-panel" id="terminalPanel" style="display:none;" aria-label="项目终端">
+          <section class="workbench-panel terminal-panel" id="terminalPanel" style="display:none;" aria-label="项目终端" data-i18n-aria="tip.projectTerminal">
             <div class="terminal-toolbar">
-              <select id="terminalShell" aria-label="终端 Shell">
+              <select id="terminalShell" aria-label="终端 Shell" data-i18n-aria="tip.terminalShell">
                 <option value="powershell">PowerShell</option>
                 <option value="cmd">CMD</option>
                 <option value="bash">Git Bash</option>
                 <option value="wsl">WSL</option>
               </select>
               <button type="button" id="terminalNewBtn" data-i18n="ui.52">新建</button>
-              <button type="button" id="terminalInterruptBtn" title="发送 Ctrl+C">Ctrl+C</button>
-              <button type="button" id="terminalStopBtn" title="终止当前终端" data-i18n="ui.53">停止</button>
+              <button type="button" id="terminalInterruptBtn" title="发送 Ctrl+C" data-i18n-title="tip.sendCtrlC">Ctrl+C</button>
+              <button type="button" id="terminalStopBtn" title="终止当前终端" data-i18n-title="tip.terminateTerminal" data-i18n="ui.53">停止</button>
             </div>
             <div class="terminal-tabs" id="terminalTabs"></div>
             <pre class="terminal-output" id="terminalOutput" aria-live="polite" data-i18n="ui.54">点击“新建”启动终端。</pre>
@@ -539,7 +539,7 @@
           <div class="files-preview" id="filesPreview" style="display:none;">
             <div class="files-preview-header">
               <span class="files-preview-name" id="filesPreviewName"></span>
-              <button type="button" class="files-icon-btn ui-icon-button" id="filesPreviewClose" title="关闭预览" aria-label="关闭预览"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+              <button type="button" class="files-icon-btn ui-icon-button" id="filesPreviewClose" title="关闭预览" data-i18n-title="tip.closePreview" aria-label="关闭预览" data-i18n-aria="tip.closePreview"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
             </div>
             <pre class="files-preview-body" id="filesPreviewBody"></pre>
           </div>
@@ -558,7 +558,7 @@
         <section class="mcp-panel" id="mcpPanel" aria-label="MCP Servers">
           <form class="mcp-add-form" id="mcpAddForm">
             <input id="mcpName" placeholder="Server 名称" data-i18n-placeholder="ui.p5" required>
-            <select id="mcpTransport" aria-label="MCP 传输方式"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
+            <select id="mcpTransport" aria-label="MCP 传输方式" data-i18n-aria="tip.mcpTransport"><option value="stdio">stdio</option><option value="http">HTTP</option></select>
             <input id="mcpCommand" placeholder="命令，例如 npx" data-i18n-placeholder="ui.p6">
             <input id="mcpArgs" placeholder="参数，空格分隔" data-i18n-placeholder="ui.p7">
             <input id="mcpUrl" placeholder="HTTP URL（HTTP 模式）" data-i18n-placeholder="ui.p8" style="display:none;">
@@ -575,11 +575,11 @@
         <div class="settings-header plugin-page-header">
           <div><h2 data-i18n="ui.62">拓展插件</h2><p class="sync-desc" data-i18n="ui.63">管理本地插件、AI 工具与插件界面。</p></div>
           <div class="plugin-header-actions">
-            <button type="button" class="btn-secondary btn-sm plugin-icon-action" id="pluginOpenDirBtn" title="打开插件目录" aria-label="打开插件目录"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
+            <button type="button" class="btn-secondary btn-sm plugin-icon-action" id="pluginOpenDirBtn" title="打开插件目录" data-i18n-title="tip.openPluginDir" aria-label="打开插件目录" data-i18n-aria="tip.openPluginDir"><svg class="ui-icon"><use href="#ui-folder"/></svg></button>
             <button type="button" class="btn-primary btn-sm" id="pluginInstallBtn"><svg class="ui-icon"><use href="#ui-upload"/></svg><span data-i18n="ui.64">添加插件</span></button>
           </div>
         </div>
-        <div class="plugin-summary" id="pluginSummary" aria-label="插件概览">
+        <div class="plugin-summary" id="pluginSummary" aria-label="插件概览" data-i18n-aria="tip.pluginOverview">
           <span class="plugin-stat"><b id="pluginCount">0</b><small data-i18n="ui.65">已安装</small></span>
           <span class="plugin-stat"><b id="pluginEnabledCount">0</b><small data-i18n="ui.66">已启用</small></span>
           <span class="plugin-stat"><b id="pluginToolCount">0</b><small data-i18n="ui.67">可用工具</small></span>
@@ -587,7 +587,7 @@
           <span class="plugin-sandbox-note"><svg class="ui-icon"><use href="#ui-code"/></svg><span data-i18n="ui.69">子进程隔离 · iframe 沙箱</span></span>
         </div>
         <div class="plugin-list" id="pluginList"></div>
-        <section class="plugin-console" id="pluginConsole" aria-label="运行输出" hidden>
+        <section class="plugin-console" id="pluginConsole" aria-label="运行输出" data-i18n-aria="tip.runOutput" hidden>
           <header class="plugin-console-head"><span data-i18n="ui.70">运行输出</span><button type="button" class="plugin-console-clear" id="pluginConsoleClear" data-i18n="ui.71">清空</button></header>
           <pre class="plugin-output" id="pluginOutput" aria-live="polite"></pre>
         </section>
@@ -676,7 +676,7 @@
                 <h3 id="profileEditorTitle" data-i18n="ui.88">添加模型</h3>
                 <p class="profile-editor-sub" data-i18n="ui.93">一个模型就是一处可切换的服务商端点。</p>
               </div>
-              <button type="button" class="profile-editor-close" data-ui-action="hideProfileEditor" aria-label="关闭">×</button>
+              <button type="button" class="profile-editor-close" data-ui-action="hideProfileEditor" aria-label="关闭" data-i18n-aria="tip.close">×</button>
             </div>
             <input type="hidden" id="profileEditorId">
             <div class="profile-editor-body">
@@ -781,7 +781,7 @@
           <div class="mobile-bridge-heading">
             <div class="mobile-bridge-icon"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></div>
             <div><h2 data-i18n="ui.121">手机桥接</h2><p class="sync-desc" data-i18n="ui.122">同一 Wi-Fi 下扫码，在手机浏览器使用 IEXA。</p></div>
-            <label class="plugin-toggle mobile-bridge-toggle" title="开启手机桥接"><input type="checkbox" id="mobileBridgeEnabled"><span></span></label>
+            <label class="plugin-toggle mobile-bridge-toggle" title="开启手机桥接" data-i18n-title="tip.enableBridge"><input type="checkbox" id="mobileBridgeEnabled"><span></span></label>
           </div>
           <div class="mobile-bridge-content" id="mobileBridgeContent">
             <div class="mobile-bridge-offline" id="mobileBridgeOffline" data-i18n="ui.123">桥接当前已关闭。开启后，只有扫码配对的设备可以访问。</div>
@@ -809,7 +809,7 @@
                   <span class="setting-hint" id="mobileBridgeExpiry" data-i18n="ui.131">二维码一次有效，5 分钟后自动失效。</span>
                 </div>
               </div>
-              <div class="mobile-device-heading"><strong data-i18n="ui.132">已配对设备</strong><button type="button" class="plugin-icon-action mobile-device-revoke-all" id="mobileBridgeRevokeAll" title="移除全部设备" aria-label="移除全部设备"><svg class="ui-icon"><use href="#ui-trash"/></svg></button></div>
+              <div class="mobile-device-heading"><strong data-i18n="ui.132">已配对设备</strong><button type="button" class="plugin-icon-action mobile-device-revoke-all" id="mobileBridgeRevokeAll" title="移除全部设备" data-i18n-title="tip.removeDevices" aria-label="移除全部设备" data-i18n-aria="tip.removeDevices"><svg class="ui-icon"><use href="#ui-trash"/></svg></button></div>
               <div class="mobile-device-list" id="mobileBridgeDevices"></div>
             </div>
           </div>
@@ -864,7 +864,7 @@
           <h2>Skills</h2>
           <div class="skills-header-actions">
             <div class="skill-add-wrap" id="skillAddWrap">
-              <button type="button" class="btn-primary btn-sm skill-add-btn" id="skillAddBtn" title="添加 Skill" aria-label="添加 Skill" aria-haspopup="menu" aria-expanded="false"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+              <button type="button" class="btn-primary btn-sm skill-add-btn" id="skillAddBtn" title="添加 Skill" data-i18n-title="tip.addSkill" aria-label="添加 Skill" data-i18n-aria="tip.addSkill" aria-haspopup="menu" aria-expanded="false"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
               <div class="skill-add-menu" id="skillAddMenu" style="display:none;">
                 <button type="button" class="skill-add-item" id="skillImportFileBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg><span data-i18n="ui.143">导入文件（SKILL.md）</span></button>
                 <button type="button" class="skill-add-item" id="skillImportBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-edit"/></svg><span data-i18n="ui.144">创建 Skill（粘贴）</span></button>
@@ -879,7 +879,7 @@
         </p>
         <input type="file" id="skillFileInput" accept=".md,text/markdown,text/plain" hidden>
         <div class="skill-toolbar">
-          <div class="skill-filter" id="skillFilter" role="group" aria-label="筛选技能">
+          <div class="skill-filter" id="skillFilter" role="group" aria-label="筛选技能" data-i18n-aria="tip.filterSkills">
             <button type="button" data-skill-filter="all" class="is-active" aria-pressed="true">全部<span class="skill-filter-count" data-skill-count="all">0</span></button>
             <button type="button" data-skill-filter="enabled" aria-pressed="false">已启用<span class="skill-filter-count" data-skill-count="enabled">0</span></button>
             <button type="button" data-skill-filter="disabled" aria-pressed="false">已关闭<span class="skill-filter-count" data-skill-count="disabled">0</span></button>
@@ -887,7 +887,7 @@
           </div>
           <label class="skill-sort">
             <span data-i18n="ui.146">排序</span>
-            <select id="skillSort" aria-label="技能排序方式">
+            <select id="skillSort" aria-label="技能排序方式" data-i18n-aria="tip.skillSort">
               <option value="name" data-i18n="ui.147">名称</option>
               <option value="usage" data-i18n="ui.148">使用次数</option>
               <option value="recent" data-i18n="ui.149">最近更新</option>
@@ -936,7 +936,7 @@ version: 1.0.0
             <button type="button" class="btn-primary btn-sm" id="soulSaveBtn"><svg class="ui-icon" aria-hidden="true"><use href="#ui-save"/></svg><span class="soul-save-button-label" data-i18n="ui.120">保存</span></button>
           </div>
         </div>
-        <section class="soul-preview" aria-label="灵魂身份预览">
+        <section class="soul-preview" aria-label="灵魂身份预览" data-i18n-aria="tip.soulPreview">
           <div class="soul-preview-icon"><svg class="ui-icon" aria-hidden="true"><use href="#ui-brain"/></svg></div>
           <div>
             <strong id="soulPreviewName">IEXA</strong>
@@ -990,7 +990,7 @@ version: 1.0.0
           <p class="setting-hint" data-i18n="ui.173">手动启用后，仅采集当前会话下一次主模型调用前的应用输入。包含系统提示词、压缩后历史和工具定义，不含 HTTP 认证头。尽力脱敏仍可能留下私密正文，请先审查再分享。仅在内存保留，5 分钟内过期。</p>
           <div class="soul-footer-actions"><button type="button" class="btn-secondary" id="promptArmBtn" data-i18n="ui.174">启用下一次采集</button><button type="button" class="btn-secondary" id="promptRefreshBtn" data-i18n="ui.175">读取预览</button><button type="button" class="btn-secondary" id="promptClearBtn" data-i18n="ui.176">清除预览</button></div>
           <p id="promptPreviewStatus" class="setting-hint" role="status"></p>
-          <pre id="promptPreviewText" class="prompt-preview-text" tabindex="0" aria-label="脱敏应用输入预览"></pre>
+          <pre id="promptPreviewText" class="prompt-preview-text" tabindex="0" aria-label="脱敏应用输入预览" data-i18n-aria="tip.redactedPreview"></pre>
         </details>
       </div>
     </div>
@@ -1001,7 +1001,7 @@ version: 1.0.0
         <header class="insights-head">
           <h2 data-i18n="ui.177">上下文洞察</h2>
           <button type="button" class="insights-balance" id="insightsBalance" hidden></button>
-          <div class="insights-ranges" role="tablist" aria-label="统计范围">
+          <div class="insights-ranges" role="tablist" aria-label="统计范围" data-i18n-aria="tip.statsRange">
             <button type="button" role="tab" data-range="24h" data-i18n="ui.178">近 24 小时</button>
             <button type="button" role="tab" data-range="7d" aria-selected="true" data-i18n="ui.179">近 7 天</button>
             <button type="button" role="tab" data-range="30d" data-i18n="ui.180">近 30 天</button>
@@ -1104,7 +1104,7 @@ version: 1.0.0
             <h3 id="scheduledEditorTitle" data-i18n="ui.185">新建定时任务</h3>
             <p id="scheduledEditorSub" data-i18n="ui.205">到点后自动发送提示词并开始一轮任务。</p>
           </div>
-          <button type="button" class="scheduled-editor-close" id="scheduledEditorClose" aria-label="关闭">
+          <button type="button" class="scheduled-editor-close" id="scheduledEditorClose" aria-label="关闭" data-i18n-aria="tip.close">
             <svg class="ui-icon" aria-hidden="true"><use href="#ui-close"/></svg>
           </button>
         </header>
@@ -1124,7 +1124,7 @@ version: 1.0.0
           <div class="scheduled-field-row">
             <div class="scheduled-field scheduled-field-grow">
               <span class="scheduled-label" data-i18n="ui.209">重复</span>
-              <div class="scheduled-seg" id="scheduledFrequency" role="group" aria-label="重复频率">
+              <div class="scheduled-seg" id="scheduledFrequency" role="group" aria-label="重复频率" data-i18n-aria="tip.repeatFrequency">
                 <button type="button" data-freq="daily" class="is-active" data-i18n="ui.210">每天</button>
                 <button type="button" data-freq="weekly" data-i18n="ui.211">每周</button>
                 <button type="button" data-freq="monthly" data-i18n="ui.212">每月</button>
@@ -1162,7 +1162,7 @@ version: 1.0.0
 
           <div class="scheduled-field">
             <span class="scheduled-label" data-i18n="ui.225">会话</span>
-            <div class="scheduled-seg" id="scheduledTarget" role="group" aria-label="会话方式">
+            <div class="scheduled-seg" id="scheduledTarget" role="group" aria-label="会话方式" data-i18n-aria="tip.sessionMode">
               <button type="button" data-target="new" class="is-active" data-i18n="ui.226">每次新建会话</button>
               <button type="button" data-target="existing" data-i18n="ui.227">使用已有会话</button>
             </div>
@@ -1232,7 +1232,7 @@ version: 1.0.0
                 <h3 id="appearanceMotionTitle" data-i18n="ui.243">动效</h3>
                 <p data-i18n="ui.244">控制过渡、思考扫光与加载反馈。</p>
               </div>
-              <div class="appearance-seg appearance-seg-wide" id="motionSeg" role="group" aria-label="界面动效" aria-describedby="motionHelp">
+              <div class="appearance-seg appearance-seg-wide" id="motionSeg" role="group" aria-label="界面动效" data-i18n-aria="tip.motion" aria-describedby="motionHelp">
                 <button type="button" data-motion-set="system" data-i18n="ui.245">跟随系统</button>
                 <button type="button" data-motion-set="full" data-i18n="ui.246">完整动效</button>
                 <button type="button" data-motion-set="reduced" data-i18n="ui.247">减少动效</button>
@@ -1256,7 +1256,7 @@ version: 1.0.0
                 <h3 id="appearanceSkinTitle" data-i18n="ui.252">皮肤</h3>
                 <p data-i18n="ui.253">整套配色与圆角。选一个起点，再按你的喜好微调。</p>
               </div>
-              <div class="appearance-skin-grid" id="skinGrid" role="group" aria-label="皮肤预设"></div>
+              <div class="appearance-skin-grid" id="skinGrid" role="group" aria-label="皮肤预设" data-i18n-aria="tip.skinPreset"></div>
 
               <div class="appearance-skin-editor" id="skinEditor">
                 <div class="appearance-editor-head">
@@ -1267,22 +1267,22 @@ version: 1.0.0
                   <label class="appearance-swatch" for="skinAccent">
                     <span class="appearance-swatch-label">强调色<small data-i18n="ui.256">按钮、链接、进度</small></span>
                     <span class="appearance-swatch-control">
-                      <input type="color" id="skinAccent" value="#6c63ff" aria-label="强调色">
-                      <input type="text" id="skinAccentHex" class="appearance-hex" value="#6c63ff" spellcheck="false" aria-label="强调色十六进制值">
+                      <input type="color" id="skinAccent" value="#6c63ff" aria-label="强调色" data-i18n-aria="tip.accentColor">
+                      <input type="text" id="skinAccentHex" class="appearance-hex" value="#6c63ff" spellcheck="false" aria-label="强调色十六进制值" data-i18n-aria="tip.accentHex">
                     </span>
                   </label>
                   <label class="appearance-swatch" for="skinCanvas">
                     <span class="appearance-swatch-label">画布<small data-i18n="ui.257">页面底色</small></span>
                     <span class="appearance-swatch-control">
-                      <input type="color" id="skinCanvas" value="#f1ecec" aria-label="画布颜色">
-                      <input type="text" id="skinCanvasHex" class="appearance-hex" value="#f1ecec" spellcheck="false" aria-label="画布十六进制值">
+                      <input type="color" id="skinCanvas" value="#f1ecec" aria-label="画布颜色" data-i18n-aria="tip.canvasColor">
+                      <input type="text" id="skinCanvasHex" class="appearance-hex" value="#f1ecec" spellcheck="false" aria-label="画布十六进制值" data-i18n-aria="tip.canvasHex">
                     </span>
                   </label>
                   <label class="appearance-swatch" for="skinSurface">
                     <span class="appearance-swatch-label">面板<small data-i18n="ui.258">卡片与输入框</small></span>
                     <span class="appearance-swatch-control">
-                      <input type="color" id="skinSurface" value="#faf7f7" aria-label="面板颜色">
-                      <input type="text" id="skinSurfaceHex" class="appearance-hex" value="#faf7f7" spellcheck="false" aria-label="面板十六进制值">
+                      <input type="color" id="skinSurface" value="#faf7f7" aria-label="面板颜色" data-i18n-aria="tip.panelColor">
+                      <input type="text" id="skinSurfaceHex" class="appearance-hex" value="#faf7f7" spellcheck="false" aria-label="面板十六进制值" data-i18n-aria="tip.panelHex">
                     </span>
                   </label>
                 </div>
@@ -1305,7 +1305,7 @@ version: 1.0.0
             </section>
           </div>
 
-          <aside class="appearance-preview" aria-label="外观实时预览">
+          <aside class="appearance-preview" aria-label="外观实时预览" data-i18n-aria="tip.livePreview">
             <div class="appearance-preview-head">
               <span data-i18n="ui.264">实时预览</span>
               <span class="appearance-saved" id="appearanceSaved" role="status" hidden data-i18n="ui.265">已保存</span>
@@ -1371,9 +1371,9 @@ version: 1.0.0
   </main>
 </div>
 
-<div class="command-palette" id="commandPalette" hidden role="dialog" aria-modal="true" aria-label="命令面板">
+<div class="command-palette" id="commandPalette" hidden role="dialog" aria-modal="true" aria-label="命令面板" data-i18n-aria="tip.commandPalette">
   <div class="command-palette-panel">
-    <input type="text" id="commandPaletteInput" class="command-palette-input" placeholder="输入命令，Enter 执行，Esc 关闭" data-i18n-placeholder="ui.p26" autocomplete="off" aria-label="命令面板搜索" data-i18n-placeholder="palette.placeholder">
+    <input type="text" id="commandPaletteInput" class="command-palette-input" placeholder="输入命令，Enter 执行，Esc 关闭" data-i18n-placeholder="ui.p26" autocomplete="off" aria-label="命令面板搜索" data-i18n-aria="tip.paletteSearch" data-i18n-placeholder="palette.placeholder">
     <div class="command-palette-list" id="commandPaletteList" role="listbox"></div>
   </div>
 </div>
@@ -1393,8 +1393,8 @@ version: 1.0.0
 <div class="html-preview-overlay" id="htmlPreviewOverlay" hidden role="dialog" aria-labelledby="htmlPreviewTitle">
   <section class="html-preview-window" id="htmlPreviewWindow" tabindex="-1">
     <header class="html-preview-titlebar">
-      <div class="html-preview-traffic" aria-label="窗口控制">
-        <button type="button" class="html-preview-dot is-close" id="htmlPreviewClose" title="关闭预览" aria-label="关闭预览"></button>
+      <div class="html-preview-traffic" aria-label="窗口控制" data-i18n-aria="tip.windowControls">
+        <button type="button" class="html-preview-dot is-close" id="htmlPreviewClose" title="关闭预览" data-i18n-title="tip.closePreview" aria-label="关闭预览" data-i18n-aria="tip.closePreview"></button>
         <span class="html-preview-dot is-minimize" aria-hidden="true"></span>
         <span class="html-preview-dot is-zoom" aria-hidden="true"></span>
       </div>
@@ -1403,32 +1403,32 @@ version: 1.0.0
         <span id="htmlPreviewTitle" data-i18n="ui.287">HTML 预览</span>
       </div>
       <div class="html-preview-title-actions">
-        <button type="button" id="htmlPreviewCopyPath" title="复制文件路径" aria-label="复制文件路径"><svg class="ui-icon"><use href="#ui-copy"/></svg></button>
-        <button type="button" id="htmlPreviewOpenExternal" title="在默认浏览器中打开" aria-label="在默认浏览器中打开"><svg class="ui-icon"><use href="#ui-external"/></svg></button>
-        <button type="button" id="htmlPreviewReload" title="刷新预览" aria-label="刷新预览"><svg class="ui-icon"><use href="#ui-refresh"/></svg></button>
+        <button type="button" id="htmlPreviewCopyPath" title="复制文件路径" data-i18n-title="tip.copyPath" aria-label="复制文件路径" data-i18n-aria="tip.copyPath"><svg class="ui-icon"><use href="#ui-copy"/></svg></button>
+        <button type="button" id="htmlPreviewOpenExternal" title="在默认浏览器中打开" data-i18n-title="tip.openInBrowser" aria-label="在默认浏览器中打开" data-i18n-aria="tip.openInBrowser"><svg class="ui-icon"><use href="#ui-external"/></svg></button>
+        <button type="button" id="htmlPreviewReload" title="刷新预览" data-i18n-title="tip.refreshPreview" aria-label="刷新预览" data-i18n-aria="tip.refreshPreview"><svg class="ui-icon"><use href="#ui-refresh"/></svg></button>
       </div>
     </header>
     <div class="html-preview-toolbar">
-      <div class="html-preview-address" title="当前文件">
+      <div class="html-preview-address" title="当前文件" data-i18n-title="tip.currentFile">
         <svg class="ui-icon" aria-hidden="true"><use href="#ui-file"/></svg>
         <span id="htmlPreviewAddress"></span>
       </div>
-      <button type="button" class="html-preview-live" id="htmlPreviewLive" aria-pressed="true" title="文件变化时自动重新渲染">
+      <button type="button" class="html-preview-live" id="htmlPreviewLive" aria-pressed="true" title="文件变化时自动重新渲染" data-i18n-title="tip.autoRerender">
         <i aria-hidden="true"></i><span id="htmlPreviewLiveLabel" data-i18n="ui.288">实时</span>
       </button>
-      <div class="html-preview-viewports" role="group" aria-label="预览画布尺寸">
-        <button type="button" data-preview-viewport="desktop" class="is-active" title="桌面视图" aria-label="桌面视图" aria-pressed="true"><svg class="ui-icon"><use href="#ui-monitor"/></svg></button>
-        <button type="button" data-preview-viewport="tablet" title="平板视图" aria-label="平板视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-tablet"/></svg></button>
-        <button type="button" data-preview-viewport="mobile" title="手机视图" aria-label="手机视图" aria-pressed="false"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></button>
+      <div class="html-preview-viewports" role="group" aria-label="预览画布尺寸" data-i18n-aria="tip.previewCanvas">
+        <button type="button" data-preview-viewport="desktop" class="is-active" title="桌面视图" data-i18n-title="tip.desktopView" aria-label="桌面视图" data-i18n-aria="tip.desktopView" aria-pressed="true"><svg class="ui-icon"><use href="#ui-monitor"/></svg></button>
+        <button type="button" data-preview-viewport="tablet" title="平板视图" data-i18n-title="tip.tabletView" aria-label="平板视图" data-i18n-aria="tip.tabletView" aria-pressed="false"><svg class="ui-icon"><use href="#ui-tablet"/></svg></button>
+        <button type="button" data-preview-viewport="mobile" title="手机视图" data-i18n-title="tip.mobileView" aria-label="手机视图" data-i18n-aria="tip.mobileView" aria-pressed="false"><svg class="ui-icon"><use href="#ui-smartphone"/></svg></button>
       </div>
     </div>
     <div class="html-preview-stage" id="htmlPreviewStage" data-viewport="desktop">
       <div class="html-preview-canvas" id="htmlPreviewCanvas">
-        <iframe id="htmlPreviewFrame" class="is-active" title="HTML 效果预览" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
+        <iframe id="htmlPreviewFrame" class="is-active" title="HTML 效果预览" data-i18n-title="tip.htmlPreview" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
         <!-- Second surface for double buffering: the next render loads here,
              stays transparent until it is ready, and only then swaps in, so a
              live update never flashes an empty white page. -->
-        <iframe id="htmlPreviewFrameBack" title="HTML 效果预览（预载）" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
+        <iframe id="htmlPreviewFrameBack" title="HTML 效果预览（预载）" data-i18n-title="tip.htmlPreviewPreload" aria-hidden="true" tabindex="-1" sandbox="allow-scripts allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-downloads"></iframe>
         <div class="html-preview-loading" id="htmlPreviewLoading"><span></span><b data-i18n="ui.289">正在渲染</b></div>
       </div>
     </div>
@@ -1449,27 +1449,27 @@ version: 1.0.0
     <div class="image-preview-header">
       <span class="image-preview-title" id="imagePreviewTitle"></span>
       <span class="image-preview-counter" id="imagePreviewCounter" hidden></span>
-      <div class="image-preview-tools" role="group" aria-label="图片操作">
-        <button type="button" class="image-preview-tool" id="imagePreviewDownload" title="下载图片" aria-label="下载图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19h14"/></svg></button>
-        <button type="button" class="image-preview-tool" id="imagePreviewCopy" title="复制图片" aria-label="复制图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></button>
+      <div class="image-preview-tools" role="group" aria-label="图片操作" data-i18n-aria="tip.imageActions">
+        <button type="button" class="image-preview-tool" id="imagePreviewDownload" title="下载图片" data-i18n-title="tip.downloadImage" aria-label="下载图片" data-i18n-aria="tip.downloadImage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19h14"/></svg></button>
+        <button type="button" class="image-preview-tool" id="imagePreviewCopy" title="复制图片" data-i18n-title="tip.copyImage" aria-label="复制图片" data-i18n-aria="tip.copyImage"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg></button>
       </div>
       <span class="image-preview-status" id="imagePreviewStatus" role="status" aria-live="polite"></span>
-      <div class="image-preview-tools" role="group" aria-label="缩放">
-        <button type="button" class="image-preview-tool" id="imagePreviewZoomOut" title="缩小（-）" aria-label="缩小"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
-        <button type="button" class="image-preview-tool image-preview-zoom" id="imagePreviewZoomReset" title="适应窗口（0）" aria-label="适应窗口"><span id="imagePreviewZoomLabel">100%</span></button>
-        <button type="button" class="image-preview-tool" id="imagePreviewZoomIn" title="放大（+）" aria-label="放大"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <div class="image-preview-tools" role="group" aria-label="缩放" data-i18n-aria="tip.zoom">
+        <button type="button" class="image-preview-tool" id="imagePreviewZoomOut" title="缩小（-）" data-i18n-title="tip.zoomOutKey" aria-label="缩小" data-i18n-aria="tip.zoomOut"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button type="button" class="image-preview-tool image-preview-zoom" id="imagePreviewZoomReset" title="适应窗口（0）" data-i18n-title="tip.fitWindowKey" aria-label="适应窗口" data-i18n-aria="tip.fitWindow"><span id="imagePreviewZoomLabel">100%</span></button>
+        <button type="button" class="image-preview-tool" id="imagePreviewZoomIn" title="放大（+）" data-i18n-title="tip.zoomInKey" aria-label="放大" data-i18n-aria="tip.zoomIn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
-      <button type="button" class="image-preview-close ui-icon-button" id="imagePreviewClose" title="关闭预览" aria-label="关闭预览"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+      <button type="button" class="image-preview-close ui-icon-button" id="imagePreviewClose" title="关闭预览" data-i18n-title="tip.closePreview" aria-label="关闭预览" data-i18n-aria="tip.closePreview"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
     </div>
     <div class="image-preview-body" id="imagePreviewBody">
       <div class="image-preview-stage" id="imagePreviewStage">
         <img id="imagePreviewImage" alt="" draggable="false">
         <div class="image-preview-error" id="imagePreviewError" hidden data-i18n="ui.291">图片加载失败</div>
       </div>
-      <button type="button" class="image-preview-nav is-prev" id="imagePreviewPrev" title="上一张（←）" aria-label="上一张"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <button type="button" class="image-preview-nav is-next" id="imagePreviewNext" title="下一张（→）" aria-label="下一张"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button type="button" class="image-preview-nav is-prev" id="imagePreviewPrev" title="上一张（←）" data-i18n-title="tip.prevImageKey" aria-label="上一张" data-i18n-aria="tip.prevImage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <button type="button" class="image-preview-nav is-next" id="imagePreviewNext" title="下一张（→）" data-i18n-title="tip.nextImageKey" aria-label="下一张" data-i18n-aria="tip.nextImage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
     </div>
-    <div class="image-preview-strip" id="imagePreviewStrip" role="tablist" aria-label="会话中的图片" hidden></div>
+    <div class="image-preview-strip" id="imagePreviewStrip" role="tablist" aria-label="会话中的图片" data-i18n-aria="tip.sessionImage" hidden></div>
   </div>
 </div>
 

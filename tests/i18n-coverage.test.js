@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const { JSDOM } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
 const RENDERER = path.join(ROOT, 'src/renderer');
@@ -91,4 +92,41 @@ test('switching locale rewrites the live DOM', () => {
   win.IexaI18n.apply(document);
   assert.equal(nodes[0].textContent, 'Projects & chats');
   assert.equal(nodes[1].placeholder, 'Search conversations');
+});
+
+// The hooks above are only half the job: a hover title or an aria label that
+// stays Chinese is invisible in a screenshot, so it needs a real DOM check.
+test('hover titles and aria labels follow the locale in the real markup', () => {
+  const dom = new JSDOM(fs.readFileSync(path.join(RENDERER, 'index.html'), 'utf8'), {
+    runScripts: 'outside-only',
+    url: 'http://127.0.0.1:19840/',
+  });
+  const win = dom.window;
+  for (const file of ['services/I18nUi.js', 'services/I18n.js']) {
+    win.eval(fs.readFileSync(path.join(RENDERER, file), 'utf8'));
+  }
+
+  const titles = [...win.document.querySelectorAll('[data-i18n-title]')];
+  const labels = [...win.document.querySelectorAll('[data-i18n-aria]')];
+  assert.ok(titles.length >= 60, 'hover titles are wired: ' + titles.length);
+  assert.ok(labels.length >= 90, 'aria labels are wired: ' + labels.length);
+
+  const cjk = /[\u4e00-\u9fa5]/;
+  win.IexaI18n.setLocale('en');
+  const chineseTitles = titles.filter((el) => cjk.test(el.title)).map((el) => el.dataset.i18nTitle);
+  assert.deepEqual(chineseTitles, [], 'an English hover title must not stay Chinese');
+  const chineseLabels = labels.filter((el) => cjk.test(el.getAttribute('aria-label'))).map((el) => el.dataset.i18nAria);
+  assert.deepEqual(chineseLabels, [], 'an English aria label must not stay Chinese');
+
+  const button = win.document.getElementById('mobileMenuBtn');
+  assert.equal(button.title, 'Open navigation');
+  assert.equal(button.getAttribute('aria-label'), 'Open navigation');
+
+  win.IexaI18n.setLocale('ja');
+  assert.equal(button.title, 'ナビゲーションを開く');
+
+  win.IexaI18n.setLocale('zh-CN');
+  assert.equal(button.title, '打开导航');
+  assert.equal(button.getAttribute('aria-label'), '打开导航');
+  dom.window.close();
 });
