@@ -257,12 +257,16 @@ function renderSessionList() {
   const renderItem = (s) => {
     const active = s.id === currentSessionId ? ' active' : '';
     const pinned = s.pinned === true ? ' pinned' : '';
+    // A background session can keep streaming while another chat is open, so
+    // the running state has to come from that session's runtime, not from the
+    // global `isProcessing` flag the composer reads.
+    const running = sessionRuntimes.get(s.id)?.isProcessing === true;
     const timeStr = formatTime(s.updated);
     return `
-      <div class="session-item${active}${pinned}" data-id="${escapeHtml(s.id)}">
+      <div class="session-item${active}${pinned}${running ? ' is-running' : ''}" data-id="${escapeHtml(s.id)}">
         <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
           <span class="session-item-title" data-sid="${escapeHtml(s.id)}" data-ui-action="startRename" data-ui-arg="${escapeHtml(s.id)}" title="${escapeHtml(s.title)}" aria-label="${escapeHtml(s.title)}${IexaI18n.t('session.renameHint')}">${escapeHtml(s.title)}</span>
-          <span class="session-item-time">${sessionRuntimes.get(s.id)?.isProcessing ? '<i class="session-running-dot" title="' + IexaI18n.t('session.running') + '"></i>' : ''}${timeStr}</span>
+          <span class="session-item-time">${running ? '<i class="session-running-dot" title="' + IexaI18n.t('session.running') + '"></i>' : ''}${timeStr}</span>
         </div>
         <button type="button" class="session-item-more" data-ui-action="openSessionMenu" data-session-menu="${escapeHtml(s.id)}" data-ui-arg="${escapeHtml(s.id)}" title="${IexaI18n.t('session.more')}" aria-label="${IexaI18n.t('session.more')}" aria-haspopup="menu" aria-expanded="false">${uiIcon('more')}</button>
       </div>`;

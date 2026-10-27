@@ -256,6 +256,12 @@
   min-width: 0;
   transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
   font-size: calc(0.82rem * var(--ui-font-scale, 1));
+  /* The running ring needs a positioning context; the card already clips its
+     own background to the pill radius, so `overflow: hidden` keeps the sweep
+     inside the same silhouette instead of painting a rectangle. */
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .session-item:hover {
@@ -300,6 +306,52 @@
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-light);
   animation: session-running-pulse 1.25s ease-in-out infinite;
+}
+
+/* A session that is still streaming gets a light travelling around its pill.
+   The ring is a separate absolutely-positioned layer rather than a border
+   image: the sidebar restyles `.session-item` in several themes and a
+   `border-image` on the card itself was overwritten by those rules. */
+.session-item.is-running { position: relative; }
+.session-item.is-running::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--session-ring-angle, 0deg),
+    transparent 0deg 268deg,
+    color-mix(in srgb, var(--accent) 45%, transparent) 300deg,
+    var(--accent) 338deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: session-ring-spin 2.6s linear infinite;
+}
+
+@property --session-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes session-ring-spin {
+  to { --session-ring-angle: 360deg; }
+}
+
+/* Reduced motion: a static highlight arc still marks the session as running. */
+html[data-motion="reduced"] .session-item.is-running::before,
+html[data-motion="system"] .session-item.is-running::before {
+  animation: none;
+}
+
+@media (forced-colors: active) {
+  .session-item.is-running { outline: 1px solid Highlight; }
 }
 
 @keyframes session-running-pulse {
