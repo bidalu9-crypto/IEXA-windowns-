@@ -49,15 +49,16 @@ test('real browser: edited-file card review, guarded undo, persistence and two t
   // The header is a disclosure: it collapses the file list but leaves the
   // actions reachable, and the chevron/aria state follows.
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').tagName"),'BUTTON');
-  assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'true');
-  await evaluate("document.querySelector('.turn-deliverables-heading').click()");
-  assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),true);
+  // Restored history starts folded: a turn that touched many files must not
+  // push the answer off screen before it has been read.
   assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'false');
+  assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),true);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.turn-deliverables-body')).display"),'none');
   assert.equal(await evaluate("document.querySelector('.turn-change-undo').offsetParent!==null"),true);
   assert.equal(await evaluate("document.querySelector('.turn-deliverables').getBoundingClientRect().height<110"),true);
   const collapsedShot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(artifact,'file-summary-collapsed.png'),Buffer.from(collapsedShot.result.data,'base64'));
   await evaluate("document.querySelector('.turn-deliverables-heading').click()");
+  assert.equal(await evaluate("document.querySelector('.turn-deliverables-heading').getAttribute('aria-expanded')"),'true');
   assert.equal(await evaluate("document.querySelector('.turn-deliverables').classList.contains('is-collapsed')"),false);
   assert.equal(await evaluate("document.querySelectorAll('.turn-change-file').length"),2);
   // Keep task execution details collapsed, and show the summary exactly as the user sees it.

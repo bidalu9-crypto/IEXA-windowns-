@@ -33,11 +33,13 @@ test('the list carries list semantics and a live summary', () => {
   assert.match(view, /aria-expanded/, 'the toggle exposes its state');
 });
 
-test('a finished plan folds when history is restored', () => {
+test('a finished plan is carried by the composer dock when history is restored', () => {
   assert.match(view, /options\.restored && done === items\.length/, 'restored plans start folded');
   assert.match(view, /if \(!panel\.dataset\.seeded\)/, 'a later live update cannot re-fold a plan');
-  assert.match(sessions, /renderTodoPlan\(el, todoPlan, \{ restored: true \}\)/,
-    'the restore path passes the flag; without it every reload reopens old plans');
+  assert.match(sessions, /IexaPlanDock\?\.setTodos\(id, window\.IexaPlanDock\.extractTodos\(msgs\)\)/,
+    'the restored plan feeds the dock above the composer');
+  assert.doesNotMatch(sessions, /renderTodoPlan\(el, todoPlan/,
+    'the transcript must not repeat the plan the dock already shows');
 });
 
 test('the rail and the fold are theme-token driven', () => {

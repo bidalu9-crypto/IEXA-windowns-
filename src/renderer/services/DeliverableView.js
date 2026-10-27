@@ -370,7 +370,9 @@ function renderDeliverables(messageEl, files) {
 
   actions.append(status, undo, review);
   panel.append(heading, body, actions);
-  setCollapsed(messageEl._deliverablesCollapsed === true);
+  // A turn that touched a dozen files must not push the answer off screen:
+  // the summary line is the default, and the file list opens on demand.
+  setCollapsed(messageEl._deliverablesCollapsed !== false);
 }
 
 async function openDeliverablePreview(path, absolutePath) {

@@ -2160,7 +2160,7 @@ function createServer(auth: LocalApiAuth): http.Server {
               artifactRegistry.set(id, { path: resolveArtifactPath(WORKSPACE_DIR, artifact.path), mimeType: artifact.mimeType, size: artifact.size, created: Date.now() });
               artifact.url = `/api/artifacts/${id}`;
             }
-            if (call.result.output.length > 24000 && servable.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {
+            if (typeof call.result.output === 'string' && call.result.output.length > 24000 && servable.some((artifact) => artifact.mimeType === 'text/plain' && path.basename(artifact.path).startsWith('artifact_'))) {
               call.result.output = call.result.output.slice(0, 16000) + '\n\n[完整输出见附件 / Full output in attachment]';
             }
           }

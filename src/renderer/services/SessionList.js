@@ -591,18 +591,16 @@ function renderHistoryMessage(msg, messageIndex) {
                   <span class="tool-chevron" aria-hidden="true"></span>
                 </div>
                 <div class="tool-body" id="tool-body-${escapeHtml(tc.id)}" style="display:none;">
-                  <div class="tool-section-label">${IexaI18n.t('tool.section.input')}</div><pre class="tool-args"></pre>
+                  ${window.IexaToolCard ? window.IexaToolCard.bodyMarkup(tc.id) : '<pre class="tool-args"></pre>'}
                 </div>
               `;
               window.IexaToolLifecycleView.applyResult(block, tc.result, setToolStepStatus);
               setPagedText(block.querySelector('.tool-args'), JSON.stringify(tc.args, null, 2));
               if (tc.result) {
-                const body = block.querySelector('.tool-body');
-                const result = document.createElement('pre');
-                result.className = 'tool-result';
-                body.appendChild(result);
-                setPagedText(result, tc.result.output || '');
-                if (tc.result.fileChange) renderFileChange(body, tc.result.fileChange);
+                const result = block.querySelector('.tool-result');
+                if (result) setPagedText(result, tc.result.output || '');
+                const diffPane = block.querySelector('[data-pane="diff"]');
+                if (tc.result.fileChange && diffPane) renderFileChange(diffPane, tc.result.fileChange);
               }
               window.IexaChatActivity.updateTool(block, tc.name, tc.args, tc.result);
               steps.appendChild(block);
@@ -624,9 +622,9 @@ function renderHistoryMessage(msg, messageIndex) {
             else if (footer) el.insertBefore(steps, footer);
             else el.appendChild(steps);
           }
+          // The plan lives in the composer dock now (DeepSeek Harness's
+          // TodoPanel position); rendering it here too would duplicate it.
           restoreTranscriptOrder(el, msg);
-          const todoPlan = latestTodoPlanFromCalls(msg.toolCalls);
-          if (todoPlan) renderTodoPlan(el, todoPlan, { restored: true });
           el.dataset.transcriptTurnId = msg.transcript?.turnId || '';
           el._fileUndoPaths = msg.fileUndo?.paths || [];
           const recordedChanges = (msg.toolCalls || []).filter(call => call.result?.success && call.result.fileChange).map(call => call.result.fileChange);
@@ -651,6 +649,10 @@ function renderHistoryMessage(msg, messageIndex) {
             renderMessageUsage(usageEl, (msg.usage && msg.usage.inputTokens) || 0, (msg.usage && msg.usage.outputTokens) || 0,
               msg.usage && msg.usage.cacheReadInputTokens, { pending: !msg.usage });
           }
+          // A restored turn folds exactly like a live one: reasoning blocks and
+          // tool rails go behind one "elapsed" line instead of leaving a column
+          // of identical capsules for every step of a long conversation.
+          window.IexaTurnSummary?.settle(el);
           // Replayed turns land folded, like the turn looked the moment it
           // finished. The stored duration was applied just above, so the bar
           // paints the real number rather than zero.

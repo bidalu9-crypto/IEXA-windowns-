@@ -653,7 +653,8 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
   refreshToolGroupSummary(info.block.closest('.tool-steps'));
 
   if (Array.isArray(todos) && success && currentAssistantMsg) {
-    renderTodoPlan(currentAssistantMsg, todos);
+    // One surface only: the plan sits above the composer, exactly like the
+    // TodoPanel in DeepSeek Harness. The transcript keeps the tool row.
     window.IexaPlanDock?.setTodos(currentSessionId, todos);
   }
 

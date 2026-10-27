@@ -26,6 +26,28 @@
     block.dataset.toolTab = name;
   }
 
+  /* The tab strip and its panes. Live tool cards and restored history must
+   * share one markup: the first cut only gave the live path tabs, so reopening
+   * a conversation showed an input block with no output at all. */
+  function bodyMarkup(id) {
+    const label = (key, fallback) => {
+      try {
+        const value = window.IexaI18n ? window.IexaI18n.t(key) : key;
+        return value === key ? fallback : value;
+      } catch { return fallback; }
+    };
+    return '' +
+      '<div class="tool-tabs" role="tablist">' +
+        '<button type="button" role="tab" class="tool-tab is-active" data-tool-tab="input" aria-selected="true">' + label('tool.tab.input', 'Input') + '</button>' +
+        '<button type="button" role="tab" class="tool-tab" data-tool-tab="output" aria-selected="false">' + label('tool.tab.output', 'Output') + '</button>' +
+        '<span class="tool-tabs-spacer"></span>' +
+        '<button type="button" class="tool-inspect" data-tool-inspect title="' + label('tool.tab.inspect', 'Inspect') + '">' + label('tool.tab.inspect', 'Inspect') + '</button>' +
+      '</div>' +
+      '<div class="tool-pane" data-pane="input"><pre class="tool-args"></pre></div>' +
+      '<div class="tool-pane" data-pane="output" hidden><pre class="tool-result"></pre></div>' +
+      '<div class="tool-pane" data-pane="diff" hidden></div>';
+  }
+
   function renderResult(block, info) {
     if (!block) return;
     block.dataset.hasResult = '1';
@@ -54,5 +76,5 @@
     }
   }, true);
 
-  window.IexaToolCard = { showTab, renderResult };
+  window.IexaToolCard = { showTab, renderResult, bodyMarkup };
 })();

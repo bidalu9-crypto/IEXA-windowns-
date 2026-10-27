@@ -126,7 +126,10 @@
               icon: icon('brain'), messageIndex: index,
             });
           } else if (item.type === 'tool') {
-            const call = byId.get(item.id);
+            // Transcript tool items carry the call identity in `callId`; `id`
+            // is the event id. Reading `id` here silently dropped every tool
+            // row from the ledger of a recorded session.
+            const call = byId.get(item.callId || item.id);
             if (call) out.push(Object.assign(toolRecord(call, Number(item.timestamp) || at, item), { messageIndex: index }));
           } else if (item.type === 'compaction') {
             out.push({
@@ -399,5 +402,15 @@
     }
   }
 
-  window.IexaTrajectory = { setView, refresh, focusCall, reset, getRecords: () => records };
+  /* index.html loads this after the markup, but a script can also be evaluated
+   * against a document that is still parsing. `ensure()` attaches the tab and
+   * filter listeners, so without this call the tabs exist and do nothing —
+   * which is exactly how the first cut shipped. */
+  function init() {
+    ensure();
+  }
+
+  window.IexaTrajectory = { init, setView, refresh, focusCall, reset, getRecords: () => records };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
 })();
