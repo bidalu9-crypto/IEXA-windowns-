@@ -81,7 +81,7 @@ test('real browser: a read image stays visible after the turn folds', { skip: !b
   await cdp('Page.enable');
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
   await wait("typeof currentSessionId !== 'undefined' && currentSessionId");
-  await evaluate(`void switchSession('${sessionId}'); true`);
+  await evaluate(`(async () => { await switchSession('${sessionId}'); return true; })()`);
   await wait("document.querySelectorAll('#chatMessages .message').length === 2");
 
   // Drive the live path exactly as the SSE stream does.

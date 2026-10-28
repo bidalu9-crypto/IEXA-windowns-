@@ -5,6 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
+const tempDir = require('./helpers/temp-dir');
 const path = require('node:path');
 
 const { buildSystemPrompt } = require('../dist/main/agent/SystemPrompt');
@@ -72,7 +73,7 @@ test('the generated sections stay inside a fixed prompt budget', () => {
 });
 
 test('an unknown tool name is answered with the closest real one', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-suggest-'));
+  const dir = tempDir.make('iexa-suggest-');
   const runtime = new ToolRuntime({ workspaceDir: dir, memoryDir: path.join(dir, 'mem'), permissionMode: 'full' });
   runtime.registerDefaults();
 
@@ -82,7 +83,7 @@ test('an unknown tool name is answered with the closest real one', () => {
 });
 
 test('a real turn hands the generated reference to the provider', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-playbook-'));
+  const dir = tempDir.make('iexa-playbook-');
   const runtime = new ToolRuntime({ workspaceDir: dir, memoryDir: path.join(dir, 'mem'), permissionMode: 'full' });
   runtime.registerDefaults();
 

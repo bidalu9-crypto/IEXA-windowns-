@@ -3,9 +3,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
+const tempDir = require('./helpers/temp-dir');
 const path = require('node:path');
 
-process.env.IEXA_WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-trim-'));
+process.env.IEXA_WORKSPACE = tempDir.make('iexa-trim-');
 const { clientFileChange, clientMessages } = require('../dist/main/server');
 
 test('clientFileChange strips rollback bytes and keeps an undo gate flag', () => {

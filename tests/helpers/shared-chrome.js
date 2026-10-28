@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const tempDir = require('./temp-dir');
 
 const CANDIDATES = [
   process.env.IEXA_TEST_BROWSER,
@@ -17,7 +18,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function startSharedChrome() {
   const chrome = CANDIDATES.find((f) => f && fs.existsSync(f));
   if (!chrome) throw new Error('no Chrome/Edge found for the shared browser');
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-shared-chrome-'));
+  const profile = tempDir.make('iexa-shared-chrome-');
   const proc = spawn(chrome, [
     '--headless=new', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check',
@@ -46,9 +47,12 @@ async function startSharedChrome() {
   return {
     http,
     async stop() {
-      if (proc.exitCode === null) { try { proc.kill(); } catch { /* gone */ } }
-      await sleep(600);
-      try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); } catch { /* locked */ }
+      if (proc.exitCode === null) {
+        const exited = new Promise((resolve) => proc.once('exit', resolve));
+        try { proc.kill(); } catch { /* gone */ }
+        await Promise.race([exited, sleep(3000)]);
+      }
+      tempDir.remove(profile);
     },
   };
 }

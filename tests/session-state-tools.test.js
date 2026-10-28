@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
+const tempDir = require('./helpers/temp-dir');
 const path = require('node:path');
 
 const { GoalStore } = require('../dist/main/agent/GoalStore');
@@ -9,7 +10,7 @@ const { ToolRuntime } = require('../dist/main/runtime/ToolRuntime');
 const { buildSystemPrompt } = require('../dist/main/agent/SystemPrompt');
 const { makeAgentTools } = require('../dist/main/tools/ToolDefinitions');
 
-const fixture = () => fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-session-state-'));
+const fixture = () => tempDir.make('iexa-session-state-');
 const context = (dir, id = 't1') => ({ signal: new AbortController().signal, sessionId: 's1', toolCallId: id, workspaceDir: dir });
 
 test('a goal is re-injected every turn, survives a restart, and disappears when done', () => {

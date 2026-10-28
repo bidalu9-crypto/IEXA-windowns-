@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const tempDir = require('./temp-dir');
 
 const CHROME_CANDIDATES = [
   process.env.IEXA_TEST_BROWSER,
@@ -45,14 +46,12 @@ async function fromShared(chromeHttp) {
   const cdp = client(socket);
   await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
   await cdp.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-shared-tab-'));
   return {
     socket,
     shared: true,
     close: async () => {
       try { await fetch(`${chromeHttp}/json/close/${created.id}`); } catch { /* already gone */ }
       try { socket.close(); } catch { /* already closed */ }
-      try { fs.rmSync(profile, { recursive: true, force: true }); } catch { /* locked */ }
     },
   };
 }
@@ -61,7 +60,7 @@ async function fromShared(chromeHttp) {
 async function fromOwnProcess() {
   const chrome = CHROME_CANDIDATES.find((file) => file && fs.existsSync(file));
   if (!chrome) throw new Error('no Chrome/Edge found; set IEXA_TEST_BROWSER');
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-browser-'));
+  const profile = tempDir.make('iexa-browser-');
   const proc = spawn(chrome, [
     '--headless=new', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
     '--disable-backgrounding-occluded-windows', '--no-first-run', '--no-default-browser-check',
@@ -89,9 +88,14 @@ async function fromOwnProcess() {
     shared: false,
     close: async () => {
       try { socket.close(); } catch { /* closed */ }
-      if (proc.exitCode === null) { try { proc.kill(); } catch { /* gone */ } }
-      await sleep(600);
-      try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); } catch { /* locked */ }
+      if (proc.exitCode === null) {
+        const exited = new Promise((resolve) => proc.once('exit', resolve));
+        try { proc.kill(); } catch { /* gone */ }
+        // Deletion only succeeds once the browser has released its profile
+        // handles, so wait for the real exit instead of guessing a delay.
+        await Promise.race([exited, sleep(3000)]);
+      }
+      tempDir.remove(profile);
     },
   };
 }

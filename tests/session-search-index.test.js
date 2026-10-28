@@ -2,11 +2,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
+const tempDir = require('./helpers/temp-dir');
 const path = require('node:path');
 const { SessionSearchIndex, tokenize } = require('../dist/main/search/SessionSearchIndex');
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-search-'));
+  const root = tempDir.make('iexa-search-');
   const sessions = path.join(root, 'sessions');
   const index = path.join(root, 'index');
   fs.mkdirSync(sessions, { recursive: true });

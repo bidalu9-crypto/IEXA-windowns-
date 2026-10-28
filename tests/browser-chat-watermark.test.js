@@ -73,7 +73,18 @@ test('real browser: the watermark stays behind the transcript and skips the land
       if (await evaluate(expression)) return;
       await new Promise((r) => setTimeout(r, 100));
     }
-    throw new Error('UI condition timeout: ' + expression);
+    const snapshot = await evaluate(`(() => ({
+      welcome: document.getElementById('view-chat').classList.contains('is-welcome'),
+      messages: document.querySelectorAll('#chatMessages .message').length,
+      current: typeof currentSessionId === 'string' ? currentSessionId : null,
+      visible: typeof visibleSessionId === 'string' ? visibleSessionId : null,
+      runtime: typeof sessionRuntimes !== 'undefined' && sessionRuntimes.has('sess_watermark')
+        ? { ready: sessionRuntimes.get('sess_watermark').historyReady, count: (sessionRuntimes.get('sess_watermark').historyMessages || []).length }
+        : null,
+      loading: !!document.querySelector('.history-loading'),
+      body: (document.querySelector('#chatMessages') || {}).textContent?.slice(0, 120),
+    }))()`);
+    throw new Error('UI condition timeout: ' + expression + ' :: ' + JSON.stringify(snapshot));
   }
   const mark = () => evaluate(`(() => {
     const area = document.querySelector('.chat-messages-area');
@@ -96,14 +107,14 @@ test('real browser: the watermark stays behind the transcript and skips the land
   await wait("typeof currentSessionId !== 'undefined' && currentSessionId");
 
   // Landing: the hero already carries the mark, so the watermark must be off.
-  await evaluate("void createSession(); true");
+  await evaluate("(async () => { await createSession(); return true; })()");
   await wait("document.getElementById('view-chat').classList.contains('is-welcome')");
   const landing = await mark();
   assert.equal(landing.welcome, true);
   assert.equal(landing.opacity, 0, 'the landing screen has no watermark');
 
   // A conversation: the mark appears.
-  await evaluate(`void switchSession('${sessionId}'); true`);
+  await evaluate(`(async () => { await switchSession('${sessionId}'); return true; })()`);
   await wait("!document.getElementById('view-chat').classList.contains('is-welcome') && document.querySelectorAll('#chatMessages .message').length === 2");
   await new Promise((r) => setTimeout(r, 600));
   const chat = await mark();
