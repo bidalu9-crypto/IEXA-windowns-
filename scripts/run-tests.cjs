@@ -102,7 +102,12 @@ async function main() {
   // the same reason it always did.
   const electronFiles = files.filter((file) => path.basename(file).startsWith('electron-'));
   const browserFiles = files.filter((file) => !electronFiles.includes(file) && path.basename(file).startsWith('browser-'));
-  const plainFiles = files.filter((file) => !electronFiles.includes(file) && !browserFiles.includes(file));
+  // Tests that read process-wide state cannot share a pass: commandTempDirs() is
+  // a global registry, so a neighbouring file creating or removing a scratch
+  // directory makes the delta assertions race. They run alone.
+  const SERIAL_FILES = ['process-termination.test.js'];
+  const serialFiles = files.filter((file) => !electronFiles.includes(file) && SERIAL_FILES.includes(path.basename(file)));
+  const plainFiles = files.filter((file) => !electronFiles.includes(file) && !browserFiles.includes(file) && !serialFiles.includes(file));
 
   const runPass = (subset, passConcurrency = concurrency) => {
     if (!subset.length) return 0;
@@ -126,6 +131,8 @@ async function main() {
 
   let status = 0;
   try {
+    const serialStatus = runPass(serialFiles, '1');
+    if (serialStatus !== 0) status = serialStatus;
     const plainStatus = runPass(plainFiles);
     if (plainStatus !== 0) status = plainStatus;
     await startBrowser();

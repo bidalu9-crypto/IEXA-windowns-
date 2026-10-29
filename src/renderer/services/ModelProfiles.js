@@ -745,7 +745,7 @@ async function renderProfileList() {
 
   list.innerHTML = data.profiles.map(p => `
     <div class="profile-card ${p.id === data.activeProfileId ? 'active' : ''}" data-ui-action="activateProfile" data-ui-arg="${escapeHtml(p.id)}">
-      <span class="profile-avatar" aria-hidden="true">${escapeHtml(String(p.provider || '?').slice(0, 1).toUpperCase())}</span>
+      <span class="profile-avatar" aria-hidden="true">${IexaProviderLogos.markup(p.provider, p)}</span>
       <div class="profile-card-info">
         <div class="profile-card-title">
           <span class="profile-card-name">${escapeHtml(p.name)}</span>

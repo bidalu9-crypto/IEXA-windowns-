@@ -105,6 +105,10 @@ test('real browser: trajectory tab, composer docks and the folded turn card', { 
   await cdp('Page.enable');
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
+  // The shared Chrome can serve the first page of a pass before the renderer has
+  // finished wiring its modules; acting on a half-initialised app throws inside
+  // evaluate and shows up as a one-second failure. Wait for the real entry points.
+  await wait("document.readyState === 'complete' && typeof switchSession === 'function' && typeof renderSessionList === 'function'");
   await wait("typeof currentSessionId !== 'undefined' && currentSessionId");
   const boot = await evaluate(`({ items: document.querySelectorAll('.session-item').length, sid: typeof currentSessionId !== 'undefined' ? currentSessionId : 'none', msg: document.querySelectorAll('.message').length })`);
   console.log('BOOT', JSON.stringify(boot));

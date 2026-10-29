@@ -109,7 +109,7 @@ test('real browser: settings rows, provider list and the sectioned editor hold t
         const control = rows[1].querySelector('.setting-row-control');
         return hint && hint.getBoundingClientRect().left >= control.getBoundingClientRect().left - 1;
       })() : false,
-      avatars: Array.from(document.querySelectorAll('.profile-avatar')).map((el) => el.textContent),
+      avatars: Array.from(document.querySelectorAll('.profile-avatar')).map((el) => el.querySelector('svg.provider-logo')?.getAttribute('data-provider') || null),
       chips: Array.from(document.querySelectorAll('.profile-provider-chip')).map((el) => el.textContent),
       rowBorder: getComputedStyle(document.querySelectorAll('.profile-card')[1]).borderTopWidth,
       activeChip: document.querySelector('.profile-card.active .profile-active-chip')?.textContent,
@@ -123,7 +123,7 @@ test('real browser: settings rows, provider list and the sectioned editor hold t
   assert.equal(page.rows, 3);
   assert.equal(page.twoColumns, true, 'label and control share one aligned row');
   assert.equal(page.hintUnderControl, true, 'hints sit with the control, not in the label column');
-  assert.deepEqual(page.avatars, ['O', 'O']);
+  assert.deepEqual(page.avatars, ['deepseek', 'deepseek'], 'each tile wears the model vendor, not the gateway label');
   assert.deepEqual(page.chips, ['openai', 'openai'], 'each row names its provider');
   assert.equal(page.rowBorder, '1px', 'idle rows keep a visible card edge');
   assert.equal(page.activeChip, '当前');
