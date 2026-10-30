@@ -138,14 +138,16 @@ html[data-glass='on'] .sidebar-footer {
 
 /* One pane, not two. The outer area is the glass; the input row is a recess
    cut into it. Giving both a border and a shadow reads as a frame inside a
-   frame, which is exactly what a sheet of glass should not look like. */
+   frame, which is exactly what a sheet of glass should not look like.
+
+   All four corners stay rounded: the composer floats over the transcript, so a
+   square bottom edge reads as a docked bar that got clipped, not as a panel. */
 html[data-glass='on'] .chat-input-area {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--lg-edge-light) 20%, transparent), transparent 30%),
     var(--lg-tint-strong);
-  border-radius: var(--lg-radius) var(--lg-radius) 0 0;
+  border-radius: var(--lg-radius);
   border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--lg-edge-light) 42%, transparent);
   box-shadow:
     inset 0 1px 0 var(--lg-edge-light),
     var(--lg-shadow-soft);
