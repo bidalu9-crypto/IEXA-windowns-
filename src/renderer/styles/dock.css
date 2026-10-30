@@ -8,21 +8,28 @@
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  width: min(100%, 956px);
+  /* Same box as the composer below it: the shell gives that card
+     `width: calc(100% - 48px)` and centres it, so the stack uses the identical
+     measure. A different width here is what made the task row sit a few pixels
+     inside the input card's edges. */
+  width: calc(100% - 48px);
   margin: 0 auto;
-  padding: 8px 28px 6px;
+  padding: 8px 0 6px;
   flex: none;
 }
 
 .composer-dock[hidden] { display: none; }
 
+/* The pane above the input is a list, not a second card. It used to carry its
+   own border, fill and shadow, which read as a frame stacked on the composer's
+   frame; the only rectangle near the input should be the composer itself. */
 .dock-panel {
   box-sizing: border-box;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-input);
-  box-shadow: var(--shadow);
-  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 2px 0 4px;
   overflow: hidden;
   animation: dockIn 0.18s ease-out;
 }
