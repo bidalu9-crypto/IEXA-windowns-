@@ -536,8 +536,31 @@ function activateCachedSession(id) {
 const MOBILE_HISTORY_INITIAL = 60;
 const MOBILE_HISTORY_CHUNK = 40;
 
+// Windowing used to be a mobile-only concession. A cold start on desktop is
+// the worst case (hundreds of messages), so every transcript mounts one
+// window and grafts older chunks as the reader scrolls up.
 function mobileHistoryWindow() {
-  return document.body.dataset.mobileClient === 'paired';
+  return true;
+}
+
+// Estimated height of a message that is not mounted. Good enough to keep the
+// scrollbar honest without building the DOM behind it.
+const HISTORY_SPACER_ESTIMATE = 72;
+
+function updateHistorySpacer(runtime) {
+  if (!runtime) return;
+  let spacer = chatMessages.querySelector(".history-spacer");
+  if (runtime.historyStartIndex > 0) {
+    if (!spacer) {
+      spacer = document.createElement("div");
+      spacer.className = "history-spacer";
+      spacer.setAttribute("aria-hidden", "true");
+      chatMessages.insertBefore(spacer, chatMessages.firstChild);
+    }
+    spacer.style.height = (runtime.historyStartIndex * HISTORY_SPACER_ESTIMATE) + "px";
+  } else if (spacer) {
+    spacer.remove();
+  }
 }
 
 // One history message, exactly as the transcript has always painted it.
@@ -669,13 +692,14 @@ function renderHistoryMessage(msg, messageIndex) {
 function showLoadEarlierAffordance(sessionId, runtime) {
   const existing = chatMessages.querySelector('.load-earlier-messages');
   if (existing) existing.remove();
-  if (!mobileHistoryWindow() || !runtime || runtime.historyStartIndex <= 0) return;
+  if (!runtime || runtime.historyStartIndex <= 0) return;
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'load-earlier-messages';
   button.textContent = IexaI18n.t('session.loadEarlier', { count: runtime.historyStartIndex });
   button.addEventListener('click', () => { void loadEarlierHistory(sessionId); });
-  chatMessages.insertBefore(button, chatMessages.firstChild);
+  const spacer = chatMessages.querySelector(".history-spacer");
+  chatMessages.insertBefore(button, spacer ? spacer.nextSibling : chatMessages.firstChild);
 }
 
 async function loadEarlierHistory(sessionId) {
@@ -697,6 +721,10 @@ async function loadEarlierHistory(sessionId) {
   // and the scroll position is restored by hand below.
   stopFollowingLatestMessage();
   const previousTop = live.scrollTop;
+  // Anchor on a real element: the spacer above is an estimate, so a raw
+  // height delta would drift the reader when the estimate is off.
+  const anchorEl = live.querySelector('.message');
+  const anchorTop = anchorEl ? anchorEl.offsetTop : 0;
   const previousHeight = live.scrollHeight;
 
   // addMessage appends to `chatMessages` and scrolls to the bottom after every
@@ -729,11 +757,15 @@ async function loadEarlierHistory(sessionId) {
 
   const fragment = document.createDocumentFragment();
   for (const node of created) fragment.appendChild(node);
-  live.insertBefore(fragment, live.firstChild);
+  // The spacer always stays first: it represents everything still unmounted.
+  const spacerAtTop = live.querySelector('.history-spacer');
+  live.insertBefore(fragment, spacerAtTop ? spacerAtTop.nextSibling : live.firstChild);
   runtime.historyStartIndex = nextStart;
+  updateHistorySpacer(runtime);
   runtime.historyRenderedCount = (Number(runtime.historyRenderedCount) || 0) + added;
   // Keep the reader where they were: the transcript grew above the viewport.
-  live.scrollTop = previousTop + (live.scrollHeight - previousHeight);
+  const anchorAfter = anchorEl ? anchorEl.offsetTop : 0;
+  live.scrollTop = previousTop + Math.max(0, anchorAfter - anchorTop);
   showLoadEarlierAffordance(sessionId, runtime);
 }
 
@@ -821,21 +853,40 @@ async function switchSession(id, updateList = true) {
       // transcript paints progressively and stays interactive.
       const windowed = mobileHistoryWindow();
       const startIndex = windowed ? Math.max(0, msgs.length - MOBILE_HISTORY_INITIAL) : 0;
-      let batchStartedAt = performance.now();
-      for (let messageIndex = startIndex; messageIndex < msgs.length; messageIndex++) {
-        if (performance.now() - batchStartedAt > 8) {
-          await new Promise((resolve) => requestAnimationFrame(() => resolve()));
-          if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id) {
-            targetRuntime.historyReady = false;
-            return;
+      // Cold start used to build the whole transcript inside the visible
+      // scroller, yielding every 8ms: the reader watched the conversation grow
+      // from the first message down to the last. Mount one window with the
+      // surface hidden, then reveal it already parked at the newest message.
+      const hydrating = windowed && startIndex > 0;
+      if (hydrating) chatMessages.classList.add('is-hydrating');
+      try {
+        let batchStartedAt = performance.now();
+        for (let messageIndex = startIndex; messageIndex < msgs.length; messageIndex++) {
+          if (performance.now() - batchStartedAt > 8) {
+            await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+            if (viewEpoch !== sessionViewEpoch || visibleSessionId !== id) {
+              targetRuntime.historyReady = false;
+              return;
+            }
+            batchStartedAt = performance.now();
           }
-          batchStartedAt = performance.now();
+          renderHistoryMessage(msgs[messageIndex], messageIndex);
         }
-        renderHistoryMessage(msgs[messageIndex], messageIndex);
+      } finally {
+        if (hydrating) {
+          chatMessages.classList.remove('is-hydrating');
+          // Layout is complete, so this lands on the real bottom in one frame
+          // instead of stepping there in front of the reader.
+          if (visibleChatMessages === chatMessages) {
+            visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
+          }
+        }
       }
       targetRuntime.historyMessages = msgs;
+      targetRuntime.historyTotal = msgs.length;
       window.IexaPlanDock?.setTodos(id, window.IexaPlanDock.extractTodos(msgs));
       targetRuntime.historyStartIndex = startIndex;
+      updateHistorySpacer(targetRuntime);
       targetRuntime.historyRenderedCount = msgs.length - startIndex;
       if (startIndex > 0) showLoadEarlierAffordance(id, targetRuntime);
       // A turn that was still running when the process died is now on disk as

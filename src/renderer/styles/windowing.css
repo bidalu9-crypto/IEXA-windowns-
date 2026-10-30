@@ -1,0 +1,5 @@
+/* Cold-start hydration: the transcript mounts with the surface hidden, so the
+   reader never watches a long history grow frame by frame from the top. */
+.chat-messages.is-hydrating { visibility: hidden; }
+.chat-messages .history-spacer { flex: 0 0 auto; width: 100%; }
+.chat-messages .load-earlier-messages { flex: 0 0 auto; }

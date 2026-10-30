@@ -1510,7 +1510,7 @@ function markSteerApplied(steerId, timestamp) {
   }
   if (!el.dataset.messageIndex) {
     const surface = el.parentNode || chatMessages;
-    el.dataset.messageIndex = String(surface.querySelectorAll('.message:not(.is-queued):not(.is-steering)').length);
+    el.dataset.messageIndex = String(transcriptNextIndex(false));
   }
   el.dataset.timestamp = String(timestamp || Date.now());
 }
@@ -1554,7 +1554,7 @@ function markQueuedMessagesActive(ids) {
     const qid = el.dataset.queueId;
     if (qid && set.has(qid)) {
       if (!el.dataset.messageIndex) {
-        el.dataset.messageIndex = String(chatMessages.querySelectorAll('.message:not(.is-queued)').length);
+        el.dataset.messageIndex = String(transcriptNextIndex(true));
         el.dataset.timestamp = String(Date.now());
       }
       el.classList.remove('is-queued');

@@ -8,6 +8,18 @@
 // app.js and the other services keep calling these by bare name. index.html
 // fixes the load order; this file runs nothing when it is evaluated.
 // =============================================================================
+// A windowed transcript mounts only part of the history, so DOM counts no
+// longer describe the conversation. historyTotal is kept by SessionList.
+function transcriptNextIndex(consume) {
+  const runtime = typeof sessionRuntimes !== 'undefined' && typeof currentSessionId === 'string'
+    ? sessionRuntimes.get(currentSessionId) : null;
+  if (runtime && Number.isInteger(runtime.historyTotal)) {
+    const value = runtime.historyTotal;
+    if (consume) runtime.historyTotal = value + 1;
+    return value;
+  }
+  return chatMessages.querySelectorAll('.message:not(.is-queued):not(.is-steering)').length;
+}
 function addMessage(role, content, attachments, opts) {
   const queued = !!(opts && opts.queued);
   const queueId = (opts && opts.queueId) || '';
@@ -28,7 +40,7 @@ function addMessage(role, content, attachments, opts) {
     // Index in the persisted session timeline, used by “重置到此处”.
     const messageIndex = opts && Number.isInteger(opts.messageIndex)
       ? opts.messageIndex
-      : chatMessages.querySelectorAll('.message:not(.is-queued)').length;
+      : transcriptNextIndex(true);
     msg.dataset.messageIndex = String(messageIndex);
   }
 

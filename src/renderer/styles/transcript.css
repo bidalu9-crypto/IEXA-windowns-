@@ -1572,7 +1572,7 @@ body.chat-focus-mode .message.user {
 /* Mobile transcript only. A long conversation renders the most recent window
    and grafts earlier chunks on demand, so the page never builds every message
    into the DOM at once. Desktop never creates this element. */
-body[data-mobile-client="paired"] .load-earlier-messages {
+.load-earlier-messages {
   display: block;
   margin: 10px auto 16px;
   padding: 8px 16px;
@@ -1584,11 +1584,11 @@ body[data-mobile-client="paired"] .load-earlier-messages {
   font-size: calc(12px * var(--ui-font-scale, 1));
   cursor: pointer;
 }
-body[data-mobile-client="paired"] .load-earlier-messages:hover {
+.load-earlier-messages:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }
-body[data-mobile-client="paired"] .load-earlier-messages:disabled {
+.load-earlier-messages:disabled {
   opacity: .6;
   cursor: default;
 }

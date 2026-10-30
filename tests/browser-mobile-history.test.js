@@ -139,7 +139,10 @@ test('real browser: mobile window keeps the DOM bounded and loads earlier chunks
       lastIndex: indices[indices.length - 1],
       hasButton: Boolean(button),
       buttonText: button ? button.textContent : null,
-      buttonAbove: button ? button === root.firstElementChild : null,
+      buttonAbove: button
+        ? button === root.firstElementChild
+          || (root.firstElementChild?.classList.contains('history-spacer') && button === root.firstElementChild.nextElementSibling)
+        : null,
       scrollHeight: root.scrollHeight,
     };
   })()`);
@@ -196,9 +199,9 @@ test('real browser: mobile window keeps the DOM bounded and loads earlier chunks
   assert.equal(await evaluate("!!document.querySelector('.load-earlier-messages')"), false,
     'a short conversation has no affordance');
 
-  // Desktop parity, on a cold page load: the default client is desktop, so the
-  // same conversation must render in full with no affordance. A reload is used
-  // because switchSession mounts a cached transcript instead of re-rendering.
+  // Desktop parity, on a cold page load: the window is not a phone concession
+  // any more. A 200-message history mounts one window here too, at the bottom,
+  // and offers the same earlier-chunk affordance.
   await evaluate("document.body.dataset.mobileClient = 'desktop'; true");
   // Mark the outgoing document: after Page.reload the old globals are still
   // visible for a moment, so a bare `typeof switchSession` wait can pass on the
@@ -207,8 +210,9 @@ test('real browser: mobile window keeps the DOM bounded and loads earlier chunks
   await cdp('Page.reload');
   await wait("!window.__beforeReload && typeof switchSession === 'function' && typeof currentSessionId !== 'undefined' && currentSessionId");
   await evaluate("void switchSession('sess_long'); true");
-  await wait("document.querySelectorAll('#chatMessages .message').length === " + LONG_MESSAGES);
-  assert.equal(await evaluate("!!document.querySelector('.load-earlier-messages')"), false,
-    'desktop renders the whole history and needs no affordance');
-  assert.equal(await evaluate("document.querySelectorAll('#chatMessages .message')[0].dataset.messageIndex"), '0');
+  await wait("document.querySelectorAll('#chatMessages .message').length === 60");
+  assert.equal(await evaluate("!!document.querySelector('.load-earlier-messages')"), true,
+    'desktop offers the earlier chunk too');
+  assert.equal(await evaluate("document.querySelectorAll('#chatMessages .message')[0].dataset.messageIndex"),
+    String(LONG_MESSAGES - 60), 'the window starts where the payload says it does');
 });
