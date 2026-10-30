@@ -128,6 +128,9 @@ test('real browser: trajectory tab, composer docks and the folded turn card', { 
   // Clicking 轨迹 must switch the pane and build the ledger from persisted data.
   await evaluate(`document.querySelector('[data-chat-view="trajectory"]').click(); true`);
   await wait("document.getElementById('trajectoryView').hidden === false");
+  // The ledger is filled from an async fetch of the persisted session, so the
+  // pane being visible says nothing about the rows yet.
+  await wait("document.querySelectorAll('.trajectory-row').length >= 4");
   const trajectory = await evaluate(`(() => {
     const rows = Array.from(document.querySelectorAll('.trajectory-row'));
     return {

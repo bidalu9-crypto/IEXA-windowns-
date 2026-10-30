@@ -196,3 +196,21 @@
 .trajectory-refresh.is-busy { opacity: .55; cursor: progress; }
 .trajectory-refresh.has-updates { position: relative; color: var(--accent); }
 .trajectory-refresh.has-updates::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+/* The ledger is fetched asynchronously; an empty pane while it loads reads as
+   "this session has no history" rather than "still loading". */
+.trajectory-list[data-loading='1']::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin: 0 16px 10px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+  animation: trajectory-loading 1.1s ease-in-out infinite;
+}
+@keyframes trajectory-loading {
+  0%, 100% { opacity: .25; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trajectory-list[data-loading='1']::before { animation: none; opacity: .7; }
+}

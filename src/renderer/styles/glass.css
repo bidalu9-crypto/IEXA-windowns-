@@ -1,0 +1,247 @@
+﻿/* =============================================================================
+   Liquid Glass — an optional visual layer.
+   -----------------------------------------------------------------------------
+   Nothing here applies unless <html data-glass="on">. The default theme is
+   untouched, which keeps the existing screenshot and geometry tests honest and
+   makes this cheap to abandon if it does not land.
+
+   What the layer actually does, in the order it matters:
+
+   1. A soft colour field behind everything. Glass is only legible when there is
+      something to refract; over a flat fill it reads as a grey box.
+   2. Per-surface material: blur + saturation lift, a translucent tint, and two
+      inset hairlines (a bright one on top, a dark one below) that fake the
+      lit edge of a thick pane.
+   3. `corner-shape: squircle` for continuous curvature. Chromium 152 in
+      Electron 44 supports it, so corners no longer read as cut circle arcs.
+   4. Specular sweep on hover, driven by --lg-mx/--lg-my set from JS.
+
+   Performance note: backdrop-filter samples whatever is behind the element.
+   Only container-level surfaces get it here. Adding it to every transcript row
+   turns scrolling into a compositor bottleneck.
+   ========================================================================== */
+
+html[data-glass='on'] {
+  --lg-blur: 30px;
+  --lg-sat: 185%;
+  --lg-tint: color-mix(in srgb, var(--bg-secondary) 42%, transparent);
+  --lg-tint-strong: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  --lg-tint-soft: color-mix(in srgb, var(--bg-secondary) 30%, transparent);
+  --lg-edge-light: rgba(255, 255, 255, 0.92);
+  --lg-edge-dark: rgba(0, 0, 0, 0.10);
+  --lg-shadow: 0 22px 52px -14px rgba(0, 0, 0, 0.20), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --lg-shadow-soft: 0 10px 26px -12px rgba(0, 0, 0, 0.16);
+  --lg-radius: 24px;
+  --lg-radius-sm: 16px;
+  --lg-specular: rgba(255, 255, 255, 0.55);
+  --lg-mx: 50%;
+  --lg-my: 0%;
+}
+
+html[data-glass='on'][data-theme='dark'] {
+  --lg-tint: color-mix(in srgb, var(--bg-secondary) 38%, transparent);
+  --lg-tint-strong: color-mix(in srgb, var(--bg-secondary) 54%, transparent);
+  --lg-tint-soft: color-mix(in srgb, var(--bg-secondary) 26%, transparent);
+  --lg-edge-light: rgba(255, 255, 255, 0.22);
+  --lg-edge-dark: rgba(0, 0, 0, 0.45);
+  --lg-shadow: 0 26px 64px -18px rgba(0, 0, 0, 0.74), 0 2px 8px rgba(0, 0, 0, 0.34);
+  --lg-shadow-soft: 0 14px 34px -16px rgba(0, 0, 0, 0.60);
+  --lg-specular: rgba(255, 255, 255, 0.30);
+}
+
+/* ---- 1. the field behind the glass ---------------------------------------- */
+
+html[data-glass='on'] body::before {
+  content: '';
+  position: fixed;
+  inset: -15%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(50rem 44rem at 10% 2%, color-mix(in srgb, var(--accent) 52%, transparent), transparent 58%),
+    radial-gradient(46rem 46rem at 96% 70%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 56%),
+    radial-gradient(38rem 34rem at 66% 18%, color-mix(in srgb, var(--brand-system) 26%, transparent), transparent 60%),
+    radial-gradient(30rem 30rem at 40% 92%, color-mix(in srgb, var(--success) 16%, transparent), transparent 62%);
+  filter: blur(10px) saturate(135%);
+}
+
+html[data-glass='on'] body > .app,
+html[data-glass='on'] body > #app,
+html[data-glass='on'] .shell {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- 2. shared material --------------------------------------------------- */
+
+html[data-glass='on'] .sidebar,
+html[data-glass='on'] .chat-input-area,
+html[data-glass='on'] .composer-dock,
+html[data-glass='on'] .tool-block,
+html[data-glass='on'] .modal,
+html[data-glass='on'] .dialog,
+html[data-glass='on'] .settings-panel {
+  -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  corner-shape: squircle;
+  border: 1px solid color-mix(in srgb, var(--lg-edge-light) 26%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--lg-edge-light),
+    inset 0 -1px 0 var(--lg-edge-dark),
+    var(--lg-shadow);
+}
+
+/* ---- 3. sidebar ----------------------------------------------------------- */
+
+/* Purely a paint. No `position`, no margin, no height: this column is the
+   positioning root for the composer popovers, and every one of those would
+   shift with it. On the narrow layout it is also a drawer parked with
+   `position: fixed`, where an added margin puts 320px back into the flow. */
+html[data-glass='on'] .sidebar {
+  background:
+    linear-gradient(
+      170deg,
+      color-mix(in srgb, var(--lg-edge-light) 22%, transparent),
+      transparent 26%
+    ),
+    var(--lg-tint);
+  border-right: 0;
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, var(--lg-edge-light) 26%, transparent),
+    inset 0 1px 0 var(--lg-edge-light),
+    var(--lg-shadow-soft);
+}
+
+/* The pane's inner light: a thin gradient that brightens the top-left corner,
+   the way a thick sheet catches a window. */
+html[data-glass='on'] .sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  corner-shape: squircle;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 60% at 8% -6%,
+    color-mix(in srgb, var(--lg-specular) 60%, transparent),
+    transparent 62%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+
+html[data-glass='on'] .sidebar-footer {
+  background: transparent;
+}
+
+/* ---- 4. composer ---------------------------------------------------------- */
+
+/* One pane, not two. The outer area is the glass; the input row is a recess
+   cut into it. Giving both a border and a shadow reads as a frame inside a
+   frame, which is exactly what a sheet of glass should not look like. */
+html[data-glass='on'] .chat-input-area {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--lg-edge-light) 20%, transparent), transparent 30%),
+    var(--lg-tint-strong);
+  border-radius: var(--lg-radius) var(--lg-radius) 0 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--lg-edge-light) 42%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--lg-edge-light),
+    var(--lg-shadow-soft);
+  position: relative;
+}
+
+/* The recess: translucent fill and a soft inner shadow, no outline. It has to
+   stay slightly distinct or the placeholder floats on the pane with no edge at
+   all, but the separation comes from depth rather than a drawn line. */
+html[data-glass='on'] .chat-input-wrapper {
+  background: color-mix(in srgb, var(--bg-input) 38%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 0;
+  border-radius: 18px;
+  corner-shape: squircle;
+  box-shadow:
+    inset 0 1px 3px color-mix(in srgb, #000 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--lg-edge-light) 55%, transparent);
+}
+
+html[data-glass='on'] .chat-input-wrapper:focus-within {
+  background: color-mix(in srgb, var(--bg-input) 52%, transparent);
+  box-shadow:
+    inset 0 1px 3px color-mix(in srgb, #000 10%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* ---- 5. tool rows --------------------------------------------------------- */
+
+html[data-glass='on'] .tool-block {
+  /* Cheaper material: rows are numerous, and a 30px blur on each one costs more
+     than the look is worth. */
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  background: var(--lg-tint-soft);
+  border-radius: var(--lg-radius-sm);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--lg-edge-light) 70%, transparent),
+    0 2px 10px -4px rgba(0, 0, 0, 0.14);
+  position: relative;
+  overflow: hidden;
+}
+
+html[data-glass='on'] .tool-block:hover::before {
+  opacity: 1;
+}
+
+html[data-glass='on'] .tool-block::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    22rem 8rem at var(--lg-mx) var(--lg-my),
+    color-mix(in srgb, var(--lg-specular) 70%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+/* ---- 6. dock -------------------------------------------------------------- */
+
+html[data-glass='on'] .composer-dock {
+  background: var(--lg-tint-soft);
+  border-radius: var(--lg-radius-sm);
+  box-shadow:
+    inset 0 1px 0 var(--lg-edge-light),
+    var(--lg-shadow-soft);
+}
+
+/* ---- 7. focus + reduced motion -------------------------------------------- */
+
+html[data-glass='on'] :focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 78%, transparent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-glass='on'] {
+    --lg-blur: 0px;
+    --lg-tint: var(--bg-secondary);
+    --lg-tint-strong: var(--bg-secondary);
+    --lg-tint-soft: var(--bg-secondary);
+  }
+  html[data-glass='on'] body::before { display: none; }
+  html[data-glass='on'] .sidebar,
+  html[data-glass='on'] .chat-input-area,
+  html[data-glass='on'] .composer-dock,
+  html[data-glass='on'] .tool-block,
+  html[data-glass='on'] .chat-input-wrapper {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+

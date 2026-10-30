@@ -12,6 +12,24 @@
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.setAttribute('data-accent', accent);
     document.documentElement.setAttribute('data-collapse-tools', (saved && saved.collapseConsecutiveTools === true) || localStorage.getItem('iexa-collapse-tools') === 'on' ? 'on' : 'off');
+    // Liquid Glass layer. On by default; `styles/glass.css` turns itself into a
+    // flat palette when the OS asks for reduced transparency, so an enabled
+    // desktop gets the material and a disabled one gets plain surfaces.
+    var glass = localStorage.getItem('iexa-glass');
+    document.documentElement.setAttribute('data-glass', glass === 'off' ? 'off' : 'on');
+    // A switch belongs to the appearance surface, but the attribute has to be
+    // settable from anywhere (settings page, console, tests) without reloading
+    // the whole window.
+    window.IexaGlass = {
+      get: function () { return document.documentElement.getAttribute('data-glass') !== 'off'; },
+      set: function (value) {
+        var on = value !== false && value !== 'off';
+        document.documentElement.setAttribute('data-glass', on ? 'on' : 'off');
+        try { localStorage.setItem('iexa-glass', on ? 'on' : 'off'); } catch (_) {}
+        return on;
+      },
+      toggle: function () { return window.IexaGlass.set(!window.IexaGlass.get()); },
+    };
     // A saved skin must paint before the first frame, or the app flashes the
     // default palette on every launch.
     var skin = null;

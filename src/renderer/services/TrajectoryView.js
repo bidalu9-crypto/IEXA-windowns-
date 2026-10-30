@@ -365,6 +365,9 @@
       button.textContent = t('trajectory.refreshing', 'Refreshing…');
     }
     if (!messages) {
+      // An empty ledger while the fetch is in flight reads as "this session has
+      // no history", which is worse than a loading line.
+      if (!records.length && el.list) el.list.dataset.loading = '1';
       try {
         const response = await fetch(`${typeof API_BASE === 'string' ? API_BASE : ''}/api/sessions/${encodeURIComponent(id)}`);
         if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -379,6 +382,7 @@
     records = build(messages || []);
     shown = Math.max(shown, WINDOW);
     render();
+    if (el.list) delete el.list.dataset.loading;
     if (button) {
       button.disabled = false;
       button.classList.remove('is-busy', 'has-updates');
