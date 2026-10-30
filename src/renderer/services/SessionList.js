@@ -857,7 +857,7 @@ async function switchSession(id, updateList = true) {
       // scroller, yielding every 8ms: the reader watched the conversation grow
       // from the first message down to the last. Mount one window with the
       // surface hidden, then reveal it already parked at the newest message.
-      const hydrating = windowed && startIndex > 0;
+      const hydrating = windowed && msgs.length > 0;
       if (hydrating) chatMessages.classList.add('is-hydrating');
       try {
         let batchStartedAt = performance.now();
@@ -874,12 +874,13 @@ async function switchSession(id, updateList = true) {
         }
       } finally {
         if (hydrating) {
-          chatMessages.classList.remove('is-hydrating');
-          // Layout is complete, so this lands on the real bottom in one frame
-          // instead of stepping there in front of the reader.
+          // Park first, reveal second. Removing the class before the scroll
+          // lands lets a paint slip through at the top for one frame, which is
+          // the last way the transcript can still flash its first message.
           if (visibleChatMessages === chatMessages) {
             visibleChatMessages.scrollTop = visibleChatMessages.scrollHeight;
           }
+          chatMessages.classList.remove('is-hydrating');
         }
       }
       targetRuntime.historyMessages = msgs;
