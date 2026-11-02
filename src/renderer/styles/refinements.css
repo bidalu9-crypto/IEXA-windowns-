@@ -28,15 +28,20 @@
 }
 
 
-/* ===== Markdown tables in chat ===== */
+/* ===== Markdown tables in chat =====
+ * Reading a table should feel like reading prose: one rounded container, rules
+ * only between rows. The old rules drew a vertical line between every column and
+ * tinted alternate rows, which turned a two-column spec sheet into a spreadsheet
+ * — visibly different from what a chat table is expected to look like.
+ */
 .markdown-table-wrap {
   width: 100%;
-  margin: 12px 0;
+  margin: 14px 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 12px;
+  background: transparent;
   scrollbar-color: var(--border-strong) transparent;
   scrollbar-width: thin;
 }
@@ -49,25 +54,19 @@
   border-spacing: 0;
   color: var(--text-primary);
   font-size: calc(0.84rem * var(--ui-font-scale, 1));
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .markdown-table-wrap th,
 .markdown-table-wrap td,
 .message-content > table th,
 .message-content > table td {
-  padding: 9px 12px;
+  padding: 11px 16px;
   text-align: left;
   vertical-align: top;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-
-.markdown-table-wrap th:last-child,
-.markdown-table-wrap td:last-child,
-.message-content > table th:last-child,
-.message-content > table td:last-child {
-  border-right: 0;
+  /* Rows only: a vertical rule per column reads as a grid, not a table. */
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
 }
 
 .markdown-table-wrap tr:last-child td,
@@ -77,23 +76,21 @@
 
 .markdown-table-wrap thead th,
 .message-content > table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-weight: 650;
+  /* No sticky band: nothing scrolls vertically inside a message, and the tinted
+     header block was the strongest "spreadsheet" cue in the old styling. */
+  position: static;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
   white-space: nowrap;
-}
-
-.markdown-table-wrap tbody tr:nth-child(even),
-.message-content > table tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--bg-tertiary) 52%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--border) 92%, transparent);
 }
 
 .markdown-table-wrap tbody tr:hover,
-.message-content > table tbody tr:hover {
-  background: var(--accent-light);
+.message-content > table tbody tr:hover,
+.markdown-table-wrap tbody tr:hover td,
+.message-content > table tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .markdown-table-wrap :is(th, td) > :first-child,
