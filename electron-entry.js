@@ -33,6 +33,27 @@ function findFreePort() {
   });
 }
 
+/**
+ * Claim a specific port, or report that it is taken.
+ *
+ * Renderer state that is not mirrored to the backend — interface language,
+ * glass toggle, panel visibility — lives in localStorage, which is keyed by
+ * origin. A fresh random port every launch is a fresh origin, so those
+ * preferences reset on every restart. Keeping the port stable keeps the origin
+ * stable; a random one is only used when the preferred port is genuinely busy.
+ */
+function claimPort(port) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(null));
+    srv.listen(port, '127.0.0.1', () => {
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+const PREFERRED_PORT = Number(process.env.IEXA_PORT) || 19840;
+
 // Local-only crash collection: dumps stay on this machine and are listed by the
 // diagnostics export. Nothing is uploaded.
 try {
@@ -1106,9 +1127,16 @@ app.whenReady().then(async () => {
     // Each instance gets its own workspace (sessions/memory/settings)
     ensureInstanceWorkspace();
 
-    // Dynamically allocate a free port
-    PORT = await findFreePort();
-    console.log('[IEXA] Allocated port:', PORT);
+    // Keep the origin stable across launches when possible: localStorage is
+    // per-origin, and a new random port would silently reset every preference
+    // the backend does not mirror (language, glass, panel visibility).
+    PORT = await claimPort(PREFERRED_PORT);
+    if (PORT) {
+      console.log('[IEXA] Using preferred port:', PORT);
+    } else {
+      PORT = await findFreePort();
+      console.log('[IEXA] Preferred port ' + PREFERRED_PORT + ' busy; allocated port:', PORT);
+    }
 
     await startBackendServer();
     await waitForServer();

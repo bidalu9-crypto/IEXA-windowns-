@@ -2665,6 +2665,7 @@ function currentAppearance() {
     motion: getMotionMode(),
     accent: getAccent(),
     collapseConsecutiveTools: consecutiveToolFoldEnabled(),
+    locale: IexaI18n.getLocale(),
     sidebarWidth: panelWidthValue('sidebar', '--sidebar-width', 240),
     filesPanelWidth: panelWidthValue('filesPanel', '--files-panel-width', 300),
   };
@@ -2727,6 +2728,21 @@ async function loadAppearanceSettings() {
     applyHighlightTheme(mode);
     syncThemeUI();
     window.IexaAppearanceView?.sync?.();
+    // The backend mirrors the interface language. Adopt it only when this origin
+    // has no local choice of its own: that is exactly the "restarted with a fresh
+    // origin" case, and it must never override a newer local pick.
+    try {
+      const localChoice = localStorage.getItem('iexa-locale');
+      if (value.locale && !localChoice && value.locale !== IexaI18n.getLocale()) {
+        IexaI18n.setLocale(value.locale);
+        const select = document.getElementById('localeSelect');
+        if (select) select.value = value.locale;
+        if (checkpointOpen) renderCheckpoints();
+        const paletteInput = document.getElementById('commandPaletteInput');
+        renderCommandPalette(paletteInput ? paletteInput.value : '');
+        syncPermissionModeUI();
+      }
+    } catch { /* storage may be unavailable */ }
   } catch { /* keep preload/localStorage appearance */ }
   finally { appearanceHydrating = false; }
 }
@@ -3036,6 +3052,9 @@ if (localeSelect) {
   localeSelect.value = IexaI18n.getLocale();
   localeSelect.addEventListener('change', () => {
     IexaI18n.setLocale(localeSelect.value);
+    // Mirror the choice to the backend: localStorage alone is per-origin and is
+    // lost whenever the renderer is served from a different port.
+    scheduleAppearanceSave();
     if (checkpointOpen) renderCheckpoints();
     const paletteInput = document.getElementById('commandPaletteInput');
     renderCommandPalette(paletteInput ? paletteInput.value : '');

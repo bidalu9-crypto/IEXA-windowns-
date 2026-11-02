@@ -30,6 +30,13 @@
       },
       toggle: function () { return window.IexaGlass.set(!window.IexaGlass.get()); },
     };
+    // The backend mirrors the chosen language. Seeding localStorage before
+    // IexaI18n.init() means the first paint already uses it, even when this
+    // renderer origin has never stored anything (a new port is a new origin).
+    try {
+      var savedLocale = saved && saved.locale;
+      if (savedLocale && !localStorage.getItem('iexa-locale')) localStorage.setItem('iexa-locale', savedLocale);
+    } catch (_) {}
     // A saved skin must paint before the first frame, or the app flashes the
     // default palette on every launch.
     var skin = null;

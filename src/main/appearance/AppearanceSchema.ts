@@ -18,12 +18,17 @@ export interface AppearanceSettings {
   motion: 'system' | 'full' | 'reduced';
   theme: 'light' | 'dark';
   accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
+  /** Interface language. Mirrored server-side so a new renderer origin (a random
+   *  port, a fresh profile) does not silently fall back to the system language. */
+  locale: 'zh-CN' | 'en-US' | 'ja-JP';
   sidebarWidth: number;
   filesPanelWidth: number;
   collapseConsecutiveTools: boolean;
   skinPreset: string;
   customSkin: { light: SkinPalette; dark: SkinPalette };
 }
+
+const LOCALES = ['zh-CN', 'en-US', 'ja-JP'] as const;
 
 const ACCENTS = ['amber', 'violet', 'blue', 'green', 'rose', 'mono'] as const;
 const SKIN_PRESETS = ['default', 'amber', 'violet', 'forest', 'rose', 'graphite', 'ocean', 'mint', 'custom'];
@@ -67,6 +72,9 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
     sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
     filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
     collapseConsecutiveTools: source.collapseConsecutiveTools === true,
+    locale: LOCALES.includes(String(source.locale) as typeof LOCALES[number])
+      ? String(source.locale) as AppearanceSettings['locale']
+      : 'zh-CN',
     skinPreset: SKIN_PRESETS.includes(String(source.skinPreset)) ? String(source.skinPreset) : 'default',
     customSkin: {
       light: normalizeSkinPalette(custom.light, DEFAULT_SKIN.light),
