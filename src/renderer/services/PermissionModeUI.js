@@ -5,12 +5,20 @@
 //
 // Classic script: declarations join app.js global scope. No DOM work on load.
 
-const PERMISSION_MODE_LABELS = {
-  plan: IexaI18n.t('permMode.plan'),
-  ask: IexaI18n.t('permMode.ask'),
-  risk: IexaI18n.t('permMode.auto'),
-  full: IexaI18n.t('permMode.full'),
-};
+const PERMISSION_MODE_KEYS = ['plan', 'ask', 'risk', 'full'];
+const PERMISSION_MODE_I18N = { plan: 'permMode.plan', ask: 'permMode.ask', risk: 'permMode.auto', full: 'permMode.full' };
+
+/**
+ * Resolved on every call, never cached.
+ *
+ * This table used to be built once at load time (`plan: IexaI18n.t(...)`), so a
+ * locale switch re-synced the chip with the strings captured in the original
+ * language: Chinese text on an English UI until the page reloaded.
+ */
+function permissionModeLabel(mode) {
+  const key = PERMISSION_MODE_I18N[mode];
+  return key ? IexaI18n.t(key) : String(mode || '');
+}
 let permissionMode = 'risk';
 
 function syncPermissionModeUI() {
@@ -21,7 +29,11 @@ function syncPermissionModeUI() {
     button.setAttribute('aria-pressed', String(active));
   });
   const label = document.getElementById('permissionModeLabel');
-  if (label) label.textContent = IexaI18n.t('permission.' + permissionMode);
+  // The label must follow `permissionMode`, because the menu's checkmark does. It
+  // used to carry data-i18n="ui.31", so every IexaI18n.apply() (startup, locale
+  // switch, any full re-apply) rewrote it to the static "帮我批准" while the menu
+  // kept the real mode — the two disagreed until something re-synced.
+  if (label) label.textContent = permissionModeLabel(permissionMode);
   const trigger = document.getElementById('permissionModeBtn');
   if (trigger) trigger.dataset.permissionMode = permissionMode;
   const wrap = document.getElementById('permissionModeWrap');
@@ -44,7 +56,7 @@ function setPermissionMenuOpen(open) {
 }
 
 async function setPermissionMode(mode) {
-  if (!Object.prototype.hasOwnProperty.call(PERMISSION_MODE_LABELS, mode)) return;
+  if (!PERMISSION_MODE_KEYS.includes(mode)) return;
   const previous = permissionMode;
   permissionMode = mode;
   syncPermissionModeUI();
@@ -67,12 +79,15 @@ async function loadPermissionMode() {
   try {
     const response = await fetch(API_BASE + '/api/permissions/mode', { cache: 'no-store' });
     const data = await response.json();
-    if (data && PERMISSION_MODE_LABELS[data.mode]) permissionMode = data.mode;
+    if (data && PERMISSION_MODE_KEYS.includes(data.mode)) permissionMode = data.mode;
   } catch { /* The default risk mode remains usable while the server starts. */ }
   syncPermissionModeUI();
 }
 
 function initPermissionModeUI() {
+  // A locale switch re-applies the whole document; the label is driven by state,
+  // not by a data-i18n key, so it needs its own refresh.
+  try { IexaI18n.onLocaleChange(() => { syncPermissionModeUI(); }); } catch { /* older i18n */ }
   const list = document.getElementById('permissionModeList');
   if (list) list.addEventListener('click', (event) => {
     const button = event.target.closest('[data-permission-mode]');
