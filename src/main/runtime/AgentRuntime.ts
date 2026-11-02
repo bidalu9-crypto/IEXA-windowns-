@@ -15,7 +15,7 @@ import { HookSpec } from './HookRunner';
 import { ShellSessionTools } from '../tools/ShellSessionTools';
 import type { JobBridge } from './ToolRuntime';
 
-export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; subAgentDir?: string; onSubAgentChange?: (agent: SubAgentSummary) => void; onSubAgentUsage?: (usage: { inputTokens: number; outputTokens: number }) => void; subAgentTree?: SubAgentManager; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; }
+export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { allowedToolNames?: string[]; sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; subAgentDir?: string; onSubAgentChange?: (agent: SubAgentSummary) => void; onSubAgentUsage?: (usage: { inputTokens: number; outputTokens: number }) => void; subAgentTree?: SubAgentManager; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; }
 export interface AgentRequest { message: string; tools: AgentToolDefinition[]; callbacks: AgentLoopCallbacks; attachments?: Parameters<AgentLoop['run']>[3]; }
 
 export class AgentRuntime {
@@ -63,6 +63,10 @@ export class AgentRuntime {
   async initialize(): Promise<void> { await this.tools.initialize(); await this.loop.initialize(); }
   async run(request: AgentRequest, options: { continueTurn?: boolean } = {}): Promise<void> {
     if (this.activeRun) throw new Error('This session already has a running or cancelling turn.');
+    if (this.config.allowedToolNames) {
+      const allowed = new Set(this.config.allowedToolNames);
+      request = { ...request, tools: request.tools.filter(tool => allowed.has(tool.name)) };
+    }
     this.tools.beginRun(request.tools.map((tool) => tool.name)); const runSignal = this.cancellation.begin(this.config.sessionId); this.traceOffset = this.trace.cursor(); this.trace.event('run_started', { sessionId: this.config.sessionId }); this.metrics.increment('runs_started'); this.state = { ...this.state, status: 'running', turn: 0, toolCalls: 0, startedAt: Date.now(), updatedAt: Date.now(), budget: this.budget.snapshot() };
     let terminal: (() => void) | undefined;
     const callbacks: AgentLoopCallbacks = { ...request.callbacks,

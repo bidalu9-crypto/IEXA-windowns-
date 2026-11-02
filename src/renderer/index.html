@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="styles/codepreview.css">
 <link rel="stylesheet" href="styles/settings.css">
 <link rel="stylesheet" href="styles/skills.css">
+<link rel="stylesheet" href="styles/bots.css">
 <link rel="stylesheet" href="styles/refinements.css">
 <link rel="stylesheet" href="styles/studio.css">
 <link rel="stylesheet" href="workbench.css">
@@ -158,6 +159,7 @@
     </div>
     <nav class="sidebar-nav" aria-label="工作区导航" data-i18n-aria="tip.workspaceNav">
       <div class="sidebar-primary"><button class="nav-btn active" data-view="chat"><svg class="ui-icon" aria-hidden="true"><use href="#ui-chat"/></svg><span data-i18n="nav.chat">对话</span></button>
+<button type="button" class="nav-btn" data-view="bots"><svg class="ui-icon" aria-hidden="true"><use href="#ui-bot"/></svg><span>Bot 团队</span></button>
 <button class="nav-btn" data-view="skills"><svg class="ui-icon" aria-hidden="true"><use href="#ui-puzzle"/></svg><span data-i18n="nav.skills">技能</span></button>
 <button class="nav-btn nav-btn-scheduled" data-view="scheduled"><svg class="ui-icon" aria-hidden="true"><use href="#ui-clock"/></svg><span data-i18n="nav.scheduled">定时任务</span><b class="nav-task-badge" id="navScheduledBadge" hidden>0</b></button></div>
       <details class="sidebar-more" id="sidebarMore">
@@ -654,6 +656,9 @@
         </details>
       </div>
     </div>
+
+    <!-- Native Bot management; populated with safe DOM operations. -->
+    <section class="view" id="view-bots" aria-label="Bot 团队"></section>
 
     <!-- Models / Settings View -->
     <div class="view" id="view-settings">
@@ -1602,6 +1607,7 @@ version: 1.0.0
 <script src="services/ChartSpec.js"></script>
 <script src="services/ChartView.js"></script>
 <script src="services/DocumentEditor.js"></script>
+<script src="services/BotsView.js"></script>
 <script src="app.js"></script>
 <script src="services/WorkbenchShell.js"></script>
 <script src="services/WindowChrome.js"></script>

@@ -50,6 +50,8 @@ import { JsonStore } from './persistence/JsonStore';
 import { estimateCostUsd, TokenPrice } from './observability/CostTracker';
 import { contextWindowForModel, rehydrateBudgetForWindow } from './agent/ContextCompactor';
 import { SoulStore, checkSoulBodyLimit, normalizeSoulMetadata } from './agent/SoulStore';
+import { BotStore, botSoul, parseBotPackage, convertTobsDescriptor } from './bots/BotStore';
+import { BotTeams } from './bots/BotTeams';
 import { configureApiResponse, jsonReply, readBody, readRawBody, HttpError, handleHttpError } from './api/HttpServer';
 import { LocalApiAuth, isTLS } from './security/LocalApiAuth';
 import { SessionSearchIndex } from './search/SessionSearchIndex';
@@ -202,6 +204,10 @@ const pluginManager = new PluginManager(WORKSPACE_DIR);
 const mobileBridge = new MobileBridgeManager(WORKSPACE_DIR);
 const visionFallback = new VisionFallback();
 const soulStore = new SoulStore(MEMORY_DIR);
+const botStore = new BotStore(path.join(WORKSPACE_DIR, '.iexa-bots'));
+const botTeams = new BotTeams(path.join(WORKSPACE_DIR, '.iexa-bots', 'teams'), {
+  getBot: id => botStore.get(id), run: runNativeBotWork,
+});
 const projectScopeStore = new ProjectScopeStore(path.join(WORKSPACE_DIR, '.iexa-project-scopes'));
 const promptPreviewStore = new PromptPreviewStore(() => loadSettings().profiles.map(profile => profile.apiKey));
 const sessionSearchIndex = new SessionSearchIndex(path.join(WORKSPACE_DIR, '.iexa-search-index'));
@@ -540,6 +546,8 @@ interface SessionModelBinding {
 }
 
 interface Session {
+  /** Native Bot association; normal sessions leave this unset. */
+  botId?: string;
   id: string;
   title: string;
   /** default=新会话, message=首条消息截断, ai=模型命名, manual=用户手动 */
@@ -1190,6 +1198,8 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
   if (!profile || !profile.apiKey) return null;
 
   const session = loadSessionStore().sessions.find((item) => item.id === sessionId);
+  const bot = session?.botId ? botStore.get(session.botId) : undefined;
+  if (session?.botId && !bot) throw new HttpError(409, '此会话关联的 Bot 已删除，历史记录仍保留。');
   const useFastMode = session?.fastModeEnabled === true && profileSupportsFastMode(profile);
   const provider = ProviderFactory.create({
     type: profile.provider as ProviderType,
@@ -1212,7 +1222,8 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
   const config: Omit<AgentRuntimeConfig, 'sessionId'> = {
     provider,
     workspaceDir: toolCwd,
-    memoryDir: MEMORY_DIR,
+    memoryDir: bot ? botStore.memoryDir(bot.id) : MEMORY_DIR,
+    allowedToolNames: bot ? (bot.allowedTools || []) : undefined,
     memoryEnabled: true,
     // The context policy must reserve against the route's actual output cap.
     maxTokens: profile.maxOutputTokens || 64000,
@@ -1221,7 +1232,7 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     skillFragment: skillStore.skillPromptFragment(),
     systemSkillFragment: skillStore.systemPromptFragment(),
     skillsDir,
-    soul: soulStore.load(),
+    soul: bot ? botSoul(soulStore.load(), bot) : soulStore.load(),
     shellSessions,
     jobBridge,
     goalStore,
@@ -1258,6 +1269,58 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
   }
   agentCache.set(sessionId, agent);
   return agent;
+}
+
+async function runNativeBotWork(botId: string, message: string, signal: AbortSignal, planning: boolean, onSession: (id: string) => void): Promise<string> {
+  if (signal.aborted) throw new Error('团队任务已取消');
+  const bot = botStore.get(botId);
+  if (!bot) throw new Error('Bot 已不存在');
+  const profile = loadSettings().profiles.find(item => item.id === bot.profileId);
+  if (!profile?.apiKey) throw new Error('Bot 模型未配置或已删除');
+  if (runningSessionIds.size >= 8) throw new Error('活动会话配额已满');
+  const now = Date.now(); const root = getProjectRoot();
+  const session: Session = { id: 'sess_' + crypto.randomUUID(), botId, title: `${planning ? '规划' : '协作'} · ${bot.name}`,
+    titleSource: 'manual', created: now, updated: now, messageCount: 0,
+    modelBinding: modelBindingForProfile(profile), projectRoot: root || '', projectName: root ? path.basename(root) : '无项目' };
+  const store = loadSessionStore(); store.sessions.push(session); saveSessionStore(store);
+  onSession(session.id);
+  const prompt: ChatMessage = { role: 'user', content: message, timestamp: now };
+  await saveMessages(session.id, [prompt]);
+  broadcastSessionEvent('session_changed', { sessionId: session.id, reason: 'created', session });
+  runningSessionIds.add(session.id);
+  let agent: AgentRuntime | null = null; let answer = '', thinking = '', failure = '';
+  const calls: NonNullable<ChatMessage['toolCalls']> = [];
+  const stop = () => agent?.cancel();
+  const deadline = setTimeout(stop, 10 * 60_000);
+  signal.addEventListener('abort', stop, { once: true });
+  try {
+    agent = getOrCreateAgent(session.id);
+    if (!agent) throw new Error('无法创建 Bot 执行器');
+    await agent.initialize();
+    if (signal.aborted) throw new Error('团队任务已取消');
+    const allow = new Set(bot.allowedTools || []);
+    const tools = planning ? [] : makeAgentTools(true, { shellSession: true, jobs: true, goal: true }).filter(tool => allow.has(tool.name));
+    await agent.run({ message, tools, callbacks: {
+      onTextDelta: (_delta, full) => { answer = full; }, onThinkingDelta: delta => { thinking += delta; },
+      onToolCallStart: (id, name) => { calls.push({ id, name, args: {} }); },
+      onToolInputDelta: () => {}, onToolCallComplete: (id, name, args) => { const call = calls.find(c => c.id === id); if (call) { call.name = name; call.args = args; } },
+      onToolResult: (id, result) => { const call = calls.find(c => c.id === id); if (call) call.result = { output: String(result.output || ''), success: result.success, executionStatus: result.executionStatus, durationMs: result.durationMs }; },
+      onUsage: usage => recordTokenUsage(profile, usage), onContext: () => {},
+      onError: error => { failure = error; }, onDone: () => {}, onCancelled: () => { failure = '执行已取消'; },
+    } });
+    if (signal.aborted) failure = '团队任务已取消';
+    await saveMessages(session.id, [prompt, { role: 'assistant', content: answer, thinking, toolCalls: calls,
+      timestamp: Date.now(), durationMs: Date.now() - now, status: failure ? 'interrupted' : undefined }]);
+    const updated = loadSessionStore(); const entry = updated.sessions.find(item => item.id === session.id);
+    if (entry) { entry.messageCount = 2; entry.updated = Date.now(); saveSessionStore(updated); }
+    broadcastSessionEvent('session_changed', { sessionId: session.id, reason: 'completed' });
+    if (failure) throw new Error(failure);
+    if (!answer.trim()) throw new Error('Bot 未返回可用结果');
+    return answer;
+  } finally {
+    clearTimeout(deadline); signal.removeEventListener('abort', stop);
+    runningSessionIds.delete(session.id); cancelSessionAgent(session.id);
+  }
 }
 
 function cancelSessionAgent(sessionId: string, dispose = true): void {
@@ -1969,6 +2032,94 @@ function createServer(auth: LocalApiAuth): http.Server {
     }
 
     // ===== Sessions API (CRUD) =====
+    if (url.pathname === '/api/bot-teams' || url.pathname.startsWith('/api/bot-teams/')) {
+      if (mobileDevice && mobileDevice.capability !== 'full') { jsonReply(res, 403, { error: '当前设备无团队执行权限' }); return; }
+      try {
+        const id = url.pathname.split('/')[3];
+        if (req.method === 'GET' && !id) { jsonReply(res, 200, { teams: botTeams.list() }); return; }
+        if (req.method === 'POST' && !id) {
+          const body = JSON.parse(await readBody(req) || '{}');
+          jsonReply(res, 200, { team: botTeams.start(body.goal, body.botIds) }); return;
+        }
+        if (req.method === 'POST' && /^\/api\/bot-teams\/[^/]+\/cancel$/.test(url.pathname)) {
+          jsonReply(res, 200, { team: await botTeams.cancel(id) }); return;
+        }
+        jsonReply(res, 405, { error: 'Unsupported team operation' });
+      } catch (error) { handleHttpError(res, error instanceof HttpError ? error : new HttpError(400, (error as Error).message)); }
+      return;
+    }
+    // Native Bot endpoints share the existing authenticated local API boundary.
+    if (url.pathname === '/api/bots' || url.pathname.startsWith('/api/bots/')) {
+      // Bot personas and memories are private, including for read-only paired devices.
+      if (mobileDevice && mobileDevice.capability !== 'full') { jsonReply(res, 403, { error: '当前设备无 Bot 管理权限' }); return; }
+      try {
+        const parts = url.pathname.split('/').filter(Boolean);
+        const id = parts[2]; const action = parts[3];
+        if (req.method === 'GET' && id === 'tools') {
+          jsonReply(res, 200, { tools: makeAgentTools(true, { shellSession: true, jobs: true, goal: true }).map(({ name, description }) => ({ name, description })) }); return;
+        }
+        if (req.method === 'GET' && id === 'catalog') {
+          jsonReply(res, 200, { packages: [
+            { format: 'iexa-bot', version: 1, bot: { name: '资料研究员', description: '整理输入资料并给出依据', persona: '负责资料归纳，区分事实与推断，引用提供的来源。', memory: '', allowedTools: [] } },
+            { format: 'iexa-bot', version: 1, bot: { name: '方案审核员', description: '检查前序方案中的遗漏与矛盾', persona: '审核前序成果，指出具体问题、验证条件及修正建议。', memory: '', allowedTools: [] } },
+          ] }); return;
+        }
+        if (req.method === 'POST' && id === 'convert-tobs') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          const converted = convertTobsDescriptor(body.descriptor);
+          // Persona is an explicit text file, not bio/tags; never fetch remote code.
+          if (body.persona !== undefined) converted.bot.persona = parseBotPackage({ ...converted, bot: { ...converted.bot, persona: body.persona } }).bot.persona;
+          jsonReply(res, 200, { package: converted, warning: '仅转换名称、简介和你明确提供的人格文本；不导入模型凭据、记忆、工具授权或插件。请预览并选择本机模型后导入。' }); return;
+        }
+        if (req.method === 'POST' && id === 'import') {
+          const body = JSON.parse(await readBody(req) || '{}');
+          const parsed = parseBotPackage(body.package);
+          if (!loadSettings().profiles.some(item => item.id === body.profileId)) throw new Error('导入时必须选择本机已有模型');
+          jsonReply(res, 200, { bot: botStore.save({ ...parsed.bot, profileId: body.profileId }) }); return;
+        }
+        if (req.method === 'GET' && !id) { jsonReply(res, 200, { bots: botStore.list() }); return; }
+        const bot = id ? botStore.get(id) : undefined;
+        if (id && !bot) { jsonReply(res, 404, { error: 'Bot 不存在' }); return; }
+        if (req.method === 'GET' && action === 'export' && id) { jsonReply(res, 200, botStore.exportBot(id)); return; }
+        if (req.method === 'POST' && id && action === 'chat' && parts.length === 4) {
+          const profile = loadSettings().profiles.find(item => item.id === bot!.profileId);
+          if (!profile) throw new HttpError(409, 'Bot 绑定的模型配置已删除，请重新选择模型');
+          const store = loadSessionStore();
+          const now = Date.now(); const projectRoot = getProjectRoot();
+          const session: Session = { id: 'sess_' + crypto.randomUUID(), botId: bot!.id,
+            title: bot!.name, titleSource: 'manual', created: now, updated: now, messageCount: 0,
+            modelBinding: modelBindingForProfile(profile), projectRoot: projectRoot || '',
+            projectName: projectRoot ? path.basename(projectRoot) : '无项目', pinned: false };
+          await saveMessages(session.id, []);
+          store.sessions.push(session); store.activeSessionId = session.id; saveSessionStore(store);
+          broadcastSessionEvent('session_changed', { sessionId: session.id, reason: 'created', session });
+          jsonReply(res, 200, { session }); return;
+        }
+        if ((req.method === 'POST' && !id) || (req.method === 'PUT' && id && !action)) {
+          const body = JSON.parse(await readBody(req) || '{}');
+          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('无效 Bot 配置');
+          const profileId = body.profileId ?? bot?.profileId;
+          if (!loadSettings().profiles.some(item => item.id === profileId)) throw new Error('请选择已有模型配置');
+          if (id && botTeams.list().some(team => ['planning', 'running', 'cancelling'].includes(team.status) && team.botIds.includes(id))) throw new HttpError(409, 'Bot 正参与团队任务，请先取消团队再修改');
+          const linked = id ? loadSessionStore().sessions.filter(session => session.botId === id) : [];
+          if (linked.some(session => runningSessionIds.has(session.id) || agentCache.get(session.id)?.hasBackgroundWork())) throw new HttpError(409, '请先停止 Bot 正在执行的任务再编辑');
+          const saved = botStore.save(body, id);
+          for (const session of linked) invalidateAgentForNextTurn(session.id);
+          jsonReply(res, 200, { bot: saved }); return;
+        }
+        if (req.method === 'DELETE' && id && !action) {
+          if (botTeams.list().some(team => ['planning', 'running', 'cancelling'].includes(team.status) && team.botIds.includes(id))) throw new HttpError(409, 'Bot 正参与团队任务，请先取消团队再删除');
+          const linked = loadSessionStore().sessions.filter(session => session.botId === id);
+          if (linked.some(session => runningSessionIds.has(session.id) || agentCache.get(session.id)?.hasBackgroundWork())) throw new HttpError(409, '请先停止 Bot 正在执行的任务再删除');
+          botStore.remove(id);
+          for (const session of linked) invalidateAgentForNextTurn(session.id);
+          jsonReply(res, 200, { ok: true, historyRetained: true }); return;
+        }
+        jsonReply(res, 405, { error: 'Unsupported Bot operation' });
+      } catch (error) { handleHttpError(res, error instanceof HttpError ? error : new HttpError(400, (error as Error).message)); }
+      return;
+    }
+
     if (url.pathname === '/api/sessions') {
       if (req.method === 'GET') {
         const store = loadSessionStore();
@@ -2461,6 +2612,8 @@ function createServer(auth: LocalApiAuth): http.Server {
           jsonReply(res, 400, { error: '请先在设置中配置至少一个 AI 模型。' });
           return;
         }
+        const botSession = loadSessionStore().sessions.find(item => item.id === sessionId);
+        if (botSession?.botId && !botStore.get(botSession.botId)) { jsonReply(res, 409, { error: '此会话关联的 Bot 已删除，历史记录仍保留。' }); return; }
         if (runningSessionIds.has(sessionId)) { jsonReply(res, 409, { error: '当前会话仍在执行或停止中，请等待终态后再发送。' }); return; }
         if (runningSessionIds.size >= 8) { jsonReply(res, 429, { error: '并发会话配额已满。' }); return; }
         runningSessionIds.add(sessionId); ownsSessionLock = true;
@@ -2600,7 +2753,8 @@ ${recentMemories}
           parameters: { arguments_json: { type: 'string' as const, description: 'JSON object arguments for this MCP tool.' } },
           required: ['arguments_json'], propertyOrdering: ['arguments_json'],
         })), ...pluginBindings.map((binding) => binding.definition)];
-        const tools = toolsAllowedForDevice(availableTools, mobileDevice);
+        const allowedForBot = botSession?.botId ? new Set(botStore.get(botSession.botId)?.allowedTools || []) : null;
+        const tools = toolsAllowedForDevice(availableTools, mobileDevice).filter(tool => !allowedForBot || allowedForBot.has(tool.name));
 
         // Process attachments: save to workspace, prepare for agent
         const attachDir = path.join(WORKSPACE_DIR, 'uploads', sessionId);
@@ -3513,7 +3667,7 @@ ${recentMemories}
     for (const [id, artifact] of artifactRegistry) if (Date.now() - artifact.created > 30 * 60_000) artifactRegistry.delete(id);
     while (artifactRegistry.size > 512) artifactRegistry.delete(artifactRegistry.keys().next().value!);
   }, 60_000); cleanup.unref();
-  server.once('close', () => { clearInterval(cleanup); uploads.close(); void bridge.stop(); });
+  server.once('close', () => { clearInterval(cleanup); uploads.close(); void bridge.stop(); void botTeams.stopAll(); });
   return server;
 }
 
