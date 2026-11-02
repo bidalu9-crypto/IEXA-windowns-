@@ -755,8 +755,73 @@ function stopFollowingLatestMessage() {
   updateScrollToBottomButton();
 }
 
+/* Sending pins the new prompt to the top of the viewport, the way the Codex
+   desktop client does.
+
+   A prompt always sits at the end of the transcript, so there is nothing below
+   it to scroll into: pinning it to the top needs room that does not exist yet.
+   A spacer supplies exactly that room when the turn starts and gives it back as
+   the reply arrives, so the prompt keeps its place at the top while the text
+   grows underneath. Once the reply has filled the space the spacer is gone and
+   the ordinary follow-latest rules take over. */
+let turnAnchor = null;
+
+function removeTurnAnchorSpacer() {
+  if (turnAnchor && turnAnchor.spacer && turnAnchor.spacer.isConnected) turnAnchor.spacer.remove();
+  turnAnchor = null;
+}
+
+function clearTurnAnchor() {
+  removeTurnAnchorSpacer();
+}
+
+function anchorTurnAtTop(messageEl) {
+  removeTurnAnchorSpacer();
+  if (!messageEl || currentSessionId !== visibleSessionId) return;
+  const container = visibleChatMessages;
+  if (!container) return;
+  const box = container.getBoundingClientRect();
+  const rect = messageEl.getBoundingClientRect();
+  const room = box.height - 16 - rect.height - 24;
+  // A prompt that already fills the viewport has nothing to anchor into.
+  if (room < 80) return;
+  const spacer = document.createElement('div');
+  spacer.className = 'turn-anchor-spacer';
+  spacer.setAttribute('aria-hidden', 'true');
+  spacer.style.height = room + 'px';
+  chatMessages.appendChild(spacer);
+  const top = messageEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+  container.scrollTop = Math.max(0, top - 16);
+  isNearChatBottom = true;
+  turnAnchor = { el: messageEl, spacer, room, contentHeight: container.scrollHeight - room };
+  updateScrollToBottomButton();
+}
+
+/* Each frame of the reply gives back the same number of pixels the spacer lent,
+   which is what keeps the prompt still while the text grows under it. */
+function shrinkTurnAnchor() {
+  if (!turnAnchor) return;
+  const container = visibleChatMessages;
+  const spacer = turnAnchor.spacer;
+  if (!turnAnchor.el.isConnected || !spacer.isConnected || !chatViewIsActive()) {
+    removeTurnAnchorSpacer();
+    return;
+  }
+  const current = parseFloat(spacer.style.height) || 0;
+  const grown = (container.scrollHeight - current) - turnAnchor.contentHeight;
+  const next = Math.max(0, turnAnchor.room - grown);
+  if (next <= 0) {
+    // The reply now fills the space; drop the spacer so scrolling is honest again.
+    removeTurnAnchorSpacer();
+    return;
+  }
+  if (next !== current) spacer.style.height = next + 'px';
+}
+
 function scrollToBottom(force, followLatest) {
   if (currentSessionId !== visibleSessionId) return;
+  if (force) clearTurnAnchor();
+  else shrinkTurnAnchor();
   const shouldFollow = force || followLatest === true || (followLatest === undefined && isNearChatBottom);
   if (force) isNearChatBottom = true;
   if (shouldFollow) chatBottomFollowRequested = true;
@@ -803,11 +868,12 @@ function initTranscriptScroll() {
   }, { passive: true });
 
   visibleChatMessages.addEventListener('wheel', function (event) {
+    clearTurnAnchor();
     beginChatWheelScroll();
     if (event.deltaY < 0) stopFollowingLatestMessage();
   }, { passive: true });
 
-  visibleChatMessages.addEventListener('pointerdown', () => { chatPointerScrollActive = true; }, { passive: true });
+  visibleChatMessages.addEventListener('pointerdown', () => { clearTurnAnchor(); chatPointerScrollActive = true; }, { passive: true });
   visibleChatMessages.addEventListener('touchstart', () => { chatTouchScrollActive = true; }, { passive: true });
   document.addEventListener('pointerup', () => { chatPointerScrollActive = false; }, { passive: true });
   document.addEventListener('pointercancel', () => { chatPointerScrollActive = false; }, { passive: true });

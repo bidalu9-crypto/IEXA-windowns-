@@ -1879,6 +1879,8 @@ async function sendMessage(event) {
   // Assigning .value fires no input event, and the overlay owns the empty state.
   window.IexaComposerHint?.refresh?.();
   window.IexaChatPresentation?.animateSend(sentMessage, sendOrigin);
+  // Pin the prompt to the top of the viewport so the reply grows underneath it.
+  anchorTurnAtTop(sentMessage);
 
   suppressQueueDrain = false;
   await runChatTurn(message || displayText, displayText, attachments, { fromQueue: false });
