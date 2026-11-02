@@ -372,6 +372,16 @@ body.chat-focus-mode .message.user {
 .git-toolbar select { min-width: 0; padding: 0 7px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); background: var(--bg-input); font-size: calc(.72rem * var(--ui-font-scale, 1)); outline: none; }
 .git-toolbar select:focus { border-color: var(--accent); }
 .git-toolbar button, .git-stage-all, .git-commit-submit { border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); cursor: pointer; }
+
+/* Branch glyph and the three toolbar actions are sprite icons now: the buttons
+   carry no text, so the icons need an explicit size. */
+.git-branch { display: inline-flex; align-items: center; gap: 5px; }
+.git-branch .git-branch-icon { width: 13px; height: 13px; flex: 0 0 13px; aspect-ratio: 1; }
+.git-toolbar button { display: inline-flex; align-items: center; justify-content: center; }
+.git-toolbar button .ui-icon { width: 14px; height: 14px; flex: none; aspect-ratio: 1; display: block; }
+.git-counts { display: inline-flex; align-items: center; gap: 8px; }
+.git-sync { display: inline-flex; align-items: center; gap: 2px; }
+.git-sync .ui-icon { width: 12px; height: 12px; }
 .git-toolbar button:hover, .git-stage-all:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
 
 .git-file {

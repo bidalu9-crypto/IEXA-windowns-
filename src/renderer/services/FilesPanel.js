@@ -72,8 +72,9 @@ function renderGitStatus(data) {
   const branches = data.branches || [];
   const commits = data.commits || [];
   const counts = [];
-  if (Number.isFinite(data.ahead) && data.ahead) counts.push(`↑${data.ahead}`);
-  if (Number.isFinite(data.behind) && data.behind) counts.push(`↓${data.behind}`);
+  const gitArrow = (dir, n) => `<span class="git-sync">${uiIcon(dir)}${n}</span>`;
+  if (Number.isFinite(data.ahead) && data.ahead) counts.push(gitArrow('arrow-up', data.ahead));
+  if (Number.isFinite(data.behind) && data.behind) counts.push(gitArrow('arrow-down', data.behind));
   const fileHtml = files.length ? files.map((file) => {
     const staged = file.index && file.index !== ' ';
     const working = file.workTree && file.workTree !== ' ';
@@ -91,14 +92,14 @@ function renderGitStatus(data) {
   const commitHtml = commits.length ? commits.map((commit) => `<div class="git-log-entry" title="${escapeHtml(`${commit.hash}\n${commit.author}\n${commit.committedAt}`)}"><code>${escapeHtml(commit.shortHash)}</code><span>${escapeHtml(commit.subject)}</span></div>`).join('') : '<div class="git-log-empty">' + IexaI18n.t('git.noCommits') + '</div>';
   panel.innerHTML = `
     <div class="git-overview">
-      <span class="git-branch" title="${escapeHtml(data.branch || '')}">⌥ ${escapeHtml(data.branch || '(detached HEAD)')}</span>
-      <span class="git-counts">${escapeHtml(counts.join(' ') || (files.length ? IexaI18n.t('git.changedFiles', { count: files.length }) : IexaI18n.t('git.synced')))}</span>
+      <span class="git-branch" title="${escapeHtml(data.branch || '')}"><svg class="ui-icon git-branch-icon" aria-hidden="true" focusable="false"><use href="#ui-branch"/></svg>${escapeHtml(data.branch || '(detached HEAD)')}</span>
+      <span class="git-counts">${counts.length ? counts.join('') : escapeHtml(files.length ? IexaI18n.t('git.changedFiles', { count: files.length }) : IexaI18n.t('git.synced'))}</span>
     </div>
     <div class="git-toolbar">
       <select id="gitBranchSelect" aria-label="${IexaI18n.t('git.switchBranch')}">${branchOptions || `<option>${escapeHtml(data.branch || '(detached HEAD)')}</option>`}</select>
-      <button type="button" data-git-operation="create-branch" title="${IexaI18n.t('git.createBranch')}">＋</button>
-      <button type="button" data-git-operation="pull" title="${IexaI18n.t('git.pull')}">↓</button>
-      <button type="button" data-git-operation="push" title="${IexaI18n.t('git.push')}">↑</button>
+      <button type="button" data-git-operation="create-branch" title="${IexaI18n.t('git.createBranch')}"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+      <button type="button" data-git-operation="pull" title="${IexaI18n.t('git.pull')}"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-arrow-down"/></svg></button>
+      <button type="button" data-git-operation="push" title="${IexaI18n.t('git.push')}"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-arrow-up"/></svg></button>
     </div>
     ${files.length ? `<div class="git-section-label">${IexaI18n.t('git.changesLabel')}${files.length})</div>${fileHtml}` : fileHtml}
     ${files.length ? `<div class="git-commit-box"><button type="button" class="git-stage-all" data-git-operation="stage-all">${IexaI18n.t('git.stageAll')}</button><textarea id="gitCommitMessage" rows="2" placeholder="${IexaI18n.t('git.commitMessage')}"></textarea><button type="button" class="git-commit-submit" data-git-operation="commit">${IexaI18n.t('git.commit')}</button></div>` : ''}
