@@ -47,3 +47,15 @@ test('the composer only ever narrows through the variable', () => {
     assert.match(width, /^calc\(100% - var\(--composer-inset/, 'literal width found: ' + width);
   }
 });
+
+test('the landing screen caps both surfaces at one measure', () => {
+  // The hero centres the composer at 780px; a sibling strip without its own cap
+  // stretched the full column and hung past the input on both sides.
+  assert.match(workbench, /--composer-max: 780px/, 'the cap is declared once');
+  assert.match(workbench, /#view-chat\.is-welcome \.chat-input-area \{ max-width: var\(--composer-max, 780px\)/,
+    'the composer reads it');
+  assert.match(workbench, /#view-chat\.is-welcome \.composer-dock \{ max-width: var\(--composer-max, 780px\)/,
+    'the strip reads the same measure');
+  assert.doesNotMatch(workbench, /#view-chat\.is-welcome \.chat-input-area \{ max-width: 780px/,
+    'no literal 780px alongside the variable');
+});
