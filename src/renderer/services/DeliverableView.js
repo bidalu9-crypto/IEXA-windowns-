@@ -446,14 +446,25 @@ function normalizeRenderedAssets(contentEl) {
   if (!contentEl) return;
   contentEl.querySelectorAll('img').forEach((img) => {
     const raw = img.getAttribute('src') || '';
-    if (/^(?:workspace\/|\.\/|\.\.\/|[A-Za-z]:[\\/])/.test(raw) && !raw.startsWith('data:')) {
+    const workspacePath = !raw.startsWith('data:') && /^(?:workspace\/|\.\/|\.\.\/|[A-Za-z]:[\\/])/.test(raw);
+    if (workspacePath) {
       // When a project is open, workspace/ is a real child of the project root.
       // Without a project, the API root is workspace itself.
       const rel = (projectRoot ? raw : raw.replace(/^workspace[\\/]/i, ''))
         .replace(/^[.][\\/]/, '').replace(/\\/g, '/');
       img.src = `${API_BASE}/api/fs/raw?path=${encodeURIComponent(rel)}`;
-      img.addEventListener('click', () => openImagePreview(img.src, img.alt || IexaI18n.t('deliverable.image'), img));
+    }
+    // Every inline picture opens the viewer, not just the ones whose src had to
+    // be rewritten: an absolute URL used to render as a dead thumbnail with no
+    // way to see it full size.
+    if (img.dataset.iexaZoom !== '1') {
+      img.dataset.iexaZoom = '1';
       img.style.cursor = 'zoom-in';
+      if (typeof openImagePreview === 'function') {
+        img.addEventListener('click', () => {
+          openImagePreview(img.currentSrc || img.src, img.alt || IexaI18n.t('deliverable.image'), img);
+        });
+      }
     }
   });
   contentEl.querySelectorAll('a').forEach((link) => {

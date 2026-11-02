@@ -720,6 +720,22 @@ body.chat-focus-mode .message.user {
   word-break: break-word;
 }
 
+/* An inline picture carries no size of its own. A 1440×2560 screenshot used to
+   render at its native pixel size, overflow the column and swallow the whole
+   viewport. Cap the box so the entire picture stays visible, and let a click
+   open the existing zoom viewer. */
+.message-content img {
+  display: block;
+  max-width: 100%;
+  max-height: min(52vh, 480px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 10px 0;
+  border-radius: 10px;
+  cursor: zoom-in;
+}
+
 
 /* iOS-style queued / insert-while-busy user bubble */
 .message.user.is-queued {
