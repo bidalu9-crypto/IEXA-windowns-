@@ -143,18 +143,18 @@ test('real browser: resume unlocks the composer and screenshots annotate', { ski
     const b = document.getElementById('voiceBtn');
     const icon = b.querySelector('.voice-icon');
     const idleBorder = getComputedStyle(b).borderTopWidth;
-    const idleStroke = getComputedStyle(icon).stroke;
+    const idleFill = getComputedStyle(icon).fill;
     b.classList.add('is-listening');
     // getComputedStyle returns a live declaration: read the strings before the
     // class is removed, otherwise every value reflects the idle state again.
-    const listeningStroke = getComputedStyle(icon).stroke;
+    const listeningFill = getComputedStyle(icon).fill;
     const listeningFilter = getComputedStyle(icon).filter;
     b.classList.remove('is-listening');
-    return { border: idleBorder, idleStroke, listeningStroke, filter: listeningFilter };
+    return { border: idleBorder, idleFill, listeningFill, filter: listeningFilter };
   })()`);
   assert.equal(voice.border, '0px', 'the circle is gone');
-  assert.equal(voice.idleStroke, 'rgb(94, 94, 100)', 'idle keeps the plain icon colour');
-  assert.match(voice.listeningStroke, /voice-gradient/, 'listening paints the mic with the gradient');
+  assert.equal(voice.idleFill, 'rgb(94, 94, 100)', 'idle keeps the plain icon colour');
+  assert.match(voice.listeningFill, /voice-gradient/, 'listening paints the mic with the gradient');
   assert.match(voice.filter, /drop-shadow/, 'listening adds a soft bloom');
 
   // --- Screenshot: capture, select, annotate, confirm ---

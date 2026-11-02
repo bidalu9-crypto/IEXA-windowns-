@@ -92,12 +92,10 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
         iconButton: document.getElementById('checkpointBtn').classList.contains('ui-icon-button'),
         peerHeight: Math.round(document.getElementById('contextCompactionBtn').getBoundingClientRect().height),
       },
-      dot: document.querySelector('#ui-reasoning circle')
-        ? {
-            fill: document.querySelector('#ui-reasoning circle').getAttribute('fill'),
-            stroke: document.querySelector('#ui-reasoning circle').getAttribute('stroke'),
-          }
-        : null,
+      pathPaint: (() => {
+        const p = document.querySelector('#ui-reasoning path');
+        return p ? { fill: p.getAttribute('fill'), stroke: p.getAttribute('stroke') } : null;
+      })(),
     };
   })()`);
 
@@ -121,8 +119,9 @@ test('real browser: reasoning, compaction and checkpoint glyphs share one grid',
   assert.equal(glyphs.reasoning.stroke, glyphs.compact.stroke);
   assert.equal(glyphs.compact.stroke, glyphs.checkpoint.stroke);
   assert.equal(glyphs.reasoning.fill, 'none');
-  // The spark dot is the only filled part; it must stay on currentColor.
-  assert.deepEqual(glyphs.dot, { fill: 'currentColor', stroke: 'none' });
+  // Filled sprite: every glyph paints with currentColor and carries no stroke, so
+  // the three pills keep one optical weight on both themes.
+  assert.deepEqual(glyphs.pathPaint, { fill: 'currentColor', stroke: 'none' });
   assert.equal(glyphs.reasoning.color, glyphs.buttonColor, 'at rest the glyph follows the control');
 
   // A coloured level tints the label, not the glyph: every icon in the bar keeps
