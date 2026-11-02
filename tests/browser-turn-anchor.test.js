@@ -113,14 +113,15 @@ test('real browser: a sent prompt sits at the top with the reply right under it'
   assert.ok(sent.gap !== null && sent.gap <= 60, 'the reply starts right under the prompt: ' + JSON.stringify(sent));
   assert.ok(sent.padding > 100, 'the transcript borrowed room to allow the scroll: ' + JSON.stringify(sent));
 
-  // While the reply grows the prompt must not move, and the gap must not change.
+  // While the reply is shorter than the borrowed room the padding must not move
+  // at all: any per-frame adjustment is what used to make the prompt wobble.
   const frames = [];
-  for (let step = 0; step < 8; step += 1) {
+  for (let step = 0; step < 4; step += 1) {
     await evaluate(`(() => {
       const container = document.getElementById('chatMessages');
       let reply = container.querySelector('.message.assistant.is-streaming');
       if (!reply) reply = addMessage('assistant', '', undefined, { streaming: true });
-      reply.querySelector('.message-content').textContent += '模拟回复内容，用来把下方面板撑高。'.repeat(3);
+      reply.querySelector('.message-content').textContent += '短回复';
       scrollToBottom(false, isNearChatBottom);
       return true;
     })()`);
@@ -130,8 +131,23 @@ test('real browser: a sent prompt sits at the top with the reply right under it'
 
   const firstTop = frames[0].top;
   const lastTop = frames[frames.length - 1].top;
-  assert.ok(Math.abs(lastTop - firstTop) <= 8, 'the prompt holds its place: ' + firstTop + ' -> ' + lastTop);
+  assert.ok(Math.abs(lastTop - firstTop) <= 1, 'the prompt holds its place: ' + firstTop + ' -> ' + lastTop);
+  assert.ok(frames.every((frame) => frame.padding === sent.padding), 'no padding write while anchored');
   const stale = frames.filter((frame) => frame.gap !== null && frame.gap > 60);
   assert.deepEqual(stale, [], 'the reply stays attached while it grows');
-  assert.ok(frames[frames.length - 1].padding < sent.padding, 'the borrowed room is being returned');
+
+  // Past the fold the anchor retires once and follow-latest takes over.
+  for (let step = 0; step < 12; step += 1) {
+    await evaluate(`(() => {
+      const container = document.getElementById('chatMessages');
+      let reply = container.querySelector('.message.assistant.is-streaming');
+      if (!reply) reply = addMessage('assistant', '', undefined, { streaming: true });
+      reply.querySelector('.message-content').textContent += '模拟回复内容，用来把下方面板撑高。'.repeat(4);
+      scrollToBottom(false, isNearChatBottom);
+      return true;
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+  }
+  const released = await read();
+  assert.ok(released.padding < sent.padding, 'the borrowed room is returned once the reply fills it');
 });

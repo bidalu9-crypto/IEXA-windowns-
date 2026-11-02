@@ -778,6 +778,18 @@ function clearTurnAnchor() {
   restoreTurnAnchorPadding();
 }
 
+/* Sending pins the prompt to the top, and then leaves the layout completely
+   alone until the reply outgrows the borrowed room.
+
+   The first version shrank the padding every frame to mirror the growth. That
+   is what produced the shimmer: each frame read scrollHeight (forcing layout),
+   wrote padding (invalidating it) and then clamped scrollTop to the new bottom.
+   Three layout passes per token cannot stay in step with a tokenizer, so the
+   message visibly wobbled by a pixel.
+
+   Nothing actually needs to move. The prompt sits above the growing content, so
+   its position is already stable while padding stays fixed. Read-only check per
+   frame, zero writes. */
 function anchorTurnAtTop(messageEl) {
   restoreTurnAnchorPadding();
   if (!messageEl || currentSessionId !== visibleSessionId) return;
@@ -791,40 +803,40 @@ function anchorTurnAtTop(messageEl) {
   const basePadding = container.style.paddingBottom || getComputedStyle(container).paddingBottom;
   const base = parseFloat(basePadding) || 0;
   container.style.paddingBottom = (base + room) + 'px';
-  const top = messageEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+  const top = rect.top - box.top + container.scrollTop;
   container.scrollTop = Math.max(0, top - 16);
   isNearChatBottom = true;
-  turnAnchor = {
-    el: messageEl, container, room, basePadding, base, extra: room,
-    contentHeight: container.scrollHeight - (base + room),
-  };
+  turnAnchor = { el: messageEl, container, room, basePadding };
   updateScrollToBottomButton();
 }
 
-/* Each frame of the reply gives back the same number of pixels the padding lent,
-   which is what keeps the prompt still while the text grows under it. */
-function shrinkTurnAnchor() {
+/* Hand the viewport back once the reply has filled the borrowed room. From that
+   point the ordinary follow-latest rules resume, so the newest line stays
+   readable all the way to the end of the turn. */
+function releaseTurnAnchorIfFull() {
   if (!turnAnchor) return;
-  const { el, container } = turnAnchor;
-  if (!el.isConnected || !container.isConnected || !chatViewIsActive()) { restoreTurnAnchorPadding(); return; }
-  const padded = turnAnchor.base + turnAnchor.extra;
-  const grown = (container.scrollHeight - padded) - turnAnchor.contentHeight;
-  const next = Math.max(0, turnAnchor.room - grown);
-  if (next <= 0) {
-    // The reply now fills the space; hand the container its padding back.
-    restoreTurnAnchorPadding();
-    return;
-  }
-  if (next !== turnAnchor.extra) {
-    turnAnchor.extra = next;
-    container.style.paddingBottom = (turnAnchor.base + next) + 'px';
-  }
+  restoreTurnAnchorPadding();
+  isNearChatBottom = true;
 }
 
+/* Read-only: is everything below the prompt still shorter than the borrowed room?
+   Measuring the whole tail rather than the immediate sibling keeps this correct
+   when an error line or a tool card sits between prompt and reply. */
+function turnAnchorHolds() {
+  if (!turnAnchor) return false;
+  if (!turnAnchor.el.isConnected || !chatViewIsActive()) { restoreTurnAnchorPadding(); return false; }
+  const last = turnAnchor.container.lastElementChild;
+  if (!last || last === turnAnchor.el) return true;
+  const promptTop = turnAnchor.el.getBoundingClientRect().top;
+  return (last.getBoundingClientRect().bottom - promptTop) < turnAnchor.room;
+}
 function scrollToBottom(force, followLatest) {
   if (currentSessionId !== visibleSessionId) return;
   if (force) clearTurnAnchor();
-  else shrinkTurnAnchor();
+  else if (turnAnchor) {
+    if (turnAnchorHolds()) return;
+    releaseTurnAnchorIfFull();
+  }
   const shouldFollow = force || followLatest === true || (followLatest === undefined && isNearChatBottom);
   if (force) isNearChatBottom = true;
   if (shouldFollow) chatBottomFollowRequested = true;
