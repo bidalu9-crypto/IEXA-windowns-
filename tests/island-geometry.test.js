@@ -54,6 +54,9 @@ test('the compact row fills the window and the type is legible', () => {
   assert.match(css, /height: 36px;/);
   assert.match(css, /justify-content: center;/, 'the group is centred');
   assert.match(css, /font-size: 13px;/, 'label size');
+  // A long action name must end in an ellipsis rather than be hard-clipped by
+  // the window edge, which read as a truncated command.
+  assert.match(css, /\.island-label \{[\s\S]{0,300}?text-overflow: ellipsis;/, 'the label ellipsises');
   // The compact row carries no tool glyph at all: a 15px filled icon read as a
   // play button. Glyphs live in the expanded list, where they have room.
   assert.doesNotMatch(html, /id="islandIcon"/, 'no glyph in the compact row');

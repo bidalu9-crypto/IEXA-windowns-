@@ -613,6 +613,31 @@ ipcMain.on('iexa:island-state', (event, next) => {
 // glass beside a short label, which is what "not centred" looked like: the text
 // was centred in a window far wider than it needed to be. The renderer measures
 // its own row and asks for that width; the window stays as small as the words.
+ipcMain.handle('iexa:island-drag-start', (event) => {
+  if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return null;
+  const bounds = islandWindow.getBounds();
+  return { x: bounds.x, y: bounds.y };
+});
+
+// The renderer sends an absolute position computed from the origin it got above,
+// so rounding cannot accumulate into drift the way per-frame deltas would.
+ipcMain.on('iexa:island-drag-move', (event, x, y) => {
+  if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return;
+  const nextX = Math.round(Number(x));
+  const nextY = Math.round(Number(y));
+  if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+  const current = islandWindow.getBounds();
+  if (current.x === nextX && current.y === nextY) return;
+  islandWindow.setBounds({ ...current, x: nextX, y: nextY }, false);
+});
+
+// Position is persisted once, on release: writing the file on every pointermove
+// would hammer the disk for a gesture that lasts a few hundred milliseconds.
+ipcMain.on('iexa:island-drag-end', (event) => {
+  if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return;
+  saveIslandBounds(islandWindow.getBounds());
+});
+
 ipcMain.on('iexa:island-resize', (event, request) => {
   if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return;
   const current = islandWindow.getBounds();

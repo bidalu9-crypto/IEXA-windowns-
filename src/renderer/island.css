@@ -39,7 +39,11 @@ html, body {
   border-radius: 999px;
   overflow: hidden;
   box-shadow: none;
-  -webkit-app-region: drag;
+  /* Not a drag region: Electron routes a draggable area's mouse events to the
+     window manager, so a click inside it never reaches the page — that is why
+     the pill could not expand. island.js drags it with pointer deltas instead,
+     which keeps click and drag apart. */
+  cursor: grab;
   outline: none;
   transition: border-radius .34s cubic-bezier(.34, 1.28, .64, 1);
 }
@@ -95,7 +99,6 @@ html, body {
   justify-content: center;
   gap: 9px;
   padding: 0 15px;
-  -webkit-app-region: drag;
 }
 
 .island-badge {
@@ -121,7 +124,13 @@ html, body {
 }
 
 .island-label {
-  flex: 0 0 auto;
+  /* Shrinks before it overflows: without min-width:0 and an overflow rule a long
+     action name is hard-clipped by the window edge, with no ellipsis. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: .005em;

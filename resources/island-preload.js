@@ -18,4 +18,12 @@ contextBridge.exposeInMainWorld('iexaIsland', {
    * never hug its text or grow when expanded.
    */
   resize: (request) => ipcRenderer.send('iexa:island-resize', request),
+  /**
+   * Dragging is a pointer gesture in the renderer because a CSS drag region
+   * swallows clicks. `dragStart` returns the window origin once, `dragMove` sends
+   * absolute x/y computed from it, so the window cannot drift on rounding.
+   */
+  dragStart: () => ipcRenderer.invoke('iexa:island-drag-start'),
+  dragMove: (x, y) => ipcRenderer.send('iexa:island-drag-move', x, y),
+  dragEnd: () => ipcRenderer.send('iexa:island-drag-end'),
 });

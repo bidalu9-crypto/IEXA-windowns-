@@ -43,7 +43,9 @@
       + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
   };
 
-  const STATUS_TEXT = { running: '…', done: '完成', error: '失败', pending: '等待' };
+  // "running" used to render as a bare ellipsis, which reads as broken text
+  // rather than as "in progress". A word plus the accent colour says it plainly.
+  const STATUS_TEXT = { running: '进行中', done: '完成', error: '失败', pending: '等待' };
 
   let expandedNow = false;
   let lastState = { state: 'idle', label: '就绪', trailing: '', steps: [] };
@@ -152,10 +154,61 @@
     applySize();
   }
 
-  root.addEventListener('click', (event) => {
-    if (event.target.closest('.island-steps')) return;
-    setExpanded(!expandedNow);
+  // ---- Drag and click ------------------------------------------------------
+  // The pill is its own frameless window, so dragging has to move the window.
+  // A CSS drag region would do that for free but would also swallow every click
+  // — which is why expanding never worked. Pointer deltas keep both: under 4px
+  // is a tap, past it is a drag, and a drag never toggles on release.
+  const DRAG_THRESHOLD = 4;
+  let drag = null;
+
+  root.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const api = window.iexaIsland;
+    if (!api || typeof api.dragStart !== 'function') { drag = null; return; }
+    drag = { startX: event.screenX, startY: event.screenY, origin: null, moved: false };
+    // Capturing is a convenience, not a requirement: it throws when the pointer
+    // is not currently active (a synthetic event, or a press that arrived while
+    // the window was being moved), and an uncaught throw here would abort the
+    // whole gesture before the origin was even requested.
+    try { root.setPointerCapture(event.pointerId); } catch { /* not capturable */ }
+    // The origin arrives on the next tick; movement before it is ignored rather
+    // than queued, so a fast flick cannot jump the window to a stale corner.
+    api.dragStart().then((origin) => {
+      if (drag && origin) drag.origin = origin;
+    }).catch(() => { drag = null; });
   });
+
+  root.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    const dx = event.screenX - drag.startX;
+    const dy = event.screenY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+      drag.moved = true;
+      root.style.cursor = 'grabbing';
+    }
+    if (drag.moved && drag.origin) {
+      window.iexaIsland.dragMove(drag.origin.x + dx, drag.origin.y + dy);
+    }
+  });
+
+  const endDrag = (event) => {
+    if (!drag) return;
+    const wasDrag = drag.moved;
+    drag = null;
+    root.style.cursor = '';
+    try { root.releasePointerCapture(event.pointerId); } catch { /* never captured */ }
+    if (wasDrag) {
+      window.iexaIsland?.dragEnd?.();
+      return;
+    }
+    // A tap on the step list scrolls it; it must not collapse the card.
+    if (!(event.target instanceof Element && event.target.closest('.island-steps'))) {
+      setExpanded(!expandedNow);
+    }
+  };
+  root.addEventListener('pointerup', endDrag);
+  root.addEventListener('pointercancel', () => { drag = null; root.style.cursor = ''; });
 
   root.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') {

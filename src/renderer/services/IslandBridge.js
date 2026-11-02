@@ -30,6 +30,51 @@
     return 'terminal';
   }
 
+  // Tool name → what the user would call the action. The transcript's own label
+  // is "Shell · <the command>", and a PowerShell one-liner inside a 20px pill
+  // reads as line noise (`ect { "$($_Name): $($_CurrentHorizon…`). This maps the
+  // verb instead and only keeps a detail that is a plain name.
+  const ACTIONS = [
+    [/shell_session|shell_execute|terminal|bash|powershell|cmd/, '运行命令'],
+    [/file_write|file_edit|write|edit|patch/, '修改文件'],
+    [/file_read|^read$/, '读取文件'],
+    [/grep|glob|search/, '搜索'],
+    [/web_search|browser_fetch|fetch/, '联网查询'],
+    [/memory_/, '记忆'],
+    [/todo_write|todo/, '更新计划'],
+    [/goal/, '推进目标'],
+    [/subagent|task/, '子任务'],
+    [/display_file|image/, '图片'],
+    [/desktop_control|desktop/, '操作桌面'],
+    [/bot_/, 'Bot'],
+    [/schedule/, '定时任务'],
+    [/project_instructions/, '项目规范'],
+    [/job_/, '任务输出'],
+    [/ask_user/, '询问'],
+  ];
+
+  const NAME_CAP = 26;
+
+  /** A detail worth showing: a bare filename, never code, a path or a payload. */
+  function detailOf(meta) {
+    const text = String(meta || '').trim();
+    if (!text || text.length > 60) return '';
+    // Braces, quotes, pipes, parentheses and `$` mean this is a command or a
+    // snippet, not a name. Showing a slice of it was the truncation complaint.
+    if (/[{}()$`"\\|;&<>]/.test(text)) return '';
+    const base = text.split(/[\\/]/).filter(Boolean).pop() || '';
+    if (!base || base.length > 22) return '';
+    return ' · ' + base;
+  }
+
+  function actionName(toolName, nameEl, metaEl) {
+    const raw = String(toolName || '').toLowerCase();
+    const hit = ACTIONS.find(([pattern]) => pattern.test(raw));
+    const verb = hit ? hit[1] : (nameEl ? String(nameEl.textContent).trim() : '工具');
+    const name = verb + detailOf(metaEl ? metaEl.textContent : '');
+    return name.length > NAME_CAP ? name.slice(0, NAME_CAP - 1) + '…' : name;
+  }
+
   function statusOf(raw) {
     const s = String(raw || '').toLowerCase();
     if (s === 'failed' || s === 'error' || s === 'cancelled' || s === 'canceled') return 'error';
@@ -45,11 +90,10 @@
     return rows.slice(-MAX_STEPS).map((row) => {
       const nameEl = row.querySelector('.tool-name');
       const metaEl = row.querySelector('.tool-meta');
-      const label = (nameEl ? nameEl.textContent : '').trim();
-      const meta = (metaEl ? metaEl.textContent : '').trim();
+      const toolName = row.dataset.toolName;
       return {
-        name: meta ? label + ' · ' + meta : label,
-        icon: iconFor(row.dataset.toolName),
+        name: actionName(toolName, nameEl, metaEl),
+        icon: iconFor(toolName),
         status: statusOf(row.dataset.status),
       };
     });
