@@ -81,10 +81,10 @@
 
     const tools = el('div', 'shot-tools');
     const toolDefs = [
-      ['select', '框选', 'M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16'],
-      ['rect', '矩形', 'M4.5 6.5h15v11h-15z'],
-      ['arrow', '箭头', 'M5 19 19 5M12.5 5H19v6.5'],
-      ['pen', '画笔', 'M4 20l3.6-.9L19 7.7a1.9 1.9 0 0 0-2.7-2.7L4.9 16.4Z'],
+      ['select', '框选', 'M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM88,192H56a8,8,0,0,1-8-8V152a8,8,0,0,1,16,0v24H88a8,8,0,0,1,0,16Zm120-88a8,8,0,0,1-16,0V80H168a8,8,0,0,1,0-16h32a8,8,0,0,1,8,8Z'],
+      ['rect', '矩形', 'M224,48V208a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32H208A16,16,0,0,1,224,48Z'],
+      ['arrow', '箭头', 'M200,64V168a8,8,0,0,1-13.66,5.66L140,127.31,69.66,197.66a8,8,0,0,1-11.32-11.32L128.69,116,82.34,69.66A8,8,0,0,1,88,56H192A8,8,0,0,1,200,64Z'],
+      ['pen', '画笔', 'M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM192,108.68,147.31,64l24-24L216,84.68Z'],
     ];
     for (const [id, label, path] of toolDefs) {
       const button = el('button', 'shot-tool');
@@ -93,7 +93,7 @@
       button.title = label;
       button.setAttribute('aria-label', label);
       button.setAttribute('aria-pressed', String(state.tool === id));
-      button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+      button.innerHTML = `<svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="${path}"/></svg>`;
       button.addEventListener('click', () => {
         state.tool = id;
         bar.querySelectorAll('.shot-tool').forEach((node) => {

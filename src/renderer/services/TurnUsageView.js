@@ -129,11 +129,7 @@ function renderMessageUsage(usageEl, inputTokens, outputTokens, cacheReadTokens,
   if (previous) unregisterLiveTurnDuration(previous);
   const parts = [];
   if (!pending) {
-    parts.push(`<svg class="message-usage-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="12" width="3" height="7" rx="1" stroke="currentColor" stroke-width="1.7"/>
-      <rect x="10.5" y="8" width="3" height="11" rx="1" stroke="currentColor" stroke-width="1.7"/>
-      <rect x="17" y="4" width="3" height="15" rx="1" stroke="currentColor" stroke-width="1.7"/>
-    </svg>`);
+    parts.push(`<svg class="message-usage-icon" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path fill="currentColor" stroke="none" d="M232,208a8,8,0,0,1-8,8H32a8,8,0,0,1,0-16h8V136a8,8,0,0,1,8-8H72a8,8,0,0,1,8,8v64H96V88a8,8,0,0,1,8-8h32a8,8,0,0,1,8,8V200h16V40a8,8,0,0,1,8-8h40a8,8,0,0,1,8,8V200h8A8,8,0,0,1,232,208Z"/></svg>`);
     parts.push(`<span title="${IexaI18n.t('usage.inputTitle', { count: input.toLocaleString() })}">${formatTokenCount(input)} <em>${IexaI18n.t('usage.inputShort')}</em></span>`);
     parts.push('<i aria-hidden="true"></i>');
     parts.push(`<span title="${IexaI18n.t('usage.outputTitle', { count: output.toLocaleString() })}">${formatTokenCount(output)} <em>${IexaI18n.t('usage.outputShort')}</em></span>`);
