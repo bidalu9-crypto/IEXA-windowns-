@@ -10,5 +10,12 @@ contextBridge.exposeInMainWorld('iexaIsland', {
     ipcRenderer.on('iexa:island-state', listener);
     return () => ipcRenderer.removeListener('iexa:island-state', listener);
   },
-  resize: (height) => ipcRenderer.send('iexa:island-resize', Number(height) || 0),
+  /**
+   * main clamps to 132–340 wide and 40–560 tall, and accepts either a number
+   * (height only) or `{ width, height }`. Passing the object straight through is
+   * the whole contract: coercing it numerically yields NaN, which the old code
+   * turned into 0, so every resize arrived as "height 0" and the pill could
+   * never hug its text or grow when expanded.
+   */
+  resize: (request) => ipcRenderer.send('iexa:island-resize', request),
 });

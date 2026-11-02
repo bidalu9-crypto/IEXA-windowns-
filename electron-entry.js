@@ -464,7 +464,7 @@ ipcMain.on('iexa:pet-poked', () => { /* reserved for future reactions */ });
 const ISLAND_WIDTH = 208;
 const ISLAND_MIN_WIDTH = 132;
 const ISLAND_MAX_WIDTH = 340;
-const ISLAND_COMPACT_HEIGHT = 38;
+const ISLAND_COMPACT_HEIGHT = 40;
 let islandWindow = null;
 let islandState = { state: 'idle', label: '就绪', trailing: '', icon: 'idle', steps: [] };
 
@@ -504,7 +504,10 @@ function readIslandBounds() {
     x: saved.x,
     y: saved.y,
     width: Math.round(Math.min(ISLAND_MAX_WIDTH, Math.max(ISLAND_MIN_WIDTH, Number(saved.width) || ISLAND_WIDTH))),
-    height: Math.max(ISLAND_COMPACT_HEIGHT, Number(saved.height) || fallback.height),
+    // Height is deliberately NOT restored. It is owned by whatever the pill is
+    // doing right now, and a launch always begins collapsed. Restoring an old
+    // expanded height (98–560px) is what opened the app with a tall empty pill.
+    height: ISLAND_COMPACT_HEIGHT,
   });
 }
 
@@ -551,6 +554,14 @@ function createIslandWindow() {
   islandWindow.setAlwaysOnTop(config.alwaysOnTop, 'floating');
   islandWindow.once('ready-to-show', () => {
     if (islandWindow && !islandWindow.isDestroyed()) islandWindow.showInactive();
+  });
+  // A transparent window's ready-to-show can fire before first paint, and any
+  // state pushed while the page was still loading was dropped on the floor. Both
+  // are handled here: re-push the snapshot and make sure the window is visible.
+  islandWindow.webContents.on('did-finish-load', () => {
+    if (!islandWindow || islandWindow.isDestroyed()) return;
+    pushIslandState();
+    if (!islandWindow.isVisible()) islandWindow.showInactive();
   });
   islandWindow.on('moved', () => {
     if (islandWindow && !islandWindow.isDestroyed()) saveIslandBounds(islandWindow.getBounds());
@@ -1297,9 +1308,8 @@ const profileDirectory = path.join(process.env.IEXA_WORKSPACE, '.iexa-electron-p
 fs.mkdirSync(profileDirectory, { recursive: true });
 app.setPath('userData', profileDirectory);
 app.whenReady().then(async () => {
-  // The island is opt-in; a fresh profile must not grow a floating window
-  // before the user has asked for one.
-  try { if (readIslandConfig().enabled) createIslandWindow(); } catch { /* no display yet */ }
+  // The island page is served by the backend, so it can only load once PORT is
+  // known — see the call site below, after the port is claimed.
 
   console.log('[IEXA] Electron app starting...');
   console.log('[IEXA] App dir:', __dirname);
@@ -1323,6 +1333,11 @@ app.whenReady().then(async () => {
     await waitForServer();
     installDisplayMediaHandler();
     createWindow();
+    // Only now is PORT known. Creating the island earlier pointed loadURL at
+    // `http://127.0.0.1:null/island.html`, which fails silently: the window
+    // exists, stays transparent, and shows nothing until the user toggles it
+    // off and on again.
+    try { if (readIslandConfig().enabled) createIslandWindow(); } catch { /* no display yet */ }
     installPetHost();
     if (!HEADLESS) createTray();
     createUpdateService();

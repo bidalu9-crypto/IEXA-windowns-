@@ -3,7 +3,11 @@
    the rounded corners have room to breathe without a visible frame. */
 
 :root {
-  color-scheme: dark;
+  /* A colour-scheme declaration on the root makes Chromium paint the page canvas
+     with the UA's opaque dark base colour. In a transparent Electron window that
+     is an opaque black rectangle behind the pill — the "extra black layer" in the
+     report. The scheme is scoped to the pill instead, where only form controls and
+     native scrollbars read it. */
   --ink: #f2f4f8;
   --ink-dim: #9aa3b2;
   --accent: #7fb6ff;
@@ -91,15 +95,15 @@ html, body {
   position: relative;
   /* Fixed, not 100%: expanding grows the list below this row, and a row that
      filled the window would push that list out of view. */
-  flex: 0 0 28px;
-  height: 28px;
+  flex: 0 0 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   /* Centre the group rather than stretching it. The label used to be
      `flex: 1 1 auto`, which pushed the trailing count to the far edge and left a
      band of empty glass in the middle — the pill looked slack, not crafted. */
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   padding: 0 12px;
   -webkit-app-region: drag;
 }
@@ -131,13 +135,13 @@ html, body {
 .island-icon {
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
   color: var(--ink);
   opacity: .92;
 }
-.island-icon svg { width: 12px; height: 12px; display: block; }
+.island-icon svg { width: 15px; height: 15px; display: block; }
 
 .island-label {
   /* Natural width, not a filler: the row is centred, so the label only takes the
@@ -145,7 +149,7 @@ html, body {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
   letter-spacing: .01em;
   color: var(--ink);
@@ -156,7 +160,7 @@ html, body {
 
 .island-trailing {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
   white-space: nowrap;
@@ -165,7 +169,7 @@ html, body {
 .island-expanded {
   position: relative;
   padding: 1px 8px 6px;
-  height: calc(100% - 28px);
+  height: calc(100% - 30px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -196,8 +200,10 @@ html, body {
   margin: 0;
   padding: 4px 0 0;
   flex: 1 1 auto;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  /* At most six rows are ever shown and the window is sized to fit them, so a
+     scroller only ever appeared because the height was guessed a few pixels
+     short. The height is now measured, and nothing scrolls. */
+  overflow: hidden;
 }
 /* The default Windows scrollbar brings arrows and a track; inside a 236px pill
    that reads as a browser widget. Keep the 4px thumb, drop the rest. */

@@ -4,7 +4,7 @@
 (() => {
   'use strict';
 
-  const COMPACT_HEIGHT = 38;
+  const COMPACT_HEIGHT = 40;
 const EXPANDED_MIN_WIDTH = 268;
 const ISLAND_FALLBACK_WIDTH = 168;
   const MAX_STEPS = 6;
@@ -105,10 +105,21 @@ const ISLAND_FALLBACK_WIDTH = 168;
   }
 
   function expandedHeight() {
-    const steps = Math.min(MAX_STEPS, (lastState.steps || []).length) || 1;
-    // Compact row + the head row + one row per step. The list needs 26px a row
-    // and about 34px of chrome; both are read off the rendered card, not guessed.
-    return COMPACT_HEIGHT + 34 + steps * 26;
+    // Measured on a detached clone at natural size.
+    //
+    // Everything in-place is unreliable here: the window is still 40px tall, so
+    // `.island-expanded` is a 0-height flex child with overflow hidden, and both
+    // `scrollHeight` and `height:auto` come back compressed by the flex parent
+    // (87px and 57px for a card that needs ~148px). A clone outside that flex
+    // context reports the truth — which is what removes the scrollbar.
+    if (!expanded) return COMPACT_HEIGHT;
+    const clone = expanded.cloneNode(true);
+    clone.removeAttribute('hidden');
+    clone.style.cssText = 'position:fixed;left:-9999px;top:0;height:auto;width:252px;visibility:hidden';
+    document.body.appendChild(clone);
+    const measured = Math.ceil(clone.getBoundingClientRect().height);
+    clone.remove();
+    return COMPACT_HEIGHT + measured + 10;
   }
 
   root.addEventListener('click', (event) => {
