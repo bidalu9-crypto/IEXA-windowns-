@@ -1,7 +1,11 @@
-// The prompt used to jump out of sight on send. It is now pinned to the top of
-// the viewport (Codex behaviour): a spacer lends the missing room, and each
-// frame of the reply gives that room back, so the prompt stays put while the
-// text grows underneath.
+// Sending pins the prompt to the top of the viewport and the reply starts
+// directly beneath it — the Codex desktop behaviour.
+//
+// The room needed to scroll the last message up comes from the transcript's own
+// padding-bottom. An earlier attempt inserted a spacer element instead; because
+// the assistant message is appended afterwards, the spacer ended up *between*
+// prompt and reply and left a half-screen hole. Padding is on the container, so
+// append order cannot break the adjacency.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -12,36 +16,40 @@ const helpers = fs.readFileSync(path.join(RENDERER, 'services', 'UiHelpers.js'),
 const app = fs.readFileSync(path.join(RENDERER, 'app.js'), 'utf8');
 const css = fs.readFileSync(path.join(RENDERER, 'styles', 'transcript.css'), 'utf8');
 
-test('sending pins the prompt, and the helpers are declared before use', () => {
+const bodyOf = (name) => {
+  const start = helpers.indexOf('function ' + name + '(');
+  assert.ok(start > 0, name + ' exists');
+  return helpers.slice(start, helpers.indexOf('\n}', start));
+};
+
+test('sending pins the prompt, and the anchor helpers are declared before use', () => {
   assert.match(app, /anchorTurnAtTop\(sentMessage\)/, 'sendMessage pins the prompt');
   const anchorAt = helpers.indexOf('function anchorTurnAtTop(');
   const scrollAt = helpers.indexOf('function scrollToBottom(');
-  assert.ok(anchorAt > 0, 'anchorTurnAtTop exists');
   assert.ok(anchorAt < scrollAt, 'declared above scrollToBottom');
 });
 
-test('the spacer lends the missing room and is always cleaned up', () => {
-  const start = helpers.indexOf('function anchorTurnAtTop(');
-  const body = helpers.slice(start, helpers.indexOf('\n}', start));
-  assert.match(body, /room = box\.height - 16 - rect\.height - 24/, 'room is measured, not guessed');
+test('the room comes from container padding, never from a spacer between messages', () => {
+  const body = bodyOf('anchorTurnAtTop');
+  assert.match(body, /const room = box\.height - 16 - rect\.height - 24/, 'room is measured');
   assert.match(body, /if \(room < 80\) return;/, 'a prompt that fills the viewport is not pinned');
-  assert.match(body, /chatMessages\.appendChild\(spacer\)/, 'the spacer joins the transcript');
+  assert.match(body, /container\.style\.paddingBottom = \(base \+ room\) \+ 'px'/, 'padding lends the room');
   assert.match(body, /container\.scrollTop = Math\.max\(0, top - 16\)/, 'the prompt lands at the top');
-  assert.match(helpers, /function removeTurnAnchorSpacer\(\)/, 'one place removes it');
+  assert.doesNotMatch(body, /createElement\('div'\)/, 'no element is inserted into the flow');
+  assert.doesNotMatch(css, /turn-anchor-spacer/, 'the spacer style is gone');
 });
 
-test('every scroll frame gives room back, and the anchor retires when it is gone', () => {
-  const start = helpers.indexOf('function shrinkTurnAnchor(');
-  const body = helpers.slice(start, helpers.indexOf('\n}', start));
-  assert.match(body, /const next = Math\.max\(0, turnAnchor\.room - grown\)/, 'the give-back is measured');
-  assert.match(body, /if \(next <= 0\) \{[\s\S]*?removeTurnAnchorSpacer\(\)/, 'it retires at zero');
-  assert.match(body, /spacer\.style\.height = next \+ 'px'/, 'otherwise it shrinks by exactly that much');
-  const scroll = helpers.slice(helpers.indexOf('function scrollToBottom('));
-  assert.match(scroll, /if \(force\) clearTurnAnchor\(\);\s*else shrinkTurnAnchor\(\);/, 'scrollToBottom drives it');
+test('the padding is handed back frame by frame and restored at zero', () => {
+  const body = bodyOf('shrinkTurnAnchor');
+  assert.match(body, /const grown = \(container\.scrollHeight - padded\) - turnAnchor\.contentHeight/);
+  assert.match(body, /const next = Math\.max\(0, turnAnchor\.room - grown\)/);
+  assert.match(body, /if \(next <= 0\) \{[\s\S]*?restoreTurnAnchorPadding\(\)/, 'retires at zero');
+  assert.match(body, /container\.style\.paddingBottom = \(turnAnchor\.base \+ next\) \+ 'px'/);
+  assert.match(bodyOf('restoreTurnAnchorPadding'), /container\.style\.paddingBottom = basePadding/);
+  assert.match(helpers, /if \(force\) clearTurnAnchor\(\);\s*else shrinkTurnAnchor\(\);/, 'scrollToBottom drives it');
 });
 
 test('a manual scroll takes the viewport back', () => {
   assert.match(helpers, /addEventListener\('wheel', function \(event\) \{\s*clearTurnAnchor\(\);/, 'wheel clears it');
   assert.match(helpers, /pointerdown', \(\) => \{ clearTurnAnchor\(\);/, 'pointer clears it');
-  assert.match(css, /\.turn-anchor-spacer \{/, 'the spacer has a style');
 });

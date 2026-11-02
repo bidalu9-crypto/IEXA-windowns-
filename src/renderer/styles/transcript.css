@@ -1619,7 +1619,4 @@ body.chat-focus-mode .message.user {
   cursor: default;
 }
 
-/* Room borrowed for the send anchor: it lets the prompt sit at the top of the
-   viewport while the reply grows underneath, then shrinks frame by frame until
-   it is gone. */
-.turn-anchor-spacer { flex: 0 0 auto; width: 100%; pointer-events: none; }
+

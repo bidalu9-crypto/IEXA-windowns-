@@ -760,23 +760,26 @@ function stopFollowingLatestMessage() {
 
    A prompt always sits at the end of the transcript, so there is nothing below
    it to scroll into: pinning it to the top needs room that does not exist yet.
-   A spacer supplies exactly that room when the turn starts and gives it back as
-   the reply arrives, so the prompt keeps its place at the top while the text
-   grows underneath. Once the reply has filled the space the spacer is gone and
-   the ordinary follow-latest rules take over. */
+   The room comes from the container's own bottom padding, which is immune to
+   append order — the reply keeps landing directly under the prompt instead of
+   below a borrowed block. As the reply arrives the padding gives back exactly
+   what the text took, so the prompt does not move, and the ordinary
+   follow-latest rules resume once the space is gone. */
 let turnAnchor = null;
 
-function removeTurnAnchorSpacer() {
-  if (turnAnchor && turnAnchor.spacer && turnAnchor.spacer.isConnected) turnAnchor.spacer.remove();
+function restoreTurnAnchorPadding() {
+  if (!turnAnchor) return;
+  const { container, basePadding } = turnAnchor;
+  if (container && container.isConnected) container.style.paddingBottom = basePadding;
   turnAnchor = null;
 }
 
 function clearTurnAnchor() {
-  removeTurnAnchorSpacer();
+  restoreTurnAnchorPadding();
 }
 
 function anchorTurnAtTop(messageEl) {
-  removeTurnAnchorSpacer();
+  restoreTurnAnchorPadding();
   if (!messageEl || currentSessionId !== visibleSessionId) return;
   const container = visibleChatMessages;
   if (!container) return;
@@ -785,37 +788,37 @@ function anchorTurnAtTop(messageEl) {
   const room = box.height - 16 - rect.height - 24;
   // A prompt that already fills the viewport has nothing to anchor into.
   if (room < 80) return;
-  const spacer = document.createElement('div');
-  spacer.className = 'turn-anchor-spacer';
-  spacer.setAttribute('aria-hidden', 'true');
-  spacer.style.height = room + 'px';
-  chatMessages.appendChild(spacer);
+  const basePadding = container.style.paddingBottom || getComputedStyle(container).paddingBottom;
+  const base = parseFloat(basePadding) || 0;
+  container.style.paddingBottom = (base + room) + 'px';
   const top = messageEl.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
   container.scrollTop = Math.max(0, top - 16);
   isNearChatBottom = true;
-  turnAnchor = { el: messageEl, spacer, room, contentHeight: container.scrollHeight - room };
+  turnAnchor = {
+    el: messageEl, container, room, basePadding, base, extra: room,
+    contentHeight: container.scrollHeight - (base + room),
+  };
   updateScrollToBottomButton();
 }
 
-/* Each frame of the reply gives back the same number of pixels the spacer lent,
+/* Each frame of the reply gives back the same number of pixels the padding lent,
    which is what keeps the prompt still while the text grows under it. */
 function shrinkTurnAnchor() {
   if (!turnAnchor) return;
-  const container = visibleChatMessages;
-  const spacer = turnAnchor.spacer;
-  if (!turnAnchor.el.isConnected || !spacer.isConnected || !chatViewIsActive()) {
-    removeTurnAnchorSpacer();
-    return;
-  }
-  const current = parseFloat(spacer.style.height) || 0;
-  const grown = (container.scrollHeight - current) - turnAnchor.contentHeight;
+  const { el, container } = turnAnchor;
+  if (!el.isConnected || !container.isConnected || !chatViewIsActive()) { restoreTurnAnchorPadding(); return; }
+  const padded = turnAnchor.base + turnAnchor.extra;
+  const grown = (container.scrollHeight - padded) - turnAnchor.contentHeight;
   const next = Math.max(0, turnAnchor.room - grown);
   if (next <= 0) {
-    // The reply now fills the space; drop the spacer so scrolling is honest again.
-    removeTurnAnchorSpacer();
+    // The reply now fills the space; hand the container its padding back.
+    restoreTurnAnchorPadding();
     return;
   }
-  if (next !== current) spacer.style.height = next + 'px';
+  if (next !== turnAnchor.extra) {
+    turnAnchor.extra = next;
+    container.style.paddingBottom = (turnAnchor.base + next) + 'px';
+  }
 }
 
 function scrollToBottom(force, followLatest) {
