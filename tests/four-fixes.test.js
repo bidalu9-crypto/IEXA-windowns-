@@ -90,4 +90,16 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   assert.match(entry, /skipTaskbar: true/, 'it does not clutter the taskbar');
   assert.match(entry, /if \(readIslandConfig\(\)\.enabled\) createIslandWindow\(\)/, 'it starts only when enabled');
   assert.match(preload, /islandSetEnabled/, 'the appearance toggle has a verb');
+
+  // Compact, frameless, and chevron-free. The old pill was 340×70 with a 30px
+  // drop shadow that the window clipped into a solid dark frame — it read as a
+  // second black layer around the pill. Both are now asserted against.
+  assert.doesNotMatch(html, /island-chevron/, 'no expand arrow in the markup');
+  assert.doesNotMatch(css, /island-chevron/, 'no expand arrow in the stylesheet');
+  assert.match(css, /inset: 6px/, 'the pill is inset by one small margin on all sides');
+  assert.match(css, /box-shadow: none/, 'no clipped drop shadow painting a frame');
+  assert.match(entry, /const ISLAND_WIDTH = 248;/, 'compact window width');
+  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 44;/, 'compact window height');
+  assert.match(js, /const COMPACT_HEIGHT = 44;/, 'the renderer agrees with the window');
+  assert.match(js, /44 \+ 40 \+ steps \* 28/, 'expanded height is derived, not guessed');
 });

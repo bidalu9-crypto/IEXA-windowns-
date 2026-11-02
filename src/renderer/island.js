@@ -4,7 +4,7 @@
 (() => {
   'use strict';
 
-  const COMPACT_HEIGHT = 70;
+  const COMPACT_HEIGHT = 44;
   const MAX_STEPS = 6;
 
   const root = document.getElementById('island');
@@ -78,12 +78,15 @@
 
   function expandedHeight() {
     const steps = Math.min(MAX_STEPS, (lastState.steps || []).length) || 1;
-    // Header + one row per step + padding; clamped so a 0-step card stays small.
-    return 46 + 34 + steps * 34 + 16;
+    // 44px compact window + the head row + one row per step + Slack, measured
+    // against the rendered card rather than guessed: the list needs 28px a row
+    // and about 40px of chrome around it.
+    return 44 + 40 + steps * 28;
   }
 
   root.addEventListener('click', (event) => {
-    // The chevron is decoration; clicking anywhere on the pill toggles.
+    // Clicking anywhere on the pill toggles; the step list is the only region
+    // that swallows the click so its scrollbar stays usable.
     if (event.target.closest('.island-steps')) return;
     setExpanded(!expandedNow);
   });

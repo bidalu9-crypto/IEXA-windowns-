@@ -81,6 +81,7 @@ test('real browser: appearance page edits and persists a skin', { skip: !browser
   const tokens = () => evaluate(`(() => {
     const s = getComputedStyle(document.documentElement);
     return {
+      theme: document.documentElement.dataset.theme,
       skin: document.documentElement.dataset.skin,
       accent: s.getPropertyValue('--accent').trim(),
       canvas: s.getPropertyValue('--bg-primary').trim(),
@@ -129,7 +130,7 @@ test('real browser: appearance page edits and persists a skin', { skip: !browser
   await evaluate("document.querySelector('[data-skin-id=amber]').click(); true");
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert.deepEqual(await tokens(), {
-    skin: 'amber', accent: '#c4841d', canvas: '#f6f1e8', surface: '#fdf9f2', radius: '12px',
+    theme: 'light', skin: 'amber', accent: '#c4841d', canvas: '#f6f1e8', surface: '#fdf9f2', radius: '12px',
   });
 
   // Editing any colour bends the preset into a custom skin of the same family.
@@ -166,11 +167,17 @@ test('real browser: appearance page edits and persists a skin', { skip: !browser
   await new Promise((resolve) => setTimeout(resolve, 900));
   const restored = await tokens();
   assert.equal(restored.skin, 'custom');
-  assert.equal(restored.accent, '#c4841d');
-  assert.equal(restored.canvas, '#f6f1e8');
+  // A deeper product default (dark) means the persisted theme decides which half
+  // of the custom skin is live after a reload. Assert against that, not against
+  // a hard-coded light hex — the value under test is "the saved skin came back",
+  // not "the app booted light".
+  const expectedAccent = restored.theme === 'dark' ? '#e5a33c' : '#c4841d';
+  const expectedCanvas = restored.theme === 'dark' ? '#1f1b16' : '#f6f1e8';
+  assert.equal(restored.accent, expectedAccent);
+  assert.equal(restored.canvas, expectedCanvas);
   await openAppearance();
-  assert.equal(await evaluate("document.getElementById('skinAccentHex').value"), '#c4841d',
-    'the editor shows the saved dark accent');
+  assert.equal(await evaluate("document.getElementById('skinAccentHex').value"), expectedAccent,
+    'the editor shows the saved accent');
 
   // Reset clears the inline overrides and falls back to the stylesheet.
   await evaluate("document.getElementById('appearanceResetAll').click(); true");
