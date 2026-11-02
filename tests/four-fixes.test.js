@@ -82,7 +82,11 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   assert.match(js, /const MAX_STEPS = 6;/, 'at most six steps');
   assert.match(js, /steps\.slice\(0, MAX_STEPS\)/, 'the snapshot is truncated, not just styled');
   assert.match(js, /setExpanded/, 'the pill toggles');
-  assert.match(css, /backdrop-filter: blur\(22px\) saturate\(125%\)/, 'it is glass, not a flat box');
+  assert.match(css, /backdrop-filter: blur\(30px\) saturate\(160%\) brightness\(1\.06\)/, 'it is glass, not a flat box');
+  // Liquid glass must stay translucent: an opaque fill is a black lozenge, not a
+  // material. The specular band is what makes the edge read as thickness.
+  assert.match(css, /rgba\(16, 16, 20, \.42\)/, 'the fill stays translucent');
+  assert.match(css, /mix-blend-mode: screen/, 'the lens highlight is composited, not painted over');
   assert.match(css, /prefers-reduced-motion/, 'motion settings are honoured');
 
   assert.match(entry, /preload: path\.join\(__dirname, 'resources', 'island-preload\.js'\)/, 'sandboxed preload');

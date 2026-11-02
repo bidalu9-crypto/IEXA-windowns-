@@ -48,24 +48,43 @@ html, body {
   border-radius: 16px;
 }
 
-/* Liquid glass. The fill has to be opaque enough that the wallpaper cannot tint
-   it: at 56% over a purple desktop the backdrop blurred and saturated into one
-   muddy plum blob. 86% keeps the blur reading as glass while the surface stays
-   neutral, and the sheen is a single soft top highlight — the previous radial
-   wash at 18%/-30% painted a white smear across the upper-left corner. */
+/* Liquid glass: the backdrop has to be *seen* through the material, so the fill
+   stays light (42%) and the work is done by a hard blur plus a modest saturation
+   lift. An earlier pass raised the fill to 86% to stop a purple desktop from
+   tinting the pill — that killed the material entirely and left a flat black
+   lozenge. Soft and tinted is the point; mud comes from over-saturating a lightly
+   blurred backdrop, which is what the previous 190% did. */
 .island-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 46%),
-    rgba(14, 14, 17, .86);
-  -webkit-backdrop-filter: blur(22px) saturate(125%);
-  backdrop-filter: blur(22px) saturate(125%);
-  border: 1px solid rgba(255, 255, 255, .09);
+    linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .04) 44%, rgba(255, 255, 255, 0) 62%),
+    rgba(16, 16, 20, .42);
+  -webkit-backdrop-filter: blur(30px) saturate(160%) brightness(1.06);
+  backdrop-filter: blur(30px) saturate(160%) brightness(1.06);
+  border: 1px solid rgba(255, 255, 255, .16);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .16),
-    inset 0 -1px 0 rgba(0, 0, 0, .30);
+    inset 0 1px 0 rgba(255, 255, 255, .50),
+    inset 0 -1px 0 rgba(0, 0, 0, .22),
+    inset 0 0 10px rgba(255, 255, 255, .05);
+}
+
+/* The lens: a single diagonal specular band across the upper half. This is what
+   separates glass from a translucent rectangle — a lit edge reading as thickness
+   rather than a uniform tint. */
+.island-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg,
+    rgba(255, 255, 255, .20) 0%,
+    rgba(255, 255, 255, 0) 26%,
+    rgba(255, 255, 255, 0) 74%,
+    rgba(255, 255, 255, .09) 100%);
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 
 .island-compact {
