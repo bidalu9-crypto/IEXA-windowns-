@@ -1,0 +1,247 @@
+/* A transparent window with one pill inside it. Everything here is sized to the
+   island itself: the window is bigger than the pill only by the glow margin, so
+   the rounded corners have room to breathe without a visible frame. */
+
+:root {
+  color-scheme: dark;
+  --ink: #f2f4f8;
+  --ink-dim: #9aa3b2;
+  --accent: #7fb6ff;
+  --ok: #48d19a;
+  --warn: #ffcf6b;
+  --err: #ff7a7a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+.island {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 999px;
+  overflow: hidden;
+  transition: border-radius .28s cubic-bezier(.32, .72, 0, 1), box-shadow .28s ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  -webkit-app-region: drag;
+  outline: none;
+}
+
+/* Expanded becomes a rounded card, not a pill: same surface, different radius,
+   which is the whole gesture of a dynamic island. */
+.island[aria-expanded="true"] {
+  border-radius: 27px;
+}
+
+/* Liquid glass: a blurred, saturated backdrop, a lit top edge and a soft inner
+   shadow. Painted on its own layer so the children never inherit the blur. */
+.island-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, 0) 42%),
+    rgba(18, 20, 26, .72);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  backdrop-filter: blur(26px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    inset 0 -1px 0 rgba(0, 0, 0, .28);
+}
+
+.island-compact {
+  position: relative;
+  /* Fixed, not 100%: expanding grows the list below this row, and a row that
+     filled the window would push that list out of view. */
+  flex: 0 0 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  -webkit-app-region: drag;
+}
+
+.island-badge {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transition: background .2s ease, box-shadow .2s ease;
+}
+
+/* Running: the dot breathes, so a glance tells work is happening even when the
+   label is hidden by a narrow pill. */
+.island[data-state="running"] .island-badge {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(127, 182, 255, .18);
+  animation: island-pulse 1.6s ease-in-out infinite;
+}
+.island[data-state="done"] .island-badge { background: var(--ok); }
+.island[data-state="error"] .island-badge { background: var(--err); }
+
+@keyframes island-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(127, 182, 255, .10); }
+  50% { box-shadow: 0 0 0 6px rgba(127, 182, 255, .22); }
+}
+
+.island-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  color: var(--ink);
+  opacity: .92;
+}
+.island-icon svg { width: 17px; height: 17px; display: block; }
+
+.island-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  letter-spacing: .01em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.island-trailing {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.island-chevron {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-left: 2px;
+  border-right: 1.5px solid var(--ink-dim);
+  border-bottom: 1.5px solid var(--ink-dim);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  -webkit-app-region: no-drag;
+}
+.island[aria-expanded="true"] .island-chevron {
+  transform: rotate(-135deg) translate(-1px, -1px);
+}
+
+.island-expanded {
+  position: relative;
+  padding: 4px 12px 12px;
+  height: calc(100% - 46px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.island-expanded[hidden] { display: none; }
+
+.island-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.island-title {
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.island-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+
+.island-steps {
+  list-style: none;
+  margin: 0;
+  padding: 6px 0 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.island-steps::-webkit-scrollbar { width: 4px; }
+.island-steps::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .16);
+  border-radius: 2px;
+}
+
+.island-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 4px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--ink);
+  animation: island-step-in .24s cubic-bezier(.32, .72, 0, 1) both;
+}
+.island-step + .island-step { border-top: 1px solid rgba(255, 255, 255, .05); }
+
+@keyframes island-step-in {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.island-step-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--ink-dim);
+}
+.island-step-icon svg { width: 15px; height: 15px; display: block; }
+
+.island-step-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.island-step-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+.island-step[data-status="running"] .island-step-status { color: var(--accent); }
+.island-step[data-status="done"] .island-step-status { color: var(--ok); }
+.island-step[data-status="error"] .island-step-status { color: var(--err); }
+
+.island-empty {
+  padding: 14px 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+/* Motion is a setting everywhere else in the app, so it is honoured here too. */
+@media (prefers-reduced-motion: reduce) {
+  .island-badge, .island-step, .island-chevron { animation: none !important; transition: none !important; }
+}
+html[data-motion="reduced"] .island-badge,
+html[data-motion="reduced"] .island-step { animation: none; }

@@ -188,7 +188,7 @@
     <div class="sidebar-project">
       <div class="sidebar-section-header">
         <span class="sidebar-section-label" data-i18n="nav.projects">项目</span>
-        <button type="button" class="ui-icon-button" id="shellAddProject" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+        <button type="button" class="ui-icon-button" id="shellAddProject" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-folder"/></svg></button>
       </div>
       <button type="button" class="shell-project-button" id="shellProjectBtn" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true"><use href="#ui-folder"/></svg><span id="shellProjectName" data-i18n="nav.openProject">打开项目文件夹</span><svg class="ui-icon project-row-chevron" aria-hidden="true"><use href="#ui-chevron-right"/></svg></button>
     </div>
@@ -196,7 +196,7 @@
       <div class="sessions-header">
         <span class="sessions-title" data-i18n="ui.1">项目与对话</span>
         <button type="button" class="sessions-archive-manager ui-icon-button" id="archiveManagerBtn" title="管理已存档会话" data-i18n-title="tip.archivedSessions" aria-label="管理已存档会话" data-i18n-aria="tip.archivedSessions"><svg class="ui-icon" aria-hidden="true"><use href="#ui-archive"/></svg></button>
-        <button class="sessions-new-btn ui-icon-button" id="newSessionBtn" title="新建会话" data-i18n-title="tip.newSession" aria-label="新建会话" data-i18n-aria="tip.newSession"><svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path fill="currentColor" stroke="none" d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></svg></button>
+        <button class="sessions-new-btn ui-icon-button" id="newSessionBtn" title="新建会话" data-i18n-title="tip.newSession" aria-label="新建会话" data-i18n-aria="tip.newSession"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-edit"/></svg></button>
       </div>
       <div class="search-box">
         <input type="text" id="searchInput" class="search-input" placeholder="搜索会话" data-i18n-placeholder="ui.p1" aria-label="搜索会话" data-i18n-placeholder="search.sessions" data-i18n-aria="search.sessions">
@@ -511,7 +511,7 @@
             <div class="files-panel-title">
               <span id="filesPanelTitle" data-i18n="ui.43">项目</span>
               <div class="files-panel-actions">
-                <button type="button" class="files-icon-btn ui-icon-button" id="filesOpenBtn" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-plus"/></svg></button>
+                <button type="button" class="files-icon-btn ui-icon-button" id="filesOpenBtn" title="打开项目文件夹" data-i18n-title="tip.openProjectFolder" aria-label="打开项目文件夹" data-i18n-aria="tip.openProjectFolder"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-folder"/></svg></button>
                 <button type="button" class="files-icon-btn ui-icon-button" id="filesRefreshBtn" title="刷新项目文件" data-i18n-title="tip.refreshFiles" style="display:none;" aria-label="刷新项目文件" data-i18n-aria="tip.refreshFiles"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-refresh"/></svg></button>
                 <button type="button" class="files-icon-btn ui-icon-button" id="filesCloseProjectBtn" title="关闭项目" data-i18n-title="tip.closeProject" style="display:none;" aria-label="关闭项目" data-i18n-aria="tip.closeProject"><svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
               </div>
@@ -1589,6 +1589,7 @@ version: 1.0.0
 <script src="services/Checkpoints.js"></script>
 <script src="services/GoalBanner.js"></script>
 <script src="services/AppearanceView.js"></script>
+  <script src="services/IslandBridge.js"></script>
 <script src="services/ScreenshotCapture.js"></script>
 <script src="services/ShareConversation.js"></script>
 <script src="services/SpeechView.js"></script>

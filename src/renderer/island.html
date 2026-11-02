@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>IEXA 灵动岛</title>
+<link rel="stylesheet" href="island.css">
+</head>
+<body>
+<div id="island" class="island" data-state="idle" role="button" tabindex="0" aria-expanded="false" aria-label="IEXA 任务进度">
+  <div class="island-glass"></div>
+  <div class="island-compact">
+    <span class="island-badge" id="islandBadge" aria-hidden="true"></span>
+    <span class="island-icon" id="islandIcon" aria-hidden="true"></span>
+    <span class="island-label" id="islandLabel">就绪</span>
+    <span class="island-trailing" id="islandTrailing"></span>
+    <span class="island-chevron" aria-hidden="true"></span>
+  </div>
+  <div class="island-expanded" id="islandExpanded" hidden>
+    <div class="island-head">
+      <span class="island-title" id="islandTitle">最近步骤</span>
+      <span class="island-count" id="islandCount">0</span>
+    </div>
+    <ol class="island-steps" id="islandSteps"></ol>
+  </div>
+</div>
+<script src="island.js"></script>
+</body>
+</html>

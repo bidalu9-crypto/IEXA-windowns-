@@ -37,8 +37,11 @@ async function fetchProfiles() {
   }
   if (data.contextCompactionLimit !== undefined && data.contextCompactionLimit !== null) {
     currentContextCompactionLimit = normalizeContextCompactionLimit(data.contextCompactionLimit);
-    applyContextCompactionUI(currentContextCompactionLimit);
   }
+  // Default ceiling when nothing has been chosen: 1M, paired with the 80%
+  // trigger below. Both are overridable in the composer chip.
+  if (!currentContextCompactionLimit) currentContextCompactionLimit = DEFAULT_CONTEXT_COMPACTION_LIMIT;
+  applyContextCompactionUI(currentContextCompactionLimit);
   return data;
 }
 
@@ -405,6 +408,7 @@ let currentContextCompactionThreshold = null;
 const MIN_CONTEXT_COMPACTION_LIMIT = 128000;
 const MAX_CONTEXT_COMPACTION_LIMIT = 10000000;
 const DEFAULT_CONTEXT_COMPACTION_THRESHOLD = 80;
+const DEFAULT_CONTEXT_COMPACTION_LIMIT = 1000000;
 
 const CONTEXT_COMPACTION_OPTIONS = [
   { limit: null, label: IexaI18n.t('model.auto'), desc: IexaI18n.t('model.autoHint') },

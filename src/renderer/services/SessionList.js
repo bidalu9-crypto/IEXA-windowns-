@@ -261,7 +261,7 @@ function renderSessionList() {
     // the running state has to come from that session's runtime, not from the
     // global `isProcessing` flag the composer reads.
     const running = sessionRuntimes.get(s.id)?.isProcessing === true;
-    const timeStr = formatTime(s.updated);
+    const timeStr = formatTime(s.created || s.updated);
     return `
       <div class="session-item${active}${pinned}${running ? ' is-running' : ''}" data-id="${escapeHtml(s.id)}">
         <div class="session-item-info" data-ui-action="switchSession" data-ui-arg="${escapeHtml(s.id)}">
@@ -272,7 +272,12 @@ function renderSessionList() {
       </div>`;
   };
   sessionsList.innerHTML = orderedGroups.map(group => {
-    const sorted = [...group.sessions].sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || (Number(b.pinnedAt) || 0) - (Number(a.pinnedAt) || 0) || Number(b.updated) - Number(a.updated));
+    const sorted = [...group.sessions].sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true)
+      || (Number(b.pinnedAt) || 0) - (Number(a.pinnedAt) || 0)
+      // Ordered by when the conversation was STARTED. Sorting on `updated` made
+      // the list reshuffle whenever a session was merely opened, which is what
+      // looked like the order changing on its own.
+      || (Number(b.created) || Number(b.updated) || 0) - (Number(a.created) || Number(a.updated) || 0));
     return `<section class="session-project-group" data-project-root="${escapeHtml(group.root)}">
       <div class="session-project-heading" title="${escapeHtml(group.root || IexaI18n.t('session.unboundProject'))}">${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || IexaI18n.t('session.noProject'))}</span><b>${sorted.length}</b></div>
       <div class="session-project-items">${sorted.map(renderItem).join('')}</div>

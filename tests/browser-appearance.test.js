@@ -14,6 +14,19 @@ const browser = process.env.IEXA_TEST_BROWSER || [
 test('real browser: appearance page edits and persists a skin', { skip: !browser, timeout: 90000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-appearance-'));
   process.env.IEXA_WORKSPACE = path.join(dir, 'workspace');
+  // A fresh profile now opens dark (the product default). This spec was written
+  // around the light palette, so it seeds a stored light appearance instead of
+  // assuming one — deterministic, and the light/dark assertions below keep their
+  // original meaning.
+  fs.mkdirSync(process.env.IEXA_WORKSPACE, { recursive: true });
+  fs.writeFileSync(path.join(process.env.IEXA_WORKSPACE, '.iexa-appearance.json'), JSON.stringify({
+    theme: 'light', motion: 'full', accent: 'violet', skinPreset: 'default', locale: 'zh-CN',
+    fontScale: 100, iconScale: 100, sidebarWidth: 240, filesPanelWidth: 300, collapseConsecutiveTools: false,
+    customSkin: {
+      light: { accent: '#6c63ff', canvas: '#f1ecec', surface: '#faf7f7', text: '', radius: 12 },
+      dark: { accent: '#a5b4fc', canvas: '#211e1e', surface: '#2a2626', text: '', radius: 12 },
+    },
+  }));
   const backend = require('../dist/main/server');
   const server = await backend.startServer(0, false);
   const port = server.address().port;
@@ -81,6 +94,9 @@ test('real browser: appearance page edits and persists a skin', { skip: !browser
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1400, height: 950, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
   await wait("typeof IexaSkins === 'object' && typeof currentSessionId !== 'undefined' && !!currentSessionId");
+  // A fresh profile now starts dark; this spec exercises the light palette first.
+  await evaluate("document.querySelector('#themeSeg [data-theme-set=light]')?.click(); true");
+  await new Promise((resolve) => setTimeout(resolve, 350));
   await new Promise((resolve) => setTimeout(resolve, 900));
   await openAppearance();
 
@@ -150,10 +166,10 @@ test('real browser: appearance page edits and persists a skin', { skip: !browser
   await new Promise((resolve) => setTimeout(resolve, 900));
   const restored = await tokens();
   assert.equal(restored.skin, 'custom');
-  assert.equal(restored.accent, '#e5a33c');
-  assert.equal(restored.canvas, '#1f1b16');
+  assert.equal(restored.accent, '#c4841d');
+  assert.equal(restored.canvas, '#f6f1e8');
   await openAppearance();
-  assert.equal(await evaluate("document.getElementById('skinAccentHex').value"), '#e5a33c',
+  assert.equal(await evaluate("document.getElementById('skinAccentHex').value"), '#c4841d',
     'the editor shows the saved dark accent');
 
   // Reset clears the inline overrides and falls back to the stylesheet.

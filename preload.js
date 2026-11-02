@@ -5,6 +5,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('iexaDesktop', {
+  // Dynamic island: a snapshot push and one switch. The island window itself is
+  // created by the main process, so the page only ever sends state.
+  islandState: (state) => ipcRenderer.send('iexa:island-state', state),
+  islandSetEnabled: (enabled) => ipcRenderer.invoke('iexa:island-set-enabled', Boolean(enabled)),
+  islandStatus: () => ipcRenderer.invoke('iexa:island-status'),
   initialAppearance: ipcRenderer.sendSync('iexa:get-initial-appearance'),
   initialWindowState: ipcRenderer.sendSync('iexa:get-window-state'),
   windowResize: (request) => ipcRenderer.invoke('iexa:window-resize', request),

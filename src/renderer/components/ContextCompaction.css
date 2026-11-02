@@ -129,7 +129,10 @@
   font: inherit;
   font-size: calc(12px * var(--ui-font-scale, 1));
   font-variant-numeric: tabular-nums;
-  text-align: left;
+  /* Centred: a left-aligned value in a wide field reads as a stray label,
+     and the number is the only content of this control. */
+  text-align: center;
+  line-height: 1;
   /* Native spinners are the beveled arrows that read as a Windows XP control. */
   appearance: textfield;
   -moz-appearance: textfield;

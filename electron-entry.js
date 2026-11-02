@@ -456,6 +456,171 @@ ipcMain.on('iexa:pet-drag-end', () => {
 
 ipcMain.on('iexa:pet-poked', () => { /* reserved for future reactions */ });
 
+// ---- Dynamic island ------------------------------------------------------
+// A second frameless surface, smaller than the pet's window contract: a pill the
+// user can drag anywhere and click to unfold the latest tool steps. The island
+// never reads the workspace itself — the chat window pushes one state object and
+// this block only owns the window, the bounds and the forwarding.
+const ISLAND_WIDTH = 340;
+const ISLAND_COMPACT_HEIGHT = 70;
+let islandWindow = null;
+let islandState = { state: 'idle', label: '就绪', trailing: '', icon: 'idle', steps: [] };
+
+function islandConfigFile() { return workspaceFile('.iexa-island/config.json'); }
+function islandPositionFile() { return workspaceFile('.iexa-island/position.json'); }
+
+function readIslandConfig() {
+  const raw = readJsonFile(islandConfigFile(), {}) || {};
+  return { enabled: raw.enabled === true, alwaysOnTop: raw.alwaysOnTop !== false };
+}
+
+function clampIslandBounds(bounds) {
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: Math.round(Math.min(Math.max(bounds.x, area.x), area.x + area.width - bounds.width)),
+    y: Math.round(Math.min(Math.max(bounds.y, area.y), area.y + area.height - bounds.height)),
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
+function defaultIslandBounds() {
+  const area = screen.getPrimaryDisplay().workArea;
+  return clampIslandBounds({
+    x: area.x + Math.round((area.width - ISLAND_WIDTH) / 2),
+    y: area.y + 10,
+    width: ISLAND_WIDTH,
+    height: ISLAND_COMPACT_HEIGHT,
+  });
+}
+
+function readIslandBounds() {
+  const saved = readJsonFile(islandPositionFile(), null);
+  const fallback = defaultIslandBounds();
+  if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return fallback;
+  return clampIslandBounds({
+    x: saved.x,
+    y: saved.y,
+    width: ISLAND_WIDTH,
+    height: Math.max(ISLAND_COMPACT_HEIGHT, Number(saved.height) || fallback.height),
+  });
+}
+
+function saveIslandBounds(bounds) {
+  try {
+    const dir = path.dirname(islandPositionFile());
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(islandPositionFile(), JSON.stringify({ x: bounds.x, y: bounds.y, height: bounds.height }, null, 2));
+  } catch { /* a lost position is not worth a crash */ }
+}
+
+function createIslandWindow() {
+  if (islandWindow && !islandWindow.isDestroyed()) return islandWindow;
+  const config = readIslandConfig();
+  const bounds = readIslandBounds();
+  islandWindow = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: config.alwaysOnTop,
+    show: false,
+    focusable: true,
+    title: 'IEXA 灵动岛',
+    icon: path.join(__dirname, 'resources', 'icon.png'),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      backgroundThrottling: false,
+      preload: path.join(__dirname, 'resources', 'island-preload.js'),
+    },
+  });
+  islandWindow.setMenuBarVisibility(false);
+  islandWindow.setAlwaysOnTop(config.alwaysOnTop, 'floating');
+  islandWindow.once('ready-to-show', () => {
+    if (islandWindow && !islandWindow.isDestroyed()) islandWindow.showInactive();
+  });
+  islandWindow.on('moved', () => {
+    if (islandWindow && !islandWindow.isDestroyed()) saveIslandBounds(islandWindow.getBounds());
+  });
+  islandWindow.on('closed', () => { islandWindow = null; });
+  secureNavigation(islandWindow, ['/island.html']);
+  islandWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  islandWindow.loadURL(`http://${LOOPBACK_HOST}:${PORT}/island.html`);
+  return islandWindow;
+}
+
+function destroyIslandWindow() {
+  if (islandWindow && !islandWindow.isDestroyed()) {
+    islandWindow.destroy();
+  }
+  islandWindow = null;
+}
+
+function pushIslandState() {
+  if (!islandWindow || islandWindow.isDestroyed()) return;
+  try { islandWindow.webContents.send('iexa:island-state', islandState); } catch { /* window closing */ }
+}
+
+ipcMain.on('iexa:island-initial', (event) => {
+  if (!trustedSender(event)) { event.returnValue = null; return; }
+  event.returnValue = islandState;
+});
+
+// The chat window pushes a full snapshot; the island is a pure viewer, so there
+// is no incremental protocol to keep in sync across two processes.
+ipcMain.on('iexa:island-state', (event, next) => {
+  if (!trustedSender(event) || !next || typeof next !== 'object') return;
+  islandState = {
+    state: ['idle', 'running', 'done', 'error'].includes(next.state) ? next.state : 'idle',
+    label: String(next.label || ''),
+    trailing: String(next.trailing || ''),
+    icon: String(next.icon || 'idle'),
+    title: String(next.title || ''),
+    steps: Array.isArray(next.steps) ? next.steps.slice(0, 6).map((step) => ({
+      name: String(step && step.name || ''),
+      icon: String(step && step.icon || 'terminal'),
+      status: ['running', 'done', 'error', 'pending'].includes(step && step.status) ? step.status : 'pending',
+    })) : [],
+  };
+  pushIslandState();
+});
+
+// Expanding is a height change on the window: the page cannot resize itself.
+ipcMain.on('iexa:island-resize', (event, height) => {
+  if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return;
+  const current = islandWindow.getBounds();
+  const next = Math.round(Math.min(560, Math.max(ISLAND_COMPACT_HEIGHT, Number(height) || ISLAND_COMPACT_HEIGHT)));
+  if (next === current.height) return;
+  islandWindow.setBounds({ ...current, height: next }, false);
+  saveIslandBounds({ ...current, height: next });
+});
+
+ipcMain.handle('iexa:island-set-enabled', (_event, enabled) => {
+  const dir = path.dirname(islandConfigFile());
+  try {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(islandConfigFile(), JSON.stringify({ enabled: Boolean(enabled), alwaysOnTop: true }, null, 2));
+  } catch { /* reported through the returned state */ }
+  if (enabled) createIslandWindow(); else destroyIslandWindow();
+  return { enabled: Boolean(enabled), open: Boolean(islandWindow && !islandWindow.isDestroyed()) };
+});
+
+ipcMain.handle('iexa:island-status', () => ({
+  enabled: readIslandConfig().enabled,
+  open: Boolean(islandWindow && !islandWindow.isDestroyed()),
+}));
+
 ipcMain.on('iexa:pet-open-main', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -1120,6 +1285,10 @@ const profileDirectory = path.join(process.env.IEXA_WORKSPACE, '.iexa-electron-p
 fs.mkdirSync(profileDirectory, { recursive: true });
 app.setPath('userData', profileDirectory);
 app.whenReady().then(async () => {
+  // The island is opt-in; a fresh profile must not grow a floating window
+  // before the user has asked for one.
+  try { if (readIslandConfig().enabled) createIslandWindow(); } catch { /* no display yet */ }
+
   console.log('[IEXA] Electron app starting...');
   console.log('[IEXA] App dir:', __dirname);
 

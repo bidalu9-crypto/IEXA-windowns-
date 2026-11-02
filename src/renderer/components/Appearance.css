@@ -688,3 +688,65 @@ html[data-motion="reduced"] .appearance-saved { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .appearance-card, .appearance-preview { animation: none; }
 }
+
+/* ---- Dynamic island toggle ---------------------------------------------- */
+/* Sits in the same grid as the other appearance cards, so it borrows their
+   surface, radius and rhythm instead of inventing a second card style. */
+.island-toggle-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--bg-secondary);
+}
+.island-toggle-copy h3 {
+  margin: 0 0 6px;
+  font-size: calc(13.5px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.island-toggle-copy p {
+  margin: 0;
+  font-size: calc(12px * var(--ui-font-scale, 1));
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.island-switch { flex: 0 0 auto; display: inline-flex; cursor: pointer; }
+.island-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.island-switch-track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  transition: background .18s ease, border-color .18s ease;
+}
+.island-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  transition: transform .2s cubic-bezier(.32, .72, 0, 1);
+}
+.island-switch input:checked + .island-switch-track {
+  background: var(--accent);
+  border-color: transparent;
+}
+.island-switch input:checked + .island-switch-track::after { transform: translateX(18px); }
+.island-switch input:focus-visible + .island-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.island-switch input:disabled + .island-switch-track { opacity: .55; }

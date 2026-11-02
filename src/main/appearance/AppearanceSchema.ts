@@ -64,18 +64,18 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
   return {
     fontScale: width(source.fontScale, 100, 100, 180),
     iconScale: width(source.iconScale, 100, 100, 160),
-    theme: source.theme === 'dark' ? 'dark' : 'light',
-    motion: source.motion === 'full' || source.motion === 'reduced' ? source.motion : 'system',
+    theme: source.theme === 'light' ? 'light' : 'dark',
+    motion: source.motion === 'system' || source.motion === 'reduced' ? source.motion : 'full',
     accent: ACCENTS.includes(String(source.accent) as typeof ACCENTS[number])
       ? String(source.accent) as AppearanceSettings['accent']
-      : 'violet',
+      : 'mono',
     sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
     filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
     collapseConsecutiveTools: source.collapseConsecutiveTools === true,
     locale: LOCALES.includes(String(source.locale) as typeof LOCALES[number])
       ? String(source.locale) as AppearanceSettings['locale']
       : 'zh-CN',
-    skinPreset: SKIN_PRESETS.includes(String(source.skinPreset)) ? String(source.skinPreset) : 'default',
+    skinPreset: SKIN_PRESETS.includes(String(source.skinPreset)) ? String(source.skinPreset) : 'graphite',
     customSkin: {
       light: normalizeSkinPalette(custom.light, DEFAULT_SKIN.light),
       dark: normalizeSkinPalette(custom.dark, DEFAULT_SKIN.dark),

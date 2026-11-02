@@ -506,6 +506,8 @@
     'dock.edit': { zh: '编辑', en: 'Edit', ja: '編集' },
     'dock.remove': { zh: '移除', en: 'Remove', ja: '削除' },
     'dock.attachmentsOnly': { zh: '仅附件', en: 'Attachments only', ja: '添付のみ' },
+    'appearance.island': { zh: '灵动岛', en: 'Dynamic island', ja: 'ダイナミックアイランド' },
+    'appearance.islandDesc': { zh: '在桌面浮一个小胶囊，显示当前会话的工具进度，可拖动、点击展开最近 6 步。', en: 'Float a small capsule on the desktop that mirrors the current session\'s tool progress. Drag it anywhere; click to unfold the last six steps.', ja: 'デスクトップに小さなカプセルを浮かべ、現在のセッションのツール進行を表示します。ドラッグで移動、クリックで直近 6 ステップを展開。' },
 
     /* ---- tool row variants (one glyph + one verb per kind of act) ---- */
     'tool.variant.search': { zh: '搜索', en: 'Searched', ja: '検索' },
