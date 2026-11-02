@@ -64,6 +64,18 @@
         current = current.nextSibling;
         continue;
       }
+      // A table wrapper stands in for the bare <table> Markdown produced. The
+      // wrapper is applied during streaming so the table keeps its rounded card
+      // while rows arrive. Its identity is preserved, but the rows inside still
+      // have to be patched: skipping the whole subtree would freeze the table at
+      // whatever rows existed when it was first wrapped.
+      if (current && current.nodeType === 1 && current.classList && current.classList.contains('markdown-table-wrap')
+          && next.nodeType === 1 && next.tagName === 'TABLE') {
+        const inner = current.firstElementChild;
+        if (inner && inner.tagName === 'TABLE') patch(inner, next, animate);
+        current = current.nextSibling;
+        continue;
+      }
       let target = current;
       if (!compatible(target, next)) {
         target = next.nodeType === 3 ? textGroup(next.data, animate) : next.cloneNode(false);

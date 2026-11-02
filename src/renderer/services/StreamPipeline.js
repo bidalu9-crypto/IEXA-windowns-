@@ -362,6 +362,10 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   // to end. A half-written spec is skipped silently by the enhancer, and patch()
   // preserves an already-built card across deltas.
   window.IexaChart?.enhance(contentEl);
+  // Tables get their rounded card the moment the Markdown produces one, not when
+  // the turn ends. patch() hands a wrapped table through untouched, so this stays
+  // a cheap querySelectorAll instead of a rebuild per frame.
+  enhanceTables(contentEl);
 }
 
 function handleTextDelta(fullText) {
