@@ -4,7 +4,9 @@
 (() => {
   'use strict';
 
-  const COMPACT_HEIGHT = 44;
+  const COMPACT_HEIGHT = 38;
+const EXPANDED_MIN_WIDTH = 268;
+const ISLAND_FALLBACK_WIDTH = 168;
   const MAX_STEPS = 6;
 
   const root = document.getElementById('island');
@@ -24,8 +26,8 @@
     file: 'M200,88V208a16,16,0,0,1-16,16H72a16,16,0,0,1-16-16V48A16,16,0,0,1,72,32h80Zm-40,0h32L160,56Z',
     search: 'M232,152a80,80,0,1,1-38.6-68.9A80,80,0,0,1,232,152Zm-80-64a64,64,0,1,0,64,64A64,64,0,0,0,152,88Z',
     brain: 'M120,32A56,56,0,0,0,64,88c0,10,2,19,7,27l-7,41a8,8,0,0,0,10,10l28-9a56,56,0,0,0,18,3A56,56,0,0,0,120,32Z',
-    done: 'M232,120A112,112,0,1,1,120,8,112,112,0,0,1,232,120Zm-52-18a8,8,0,0,0-11-11l-57,57-21-21a8,8,0,0,0-11,11l27,27a8,8,0,0,0,11,0Z',
-    error: 'M232,120A112,112,0,1,1,120,8,112,112,0,0,1,232,120Zm-45-71a8,8,0,0,0-11,0L120,105,64,49a8,8,0,0,0-11,11l56,56-56,56a8,8,0,0,0,11,11l56-56,56,56a8,8,0,0,0,11-11l-56-56,56-56A8,8,0,0,0,187,49Z',
+    done: 'M232,56a8,8,0,0,0-13.66-5.66L95,174.37,29.66,109a8,8,0,0,0-11.32,11.32l71,71a8,8,0,0,0,11.32,0l129-129A8,8,0,0,0,232,56Z',
+    error: 'M200.49,183.51a8,8,0,0,1-11.32,11.32L120,125.66,50.83,194.83a8,8,0,0,1-11.32-11.32L108.69,114.34,39.51,45.17a8,8,0,0,1,11.32-11.32L120,102.69l69.17-68.84a8,8,0,0,1,11.32,11.32L131.31,114.34Z',
   };
 
   const svg = (name) => {
@@ -72,16 +74,41 @@
     expandedNow = Boolean(next);
     root.setAttribute('aria-expanded', String(expandedNow));
     expanded.hidden = !expandedNow;
+    applySize();
+  }
+
+  /**
+   * The width the compact row actually needs, in CSS pixels.
+   *
+   * The window is the only thing that can resize, and it cannot see its own
+   * content, so the row is measured at `max-content` for one frame. This is what
+   * makes the pill hug its words instead of sitting inside a fixed 208px band
+   * with empty glass either side.
+   */
+  function compactWidth() {
+    const row = document.querySelector('.island-compact');
+    if (!row) return ISLAND_FALLBACK_WIDTH;
+    const previous = row.style.width;
+    row.style.width = 'max-content';
+    const measured = Math.ceil(row.getBoundingClientRect().width);
+    row.style.width = previous;
+    // + 10 for the 5px inset on each side of the window.
+    return measured + 10;
+  }
+
+  function applySize() {
+    const width = expandedNow
+      ? Math.max(compactWidth(), EXPANDED_MIN_WIDTH)
+      : compactWidth();
     const height = expandedNow ? expandedHeight() : COMPACT_HEIGHT;
-    window.iexaIsland?.resize(height);
+    window.iexaIsland?.resize({ width, height });
   }
 
   function expandedHeight() {
     const steps = Math.min(MAX_STEPS, (lastState.steps || []).length) || 1;
-    // 44px compact window + the head row + one row per step + Slack, measured
-    // against the rendered card rather than guessed: the list needs 28px a row
-    // and about 40px of chrome around it.
-    return 44 + 40 + steps * 28;
+    // Compact row + the head row + one row per step. The list needs 26px a row
+    // and about 34px of chrome; both are read off the rendered card, not guessed.
+    return COMPACT_HEIGHT + 34 + steps * 26;
   }
 
   root.addEventListener('click', (event) => {
@@ -102,7 +129,7 @@
   window.iexaIsland?.onState((state) => {
     if (!state || typeof state !== 'object') return;
     render(state);
-    if (expandedNow) window.iexaIsland?.resize(expandedHeight());
+    applySize();
   });
 
   const initial = window.iexaIsland?.initial?.();

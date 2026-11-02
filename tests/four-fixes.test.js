@@ -82,7 +82,7 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   assert.match(js, /const MAX_STEPS = 6;/, 'at most six steps');
   assert.match(js, /steps\.slice\(0, MAX_STEPS\)/, 'the snapshot is truncated, not just styled');
   assert.match(js, /setExpanded/, 'the pill toggles');
-  assert.match(css, /backdrop-filter: blur\(26px\) saturate\(190%\)/, 'it is glass, not a flat box');
+  assert.match(css, /backdrop-filter: blur\(22px\) saturate\(125%\)/, 'it is glass, not a flat box');
   assert.match(css, /prefers-reduced-motion/, 'motion settings are honoured');
 
   assert.match(entry, /preload: path\.join\(__dirname, 'resources', 'island-preload\.js'\)/, 'sandboxed preload');
@@ -96,10 +96,20 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   // second black layer around the pill. Both are now asserted against.
   assert.doesNotMatch(html, /island-chevron/, 'no expand arrow in the markup');
   assert.doesNotMatch(css, /island-chevron/, 'no expand arrow in the stylesheet');
-  assert.match(css, /inset: 6px/, 'the pill is inset by one small margin on all sides');
+  assert.match(css, /inset: 5px/, 'the pill is inset by one small margin on all sides');
   assert.match(css, /box-shadow: none/, 'no clipped drop shadow painting a frame');
-  assert.match(entry, /const ISLAND_WIDTH = 248;/, 'compact window width');
-  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 44;/, 'compact window height');
-  assert.match(js, /const COMPACT_HEIGHT = 44;/, 'the renderer agrees with the window');
-  assert.match(js, /44 \+ 40 \+ steps \* 28/, 'expanded height is derived, not guessed');
+  // A fixed-width window left a band of empty glass beside a short label. The row
+  // measures itself and the window follows, so the pill hugs its words.
+  assert.match(css, /justify-content: center/, 'the compact row centres its group');
+  assert.doesNotMatch(css, /\.island-label \{[^}]*flex: 1 1 auto/, 'the label does not stretch to fill');
+  assert.match(entry, /const ISLAND_WIDTH = 208;/, 'compact window width');
+  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 38;/, 'compact window height');
+  assert.match(entry, /Number\(saved\.width\)/, 'the window remembers the last hug width');
+  assert.match(entry, /ISLAND_MIN_WIDTH/, 'and clamps it');
+  assert.match(js, /const COMPACT_HEIGHT = 38;/, 'the renderer agrees with the window');
+  assert.match(js, /function compactWidth\(\)/, 'the pill measures its own content');
+  assert.match(js, /resize\(\{ width, height \}\)/, 'and asks the window for exactly that');
+  assert.match(js, /COMPACT_HEIGHT \+ 34 \+ steps \* 26/, 'expanded height is derived, not guessed');
+  // The status glyphs are bare marks: a filled circle read as a small face at 12px.
+  assert.doesNotMatch(js, /232,120A112,112/, 'the check is not a circle badge');
 });

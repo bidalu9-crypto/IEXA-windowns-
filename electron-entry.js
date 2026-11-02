@@ -461,8 +461,10 @@ ipcMain.on('iexa:pet-poked', () => { /* reserved for future reactions */ });
 // user can drag anywhere and click to unfold the latest tool steps. The island
 // never reads the workspace itself — the chat window pushes one state object and
 // this block only owns the window, the bounds and the forwarding.
-const ISLAND_WIDTH = 248;
-const ISLAND_COMPACT_HEIGHT = 44;
+const ISLAND_WIDTH = 208;
+const ISLAND_MIN_WIDTH = 132;
+const ISLAND_MAX_WIDTH = 340;
+const ISLAND_COMPACT_HEIGHT = 38;
 let islandWindow = null;
 let islandState = { state: 'idle', label: '就绪', trailing: '', icon: 'idle', steps: [] };
 
@@ -501,7 +503,7 @@ function readIslandBounds() {
   return clampIslandBounds({
     x: saved.x,
     y: saved.y,
-    width: ISLAND_WIDTH,
+    width: Math.round(Math.min(ISLAND_MAX_WIDTH, Math.max(ISLAND_MIN_WIDTH, Number(saved.width) || ISLAND_WIDTH))),
     height: Math.max(ISLAND_COMPACT_HEIGHT, Number(saved.height) || fallback.height),
   });
 }
@@ -596,14 +598,24 @@ ipcMain.on('iexa:island-state', (event, next) => {
   pushIslandState();
 });
 
-// Expanding is a height change on the window: the page cannot resize itself.
-ipcMain.on('iexa:island-resize', (event, height) => {
+// A dynamic island hugs its content. A fixed-width window left a band of empty
+// glass beside a short label, which is what "not centred" looked like: the text
+// was centred in a window far wider than it needed to be. The renderer measures
+// its own row and asks for that width; the window stays as small as the words.
+ipcMain.on('iexa:island-resize', (event, request) => {
   if (!trustedSender(event) || !islandWindow || islandWindow.isDestroyed()) return;
   const current = islandWindow.getBounds();
-  const next = Math.round(Math.min(560, Math.max(ISLAND_COMPACT_HEIGHT, Number(height) || ISLAND_COMPACT_HEIGHT)));
-  if (next === current.height) return;
-  islandWindow.setBounds({ ...current, height: next }, false);
-  saveIslandBounds({ ...current, height: next });
+  const object = request && typeof request === 'object' ? request : null;
+  const askedHeight = object ? Number(object.height) : Number(request);
+  const askedWidth = object ? Number(object.width) : NaN;
+  const nextHeight = Math.round(Math.min(560, Math.max(ISLAND_COMPACT_HEIGHT, askedHeight || ISLAND_COMPACT_HEIGHT)));
+  const nextWidth = Number.isFinite(askedWidth) && askedWidth > 0
+    ? Math.round(Math.min(ISLAND_MAX_WIDTH, Math.max(ISLAND_MIN_WIDTH, askedWidth)))
+    : current.width;
+  if (nextHeight === current.height && nextWidth === current.width) return;
+  const next = { ...current, height: nextHeight, width: nextWidth };
+  islandWindow.setBounds(next, false);
+  saveIslandBounds(next);
 });
 
 ipcMain.handle('iexa:island-set-enabled', (_event, enabled) => {

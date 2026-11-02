@@ -27,7 +27,7 @@ html, body {
 
 .island {
   position: absolute;
-  inset: 6px;
+  inset: 5px;
   display: flex;
   flex-direction: column;
   border-radius: 999px;
@@ -45,44 +45,50 @@ html, body {
 /* Expanded becomes a rounded card, not a pill: same surface, different radius,
    which is the whole gesture of a dynamic island. */
 .island[aria-expanded="true"] {
-  border-radius: 20px;
+  border-radius: 16px;
 }
 
-/* Liquid glass: a blurred, saturated backdrop, a lit top edge and a soft inner
-   shadow. Painted on its own layer so the children never inherit the blur. */
+/* Liquid glass. The fill has to be opaque enough that the wallpaper cannot tint
+   it: at 56% over a purple desktop the backdrop blurred and saturated into one
+   muddy plum blob. 86% keeps the blur reading as glass while the surface stays
+   neutral, and the sheen is a single soft top highlight — the previous radial
+   wash at 18%/-30% painted a white smear across the upper-left corner. */
 .island-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background:
-    radial-gradient(120% 160% at 18% -30%, rgba(255, 255, 255, .22), rgba(255, 255, 255, 0) 58%),
-    linear-gradient(180deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, 0) 40%),
-    rgba(22, 24, 30, .56);
-  -webkit-backdrop-filter: blur(26px) saturate(190%);
-  backdrop-filter: blur(26px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, .13);
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 46%),
+    rgba(14, 14, 17, .86);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
+  backdrop-filter: blur(22px) saturate(125%);
+  border: 1px solid rgba(255, 255, 255, .09);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .38),
-    inset 0 -1px 0 rgba(0, 0, 0, .26);
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 -1px 0 rgba(0, 0, 0, .30);
 }
 
 .island-compact {
   position: relative;
   /* Fixed, not 100%: expanding grows the list below this row, and a row that
      filled the window would push that list out of view. */
-  flex: 0 0 32px;
-  height: 32px;
+  flex: 0 0 28px;
+  height: 28px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  /* Centre the group rather than stretching it. The label used to be
+     `flex: 1 1 auto`, which pushed the trailing count to the far edge and left a
+     band of empty glass in the middle — the pill looked slack, not crafted. */
+  justify-content: center;
+  gap: 6px;
   padding: 0 12px;
   -webkit-app-region: drag;
 }
 
 .island-badge {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
   border-radius: 50%;
   background: var(--ink-dim);
   transition: background .2s ease, box-shadow .2s ease;
@@ -106,18 +112,21 @@ html, body {
 .island-icon {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
   color: var(--ink);
   opacity: .92;
 }
-.island-icon svg { width: 14px; height: 14px; display: block; }
+.island-icon svg { width: 12px; height: 12px; display: block; }
 
 .island-label {
-  flex: 1 1 auto;
+  /* Natural width, not a filler: the row is centred, so the label only takes the
+     space its text needs and the trailing count sits right beside it. */
+  flex: 0 1 auto;
   min-width: 0;
-  font-size: 12px;
+  max-width: 100%;
+  font-size: 11.5px;
   font-weight: 500;
   letter-spacing: .01em;
   color: var(--ink);
@@ -128,7 +137,7 @@ html, body {
 
 .island-trailing {
   flex: 0 0 auto;
-  font-size: 10.5px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
   white-space: nowrap;
@@ -136,8 +145,8 @@ html, body {
 
 .island-expanded {
   position: relative;
-  padding: 2px 10px 8px;
-  height: calc(100% - 32px);
+  padding: 1px 8px 6px;
+  height: calc(100% - 28px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
