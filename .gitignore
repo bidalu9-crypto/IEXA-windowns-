@@ -82,6 +82,8 @@ debug.log
 /.video/vo/
 /.video/vo2/
 /.video/mg/plan.json
+/.video/fonts/
+/.video/mg-promo/
 /.video/mg/preview/
 /.video/mg/check/
 /.video/mg/verify/

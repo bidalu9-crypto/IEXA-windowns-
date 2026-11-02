@@ -722,11 +722,11 @@ body.chat-focus-mode .message.user {
 
 /* An inline picture carries no size of its own. A 1440×2560 screenshot used to
    render at its native pixel size, overflow the column and swallow the whole
-   viewport. Cap the box so the entire picture stays visible, and let a click
-   open the existing zoom viewer. */
+   viewport. Both axes are capped by the same 480px so a 9:16 and a 16:9 shot end
+   up with the same visual weight instead of the wide one spanning the column. */
 .message-content img {
   display: block;
-  max-width: 100%;
+  max-width: min(100%, 480px);
   max-height: min(52vh, 480px);
   width: auto;
   height: auto;
