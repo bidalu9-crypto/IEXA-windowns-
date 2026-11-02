@@ -132,7 +132,8 @@
 .workbench-shell .quick-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-top: 22px; }
 .workbench-shell .quick-btn { border: 1px solid var(--border); border-radius: 9px; background: transparent; box-shadow: none; padding: 8px 11px; font-size: calc(11.5px * var(--ui-font-scale, 1)); color: var(--text-secondary); }
 .workbench-shell .quick-btn:hover { background: var(--bg-secondary); border-color: var(--border-strong); transform: none; }
-.workbench-shell .chat-input-area { max-width: none; width: calc(100% - 48px); margin: 0 auto 14px; padding: 12px 14px 7px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-input); box-shadow: 0 3px 12px #00000005; display: flex; flex-direction: column; position: relative; }
+.workbench-shell { --composer-inset: 48px; }
+.workbench-shell .chat-input-area { max-width: none; width: calc(100% - var(--composer-inset, 48px)); margin: 0 auto 14px; padding: 12px 14px 7px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--bg-input); box-shadow: 0 3px 12px #00000005; display: flex; flex-direction: column; position: relative; }
 .workbench-shell .chat-input-area:focus-within { border-color: var(--text-muted); }
 .workbench-shell .chat-input-wrapper { order: 0; border: 0; border-radius: 0; padding: 0; min-height: 58px; box-shadow: none; background: transparent; overflow: visible; }
 .workbench-shell .chat-input-wrapper:focus-within { box-shadow: none; border: 0; }
@@ -213,17 +214,22 @@ html[data-motion="reduced"] .workbench-shell .model-bar :is(.thinking-level-btn,
   html:not([data-motion="full"]) .workbench-shell *, html:not([data-motion="full"]) .workbench-shell *::before, html:not([data-motion="full"]) .workbench-shell *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 @media (max-width: 1050px) and (min-width: 761px) {
+  .workbench-shell { --composer-inset: 28px; }
   .workbench-shell .files-panel { width: 240px; }
-  .workbench-shell .chat-input-area { width: calc(100% - 28px); }
+  .workbench-shell .chat-input-area { width: calc(100% - var(--composer-inset, 28px)); }
   .workbench-shell .chat-messages { padding-left: 20px; padding-right: 20px; }
 }
 @media (max-width: 760px) {
+  /* Declared inside the media block that comes after the base 48px, otherwise
+     the later `--composer-inset: 48px` wins on source order and the narrow
+     breakpoint never takes effect. */
+  .workbench-shell { --composer-inset: 20px; }
   .workbench-header { padding: 0 50px; height: 52px; flex-basis: 52px; }
   .workbench-header-actions { display: none; }
   .workbench-breadcrumb { gap: 7px; font-size: calc(11px * var(--ui-font-scale, 1)); }
   #shellProjectCrumb { max-width: 140px; }
   .workbench-shell .sidebar { padding-top: calc(18px + env(safe-area-inset-top)); }
-  .workbench-shell .chat-input-area { width: calc(100% - 20px); margin-bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px; border-radius: 14px; }
+  .workbench-shell .chat-input-area { width: calc(100% - var(--composer-inset, 20px)); margin-bottom: max(10px, env(safe-area-inset-bottom)); padding: 10px; border-radius: 14px; }
   .workbench-shell .chat-messages { padding: 20px 16px; }
   .workbench-shell .welcome { padding-top: 36px; }
   .workbench-shell .quick-actions { gap: 6px; }

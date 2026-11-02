@@ -1,18 +1,15 @@
-/* Composer dock — the ordered stack above the input card.
- * Visual language matches the comic-panel chrome: a quiet surface, one line of
- * summary, and a capped list that only opens on demand.
- */
-
+/* The strip is exactly as wide as the composer card beneath it.
+ *
+ * Both used to compute their own width, and the composer narrows at two
+ * breakpoints (28px at ≤1050, 20px at ≤760) while the strip kept its flat 48px.
+ * The result was a banner hanging past the input on both sides. One custom
+ * property now owns the inset, so the two can never drift again. */
 .composer-dock {
   display: flex;
   flex-direction: column;
   gap: 8px;
   box-sizing: border-box;
-  /* Same box as the composer below it: the shell gives that card
-     `width: calc(100% - 48px)` and centres it, so the stack uses the identical
-     measure. A different width here is what made the task row sit a few pixels
-     inside the input card's edges. */
-  width: calc(100% - 48px);
+  width: calc(100% - var(--composer-inset, 48px));
   margin: 0 auto;
   padding: 8px 0 6px;
   flex: none;
