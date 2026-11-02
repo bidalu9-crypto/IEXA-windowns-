@@ -206,6 +206,72 @@
     });
   }
 
+  /**
+   * A ring plus a legend: slices start at twelve o'clock and take the series
+   * colours in order. No axes and no hover line — the legend already carries the
+   * numbers, and a ring has no scale to read off.
+   */
+  function drawPie(root, spec, width, height) {
+    const values = spec.series[0].values;
+    const total = values.reduce((sum, value) => sum + value, 0);
+    // Square, with the right side reserved for the legend.
+    const size = Math.max(120, Math.min(height - 36, Math.round(width * 0.34), 230));
+    const cx = 30 + size / 2;
+    const cy = height / 2;
+    const outer = size / 2;
+    const inner = outer * 0.62;
+    const point = (radius, angle) => [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+
+    let angle = -Math.PI / 2;
+    values.forEach((value, index) => {
+      const sweep = (value / total) * Math.PI * 2;
+      // A lone 100% slice has no distinct start and end; stop a hair short so the
+      // arc command still has two different points to draw between.
+      const end = angle + Math.min(sweep, Math.PI * 2 - 0.0001);
+      const large = end - angle > Math.PI ? 1 : 0;
+      const [x1, y1] = point(outer, angle);
+      const [x2, y2] = point(outer, end);
+      const [x3, y3] = point(inner, end);
+      const [x4, y4] = point(inner, angle);
+      const slice = svg('path', {
+        class: 'chart-slice',
+        d: `M${x1.toFixed(2)} ${y1.toFixed(2)}A${outer} ${outer} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`
+          + `L${x3.toFixed(2)} ${y3.toFixed(2)}A${inner} ${inner} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)}Z`,
+      });
+      slice.style.fill = seriesColor(index);
+      // Hovering a slice shows its exact value without a tooltip layer.
+      const hint = svg('title', {});
+      hint.textContent = `${spec.categories[index]} ${formatNumber(value, spec.unit)}`;
+      slice.appendChild(hint);
+      root.appendChild(slice);
+      angle = end;
+    });
+
+    // Centre: the total anchors the ring and gives the eye a starting number.
+    const totalLabel = svg('text', { x: cx, y: cy + 2, class: 'chart-pie-total', 'text-anchor': 'middle' });
+    totalLabel.textContent = formatNumber(total, spec.unit);
+    root.appendChild(totalLabel);
+    const caption = svg('text', { x: cx, y: cy + 20, class: 'chart-pie-caption', 'text-anchor': 'middle' });
+    caption.textContent = spec.series[0].name || '合计';
+    root.appendChild(caption);
+
+    const legendX = cx + outer + 26;
+    const rowHeight = 22;
+    const top = Math.max(18, cy - (values.length * rowHeight) / 2 + 7);
+    values.forEach((value, index) => {
+      const y = top + index * rowHeight;
+      const swatch = svg('rect', { x: legendX, y: y - 9, width: 10, height: 10, rx: 3, class: 'chart-pie-swatch' });
+      swatch.style.fill = seriesColor(index);
+      root.appendChild(swatch);
+      const name = svg('text', { x: legendX + 18, y, class: 'chart-axis-label' });
+      name.textContent = spec.categories[index];
+      root.appendChild(name);
+      const share = svg('text', { x: width - 12, y, class: 'chart-pie-share', 'text-anchor': 'end' });
+      share.textContent = `${Math.round((value / total) * 1000) / 10}%`;
+      root.appendChild(share);
+    });
+  }
+
   function drawChart(body, spec) {
     const host = el('div', 'chart-canvas');
     // Render at the measured width, not a fixed 720: a viewBox wider than the
@@ -218,6 +284,15 @@
       role: 'img', 'aria-label': spec.title || '图表',
     });
     root.classList.add('chart-svg');
+
+    // A ring has no axes and no hover line: its geometry is the message, and the
+    // legend carries the numbers. It gets its own path through drawChart.
+    if (spec.type === 'pie') {
+      drawPie(root, spec, width, height);
+      host.appendChild(root);
+      body.replaceChildren(host);
+      return;
+    }
 
     const plot = {
       left: PAD.left, right: width - PAD.right, top: PAD.top, bottom: height - PAD.bottom,

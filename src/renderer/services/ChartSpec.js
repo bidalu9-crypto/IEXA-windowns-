@@ -9,9 +9,12 @@
 (() => {
   'use strict';
 
-  const TYPES = ['line', 'bar'];
+  const TYPES = ['line', 'bar', 'pie'];
   const MAX_CATEGORIES = 500;
   const MAX_SERIES = 8;
+  // A ring is unreadable past a dozen slices; the legend would wrap past the
+  // chart and every wedge would be a hairline. Aggregate first, then chart.
+  const MAX_SLICES = 12;
   // Below the 500×8 product on purpose: a cap that the other two limits already
   // make unreachable would be dead code.
   const MAX_POINTS = 2400;
@@ -49,7 +52,7 @@
   function validateChartSpec(raw) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('图表数据必须是一个 JSON 对象');
     const type = String(raw.type || '').toLowerCase();
-    if (!TYPES.includes(type)) return fail(`不支持的图表类型：${text(raw.type, 40) || '(空)'}；目前支持 line 与 bar`);
+    if (!TYPES.includes(type)) return fail(`不支持的图表类型：${text(raw.type, 40) || '(空)'}；目前支持 line、bar 与 pie`);
 
     const categories = Array.isArray(raw.categories) ? raw.categories : null;
     if (!categories || !categories.length) return fail('缺少 categories（横轴分类）');
@@ -78,7 +81,9 @@
         // null is meaningful for a line chart: it breaks the line instead of
         // pretending the value is zero.
         if (value === null) {
-          if (type === 'bar') return fail(`系列「${name}」第 ${point + 1} 个值不是有限数值`);
+          // Only a line can encode a gap by breaking. A bar or a slice has no
+          // way to say "missing", so an empty value there is a real error.
+          if (type !== 'line') return fail(`系列「${name}」第 ${point + 1} 个值不是有限数值`);
           numbers.push(null);
           continue;
         }
@@ -88,6 +93,13 @@
       normalizedSeries.push({ name, values: numbers });
     }
 
+    if (type === 'pie') {
+      if (normalizedSeries.length > 1) return fail('饼图只能有一个数据系列；多组数据请用条形图');
+      if (labels.length > MAX_SLICES) return fail(`饼图切片过多（${labels.length} > ${MAX_SLICES}），请先合并小项`);
+      const values = normalizedSeries[0].values;
+      if (values.some((value) => value < 0)) return fail('饼图的数值不能为负');
+      if (!(values.reduce((sum, value) => sum + value, 0) > 0)) return fail('饼图的数值总和必须大于 0');
+    }
     if (labels.length * normalizedSeries.length > MAX_POINTS) {
       return fail(`数据点过多（${labels.length * normalizedSeries.length} > ${MAX_POINTS}）`);
     }
@@ -164,7 +176,7 @@
   }
 
   window.IexaChartSpec = Object.freeze({
-    TYPES, LIMITS, MAX_CATEGORIES, MAX_SERIES, MAX_POINTS,
+    TYPES, LIMITS, MAX_CATEGORIES, MAX_SERIES, MAX_SLICES, MAX_POINTS,
     parseChartSpec, validateChartSpec, valueRange,
   });
 })();

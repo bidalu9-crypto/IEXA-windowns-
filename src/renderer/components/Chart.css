@@ -262,6 +262,38 @@
 
 .chart-error strong { color: var(--error); font-weight: 600; }
 
+/* A ring: the seam between two slices is the card surface, not an outline, so
+   adjacent colours stay separate without drawing a grid of lines. */
+.chart-slice {
+  stroke: var(--bg-input);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  transition: opacity .15s var(--icon-ease);
+}
+.chart-svg:hover .chart-slice { opacity: .92; }
+.chart-svg .chart-slice:hover { opacity: 1; }
+
+.chart-pie-total {
+  fill: var(--text-primary);
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chart-pie-caption {
+  fill: var(--text-muted);
+  font-size: 10.5px;
+}
+.chart-pie-share {
+  fill: var(--text-secondary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.chart-pie-swatch { stroke: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-slice { transition: none; }
+}
+
 @media (max-width: 640px) {
   .chart-card { padding: 8px 9px 6px; }
   .chart-legend { gap: 3px 9px; }

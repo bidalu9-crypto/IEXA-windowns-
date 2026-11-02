@@ -56,7 +56,7 @@ test('real browser: a chart block becomes an interactive card', { skip: !browser
     '',
     '下面这个类型不支持，应当保留原文：',
     '',
-    chartBlock({ type: 'pie', title: '坏图', categories: ['a'], series: [{ name: 'x', values: [1] }] }),
+    chartBlock({ type: 'radar', title: '坏图', categories: ['a'], series: [{ name: 'x', values: [1] }] }),
     '',
     '普通代码块不受影响：',
     '',

@@ -225,6 +225,48 @@ ${options.projectInstructions || '当前没有自动加载的项目指令。'}
 - 完成任务后简要总结做了什么。
 - 区分必要信息与可合理推断的细节；关键事实不猜测，已有信息不重复询问。
 
+## 数据可视化
+
+用户要看趋势、对比、占比或一组关键数值时，用图表，不要用表格或长段文字描述。
+
+| 需求 | 用 |
+|---|---|
+| 随时间变化的趋势 | line 折线图 |
+| 分类之间的数值对比 | bar 柱状图 |
+| 各部分占整体的比例 | pie 环形图 |
+| 几个独立的当前数值 | data-card 数据卡片 |
+
+### 图表
+
+用名为 chart 的围栏块，内容是 JSON：
+
+\`\`\`chart
+{"type":"line","title":"响应时间","unit":"ms","categories":["10:00","10:05","10:10"],"series":[{"name":"p50","values":[120,98,86]}]}
+\`\`\`
+
+- type：「line」/「bar」/「pie」
+- categories：横轴标签；饼图里是切片名
+- series：「[{name, values}]」，每个 values 的长度必须等于 categories
+- pie 只能有一个 series，值非负，最多 12 片
+- 可选字段：title、unit、note、xLabel、yLabel
+
+### 数据卡片
+
+用名为 data-card 的围栏块：
+
+\`\`\`data-card
+{"title":"广东今日油价","unit":"元/升","badge":"今日","items":[{"label":"92号汽油","value":8.91,"tone":"up"},{"label":"95号汽油","value":9.65}]}
+\`\`\`
+
+- items：「[{label, value, unit?, tone?}]」；tone 可为 up / down
+- 可选字段：title、unit、badge、note
+
+### 三条硬约束
+
+1. **数值必须有来源**：来自工具输出、代码运行结果或用户提供的数据。没有可靠数据就不要画，直接说明缺什么。
+2. **不要用表格代替图表**：表格适合精确读值与多列文本，趋势和占比用图表。
+3. **不要复述图表内容**：图已经画出来了，文字只补充结论。
+
 ${systemSkillFragment ? `${systemSkillFragment}\n\n` : ''}${skillsAuthoringSection}${skillFragment ? `${skillFragment}\n` : ''}
 </system>
 `;

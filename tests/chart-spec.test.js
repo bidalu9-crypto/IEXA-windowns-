@@ -44,7 +44,7 @@ test('missing or illegal shape is refused with a readable message', () => {
   const cases = [
     [null, /JSON 对象/],
     [[], /JSON 对象/],
-    [{ ...base(), type: 'pie' }, /不支持的图表类型/],
+    [{ ...base(), type: 'radar' }, /不支持的图表类型/],
     [{ ...base(), categories: [] }, /缺少 categories/],
     [{ ...base(), categories: undefined }, /缺少 categories/],
     [{ ...base(), categories: ['a', ''] }, /空标签/],
@@ -142,4 +142,38 @@ test('the value range spans every series and ignores gaps', () => {
     series: [{ name: 'a', values: [-4, 0, null] }, { name: 'b', values: [1, 8, 2] }],
   }).spec;
   assert.deepEqual(plain(valueRange(spec)), { min: -4, max: 8 });
+});
+
+test('a pie accepts one non-negative series and reports each slice', () => {
+  const result = validateChartSpec({
+    ...base(),
+    type: 'pie',
+    categories: ['直接访问', '搜索', '社交'],
+    series: [{ name: '来源', values: [52, 31, 17] }],
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.spec.type, 'pie');
+  assert.deepEqual(plain(result.spec.series[0].values), [52, 31, 17]);
+  assert.equal(result.spec.series[0].name, '来源');
+});
+
+test('a pie refuses what a ring cannot draw', () => {
+  const cases = [
+    [{ series: [{ name: 'a', values: [1, 2, 3] }, { name: 'b', values: [1, 2, 3] }] }, /只能有一个数据系列/],
+    [{ series: [{ name: 'a', values: [1, -2, 3] }] }, /不能为负/],
+    [{ series: [{ name: 'a', values: [0, 0, 0] }] }, /总和必须大于 0/],
+    [{ series: [{ name: 'a', values: [1, null, 3] }] }, /不是有限数值/],
+    [
+      {
+        categories: Array.from({ length: 13 }, (_, index) => 'c' + index),
+        series: [{ name: 'a', values: Array.from({ length: 13 }, () => 1) }],
+      },
+      /切片过多/,
+    ],
+  ];
+  for (const [patch, pattern] of cases) {
+    const result = validateChartSpec({ ...base(), type: 'pie', ...patch });
+    assert.equal(result.ok, false, 'should reject: ' + JSON.stringify(patch));
+    assert.match(result.error, pattern);
+  }
 });
