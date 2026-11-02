@@ -1047,6 +1047,11 @@
     'think.maxDesc': { zh: '使用模型允许的最大思考', en: 'The most thinking the model allows', ja: 'モデルが許す最大の推論' },
     'think.ultra': { zh: 'Ultra', en: 'Ultra', ja: 'Ultra' },
     'think.ultraDesc': { zh: '更强的深度推理模式', en: 'A stronger deep-reasoning mode', ja: 'より強力な深い推論モード' },
+    'think.auto': { zh: '模型自定', en: 'Model decides', ja: 'モデル任せ' },
+    'think.na': { zh: '不适用', en: 'Not available', ja: '対象外' },
+    'think.noteAuto': { zh: '该模型自行决定思考深度，档位不会发送给网关。', en: 'This model decides its own reasoning depth; the level is not sent.', ja: 'このモデルは思考の深さを自身で決めるため、レベルは送信されません。' },
+    'think.noteUnsupported': { zh: '该模型没有思考档位，选择不会生效。', en: 'This model has no reasoning levels; the choice has no effect.', ja: 'このモデルには思考レベルがないため、選択は反映されません。' },
+    'think.noteV4': { zh: '网关只接受 high / max：低与中发送 high，高及以上发送 max。', en: 'The gateway accepts only high / max: low and medium send high, high and above send max.', ja: 'ゲートウェイが受け付けるのは high / max のみです（低・中は high、高以上は max）。' },
     'think.levelTitle': { zh: '思考档位：{level}', en: 'Reasoning level: {level}', ja: '推論レベル：{level}' },
 
   };

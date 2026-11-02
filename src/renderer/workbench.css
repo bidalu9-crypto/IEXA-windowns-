@@ -508,10 +508,16 @@ html[data-motion="reduced"] .label-glow { display: none; }
 .workbench-shell .thinking-slider-ticks > span { width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); opacity: .5; }
 .workbench-shell .thinking-slider-ticks > span.is-filled { background: var(--on-accent); opacity: .8; }
 .workbench-shell .thinking-slider-track[data-at-max="true"] .thinking-slider-ticks { opacity: 0; }
+.workbench-shell .thinking-slider-track[data-inert="true"] .thinking-slider-ticks { opacity: 0; }
+/* A disabled control has no scale: the thumb is removed rather than parked at 100%. */
+.workbench-shell .thinking-slider-track[data-inert="true"] #thinkingLevelSlider { visibility: hidden; }
 .workbench-shell #thinkingLevelSlider:disabled { opacity: .4; cursor: default; }
 .workbench-shell .thinking-level-btn[data-at-max="true"] .thinking-level-label { color: color-mix(in srgb, var(--thinking-max-ink) 82%, var(--text-primary)); }
 .workbench-shell .thinking-slider-feedback { color: var(--warning); font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.4; }
 .workbench-shell .thinking-slider-feedback[hidden] { display: none; }
+/* States what the chosen level actually sends; hidden when the level is exact. */
+.workbench-shell .thinking-slider-note { color: var(--text-tertiary); font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.45; }
+.workbench-shell .thinking-slider-note[hidden] { display: none; }
 /* Full access is a warning-yellow status, never an implied permission change. */
 .workbench-shell { --permission-full-color: #956600; }
 [data-theme="dark"] .workbench-shell { --permission-full-color: #e2bd00; }

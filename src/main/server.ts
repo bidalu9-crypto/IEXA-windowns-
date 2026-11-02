@@ -32,7 +32,7 @@ import {
   fallbackTitleFromFirstUserMessage,
 } from './session-title';
 import { SkillStore, ensureBundledSkills } from './skills/SkillStore';
-import { maxThinkingLevel, clampThinkingLevel, modelSupportsVision, shouldUseVisionProxy, VisionCapability } from './providers/ModelCapabilities';
+import { maxThinkingLevel, clampThinkingLevel, thinkingWire, modelSupportsVision, shouldUseVisionProxy, VisionCapability } from './providers/ModelCapabilities';
 import { readImageNative, readImageToolDefinition } from './tools/ImageTools';
 import { PermissionBroker, PermissionRequest, PendingPermission, PermissionDecision, PermissionMode } from './security/PermissionManager';
 import { QuestionBroker, AskUserRequest, QuestionAnswer, PendingQuestion } from './runtime/QuestionBroker';
@@ -3281,6 +3281,7 @@ ${recentMemories}
           ...p,
           apiKey: maskKey(p.apiKey),
           maxThinkingLevel: maxThinkingLevel(p.provider, p.model),
+          thinkingWire: thinkingWire(p.provider, p.model),
           supportsFastMode: profileSupportsFastMode(p),
         }));
         jsonReply(res, 200, {

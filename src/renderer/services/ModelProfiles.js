@@ -61,6 +61,10 @@ function thinkingMaxLevelForModel(profile) {
   // older running backends may still report "off" for newly supported GPT-6 ids.
   if (/(?:^|[/:-])gpt-(?:6|[7-9]|[1-9][0-9]+)(?:-[a-z0-9]+)*(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-6-(?:chat|mini|nano|codex)(?:$|[/:-])/.test(model)) return 'max';
   if (/(?:^|[/:-])gpt-5(?:-[0-9]+)?(?:$|[/:-])/.test(model) && !/(?:^|[/:-])gpt-5-(?:chat|mini|nano|codex|1|2)(?:$|[/:-])/.test(model)) return 'xhigh';
+  // DeepSeek V4 is the only DeepSeek generation whose gateway takes a level
+  // (low/medium collapse to high, everything above to max), so an older
+  // running backend cannot hide the top steps behind its own cap.
+  if (model.includes('deepseek-v4')) return 'max';
   if (profile && THINKING_LEVEL_ORDER.includes(profile.maxThinkingLevel)) return profile.maxThinkingLevel;
   const provider = String(profile.provider || '').toLowerCase();
   if (/mimo|agnes|seed-|bytedance-seed|doubao/.test(model)) return 'high';
@@ -73,23 +77,46 @@ function thinkingMaxLevelForModel(profile) {
   return 'off';
 }
 
+/**
+ * Mirrors the provider request builders in src/main/providers. A level that is
+ * never serialised must not look selectable: 'model-decides' means the model
+ * picks its own depth, 'unsupported' means it has no reasoning mode at all.
+ */
+function thinkingWireForModel(profile) {
+  if (!profile || !profile.model) return 'levels';
+  const wire = profile.thinkingWire;
+  if (wire === 'levels' || wire === 'model-decides' || wire === 'unsupported') return wire;
+  const model = String(profile.model).toLowerCase().replace(/[._]/g, '-');
+  const provider = String(profile.provider || '').toLowerCase();
+  if (provider === 'anthropic' || provider === 'gemini') return 'levels';
+  if (model.includes('deepseek-v4')) return 'levels';
+  if (/(?:^|[/:-])glm-5-3-(?:flash|falsh)(?:$|[/:-])/.test(model)) return 'levels';
+  if (/gpt-[5-9]|o[1-9]|reason|thinking|qwq|grok|(?:^|[/:-])r1(?:$|[/:-])/.test(model) || provider === 'xai') return 'levels';
+  if (/(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(model) || model.includes('deepseek') || provider === 'deepseek') return 'model-decides';
+  return 'unsupported';
+}
+
 function applyThinkingLevelUI(level) {
   currentThinkingLevel = normalizeThinkingLevel(level);
   const boundProfileId = sessionsCache.find((session) => session.id === currentSessionId)?.modelBinding?.profileId;
   const activeProfile = modelSelectorProfiles.find((profile) => profile.id === boundProfileId)
     || modelSelectorProfiles.find((profile) => profile.id === activeProfileId);
   const maxLevel = thinkingMaxLevelForModel(activeProfile);
+  const wire = thinkingWireForModel(activeProfile);
+  const levelLabel = wire === 'model-decides' ? IexaI18n.t('think.auto')
+    : wire === 'unsupported' ? IexaI18n.t('think.na')
+      : IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey);
   const maxIndex = THINKING_LEVEL_ORDER.indexOf(maxLevel);
   const currentIndex = THINKING_LEVEL_ORDER.indexOf(currentThinkingLevel);
   if (currentIndex > maxIndex) currentThinkingLevel = maxLevel;
   const btn = document.getElementById('thinkingLevelBtn');
   const label = document.getElementById('thinkingLevelLabel');
   const menu = document.getElementById('thinkingLevelMenu');
-  if (label) label.textContent = IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey);
+  if (label) label.textContent = levelLabel;
   if (btn) {
     btn.dataset.level = currentThinkingLevel;
     btn.title = IexaI18n.t('think.levelTitle', { level: IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey) });
-    btn.disabled = maxLevel === 'off';
+    btn.disabled = wire !== 'levels' || maxLevel === 'off';
   }
   if (menu) {
     const slider = document.getElementById('thinkingLevelSlider');
@@ -97,15 +124,27 @@ function applyThinkingLevelUI(level) {
     const ticks = document.getElementById('thinkingSliderTicks');
     const track = document.getElementById('thinkingSliderTrack');
     const selected = THINKING_LEVEL_ORDER.indexOf(currentThinkingLevel);
+    const note = document.getElementById('thinkingSliderNote');
+    if (note) {
+      const noteKey = wire === 'model-decides' ? 'think.noteAuto'
+        : wire === 'unsupported' ? 'think.noteUnsupported'
+          : /deepseek-v4/.test(String(activeProfile && activeProfile.model || '').toLowerCase()) ? 'think.noteV4'
+            : '';
+      note.textContent = noteKey ? IexaI18n.t(noteKey) : '';
+      note.hidden = !noteKey;
+    }
     if (slider) {
-      slider.max = String(maxIndex); slider.value = String(selected); slider.disabled = maxIndex === 0;
+      slider.max = String(maxIndex); slider.value = String(selected); slider.disabled = maxIndex === 0 || wire !== 'levels';
       slider.setAttribute('aria-valuetext', IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey));
     }
     if (track) {
-      track.style.setProperty('--thinking-fill', `${maxIndex ? selected / maxIndex * 100 : 0}%`);
+      track.dataset.inert = String(wire !== 'levels');
+      track.style.setProperty('--thinking-fill', wire === 'levels' && maxIndex ? `${selected / maxIndex * 100}%` : '0%');
     }
     if (value) {
-      value.textContent = IexaI18n.t(THINKING_LEVELS[currentThinkingLevel].labelKey);
+      // The menu header names the same state as the chip: a inert control that
+      // still reads "高" would look like a level the provider receives.
+      value.textContent = levelLabel;
       const chevron = document.createElement('span'); chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = ' ›'; value.appendChild(chevron);
     }
     if (ticks) {
@@ -114,7 +153,9 @@ function applyThinkingLevelUI(level) {
     }
     // The top step is a different material: a violet shimmer with travelling
     // sparks. Everything below it stays in the theme accent.
-    const atMax = maxIndex > 0 && selected === maxIndex;
+    // Only a real, transmitted level can sit at the top of the scale. An inert
+    // control (model decides / no reasoning mode) keeps the plain material.
+    const atMax = wire === 'levels' && maxIndex > 0 && selected === maxIndex;
     if (track) track.dataset.atMax = String(atMax);
     menu.dataset.atMax = String(atMax);
     if (btn) btn.dataset.atMax = String(atMax);

@@ -59,6 +59,12 @@ export function shouldUseVisionProxy(
 export function maxThinkingLevel(provider: string, model: string): ThinkingLevel {
   const p = String(provider || '').toLowerCase();
   const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  // DeepSeek V4 is the one DeepSeek generation whose gateway takes a level: it
+  // sends `thinking` plus `reasoning_effort`, collapsing low/medium to `high`
+  // and everything above to `max`. Pre-V4 DeepSeek ignores the field entirely,
+  // so capping V4 at `high` (as the generic DeepSeek branch below does) hides
+  // the only setting that actually reaches the model.
+  if (m.includes('deepseek-v4')) return 'max';
   const gpt6Model = m.match(/(?:^|[/:-])gpt-?6-(astra|sol|luna)(?:$|[/:-])/);
   if (gpt6Model) return gpt6Model[1] === 'astra' ? 'xhigh' : 'max';
   if (isGptReasoningModel(m)) return /gpt-5-6/.test(m) ? 'max' : 'xhigh';
@@ -85,4 +91,44 @@ export function clampThinkingLevel(level: string, provider: string, model: strin
   const requested = ORDER.includes(level as ThinkingLevel) ? level as ThinkingLevel : 'off';
   const cap = maxThinkingLevel(provider, model);
   return ORDER.indexOf(requested) <= ORDER.indexOf(cap) ? requested : cap;
+}
+
+export type ThinkingWire = 'levels' | 'model-decides' | 'unsupported';
+
+/**
+ * Whether a chosen level reaches the model at all.
+ *
+ * The selector used to show seven steps for every model, so a level could look
+ * selected while the provider sent nothing. This mirrors each provider's actual
+ * request builder:
+ *   levels        — the level is serialised into the request
+ *   model-decides — the provider sends no level; the model picks its own depth
+ *   unsupported   — the model has no reasoning mode, so the control is inert
+ */
+export function thinkingWire(provider: string, model: string): ThinkingWire {
+  const p = String(provider || '').toLowerCase();
+  const m = String(model || '').toLowerCase().replace(/[._]/g, '-');
+  // Native providers serialise the level in their own request shape.
+  if (p === 'anthropic' || p === 'gemini') return 'levels';
+  if (m.includes('deepseek-v4')) return 'levels';
+  if (isGlm53FlashModel(m)) return 'levels';
+  // Pre-V4 DeepSeek leaves the request body untouched: the model decides. This
+  // has to run before the generic "reason" match, or `deepseek-reasoner` would
+  // be reported as if the level were transmitted.
+  if (/(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(m) ||
+    /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(m) ||
+    p === 'deepseek') return 'model-decides';
+  const reasoningModel =
+    isGptReasoningModel(m) ||
+    /(?:^|[/:-])o[1-9](?:-|$)/.test(m) ||
+    m.includes('gpt-5') ||
+    m.includes('grok') ||
+    m.includes('qwq') ||
+    m.includes('reason') ||
+    (m.includes('thinking') && !m.includes('deepseek')) ||
+    (m.includes('r1') && !m.includes('deepseek')) ||
+    (m.includes('think') && !m.includes('deepseek')) ||
+    p === 'xai';
+  if (reasoningModel) return 'levels';
+  return 'unsupported';
 }

@@ -33,7 +33,8 @@ test('the sheen and the spark stream are separate motions on the compositor', ()
 });
 
 test('the top step is decided from the model ceiling, not a fixed index', () => {
-  assert.match(view, /const atMax = maxIndex > 0 && selected === maxIndex/);
+  assert.match(view, /const atMax = wire === 'levels' && maxIndex > 0 && selected === maxIndex/,
+    'an inert control must not wear the top-step material');
   assert.match(view, /track\.dataset\.atMax = String\(atMax\)/);
   assert.match(view, /track\.style\.setProperty\('--thinking-fill'/,
     'the fill ratio must live on the track that paints it');
