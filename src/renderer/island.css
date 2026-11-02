@@ -1,19 +1,18 @@
 /* A transparent window with one pill inside it. Everything here is sized to the
-   island itself: the window is bigger than the pill only by the glow margin, so
-   the rounded corners have room to breathe without a visible frame. */
+   island itself: the window is bigger than the pill only by the 5px inset, so the
+   rounded corners have room to breathe without a visible frame. */
 
 :root {
-  /* A colour-scheme declaration on the root makes Chromium paint the page canvas
-     with the UA's opaque dark base colour. In a transparent Electron window that
-     is an opaque black rectangle behind the pill — the "extra black layer" in the
-     report. The scheme is scoped to the pill instead, where only form controls and
-     native scrollbars read it. */
-  --ink: #f2f4f8;
-  --ink-dim: #9aa3b2;
-  --accent: #7fb6ff;
-  --ok: #48d19a;
+  --ink: #f7f9fc;
+  --ink-dim: #b9c2d0;
+  --accent: #86bcff;
+  --ok: #4ad39c;
   --warn: #ffcf6b;
-  --err: #ff7a7a;
+  --err: #ff8585;
+  /* No colour scheme here on purpose: declaring one makes Chromium paint the page
+     canvas with the UA base colour, which shows through a transparent Electron
+     window as a solid rectangle behind the pill. */
+  background: transparent;
 }
 
 * { box-sizing: border-box; }
@@ -21,6 +20,9 @@
 html, body {
   margin: 0;
   height: 100%;
+  /* No colour scheme on the root: declaring one makes Chromium paint the page
+     canvas with the UA's opaque base colour, which shows through a transparent
+     Electron window as a black rectangle behind the pill. */
   background: transparent;
   overflow: hidden;
   font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
@@ -36,93 +38,79 @@ html, body {
   flex-direction: column;
   border-radius: 999px;
   overflow: hidden;
-  transition: border-radius .28s cubic-bezier(.32, .72, 0, 1), box-shadow .28s ease;
-  /* No outer shadow. A blurred drop shadow on a window this tight cannot fade
-     before it is clipped, so it paints as a solid dark frame around the pill —
-     which reads as a second black layer, not as depth. The lit top edge and the
-     inner shadow below give the glass its thickness instead. */
   box-shadow: none;
   -webkit-app-region: drag;
   outline: none;
+  transition: border-radius .34s cubic-bezier(.34, 1.28, .64, 1);
 }
 
-/* Expanded becomes a rounded card, not a pill: same surface, different radius,
-   which is the whole gesture of a dynamic island. */
 .island[aria-expanded="true"] {
-  border-radius: 16px;
+  border-radius: 18px;
 }
 
-/* Liquid glass: the backdrop has to be *seen* through the material, so the fill
-   stays light (42%) and the work is done by a hard blur plus a modest saturation
-   lift. An earlier pass raised the fill to 86% to stop a purple desktop from
-   tinting the pill — that killed the material entirely and left a flat black
-   lozenge. Soft and tinted is the point; mud comes from over-saturating a lightly
-   blurred backdrop, which is what the previous 190% did. */
+/* Liquid glass.
+   Translucent enough that the wallpaper still tints the surface (42%), blurred
+   hard enough that it turns into a soft colour wash rather than a picture
+   (30px), and lifted a touch so it never sinks into a dark desktop. The sheen
+   layer below is what actually reads as glass: a single diagonal highlight band
+   screened over the surface, plus a lit top edge. */
 .island-glass {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .04) 44%, rgba(255, 255, 255, 0) 62%),
-    rgba(16, 16, 20, .42);
-  -webkit-backdrop-filter: blur(30px) saturate(160%) brightness(1.06);
-  backdrop-filter: blur(30px) saturate(160%) brightness(1.06);
-  border: 1px solid rgba(255, 255, 255, .16);
+    linear-gradient(180deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, 0) 42%),
+    rgba(10, 10, 14, .72);
+  -webkit-backdrop-filter: blur(30px) saturate(160%) brightness(1.04);
+  backdrop-filter: blur(30px) saturate(160%) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, .14);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .50),
-    inset 0 -1px 0 rgba(0, 0, 0, .22),
-    inset 0 0 10px rgba(255, 255, 255, .05);
+    inset 0 1px 0 rgba(255, 255, 255, .34),
+    inset 0 -1px 0 rgba(0, 0, 0, .25);
 }
 
-/* The lens: a single diagonal specular band across the upper half. This is what
-   separates glass from a translucent rectangle — a lit edge reading as thickness
-   rather than a uniform tint. */
+/* The glint. One skewed band across the upper half, screened so it brightens
+   without washing the text out. */
 .island-glass::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(115deg,
-    rgba(255, 255, 255, .20) 0%,
+  background: linear-gradient(104deg,
     rgba(255, 255, 255, 0) 26%,
-    rgba(255, 255, 255, 0) 74%,
-    rgba(255, 255, 255, .09) 100%);
+    rgba(255, 255, 255, .16) 42%,
+    rgba(255, 255, 255, .04) 56%,
+    rgba(255, 255, 255, 0) 68%);
   mix-blend-mode: screen;
   pointer-events: none;
+  opacity: .85;
 }
 
 .island-compact {
   position: relative;
-  /* Fixed, not 100%: expanding grows the list below this row, and a row that
-     filled the window would push that list out of view. */
-  flex: 0 0 30px;
-  height: 30px;
+  flex: 0 0 36px;
+  height: 36px;
   display: flex;
   align-items: center;
-  /* Centre the group rather than stretching it. The label used to be
-     `flex: 1 1 auto`, which pushed the trailing count to the far edge and left a
-     band of empty glass in the middle — the pill looked slack, not crafted. */
   justify-content: center;
-  gap: 7px;
-  padding: 0 12px;
+  gap: 9px;
+  padding: 0 15px;
   -webkit-app-region: drag;
 }
 
 .island-badge {
-  width: 5px;
-  height: 5px;
-  flex: 0 0 5px;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
   border-radius: 50%;
   background: var(--ink-dim);
   transition: background .2s ease, box-shadow .2s ease;
 }
 
-/* Running: the dot breathes, so a glance tells work is happening even when the
-   label is hidden by a narrow pill. */
 .island[data-state="running"] .island-badge {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(127, 182, 255, .18);
-  animation: island-pulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 0 3px rgba(127, 182, 255, .16);
+  animation: island-pulse 1.8s ease-in-out infinite;
 }
 .island[data-state="done"] .island-badge { background: var(--ok); }
 .island[data-state="error"] .island-badge { background: var(--err); }
@@ -132,60 +120,52 @@ html, body {
   50% { box-shadow: 0 0 0 6px rgba(127, 182, 255, .22); }
 }
 
-.island-icon {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  flex: 0 0 15px;
-  color: var(--ink);
-  opacity: .92;
-}
-.island-icon svg { width: 15px; height: 15px; display: block; }
-
 .island-label {
-  /* Natural width, not a filler: the row is centred, so the label only takes the
-     space its text needs and the trailing count sits right beside it. */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  font-size: 12.5px;
+  flex: 0 0 auto;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: .01em;
+  letter-spacing: .005em;
+  line-height: 1;
   color: var(--ink);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .island-trailing {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
   white-space: nowrap;
 }
+.island-trailing[hidden] { display: none; }
 
 .island-expanded {
   position: relative;
-  padding: 1px 8px 6px;
-  height: calc(100% - 30px);
+  padding: 0 10px 8px;
+  height: calc(100% - 36px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: island-card-in .26s cubic-bezier(.34, 1.28, .64, 1) both;
 }
 .island-expanded[hidden] { display: none; }
+
+@keyframes island-card-in {
+  from { opacity: 0; transform: translateY(-6px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 .island-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 4px 4px 6px;
+  padding: 2px 5px 7px;
   border-bottom: 1px solid rgba(255, 255, 255, .08);
 }
 .island-title {
-  font-size: 11px;
-  letter-spacing: .16em;
+  font-size: 10.5px;
+  letter-spacing: .18em;
   text-transform: uppercase;
   color: var(--ink-dim);
 }
@@ -195,49 +175,40 @@ html, body {
   color: var(--ink-dim);
 }
 
+/* Never scrolls. At most six rows are shown and the window is sized to exactly
+   those rows, so a scrollbar would only ever mean the height was mis-measured. */
 .island-steps {
   list-style: none;
   margin: 0;
   padding: 4px 0 0;
   flex: 1 1 auto;
-  /* At most six rows are ever shown and the window is sized to fit them, so a
-     scroller only ever appeared because the height was guessed a few pixels
-     short. The height is now measured, and nothing scrolls. */
   overflow: hidden;
-}
-/* The default Windows scrollbar brings arrows and a track; inside a 236px pill
-   that reads as a browser widget. Keep the 4px thumb, drop the rest. */
-.island-steps::-webkit-scrollbar { width: 4px; }
-.island-steps::-webkit-scrollbar-track { background: transparent; }
-.island-steps::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-.island-steps::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, .16);
-  border-radius: 2px;
 }
 
 .island-step {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 5px 4px;
-  border-radius: 8px;
-  font-size: 11.5px;
+  gap: 9px;
+  padding: 7px 5px;
+  border-radius: 9px;
+  font-size: 12.5px;
   color: var(--ink);
-  animation: island-step-in .24s cubic-bezier(.32, .72, 0, 1) both;
+  animation: island-step-in .3s cubic-bezier(.34, 1.28, .64, 1) both;
+  animation-delay: calc(var(--i, 0) * 42ms);
 }
-.island-step + .island-step { border-top: 1px solid rgba(255, 255, 255, .05); }
+.island-step + .island-step { border-top: 1px solid rgba(255, 255, 255, .055); }
 
 @keyframes island-step-in {
-  from { opacity: 0; transform: translateY(-5px); }
+  from { opacity: 0; transform: translateY(-7px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 .island-step-icon {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
   color: var(--ink-dim);
 }
 .island-step-icon svg { width: 15px; height: 15px; display: block; }
@@ -252,24 +223,41 @@ html, body {
 
 .island-step-status {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
 }
 .island-step[data-status="running"] .island-step-status { color: var(--accent); }
+.island-step[data-status="running"] .island-step-icon { color: var(--accent); }
 .island-step[data-status="done"] .island-step-status { color: var(--ok); }
+.island-step[data-status="done"] .island-step-icon { color: rgba(74, 211, 156, .85); }
 .island-step[data-status="error"] .island-step-status { color: var(--err); }
+.island-step[data-status="error"] .island-step-icon { color: var(--err); }
 
 .island-empty {
-  padding: 14px 4px;
+  padding: 16px 4px;
   font-size: 12px;
   color: var(--ink-dim);
   text-align: center;
 }
 
+/* The running row breathes, so the list never looks frozen on a long tool. */
+.island-step[data-status="running"] .island-step-name {
+  animation: island-name-breathe 2.2s ease-in-out infinite;
+}
+@keyframes island-name-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
 /* Motion is a setting everywhere else in the app, so it is honoured here too. */
 @media (prefers-reduced-motion: reduce) {
-  .island-badge, .island-step { animation: none !important; transition: none !important; }
+  .island-badge, .island-step, .island-expanded, .island-step-name {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 html[data-motion="reduced"] .island-badge,
-html[data-motion="reduced"] .island-step { animation: none; }
+html[data-motion="reduced"] .island-step,
+html[data-motion="reduced"] .island-expanded,
+html[data-motion="reduced"] .island-step-name { animation: none; }

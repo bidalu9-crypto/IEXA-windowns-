@@ -461,10 +461,10 @@ ipcMain.on('iexa:pet-poked', () => { /* reserved for future reactions */ });
 // user can drag anywhere and click to unfold the latest tool steps. The island
 // never reads the workspace itself — the chat window pushes one state object and
 // this block only owns the window, the bounds and the forwarding.
-const ISLAND_WIDTH = 208;
-const ISLAND_MIN_WIDTH = 132;
-const ISLAND_MAX_WIDTH = 340;
-const ISLAND_COMPACT_HEIGHT = 40;
+const ISLAND_WIDTH = 240;
+const ISLAND_MIN_WIDTH = 150;
+const ISLAND_MAX_WIDTH = 470;
+const ISLAND_COMPACT_HEIGHT = 46;
 let islandWindow = null;
 let islandState = { state: 'idle', label: '就绪', trailing: '', icon: 'idle', steps: [] };
 

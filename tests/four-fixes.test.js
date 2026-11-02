@@ -82,10 +82,10 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   assert.match(js, /const MAX_STEPS = 6;/, 'at most six steps');
   assert.match(js, /steps\.slice\(0, MAX_STEPS\)/, 'the snapshot is truncated, not just styled');
   assert.match(js, /setExpanded/, 'the pill toggles');
-  assert.match(css, /backdrop-filter: blur\(30px\) saturate\(160%\) brightness\(1\.06\)/, 'it is glass, not a flat box');
+  assert.match(css, /backdrop-filter: blur\(30px\) saturate\(160%\) brightness\(1\.04\)/, 'it is glass, not a flat box');
   // Liquid glass must stay translucent: an opaque fill is a black lozenge, not a
   // material. The specular band is what makes the edge read as thickness.
-  assert.match(css, /rgba\(16, 16, 20, \.42\)/, 'the fill stays translucent');
+  assert.match(css, /rgba\(10, 10, 14, \.72\)/, 'the fill stays translucent');
   assert.match(css, /mix-blend-mode: screen/, 'the lens highlight is composited, not painted over');
   assert.match(css, /prefers-reduced-motion/, 'motion settings are honoured');
 
@@ -106,14 +106,16 @@ test('the dynamic island is a real surface with a capped, motion-aware list', ()
   // measures itself and the window follows, so the pill hugs its words.
   assert.match(css, /justify-content: center/, 'the compact row centres its group');
   assert.doesNotMatch(css, /\.island-label \{[^}]*flex: 1 1 auto/, 'the label does not stretch to fill');
-  assert.match(entry, /const ISLAND_WIDTH = 208;/, 'compact window width');
-  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 40;/, 'compact window height');
+  assert.match(entry, /const ISLAND_WIDTH = 240;/, 'compact window width');
+  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 46;/, 'compact window height');
   assert.match(entry, /Number\(saved\.width\)/, 'the window remembers the last hug width');
   assert.match(entry, /ISLAND_MIN_WIDTH/, 'and clamps it');
-  assert.match(js, /const COMPACT_HEIGHT = 40;/, 'the renderer agrees with the window');
+  assert.match(js, /const COMPACT_HEIGHT = 46;/, 'the renderer agrees with the window');
   assert.match(js, /function compactWidth\(\)/, 'the pill measures its own content');
   assert.match(js, /resize\(\{ width, height \}\)/, 'and asks the window for exactly that');
-  assert.match(js, /return COMPACT_HEIGHT \+ measured \+ 10;/, 'expanded height is measured, not guessed');
-  // The status glyphs are bare marks: a filled circle read as a small face at 12px.
+  assert.match(js, /return COMPACT_HEIGHT \+ measured \+ 4;/, 'expanded height is measured, not guessed');
+  // The status glyphs are bare strokes: a filled circle read as a small face at 12px.
   assert.doesNotMatch(js, /232,120A112,112/, 'the check is not a circle badge');
+  assert.match(js, /stroke-width="20"/, 'glyphs are stroked, not filled blobs');
+  assert.doesNotMatch(html, /id="islandIcon"/, 'the compact row carries no tool glyph');
 });

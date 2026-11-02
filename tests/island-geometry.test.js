@@ -15,6 +15,7 @@ const ROOT = path.join(__dirname, '..');
 const entry = fs.readFileSync(path.join(ROOT, 'electron-entry.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'src/renderer/island.css'), 'utf8');
 const island = fs.readFileSync(path.join(ROOT, 'src/renderer/island.js'), 'utf8');
+const html = fs.readFileSync(path.join(ROOT, 'src/renderer/island.html'), 'utf8');
 const preload = fs.readFileSync(path.join(ROOT, 'resources/island-preload.js'), 'utf8');
 
 test('the launch height is fixed and never restored from disk', () => {
@@ -23,8 +24,8 @@ test('the launch height is fixed and never restored from disk', () => {
   assert.doesNotMatch(entry, /height: Math\.max\(ISLAND_COMPACT_HEIGHT, Number\(saved\.height\)/,
     'saved height must not be restored');
   assert.match(entry, /height: ISLAND_COMPACT_HEIGHT,/, 'launch is always collapsed');
-  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 40;/, 'window height');
-  assert.match(island, /const COMPACT_HEIGHT = 40;/, 'renderer agrees with the window');
+  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 46;/, 'window height');
+  assert.match(island, /const COMPACT_HEIGHT = 46;/, 'renderer agrees with the window');
 });
 
 test('resize requests reach main untouched', () => {
@@ -49,14 +50,17 @@ test('the window is created only after PORT exists', () => {
 });
 
 test('the compact row fills the window and the type is legible', () => {
-  assert.match(css, /flex: 0 0 30px;/, 'row height');
-  assert.match(css, /height: 30px;/);
+  assert.match(css, /flex: 0 0 36px;/, 'row height');
+  assert.match(css, /height: 36px;/);
   assert.match(css, /justify-content: center;/, 'the group is centred');
-  assert.match(css, /font-size: 12\.5px;/, 'label size');
-  assert.match(css, /\.island-icon svg \{ width: 15px; height: 15px;/, 'icon size');
-  assert.match(css, /height: calc\(100% - 30px\);/, 'the expanded area accounts for the row');
-  // 30px row + 5px inset top and bottom is exactly the 40px window.
-  assert.match(css, /\.island \{\s*position: absolute;\s*inset: 5px;/);
+  assert.match(css, /font-size: 13px;/, 'label size');
+  // The compact row carries no tool glyph at all: a 15px filled icon read as a
+  // play button. Glyphs live in the expanded list, where they have room.
+  assert.doesNotMatch(html, /id="islandIcon"/, 'no glyph in the compact row');
+  assert.match(css, /\.island-step-icon svg \{ width: 15px; height: 15px;/, 'step icon size');
+  assert.match(css, /height: calc\(100% - 36px\);/, 'the expanded area accounts for the row');
+  // 36px row + 5px inset top and bottom is exactly the 46px window.
+  assert.match(css, /\.island \{[\s\S]{0,80}?inset: 5px;/, 'the pill is inset by 5px on all sides');
 });
 
 test('the page canvas stays transparent', () => {
@@ -72,7 +76,7 @@ test('the page canvas stays transparent', () => {
 test('the expanded card is measured so its list never scrolls', () => {
   assert.match(island, /const clone = expanded\.cloneNode\(true\)/, 'measured on a detached clone');
   assert.match(island, /clone\.style\.cssText = 'position:fixed;left:-9999px/, 'outside the flex parent');
-  assert.match(island, /return COMPACT_HEIGHT \+ measured \+ 10;/, 'the window grows by the measured height');
+  assert.match(island, /return COMPACT_HEIGHT \+ measured \+ 4;/, 'the window grows by the measured height');
   assert.doesNotMatch(island, /COMPACT_HEIGHT \+ 34 \+ steps \* 26/, 'the guessed formula is gone');
   // At most six rows are ever shown and the window is sized to them, so nothing
   // may scroll: a scrollbar inside a 168px pill was one of the reported defects.
