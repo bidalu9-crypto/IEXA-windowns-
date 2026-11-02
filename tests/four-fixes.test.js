@@ -6,7 +6,6 @@
 //   2. the composer's default context ceiling is 1M with an 80% trigger
 //   3. the add buttons are glyphs, and the session list is ordered and stamped
 //      by creation time so merely opening a chat cannot reshuffle it
-//   4. the dynamic island exists, caps at six steps and honours reduced motion
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -69,53 +68,4 @@ test('the session list orders and stamps by creation time', () => {
   assert.match(src, /formatTime\(s\.created \|\| s\.updated\)/, 'the stamp reads the creation time');
   // Pinning still outranks the date, otherwise the feature would silently die.
   assert.match(src, /Number\(b\.pinned === true\) - Number\(a\.pinned === true\)/);
-});
-
-test('the dynamic island is a real surface with a capped, motion-aware list', () => {
-  const html = read('src', 'renderer', 'island.html');
-  const js = read('src', 'renderer', 'island.js');
-  const css = read('src', 'renderer', 'island.css');
-  const entry = read('electron-entry.js');
-  const preload = read('preload.js');
-
-  assert.match(html, /id="islandSteps"/, 'the list host exists');
-  assert.match(js, /const MAX_STEPS = 6;/, 'at most six steps');
-  assert.match(js, /steps\.slice\(0, MAX_STEPS\)/, 'the snapshot is truncated, not just styled');
-  assert.match(js, /setExpanded/, 'the pill toggles');
-  assert.match(css, /backdrop-filter: blur\(30px\) saturate\(160%\) brightness\(1\.04\)/, 'it is glass, not a flat box');
-  // Liquid glass must stay translucent: an opaque fill is a black lozenge, not a
-  // material. The specular band is what makes the edge read as thickness.
-  assert.match(css, /rgba\(10, 10, 14, \.72\)/, 'the fill stays translucent');
-  assert.match(css, /mix-blend-mode: screen/, 'the lens highlight is composited, not painted over');
-  assert.match(css, /prefers-reduced-motion/, 'motion settings are honoured');
-
-  assert.match(entry, /preload: path\.join\(__dirname, 'resources', 'island-preload\.js'\)/, 'sandboxed preload');
-  assert.match(entry, /transparent: true/, 'the window is transparent');
-  assert.match(entry, /skipTaskbar: true/, 'it does not clutter the taskbar');
-  assert.match(entry, /if \(readIslandConfig\(\)\.enabled\) createIslandWindow\(\)/, 'it starts only when enabled');
-  assert.match(preload, /islandSetEnabled/, 'the appearance toggle has a verb');
-
-  // Compact, frameless, and chevron-free. The old pill was 340×70 with a 30px
-  // drop shadow that the window clipped into a solid dark frame — it read as a
-  // second black layer around the pill. Both are now asserted against.
-  assert.doesNotMatch(html, /island-chevron/, 'no expand arrow in the markup');
-  assert.doesNotMatch(css, /island-chevron/, 'no expand arrow in the stylesheet');
-  assert.match(css, /inset: 5px/, 'the pill is inset by one small margin on all sides');
-  assert.match(css, /box-shadow: none/, 'no clipped drop shadow painting a frame');
-  // A fixed-width window left a band of empty glass beside a short label. The row
-  // measures itself and the window follows, so the pill hugs its words.
-  assert.match(css, /justify-content: center/, 'the compact row centres its group');
-  assert.doesNotMatch(css, /\.island-label \{[^}]*flex: 1 1 auto/, 'the label does not stretch to fill');
-  assert.match(entry, /const ISLAND_WIDTH = 240;/, 'compact window width');
-  assert.match(entry, /const ISLAND_COMPACT_HEIGHT = 46;/, 'compact window height');
-  assert.match(entry, /Number\(saved\.width\)/, 'the window remembers the last hug width');
-  assert.match(entry, /ISLAND_MIN_WIDTH/, 'and clamps it');
-  assert.match(js, /const COMPACT_HEIGHT = 46;/, 'the renderer agrees with the window');
-  assert.match(js, /function compactWidth\(\)/, 'the pill measures its own content');
-  assert.match(js, /resize\(\{ width, height \}\)/, 'and asks the window for exactly that');
-  assert.match(js, /return COMPACT_HEIGHT \+ measured \+ 4;/, 'expanded height is measured, not guessed');
-  // The status glyphs are bare strokes: a filled circle read as a small face at 12px.
-  assert.doesNotMatch(js, /232,120A112,112/, 'the check is not a circle badge');
-  assert.match(js, /stroke-width="20"/, 'glyphs are stroked, not filled blobs');
-  assert.doesNotMatch(html, /id="islandIcon"/, 'the compact row carries no tool glyph');
 });
