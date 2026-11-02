@@ -18,6 +18,9 @@ import { QuestionResolver, normalizeAskUserArgs, formatQuestionAnswers } from '.
 import { HookSpec, runHooks } from './HookRunner';
 import { ShellSessionTools } from '../tools/ShellSessionTools';
 import { GoalStore } from '../agent/GoalStore';
+import { BotStore } from '../bots/BotStore';
+import { TaskScheduler } from '../tasks/Scheduler';
+import { BotTools, ScheduledTaskTools } from '../tools/WorkspaceTools';
 
 export interface JobSummary {
   id: string; toolId?: string; toolName?: string; title: string; status: string;
@@ -28,8 +31,13 @@ export interface JobBridge {
   output(sessionId: string, jobId: string): { job: JobSummary; output: string; recorded: boolean } | null;
 }
 
-export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; goalStore?: GoalStore; }
-const risk: Record<string, ToolDefinition['risk']> = { project_instructions: 'low', todo_write: 'low', ask_user: 'low', shell_execute: 'high', shell_session: 'high', job_list: 'low', job_output: 'low', goal: 'low', file_read: 'low', file_write: 'medium', file_edit: 'medium', grep: 'low', glob: 'low', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low' };
+export interface ToolRuntimeConfig { workspaceDir: string; memoryDir: string; memoryEnabled?: boolean; auditDir?: string; permissionResolver?: ConstructorParameters<typeof PermissionManager>[1]; permissionMode?: PermissionMode; budget?: BudgetManager; desktopCaptureFrames?: boolean; pathMode?: 'workspace' | 'selected-roots'; selectedRoots?: readonly string[]; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; goalStore?: GoalStore; bots?: { store: BotStore; callerTools: () => string[]; defaultProfile: () => string }; scheduledTasks?: { scheduler: TaskScheduler; defaultProfile: () => string; defaultSession: () => string }; }
+/** A tool that was advertised but has no store behind it in this build. */
+function notWired(name: string): ToolExecutionResult {
+  return { output: `${name} 在此会话不可用：服务端未装配对应的存储。`, success: false, executionStatus: 'failed' };
+}
+
+const risk: Record<string, ToolDefinition['risk']> = { project_instructions: 'low', todo_write: 'low', ask_user: 'low', shell_execute: 'high', shell_session: 'high', job_list: 'low', job_output: 'low', goal: 'low', file_read: 'low', file_write: 'medium', file_edit: 'medium', grep: 'low', glob: 'low', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low', bot_list: 'low', bot_create: 'medium', bot_delete: 'high', schedule_list: 'low', schedule_create: 'medium', schedule_manage: 'high' };
 
 export class ToolRuntime {
   readonly registry = new ToolRegistry();
@@ -48,6 +56,8 @@ export class ToolRuntime {
   private readonly loopDetector = new LoopDetector();
   private readonly commandPolicy = new CommandPolicy();
   private readonly artifacts: ArtifactStore;
+  private readonly botTools?: BotTools;
+  private readonly scheduleTools?: ScheduledTaskTools;
   private allowedTools: Set<string> | null = null;
   private lifecycle = new ToolLifecycle();
   private activeExecutions = 0;
@@ -61,6 +71,10 @@ export class ToolRuntime {
     this.memory = new MemoryTools(config.memoryDir);
     this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true, path.join(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), 'desktop'));
     this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
+    if (config.bots) this.botTools = new BotTools(config.bots.store, config.bots.callerTools, config.bots.defaultProfile);
+    if (config.scheduledTasks) {
+      this.scheduleTools = new ScheduledTaskTools(config.scheduledTasks.scheduler, config.scheduledTasks.defaultProfile, config.scheduledTasks.defaultSession);
+    }
   }
   async initialize(): Promise<void> { await this.memory.initialize(); }
   grantPermission(sessionId: string, toolName: string): void { this.permissions.grant(sessionId, toolName); }
@@ -215,7 +229,7 @@ export class ToolRuntime {
       for (const item of raw) { if (!item || typeof item !== 'object') return { output: 'Error: every todo must be an object.', success: false }; const content = String((item as Record<string, unknown>).content || '').trim(); const status = String((item as Record<string, unknown>).status || ''); if (!content || content.length > 240 || !['pending', 'in_progress', 'completed'].includes(status)) return { output: 'Error: invalid todo item.', success: false }; if (seen.has(content.toLowerCase())) return { output: 'Error: duplicate todo content.', success: false }; seen.add(content.toLowerCase()); if (status === 'in_progress') inProgress++; todos.push({ content, status: status as NonNullable<ToolExecutionResult['todos']>[number]['status'] }); }
       if (inProgress > 1) return { output: 'Error: at most one todo may be in_progress.', success: false }; const completed = todos.filter((t) => t.status === 'completed').length; const active = todos.filter((t) => t.status === 'in_progress').length; return { output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`, success: true, todos };
     };
-    const surface = { shellSession: !!this.config.shellSessions, jobs: !!this.config.jobBridge, goal: !!this.config.goalStore };
+    const surface = { shellSession: !!this.config.shellSessions, jobs: !!this.config.jobBridge, goal: !!this.config.goalStore, bots: !!this.config.bots, scheduledTasks: !!this.config.scheduledTasks };
     for (const definition of makeAgentTools(this.config.memoryEnabled !== false, surface)) {
       add(definition, async (args, context) => {
         if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal, {
@@ -223,7 +237,16 @@ export class ToolRuntime {
           onEvent: desktop => { try { context.onToolState?.(this.lifecycle.progress(context.sessionId, context.toolCallId, desktop)); } catch {} },
         });
         if (definition.name === 'todo_write') return todo(args);
-        if (definition.name === 'ask_user') return this.askUser(args, context);
+      // Bot roster and scheduled tasks. Both surfaces are optional: they are only
+      // advertised when server.ts wired the stores in, so reaching this branch
+      // without them means a stale tool list — say so instead of throwing.
+      if (definition.name === 'bot_list') return this.botTools ? this.botTools.list() : notWired('bot_list');
+      if (definition.name === 'bot_create') return this.botTools ? this.botTools.create(args) : notWired('bot_create');
+      if (definition.name === 'bot_delete') return this.botTools ? this.botTools.remove(args) : notWired('bot_delete');
+      if (definition.name === 'schedule_list') return this.scheduleTools ? this.scheduleTools.list() : notWired('schedule_list');
+      if (definition.name === 'schedule_create') return this.scheduleTools ? this.scheduleTools.create(args) : notWired('schedule_create');
+      if (definition.name === 'schedule_manage') return this.scheduleTools ? this.scheduleTools.manage(args) : notWired('schedule_manage');
+      if (definition.name === 'ask_user') return this.askUser(args, context);
         if (definition.name === 'shell_execute') {
           const requestedShell = ['auto', 'cmd', 'powershell', 'pwsh'].includes(String(args.shell || 'auto'))
             ? String(args.shell || 'auto') as 'auto' | 'cmd' | 'powershell' | 'pwsh'

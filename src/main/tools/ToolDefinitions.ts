@@ -10,7 +10,7 @@ import { AgentToolDefinition } from '../providers/types';
  * back them (a terminal manager, the job audit trail, the goal store), so a
  * provider never receives a tool the runtime cannot execute.
  */
-export interface ToolSurfaceOptions { shellSession?: boolean; jobs?: boolean; goal?: boolean; }
+export interface ToolSurfaceOptions { shellSession?: boolean; jobs?: boolean; goal?: boolean; bots?: boolean; scheduledTasks?: boolean; }
 
 export function makeAgentTools(memoryEnabled: boolean = true, surface: ToolSurfaceOptions = {}): AgentToolDefinition[] {
   const tools: AgentToolDefinition[] = [
@@ -476,6 +476,102 @@ export function sessionToolDefinitions(surface: ToolSurfaceOptions = {}): AgentT
       },
       required: ['tool_title', 'action'],
       propertyOrdering: ['tool_title', 'action', 'objective', 'done_when', 'status', 'note'],
+    });
+  }
+  if (surface.bots) {
+    tools.push({
+      name: 'bot_list',
+      description:
+        'List the Bots the user has created in this workspace: name, id, model and which tools each is allowed to use. Read this before creating or deleting one so names are not guessed.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'List Bots', 'Check Bot roster')." },
+      },
+      required: ['tool_title'],
+      propertyOrdering: ['tool_title'],
+    });
+    tools.push({
+      name: 'bot_create',
+      description:
+        'Create a Bot: a separate agent with its own name, persona, long-term memory file and model. Use it when the user asks for a dedicated assistant for a recurring job. The tools granted to the new Bot must be a subset of the tools you can use yourself. Do not create one to work around a permission you were refused.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Create research Bot')." },
+        name: { type: 'string', description: 'Display name, up to 80 characters. Must be unique.' },
+        description: { type: 'string', description: 'One line describing what this Bot is for, up to 600 characters.' },
+        persona: { type: 'string', description: 'The Bot identity and response style, up to 12000 characters. This becomes part of that Bot system prompt.' },
+        memory: { type: 'string', description: 'Explicit long-term notes for this Bot, up to 16000 characters. Leave empty unless the user supplied facts worth keeping.' },
+        profileId: { type: 'string', description: 'Model profile for the Bot. Omit to reuse the model of the current conversation.' },
+        allowedTools: {
+          type: 'array',
+          description: 'Tool names this Bot may call. Each must already be available to you. Omit for a chat-only Bot with no tools.',
+          items: { type: 'string', description: 'A tool name, e.g. file_read.' },
+        },
+      },
+      required: ['tool_title', 'name'],
+      propertyOrdering: ['tool_title', 'name', 'description', 'persona', 'memory', 'profileId', 'allowedTools'],
+    });
+    tools.push({
+      name: 'bot_delete',
+      description:
+        'Delete a Bot by id or by exact name. Chat history under that Bot is kept and stays readable; only the Bot configuration and its memory directory are removed. Always requires confirm: true.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Delete research Bot')." },
+        botId: { type: 'string', description: 'Bot id from bot_list. Preferred over name.' },
+        name: { type: 'string', description: 'Exact Bot name, used only when botId is omitted.' },
+        confirm: { type: 'boolean', description: 'Must be true. Without it the call returns a description of what would be deleted.' },
+      },
+      required: ['tool_title'],
+      propertyOrdering: ['tool_title', 'botId', 'name', 'confirm'],
+    });
+  }
+  if (surface.scheduledTasks) {
+    tools.push({
+      name: 'schedule_list',
+      description:
+        'List scheduled tasks: title, id, when they run, whether they are enabled, and the outcome of the last run. Read this before creating or changing one.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'List scheduled tasks')." },
+      },
+      required: ['tool_title'],
+      propertyOrdering: ['tool_title'],
+    });
+    tools.push({
+      name: 'schedule_create',
+      description:
+        'Create a scheduled task: a prompt that will be sent to a model automatically at a fixed local time. The task is created DISABLED on purpose, because it runs later with nobody reviewing it; tell the user to enable it, or call schedule_manage with action=enable after they agree. Never schedule something that writes, deletes or sends without the user saying so explicitly.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Schedule daily digest')." },
+        prompt: { type: 'string', description: 'The prompt to send at run time, up to 20000 characters. Write it self-contained: the run has no access to this conversation.' },
+        title: { type: 'string', description: 'Short label shown in the list, up to 80 characters. Derived from the prompt when omitted.' },
+        profileId: { type: 'string', description: 'Model profile for the run. Omit to reuse the model of the current conversation.' },
+        sessionMode: { type: 'string', description: 'new opens a fresh conversation per run; existing appends to one session.', enumValues: ['new', 'existing'] },
+        sessionId: { type: 'string', description: 'Target session when sessionMode=existing. Omit to reuse the current conversation.' },
+        schedule: {
+          type: 'object',
+          description: 'When it runs. Times are local wall clock.',
+          properties: {
+            frequency: { type: 'string', description: 'daily, weekly or monthly.', enumValues: ['daily', 'weekly', 'monthly'] },
+            time: { type: 'string', description: 'HH:mm, 24-hour local time, e.g. 09:30.' },
+            weekday: { type: 'integer', minimum: 0, maximum: 6, description: '0=Sunday … 6=Saturday. Required when frequency=weekly.' },
+            dayOfMonth: { type: 'integer', minimum: 1, maximum: 31, description: 'Day of month. Required when frequency=monthly.' },
+          },
+          required: ['frequency', 'time'],
+        },
+      },
+      required: ['tool_title', 'prompt', 'schedule'],
+      propertyOrdering: ['tool_title', 'prompt', 'title', 'profileId', 'sessionMode', 'sessionId', 'schedule'],
+    });
+    tools.push({
+      name: 'schedule_manage',
+      description:
+        'Enable, disable or delete a scheduled task. Every action requires confirm: true so an unattended prompt is never switched on by accident.',
+      parameters: {
+        tool_title: { type: 'string', description: "A concise summary (e.g. 'Enable daily digest')." },
+        taskId: { type: 'string', description: 'Task id from schedule_list.' },
+        action: { type: 'string', description: 'enable, disable or delete.', enumValues: ['enable', 'disable', 'delete'] },
+        confirm: { type: 'boolean', description: 'Must be true. Without it the call only describes what would happen.' },
+      },
+      required: ['tool_title', 'taskId', 'action'],
+      propertyOrdering: ['tool_title', 'taskId', 'action', 'confirm'],
     });
   }
   return tools;

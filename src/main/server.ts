@@ -199,6 +199,20 @@ const terminalManager = new TerminalManager();
 // the terminal UI never shows (or lets a human type into) an agent session.
 const shellSessions = new ShellSessionTools(WORKSPACE_DIR);
 const goalStore = new GoalStore(path.join(WORKSPACE_DIR, '.iexa-goals.json'));
+
+/**
+ * Every tool name this build can offer, used as the ceiling when the model
+ * creates a Bot. Computed once: it is a pure function of the build, and the
+ * roster tools are included so a Bot can be granted them explicitly.
+ */
+let agentToolNamesCache: string[] | null = null;
+function allAgentToolNames(): string[] {
+  if (!agentToolNamesCache) {
+    agentToolNamesCache = makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true })
+      .map((tool) => tool.name);
+  }
+  return agentToolNamesCache;
+}
 const mcpManager = new McpManager(path.join(WORKSPACE_DIR, '.iexa-mcp.json'));
 const pluginManager = new PluginManager(WORKSPACE_DIR);
 const mobileBridge = new MobileBridgeManager(WORKSPACE_DIR);
@@ -1236,6 +1250,19 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     shellSessions,
     jobBridge,
     goalStore,
+    // Bot roster and scheduled tasks. A chat-only Bot never sees these tools
+    // because its allowlist already excludes them, so a Bot cannot mint another
+    // Bot or schedule work behind the user's back.
+    bots: {
+      store: botStore,
+      callerTools: () => (bot ? (bot.allowedTools || []) : allAgentToolNames()),
+      defaultProfile: () => profile.id,
+    },
+    scheduledTasks: {
+      scheduler: taskScheduler,
+      defaultProfile: () => profile.id,
+      defaultSession: () => sessionId,
+    },
     projectScope: projectRoot ? projectScopeStore.load(projectRoot) : null,
     onPromptRequest: request => promptPreviewStore.capture(request),
     onSkillRead: (resolvedPath: string) => {
@@ -1299,7 +1326,7 @@ async function runNativeBotWork(botId: string, message: string, signal: AbortSig
     await agent.initialize();
     if (signal.aborted) throw new Error('团队任务已取消');
     const allow = new Set(bot.allowedTools || []);
-    const tools = planning ? [] : makeAgentTools(true, { shellSession: true, jobs: true, goal: true }).filter(tool => allow.has(tool.name));
+    const tools = planning ? [] : makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true }).filter(tool => allow.has(tool.name));
     await agent.run({ message, tools, callbacks: {
       onTextDelta: (_delta, full) => { answer = full; }, onThinkingDelta: delta => { thinking += delta; },
       onToolCallStart: (id, name) => { calls.push({ id, name, args: {} }); },
@@ -2056,7 +2083,7 @@ function createServer(auth: LocalApiAuth): http.Server {
         const parts = url.pathname.split('/').filter(Boolean);
         const id = parts[2]; const action = parts[3];
         if (req.method === 'GET' && id === 'tools') {
-          jsonReply(res, 200, { tools: makeAgentTools(true, { shellSession: true, jobs: true, goal: true }).map(({ name, description }) => ({ name, description })) }); return;
+          jsonReply(res, 200, { tools: makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true }).map(({ name, description }) => ({ name, description })) }); return;
         }
         if (req.method === 'GET' && id === 'catalog') {
           jsonReply(res, 200, { packages: [
@@ -2743,7 +2770,7 @@ ${recentMemories}
         for (const binding of pluginBindings) {
           agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
         }
-        const availableTools = [...makeAgentTools(true, { shellSession: true, jobs: true, goal: true }), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
+        const availableTools = [...makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true }), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
           required: ['path'], propertyOrdering: ['path', 'prompt'],
