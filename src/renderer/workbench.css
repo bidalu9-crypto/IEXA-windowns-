@@ -202,7 +202,7 @@ html[data-motion="reduced"] .workbench-shell .model-bar :is(.thinking-level-btn,
 .workbench-shell .ui-icon { transition: color 140ms ease, transform 200ms var(--icon-ease), opacity 180ms ease; }
 /* Keep the existing hover, progress-spin and success animations. Only the send
    plane is pinned above, because it uses absolute optical centering. */
-.workbench-shell .nav-btn .ui-icon, .workbench-shell .nav-token-usage-icon, .workbench-shell .nav-device-icon, .workbench-shell .nav-about-icon { width: 16px; height: 16px; flex-basis: 16px; stroke-width: 1.7; }
+.workbench-shell .nav-btn .ui-icon, .workbench-shell .nav-token-usage-icon, .workbench-shell .nav-device-icon, .workbench-shell .nav-about-icon { width: 17px; height: 17px; flex-basis: 17px; stroke-width: 1.7; }
 .workbench-shell :is(button, summary, a, input, select, textarea):focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
 /* The pane itself does not animate on `.active`. It used to fade from 0.6 here,
    and the nav handler's entry class faded it again from zero, so every switch

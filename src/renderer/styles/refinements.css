@@ -294,6 +294,11 @@
   vertical-align: -0.18em;
 }
 
+/* Solid glyphs in the sprite carry `fill="currentColor" stroke="none"` as
+   presentation attributes rather than a class. Stylesheet selectors do not reach
+   the clone inside `<use>`, so a class here would be ignored and the inherited
+   `fill: none` would draw only the outline of every solid shape. */
+
 .nav-btn {
   display: inline-flex;
   align-items: center;
