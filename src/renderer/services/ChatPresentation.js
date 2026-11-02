@@ -53,14 +53,18 @@
     return next.nodeType === 3 ? node?.nodeType === 1 && node.hasAttribute('data-stream-text')
       : node?.nodeType === next.nodeType && node?.nodeName === next.nodeName && !node?.hasAttribute?.('data-stream-text');
   }
+  /** Languages whose fenced block is replaced by a rendered card. */
+  function isCardSource(pre) {
+    return Boolean(pre.querySelector('code.language-chart, code.language-data-card'));
+  }
   function patch(parent, fresh, animate) {
     let current = parent.firstChild;
     for (const next of [...fresh.childNodes]) {
-      // A chart card stands in for the <pre> it was built from. The template always
+      // A card stands in for the <pre> it was built from. The template always
       // still carries that <pre>, so without this the next delta deletes the card
-      // and rebuilds the SVG — a visible flicker on every frame.
-      if (current && current.nodeType === 1 && current.dataset.chartCard === '1'
-          && next.nodeType === 1 && next.tagName === 'PRE' && next.querySelector('code.language-chart')) {
+      // and rebuilds it — a visible flicker on every frame.
+      if (current && current.nodeType === 1 && current.dataset.iexaCard === '1'
+          && next.nodeType === 1 && next.tagName === 'PRE' && isCardSource(next)) {
         current = current.nextSibling;
         continue;
       }

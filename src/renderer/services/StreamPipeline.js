@@ -344,9 +344,10 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   if (finalRender) {
     enhanceCodeBlocks(contentEl);
     enhanceTables(contentEl);
-    // Charts render only once the message is final: a half-streamed JSON body
-    // would show as an error card that immediately disappears.
+    // The final pass catches blocks whose fence closed inside the last delta, and
+    // cards whose JSON only became valid at the very end.
     window.IexaChart?.enhance(contentEl);
+    window.IexaDataCard?.enhance(contentEl);
     return;
   }
 
@@ -362,6 +363,7 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   // to end. A half-written spec is skipped silently by the enhancer, and patch()
   // preserves an already-built card across deltas.
   window.IexaChart?.enhance(contentEl);
+  window.IexaDataCard?.enhance(contentEl);
   // Tables get their rounded card the moment the Markdown produces one, not when
   // the turn ends. patch() hands a wrapped table through untouched, so this stays
   // a cheap querySelectorAll instead of a rebuild per frame.

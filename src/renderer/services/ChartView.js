@@ -66,18 +66,46 @@
 
   // ---- drawing -------------------------------------------------------------
 
+  /** Digits needed so a tick lands exactly on its step (0.25 → 2, 1 → 0). */
+  function stepDecimals(step) {
+    const text = String(step);
+    if (text.includes('e-')) return Math.min(6, Number(text.split('e-')[1]) || 0);
+    const dot = text.indexOf('.');
+    return dot < 0 ? 0 : Math.min(6, text.length - dot - 1);
+  }
+
+  /** Axis labels read as "8.75元", not "8.8 元": no space, and no dropped digit. */
+  function axisLabel(value, step, unit) {
+    const decimals = stepDecimals(step);
+    const body = value.toFixed(decimals).replace(/\.?0+$/, '') || '0';
+    return unit ? body + unit : body;
+  }
+
+  /** Advance-width estimate: CJK glyphs are square, Latin averages 0.55em. */
+  function advanceWidth(text, fontSize) {
+    let width = 0;
+    for (const char of String(text)) {
+      width += (/[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef]/.test(char) ? 1 : 0.55) * fontSize;
+    }
+    return width;
+  }
+
   function drawAxes(root, spec, ticks, plot, height) {
     const { left, top, right, bottom } = plot;
+    const step = ticks.length > 1 ? ticks[1] - ticks[0] : 0;
     for (const value of ticks) {
       const y = plot.y(value);
       const line = svg('line', { x1: left, x2: right, y1: y, y2: y, class: 'chart-grid' });
       root.appendChild(line);
+      // Left-aligned above its gridline, the way the reference charts label a
+      // value axis; anchored to the text's right edge it would drift with digit
+      // count and never line up with the plot edge.
       const label = svg('text', { x: left - 10, y: y + 4, class: 'chart-axis-label', 'text-anchor': 'end' });
-      label.textContent = formatNumber(value, '');
+      label.textContent = axisLabel(value, step, spec.unit || '');
       root.appendChild(label);
     }
-    root.appendChild(svg('line', { x1: left, x2: left, y1: top, y2: bottom, class: 'chart-axis' }));
-    root.appendChild(svg('line', { x1: left, x2: right, y1: bottom, y2: bottom, class: 'chart-axis' }));
+    // No axis lines on purpose. The gridlines already carry the scale, and a
+    // ruled left/bottom edge is the visual weight the reference charts avoid.
 
     if (spec.yLabel) {
       const label = svg('text', { x: 14, y: top + (bottom - top) / 2, class: 'chart-axis-title', 'text-anchor': 'middle', transform: `rotate(-90 14 ${top + (bottom - top) / 2})` });
@@ -97,8 +125,14 @@
   function drawXLabels(root, spec, plot) {
     const count = spec.categories.length;
     const slot = (plot.right - plot.left) / count;
-    // Thin the labels out rather than overlapping them.
-    const every = Math.max(1, Math.ceil(count / Math.max(1, Math.floor((plot.right - plot.left) / 68))));
+    // Decide from the actual label widths. A fixed 68px per label dropped every
+    // other month even when "7月" had room to spare.
+    const fontSize = 10.5;
+    let widest = 0;
+    for (const label of spec.categories) widest = Math.max(widest, advanceWidth(label, fontSize));
+    const perLabel = widest + 14;
+    const fits = Math.max(1, Math.floor((plot.right - plot.left) / perLabel));
+    const every = Math.max(1, Math.ceil(count / fits));
     for (let index = 0; index < count; index += every) {
       const x = plot.left + slot * (index + 0.5);
       const label = svg('text', { x, y: plot.bottom + 17, class: 'chart-axis-label', 'text-anchor': 'middle' });
@@ -110,6 +144,9 @@
   function drawLine(root, spec, plot) {
     const count = spec.categories.length;
     const slot = (plot.right - plot.left) / count;
+    // A dot per point reads as "here is each measurement"; past a few dozen they
+    // merge into a thick line and cost DOM for no gain.
+    const showDots = count <= 80;
     spec.series.forEach((series, seriesIndex) => {
       const group = svg('g', { class: 'chart-line-group' });
       const color = seriesColor(seriesIndex);
@@ -121,15 +158,23 @@
           group.appendChild(polyline);
         } else if (run.length === 1) {
           const [x, y] = run[0].split(',');
-          const dot = svg('circle', { cx: x, cy: y, r: 2.5, class: 'chart-dot' });
-          dot.style.fill = color;
+          const dot = svg('circle', { cx: x, cy: y, r: 3.5, class: 'chart-point' });
+          dot.style.stroke = color;
           group.appendChild(dot);
         }
         run = [];
       };
       series.values.forEach((value, index) => {
         if (value === null) { flush(); return; }
-        run.push(`${(plot.left + slot * (index + 0.5)).toFixed(1)},${plot.y(value).toFixed(1)}`);
+        const x = plot.left + slot * (index + 0.5);
+        const y = plot.y(value);
+        run.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        if (showDots) {
+          // Surface-coloured centre with a ring in the series colour.
+          const point = svg('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: 3.5, class: 'chart-point' });
+          point.style.stroke = color;
+          group.appendChild(point);
+        }
       });
       flush();
       root.appendChild(group);
@@ -178,7 +223,12 @@
       left: PAD.left, right: width - PAD.right, top: PAD.top, bottom: height - PAD.bottom,
     };
     const range = window.IexaChartSpec.valueRange(spec);
-    const ticks = niceTicks(Math.min(range.min, 0), Math.max(range.max, 0));
+    // Bars encode magnitude, so their baseline must be zero or the lengths lie.
+    // A line encodes change: pinning it to zero flattens the trend it exists to
+    // show, which is why the reference charts fit the data instead.
+    const ticks = spec.type === 'bar'
+      ? niceTicks(Math.min(range.min, 0), Math.max(range.max, 0))
+      : niceTicks(range.min, range.max);
     plot.min = ticks[0];
     plot.max = ticks[ticks.length - 1];
     plot.y = (value) => plot.bottom - ((value - plot.min) / (plot.max - plot.min || 1)) * (plot.bottom - plot.top);
@@ -362,6 +412,7 @@
       // Tells patch() this node represents the <pre> it replaced, so the next
       // streaming delta keeps it instead of rebuilding the SVG.
       card.dataset.chartCard = '1';
+      card.dataset.iexaCard = '1';
       const target = pre.closest('.code-block-wrapper') || pre;
       target.parentNode.insertBefore(card, target);
       target.remove();

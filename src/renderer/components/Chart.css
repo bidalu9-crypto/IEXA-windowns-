@@ -109,7 +109,12 @@
   stroke-linecap: round;
 }
 
-.chart-dot { stroke: none; }
+/* Each measurement gets a ring: the page colour inside, the series colour on the
+   stroke. A solid disc reads as a heavier line rather than as a data point. */
+.chart-point {
+  fill: var(--bg-input);
+  stroke-width: 2;
+}
 
 .chart-bar {
   /* Bars read as data, so a hairline of the surface keeps them apart. */

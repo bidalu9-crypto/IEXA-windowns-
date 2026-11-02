@@ -1,0 +1,103 @@
+/* Metric card: one bordered surface, a title row with an optional status pill, a
+   label/value grid, and a footnote. Numbers are tabular so a column of them
+   lines up regardless of digit count. */
+
+.data-card {
+  container-type: inline-size;
+  margin: 14px 0;
+  padding: 18px 20px 0;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 72%, transparent);
+  border-radius: 14px;
+  background: var(--bg-input);
+}
+
+.data-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.data-card-title {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.data-card-badge {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+  font-size: 11.5px;
+  font-weight: 550;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.data-card-unit {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.data-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin: 16px 0 18px;
+}
+
+.data-card-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.data-card-label {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.data-card-value {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.24;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Only a value the model explicitly marked as moving carries colour; colouring
+   every number would make the card read as an alert. */
+.data-card-value.is-up { color: var(--success); }
+.data-card-value.is-down { color: var(--error); }
+
+.data-card-suffix {
+  margin-left: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.data-card-note {
+  margin: 0;
+  padding: 11px 0 13px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Narrow columns get one number per row; two 1fr tracks at 300px leave neither
+   label nor value enough room to stay on one line. */
+@container (max-width: 380px) {
+  .data-card-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .data-card-value { font-size: 20px; }
+}
