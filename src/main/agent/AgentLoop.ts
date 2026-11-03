@@ -33,6 +33,7 @@ function isStreamedToken(event: AgentStreamEvent): boolean {
     || event.type === 'contentBlockStart';
 }
 import { buildSystemPrompt } from './SystemPrompt';
+import { applyToolProtocols } from './ToolProtocols';
 import type { GoalStore } from './GoalStore';
 import { ProjectInstructions } from './ProjectInstructions';
 import { ProjectScope } from '../context/ProjectScopeStore';
@@ -150,6 +151,10 @@ export interface AgentLoopConfig {
   skillFragment?: string | null;
   /** Full body of explicitly trusted application-level skills. */
   systemSkillFragment?: string | null;
+  /** Highest-priority block contributed by enabled plugins. */
+  pluginSystemFragment?: string | null;
+  /** toolName -> protocol line, merged from enabled plugins. */
+  pluginProtocols?: Record<string, string> | null;
   /** Absolute skills directory for authoring instructions. */
   skillsDir?: string | null;
   /** Persistent SOUL.md identity/personality captured when the agent is built. */
@@ -556,6 +561,10 @@ export class AgentLoop {
     options?: { resume?: boolean },
   ): Promise<void> {
     const resuming = options?.resume === true;
+    // Write the plugin protocol into every tool schema the model receives this
+    // turn. Placement matters: the rule is read at call time, next to the
+    // parameters it governs, not in a paragraph far above the tool list.
+    tools = applyToolProtocols(tools, this.config.pluginProtocols);
     this.callbacks = callbacks;
     this.isCancelled = false;
     if (!resuming) {
@@ -624,6 +633,8 @@ export class AgentLoop {
       projectName: this.config.projectName || null,
       skillFragment: this.config.skillFragment || null,
       systemSkillFragment: this.config.systemSkillFragment || null,
+      pluginSystemFragment: this.config.pluginSystemFragment || null,
+      pluginProtocols: this.config.pluginProtocols || null,
       skillsDir: this.config.skillsDir || null,
       soul: this.config.soul || null,
       sessionTools: this.config.toolRuntime?.registry?.has?.('shell_session') === true,

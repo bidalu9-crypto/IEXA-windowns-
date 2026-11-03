@@ -23,6 +23,13 @@ export interface SystemPromptContext {
   skillFragment?: string | null;
   /** Full body of explicitly trusted application-level skills. */
   systemSkillFragment?: string | null;
+  /**
+   * Highest-priority block contributed by enabled plugins. Rendered as the
+   * first thing inside the `<system>` envelope, above every built-in section.
+   */
+  pluginSystemFragment?: string | null;
+  /** toolName -> protocol line, merged from enabled plugins. */
+  pluginProtocols?: Record<string, string> | null;
   /** Absolute path where skills are stored (…/workspace/skills). */
   skillsDir?: string | null;
   /** Persistent SOUL.md identity and personality for this request envelope. */
@@ -36,6 +43,33 @@ export interface SystemPromptContext {
    * callers that build a prompt before a runtime exists).
    */
   tools?: AgentToolDefinition[];
+}
+
+/**
+ * Expand a plugin's protocol placeholders against the live registry.
+ *
+ * `{{tool_protocol}}` becomes one line per tool the model is actually given
+ * this turn, so a removed tool disappears from the table and an added one can
+ * never be missing. Lookup is exact first, then by suffix so a plugin can
+ * describe its own tools whose ids carry a per-process hash
+ * (`plugin_foo_1a2b_enforce_mode` matches the key `enforce_mode`).
+ */
+function renderPluginProtocols(template: string, tools: AgentToolDefinition[] | undefined, protocols: Record<string, string> | null | undefined): string {
+  if (!template.includes('{{tool_')) return template;
+  const list = Array.isArray(tools) ? tools : [];
+  const rules = protocols || {};
+  const pick = (name: string): string => {
+    if (rules[name]) return rules[name];
+    for (const [key, value] of Object.entries(rules)) if (name.endsWith(`_${key}`)) return value;
+    return '';
+  };
+  const lines = list.map((tool) => {
+    const rule = pick(tool.name);
+    return rule ? `- **${tool.name}** — ${rule}` : `- **${tool.name}** — 无专用协议，按工具描述与通用纪律执行。`;
+  });
+  return template
+    .replace(/\{\{tool_count\}\}/g, String(list.length))
+    .replace(/\{\{tool_protocol\}\}/g, lines.join('\n'));
 }
 
 export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): string {
@@ -143,13 +177,19 @@ version: 1.0.0
 例外：用户明确要求保留，或该文件是排障所需的证据（日志、崩溃转储、复现脚本）时保留，并说明保留原因与位置。
 `;
 
+  // Plugin guidance is rendered as the first block inside the envelope: it is
+  // the operating protocol the user installed, so it has to be read before the
+  // built-in sections rather than appended after them.
+  const pluginFragment = (options.pluginSystemFragment || '').trim();
+  const pluginBlock = pluginFragment ? `${renderPluginProtocols(pluginFragment, options.tools, options.pluginProtocols)}\n` : '';
+
   // App-owned persona leads every provider envelope. Default identity/style
   // must never compete with the saved SOUL; unrelated embedded override text
   // is not a second personality source.
   return `${soulSection}
 
 <system>
-## 核心能力
+${pluginBlock}## 核心能力
 
 你可以使用以下工具：
 - **shell_execute**：在独立 Shell 中执行命令。Windows 下必须按语法显式选择 shell：批处理/CMD 使用 cmd，PowerShell 源码使用 powershell（已安装 PowerShell 7 时可用 pwsh）；不要把 PowerShell 再嵌进 CMD 字符串。每次调用会启动新进程，默认超时 15 分钟。工作目录见下方「当前工作区」。

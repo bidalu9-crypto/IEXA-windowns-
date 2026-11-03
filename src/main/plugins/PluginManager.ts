@@ -30,7 +30,23 @@ export interface PluginManifest {
   author?: string;
   main?: string;
   ui?: string;
+  /**
+   * Markdown rendered at the very top of the system prompt while the plugin is
+   * enabled. `{{tool_protocol}}` expands to one line per live tool and
+   * `{{tool_count}}` to that count, so the table cannot drift from the registry
+   * the model actually receives this turn.
+   */
+  system?: string;
+  /** JSON object: toolName -> protocol line. Keys may also match by suffix. */
+  protocols?: string;
   tools: PluginToolManifest[];
+}
+
+/** Result of compiling every enabled plugin's prompt contribution. */
+export interface PluginSystemFragment {
+  text: string;
+  sources: Array<{ id: string; chars: number }>;
+  problems: string[];
 }
 
 interface PluginStateEntry { enabled: boolean; installedAt: number; }
@@ -83,6 +99,54 @@ export class PluginManager {
         };
       }
     }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }
+
+  /**
+   * Compile the prompt contribution of every enabled plugin.
+   *
+   * Read on every call rather than cached, so an edited file reaches the model
+   * without a rebuild. A plugin without a `system` file contributes nothing; a
+   * broken file is reported instead of silently swallowing the rest.
+   */
+  systemPromptFragment(budget = 24000): PluginSystemFragment {
+    const sources: Array<{ id: string; chars: number }> = [];
+    const problems: string[] = [];
+    const blocks: string[] = [];
+    let used = 0;
+    for (const plugin of this.list()) {
+      if (!plugin.enabled || plugin.error || !plugin.system) continue;
+      let text = '';
+      try {
+        text = stripBom(fs.readFileSync(this.resolveInside(plugin.directory, plugin.system, 'system'), 'utf8')).trim();
+      } catch (error) {
+        problems.push(`${plugin.id}：${(error as Error).message}`);
+        continue;
+      }
+      if (!text) continue;
+      const room = budget - used;
+      if (room <= 0) { problems.push(`${plugin.id}：超出注入预算（${budget} 字符），已跳过`); continue; }
+      if (text.length > room) { text = text.slice(0, room); problems.push(`${plugin.id}：内容超出预算，已截断`); }
+      blocks.push(text);
+      sources.push({ id: plugin.id, chars: text.length });
+      used += text.length;
+    }
+    return { text: blocks.join('\n\n'), sources, problems };
+  }
+
+  /** toolName -> protocol line, merged from every enabled plugin. */
+  toolProtocols(): Record<string, string> {
+    const merged: Record<string, string> = {};
+    for (const plugin of this.list()) {
+      if (!plugin.enabled || plugin.error || !plugin.protocols) continue;
+      try {
+        const parsed = JSON.parse(stripBom(fs.readFileSync(this.resolveInside(plugin.directory, plugin.protocols, 'protocols'), 'utf8')));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+        for (const [name, rule] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof rule === 'string' && rule.trim()) merged[name] = rule.trim();
+        }
+      } catch { /* 单个插件的坏文件不影响其余插件 */ }
+    }
+    return merged;
   }
 
   install(sourcePath: string): InstalledPlugin {
@@ -302,6 +366,16 @@ export class PluginManager {
     }
     const apiVersion = raw.apiVersion ?? 1;
     if (apiVersion !== 1 && apiVersion !== 2) throw new Error('插件 apiVersion 需要 1 或 2。');
+    const system = raw.system == null ? undefined : String(raw.system).trim();
+    if (system) {
+      const entry = this.resolveInside(directory, system, 'system');
+      if (!fs.existsSync(entry) || !fs.statSync(entry).isFile() || !['.md', '.txt'].includes(path.extname(entry).toLowerCase())) throw new Error('system 必须指向插件目录内存在的 .md 或 .txt 文件。');
+    }
+    const protocols = raw.protocols == null ? undefined : String(raw.protocols).trim();
+    if (protocols) {
+      const entry = this.resolveInside(directory, protocols, 'protocols');
+      if (!fs.existsSync(entry) || !fs.statSync(entry).isFile() || path.extname(entry).toLowerCase() !== '.json') throw new Error('protocols 必须指向插件目录内存在的 .json 文件。');
+    }
     const panels: PluginPanelManifest[] = [];
     if (raw.contributions !== undefined) {
       if (apiVersion !== 2 || !raw.contributions || typeof raw.contributions !== 'object' || Array.isArray(raw.contributions)) throw new Error('contributions 需要 apiVersion: 2。');
@@ -338,7 +412,7 @@ export class PluginManager {
     });
     if (tools.length > 0 && !main) throw new Error('声明工具的插件必须提供 main 执行入口。');
     if (tools.length === 0 && !ui && !panels.length) throw new Error('插件至少需要声明一个工具或可视化 UI。');
-    return { apiVersion, contributions: { panels }, id, name, version, description, author: raw.author ? String(raw.author).slice(0, 120) : undefined, main, ui, tools };
+    return { apiVersion, contributions: { panels }, id, name, version, description, author: raw.author ? String(raw.author).slice(0, 120) : undefined, main, ui, system, protocols, tools };
   }
 
   private validateParameters(value: unknown, toolName: string): Record<string, AgentToolParam> {

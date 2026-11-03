@@ -1245,6 +1245,8 @@ function getOrCreateAgent(sessionId: string): AgentRuntime | null {
     projectName: projectRoot ? path.basename(projectRoot) : null,
     skillFragment: skillStore.skillPromptFragment(),
     systemSkillFragment: skillStore.systemPromptFragment(),
+    pluginSystemFragment: pluginManager.systemPromptFragment().text,
+    pluginProtocols: pluginManager.toolProtocols(),
     skillsDir,
     soul: bot ? botSoul(soulStore.load(), bot) : soulStore.load(),
     shellSessions,
