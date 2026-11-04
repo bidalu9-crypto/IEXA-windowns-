@@ -112,7 +112,11 @@ function runOne(spec: HookSpec, payload: HookPayload, cwd: string, signal: Abort
       cwd,
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, IEXA_HOOK_PHASE: spec.phase, IEXA_SESSION_ID: payload.sessionId },
+      // In a packaged build process.execPath is IEXA-WIN.exe. Without this flag
+      // Electron boots a second full application for every hook invocation —
+      // a window, a GPU process and a black flash per tool call. The flag makes
+      // the child a plain node process, which is all a hook needs.
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', IEXA_HOOK_PHASE: spec.phase, IEXA_SESSION_ID: payload.sessionId },
     });
     const timer = setTimeout(() => {
       try { child.kill(); } catch { /* already gone */ }
