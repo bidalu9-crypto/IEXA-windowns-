@@ -37,12 +37,12 @@ test('label is separate from the text to type, and both are accepted', () => {
   assert.match(definitions, /'label',/, 'and whitelisted');
 });
 
-test('click and type no longer require a prior observation', () => {
+test('native click and type resolve label targets inside their own methods', () => {
   const source = read('desktop-agent/Program.cs');
   const click = source.slice(source.indexOf('static object ClickElement'));
   const type = source.slice(source.indexOf('static async Task<object> TypeElement'));
-  assert.match(click.slice(0, 600), /ResolveTargetAsync/, 'click resolves the target itself');
-  assert.match(type.slice(0, 600), /ResolveTargetAsync/, 'type resolves the target itself');
+  assert.match(click.slice(0, click.indexOf('static async Task<object> TypeElement')), /ResolveTargetAsync/, 'click resolves the target itself');
+  assert.match(type.slice(0, type.indexOf('\n    static ', 1)), /ResolveTargetAsync/, 'type resolves the target itself');
   // find_element also looks live when the cache has nothing.
   const find = source.slice(source.indexOf('static async Task<object> FindElement'));
   assert.match(find.slice(0, 1600), /Automation\.Observe/, 'find_element searches when nothing is cached');

@@ -1,0 +1,24 @@
+{
+  "name": "Ruff",
+  "version": "0.14.4",
+  "platform": "win32-x64",
+  "upstream": "https://github.com/astral-sh/ruff",
+  "release": "https://pypi.org/project/ruff/0.14.4/",
+  "metadataURL": "https://pypi.org/pypi/ruff/0.14.4/json",
+  "wheel": {
+    "filename": "ruff-0.14.4-py3-none-win_amd64.whl",
+    "url": "https://files.pythonhosted.org/packages/bc/22/e58c43e641145a2b670328fb98bc384e20679b5774258b1e540207580266/ruff-0.14.4-py3-none-win_amd64.whl",
+    "sha256": "26673da283b96fe35fa0c939bf8411abec47111644aa9f7cfbd3c573fb125d2c"
+  },
+  "executable": {
+    "path": "ruff.exe",
+    "sha256": "c96cb482d16dab13b2d192a387cc855825e77400ae6671aa4facd453519a1492"
+  },
+  "license": {
+    "name": "MIT",
+    "path": "ruff-LICENSE.txt",
+    "sha256": "2597d854122b77ddc71971564ca2350a37608575ce324adc5650a2b2051c8f18"
+  },
+  "transport": "stdin/stdout; formatter code never writes document contents to the project",
+  "verify": "ruff.exe --version must return ruff 0.14.4; compare sha256 with this manifest"
+}

@@ -15,6 +15,7 @@ const assets = [
   ['@highlightjs/cdn-assets', 'styles/github.min.css', 'github.min.css'],
   ['@highlightjs/cdn-assets', 'styles/github-dark.min.css', 'github-dark.min.css'],
   ['highlight.js', 'LICENSE', 'highlightjs-LICENSE'],
+  ['monaco-editor', 'LICENSE', 'monaco-LICENSE'],
   // The pet background remover runs u2netp through onnxruntime-web. Only the
   // single-threaded wasm build ships; the webgl/webgpu variants would add ~30 MB
   // for a model this small. The .mjs entry plus its glue module are loaded with
@@ -25,9 +26,25 @@ const assets = [
   ['onnxruntime-web', 'dist/ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.mjs'],
   ['onnxruntime-web', 'dist/ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.wasm'],
 ];
+// Monaco's AMD distribution loads language workers, fonts and CSS relative to
+// vs/. Keep the whole local tree and account for every file in the manifest.
+function directoryAssets(name, source, target) {
+  const base = path.join(root, 'node_modules', name, source);
+  const entries = [];
+  function walk(relative) {
+    for (const entry of fs.readdirSync(path.join(base, relative), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en'))) {
+      const file = path.posix.join(relative, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (entry.isFile()) entries.push([name, path.posix.join(source, file), path.posix.join(target, file)]);
+    }
+  }
+  walk('');
+  return entries;
+}
 function vendor(check = false) {
   const manifest = {};
-  for (const [name, source, target] of assets) {
+  const bundledAssets = [...assets, ...directoryAssets('monaco-editor', 'min/vs', 'monaco/vs')];
+  for (const [name, source, target] of bundledAssets) {
     const dir = path.join(root, 'node_modules', name);
     const installed = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'))).version;
     const pinned = pkg.dependencies[name] || pkg.devDependencies[name];
@@ -39,7 +56,7 @@ function vendor(check = false) {
     if (check) {
       if (!fs.existsSync(dest) || !fs.readFileSync(dest).equals(bytes)) throw Error(`Stale renderer asset: ${target}`);
     } else {
-      fs.mkdirSync(out, { recursive: true });
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.writeFileSync(dest, bytes);
     }
   }
@@ -48,7 +65,7 @@ function vendor(check = false) {
   if (check) {
     if (fs.readFileSync(dest, 'utf8') !== text) throw Error('Stale renderer manifest');
   } else fs.writeFileSync(dest, text);
-  console.log(`Renderer assets ${check ? 'verified' : 'vendored'} (${assets.length})`);
+  console.log(`Renderer assets ${check ? 'verified' : 'vendored'} (${bundledAssets.length})`);
 }
 if (require.main === module) vendor(process.argv.includes('--check'));
 module.exports = { vendor };

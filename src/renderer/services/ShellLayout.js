@@ -18,20 +18,33 @@ function initPanelResizers() {
   const widthVariable = (key) => (key === 'sidebar' ? '--sidebar-width' : '--files-panel-width');
   const panels = { sidebar: document.querySelector('.sidebar'), files: document.querySelector('.files-panel') };
   const readWidth = (key) => {
-    const cssName = key === 'sidebar' ? '--sidebar-width' : '--files-panel-width';
-    const pinned = panels[key] ? Number.parseInt(getComputedStyle(panels[key]).getPropertyValue(cssName), 10) : NaN;
+    const cssName = widthVariable(key);
+    // A panel can declare its own stylesheet default, masking a hydrated :root
+    // value in getComputedStyle(). Prefer explicit state before CSS fallbacks,
+    // or a reload silently replaces the saved width with that local default.
+    const pinned = panels[key] ? Number.parseInt(panels[key].style.getPropertyValue(cssName), 10) : NaN;
     if (Number.isFinite(pinned)) return pinned;
-    const persisted = Number.parseInt(getComputedStyle(root).getPropertyValue(cssName), 10);
-    if (Number.isFinite(persisted)) return persisted;
-    const value = Number.parseInt(localStorage.getItem(`iexa-${key}-width`) || '', 10);
-    return Number.isFinite(value) ? value : defaults[key];
+    const hydrated = Number.parseInt(root.style.getPropertyValue(cssName), 10);
+    if (Number.isFinite(hydrated)) return hydrated;
+    const stored = Number.parseInt(localStorage.getItem(`iexa-${key}-width`) || '', 10);
+    if (Number.isFinite(stored)) return stored;
+    const panelDefault = panels[key] ? Number.parseInt(getComputedStyle(panels[key]).getPropertyValue(cssName), 10) : NaN;
+    if (Number.isFinite(panelDefault)) return panelDefault;
+    const rootDefault = Number.parseInt(getComputedStyle(root).getPropertyValue(cssName), 10);
+    return Number.isFinite(rootDefault) ? rootDefault : defaults[key];
   };
   let sidebarWidth = readWidth('sidebar');
   let filesWidth = readWidth('files');
+  let normalFilesWidth = filesWidth, ideMode = false;
+  const defaultIDEWidth = () => Math.min(680, Math.max(420, Math.round(window.innerWidth * .44)));
+  let ideWidth = Number.parseInt(localStorage.getItem('iexa-ide-width') || '', 10);
+  if (!Number.isFinite(ideWidth)) ideWidth = defaultIDEWidth();
 
   const limits = (key) => {
     const other = key === 'sidebar' ? filesWidth : sidebarWidth;
-    return { min: key === 'sidebar' ? 180 : 220, max: Math.max(key === 'sidebar' ? 180 : 220, Math.min(key === 'sidebar' ? 460 : 560, window.innerWidth - other - 420)) };
+    const ideFiles = key === 'files' && ideMode;
+    const min = key === 'sidebar' ? 180 : ideFiles ? 360 : 220;
+    return { min, max: Math.max(min, Math.min(key === 'sidebar' ? 460 : ideFiles ? 840 : 560, window.innerWidth - other - (ideFiles ? 300 : 420))) };
   };
   const clamp = (value, key) => {
     const { min, max } = limits(key);
@@ -45,7 +58,7 @@ function initPanelResizers() {
   // value is set on .sidebar itself.
   const apply = (key, value, persist = true, live = false) => {
     const next = clamp(value, key);
-    if (key === 'sidebar') sidebarWidth = next; else filesWidth = next;
+    if (key === 'sidebar') sidebarWidth = next; else { filesWidth = next; if (ideMode) ideWidth = next; else normalFilesWidth = next; }
     const panel = panels[key];
     if (live && panel) {
       panel.style.width = `${next}px`;
@@ -58,8 +71,8 @@ function initPanelResizers() {
       root.style.setProperty(widthVariable(key), `${next}px`);
     }
     if (persist) {
-      localStorage.setItem(`iexa-${key}-width`, String(next));
-      scheduleAppearanceSave();
+      localStorage.setItem(key === 'files' && ideMode ? 'iexa-ide-width' : `iexa-${key}-width`, String(next));
+      if (!(key === 'files' && ideMode)) scheduleAppearanceSave();
     }
   };
   // Normalising is a layout pass, not an edit: seeding the value that was just
@@ -85,9 +98,14 @@ function initPanelResizers() {
   window.IexaPanelWidths = {
     set(sidebar, files) {
       if (Number.isFinite(sidebar)) apply('sidebar', sidebar, false);
-      if (Number.isFinite(files)) apply('files', files, false);
+      if (Number.isFinite(files)) { normalFilesWidth = files; if (!ideMode) apply('files', files, false); }
+    },
+    setIDEMode(value) {
+      if (ideMode === !!value) return;
+      ideMode = !!value; apply('files', ideMode ? ideWidth : normalFilesWidth, false);
     },
   };
+  window.IexaPanelWidths.setIDEMode(document.body.classList.contains('ide-active'));
 
   // A full-viewport shield is how the drag keeps `cursor: col-resize` over every
   // element. The old rule was `body.is-resizing *`, which forced the style engine
@@ -169,7 +187,7 @@ function initPanelResizers() {
       window.addEventListener('blur', finish);
     });
 
-    handle.addEventListener('dblclick', () => apply(key, defaults[key]));
+    handle.addEventListener('dblclick', () => apply(key, key === 'files' && ideMode ? defaultIDEWidth() : defaults[key]));
     handle.addEventListener('keydown', (event) => {
       const isSidebar = key === 'sidebar';
       let next = null;

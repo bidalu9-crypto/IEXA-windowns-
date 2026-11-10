@@ -16,6 +16,7 @@ import type { BotStore } from '../bots/BotStore';
 import type { TaskScheduler } from '../tasks/Scheduler';
 import { ShellSessionTools } from '../tools/ShellSessionTools';
 import type { JobBridge } from './ToolRuntime';
+import { settleWithin } from './AbortWait';
 
 export interface AgentRuntimeConfig extends Omit<AgentLoopConfig, 'toolRuntime' | 'sessionId' | 'getAbortSignal'> { allowedToolNames?: string[]; sessionId: string; auditDir?: string; traceDir?: string; permissionResolver?: PermissionResolver; permissionMode?: PermissionMode; budget?: ConstructorParameters<typeof BudgetManager>[0]; desktopCaptureFrames?: boolean; subAgentDir?: string; onSubAgentChange?: (agent: SubAgentSummary) => void; onSubAgentUsage?: (usage: { inputTokens: number; outputTokens: number }) => void; subAgentTree?: SubAgentManager; questionResolver?: QuestionResolver; hooks?: () => HookSpec[]; shellSessions?: ShellSessionTools; jobBridge?: JobBridge; bots?: { store: BotStore; callerTools: () => string[]; defaultProfile: () => string }; scheduledTasks?: { scheduler: TaskScheduler; defaultProfile: () => string; defaultSession: () => string }; }
 export interface AgentRequest { message: string; tools: AgentToolDefinition[]; callbacks: AgentLoopCallbacks; attachments?: Parameters<AgentLoop['run']>[3]; }
@@ -92,8 +93,8 @@ export class AgentRuntime {
         this.state = { ...this.state, status: 'paused', currentTool: undefined, updatedAt: Date.now() };
       }
       if (runSignal.aborted) {
-        if (this.config.subAgentTree) await this.subAgents?.settleDescendants(this.config.sessionId);
-        else await this.subAgents?.settleAll();
+        const cleanup = this.config.subAgentTree ? this.subAgents?.settleDescendants(this.config.sessionId) : this.subAgents?.settleAll();
+        if (cleanup) await settleWithin(cleanup, 150);
       }
       this.activeRun = false; this.cancellation.finish(this.config.sessionId);
       // Anything still waiting was never committed; report it before the

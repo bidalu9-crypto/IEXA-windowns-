@@ -3,7 +3,7 @@
 // Native desktop window using the local agent server
 // =============================================================================
 
-const { app, BrowserWindow, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session, crashReporter, desktopCapturer } = require('electron');
+const { app, BrowserWindow, WebContentsView, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session, crashReporter, desktopCapturer } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { UpdateService } = require('./dist/main/update/UpdateService');
 const path = require('path');
@@ -66,6 +66,7 @@ let resizeMainWindow = null;
 let desktopLiveWindow = null;
 let petWindow = null;
 let server = null;
+let ideHost = null;
 let tray = null;
 let updateService = null;
 let isQuitting = false;
@@ -832,6 +833,11 @@ function createWindow() {
   mainWindow.on('close', (event) => {
     if (windowStateSaveTimer) { clearTimeout(windowStateSaveTimer); windowStateSaveTimer = null; }
     saveWindowState();
+    if (ideHost && !ideHost.canQuit()) {
+      event.preventDefault();
+      void ideHost.requestQuit();
+      return;
+    }
     if (!isQuitting) {
       isQuitting = true;
       console.log('[IEXA] Window closed, shutting down backend');
@@ -935,7 +941,6 @@ function createTray() {
     {
       label: '退出',
       click: () => {
-        isQuitting = true;
         app.quit();
       },
     },
@@ -1138,6 +1143,13 @@ app.whenReady().then(async () => {
       console.log('[IEXA] Preferred port ' + PREFERRED_PORT + ' busy; allocated port:', PORT);
     }
 
+    ideHost = require('./resources/ide-host.cjs').installIDEHost({
+      ipcMain, dialog, WebContentsView, session, app,
+      getWindow: () => mainWindow,
+      workspaceFile,
+      getProjectRoot: () => require('./dist/main/server').getProjectRoot(),
+      appOrigin: () => `http://${LOOPBACK_HOST}:${PORT}`,
+    });
     await startBackendServer();
     await waitForServer();
     installDisplayMediaHandler();
@@ -1168,7 +1180,12 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (ideHost && !ideHost.canQuit()) {
+    event.preventDefault();
+    void ideHost.requestQuit();
+    return;
+  }
   console.log('[IEXA] Shutting down...');
   // Release owned native helpers before async HTTP shutdown (open sockets may delay close).
   try { require('./dist/main/tools/desktop/DesktopHelperLifetime').closeDesktopHelpers(); }

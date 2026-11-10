@@ -39,6 +39,12 @@
 .tool-pane > .tool-args,
 .tool-pane > .tool-result { margin: 0; }
 
+.tool-agent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; }
+.tool-agent-actions[hidden] { display: none; }
+.tool-agent-actions .tool-agent-link { padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: none; color: var(--text-muted); font-size: calc(11.5px * var(--ui-font-scale, 1)); cursor: pointer; }
+.tool-agent-actions .tool-agent-link:hover,
+.tool-agent-actions .tool-agent-link:focus-visible { border-color: var(--accent); color: var(--accent); }
+
 .trajectory-load-more {
   display: block;
   width: 100%;
@@ -117,3 +123,6 @@
 .file-action-description { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin-top: 2px; font-size: calc(11px * var(--ui-font-scale, 1)); color: var(--text-muted); }
 .turn-deliverable-files .file-action-card { height: 58px; flex: 1 1 200px; max-width: 240px; }
 .tool-pane[data-pane="output"] .tool-command { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--code-bg); color: var(--text-secondary); font: calc(.72rem * var(--ui-font-scale, 1))/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+/* A route badge records the input backend independently from task success. */
+.tool-block .desktop-control-mode { display:inline-flex; align-items:center; flex:0 1 auto; max-width:180px; margin-left:4px; padding:2px 6px; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary); background:var(--bg-secondary); font-size:10px; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tool-block .desktop-control-mode[data-mode="foreground"] { color:var(--warning,#b08028); border-color:color-mix(in srgb,var(--warning,#b08028) 30%,var(--border)); }

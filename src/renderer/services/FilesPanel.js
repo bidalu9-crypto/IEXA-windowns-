@@ -23,6 +23,25 @@ let gitLoadInFlight = false;
 let gitLoadEpoch = 0;
 let gitStatusSignature = '';
 let gitReloadRequested = false;
+let ideProjectSyncEpoch = 0;
+let projectOpenEpoch = 0;
+let projectMutationQueue = Promise.resolve();
+
+// Follow the one project selected by the backend. This does not open a second
+// picker or accept an independent IDE root from the page.
+async function syncIDEProject() {
+  const epoch = ++ideProjectSyncEpoch;
+  const expected = projectRoot;
+  const normalize = value => String(value || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  if (!window.iexaDesktop?.ide?.currentProject || !window.IexaIDE?.bindProject) return;
+  try {
+    const project = await window.iexaDesktop.ide.currentProject();
+    if (epoch !== ideProjectSyncEpoch || normalize(projectRoot) !== normalize(expected)) return;
+    if (project?.__ideError) throw Error(project.__ideError.message);
+    if (normalize(project?.root) !== normalize(expected)) return;
+    await window.IexaIDE.bindProject(project || null);
+  } catch (error) { console.error('[IDE] Project sync:', error.message || error); }
+}
 
 function formatFileSize(n) {
   if (n < 1024) return n + ' B';
@@ -31,8 +50,9 @@ function formatFileSize(n) {
 }
 
 function switchWorkbenchView(view) {
-  if (!['files', 'git', 'search', 'terminal'].includes(view)) return;
+  if (!['files', 'git', 'search', 'terminal', 'ide'].includes(view)) return;
   workbenchView = view;
+  window.IexaPanelWidths?.setIDEMode(view === 'ide');
   if (view !== 'git') gitReloadRequested = false;
   const filesList = document.getElementById('filesList');
   const filesPreview = document.getElementById('filesPreview');
@@ -44,6 +64,10 @@ function switchWorkbenchView(view) {
   if (gitPanel) gitPanel.style.display = view === 'git' ? 'block' : 'none';
   if (searchPanel) searchPanel.style.display = view === 'search' ? 'flex' : 'none';
   if (terminalPanel) terminalPanel.style.display = view === 'terminal' ? 'flex' : 'none';
+  const idePanel = document.getElementById('idePanel');
+  if (idePanel) idePanel.style.display = view === 'ide' ? 'flex' : 'none';
+  window.IexaIDE?.activate(view === 'ide');
+  if (view === 'ide' && typeof syncIDEProject === 'function') void syncIDEProject();
   document.querySelectorAll('.workbench-tab').forEach((button) => {
     button.classList.toggle('active', button.dataset.workbenchView === view);
   });
@@ -282,6 +306,10 @@ async function searchWorkspaceText(query) {
 }
 
 function fileIcon(entry) {
+  if (window.IexaIDEFileIcons) {
+    const asset = window.IexaIDEFileIcons.resolve(entry.name || entry.path || '', { directory: entry.type === 'dir' });
+    return `<img class="ide-file-icon" src="vendor/file-icons/${asset}.svg" alt="" aria-hidden="true" draggable="false" width="16" height="16">`;
+  }
   const name = String(entry.name || '').toLowerCase();
   const ext = name.includes('.') ? name.split('.').pop() : '';
   const icon = (kind, label) => {
@@ -400,12 +428,16 @@ function renderFilesCrumb(relPath, rootName) {
 }
 
 async function loadProjectState() {
+  const expectedEpoch = projectOpenEpoch;
+  const expectedRoot = projectRoot;
   try {
     const resp = await fetch(`${API_BASE}/api/project`);
     const data = await resp.json();
+    if (expectedEpoch !== projectOpenEpoch || expectedRoot !== projectRoot) return;
     projectRoot = data.root || null;
     projectName = data.name || null;
     projectRecent = data.recent || [];
+    await syncIDEProject();
     if (projectRoot) {
       filesCurrentPath = '.';
       await loadFilesList('.', false);
@@ -420,14 +452,18 @@ async function loadProjectState() {
 
 async function openProjectPath(rootPath) {
   if (!rootPath) return;
+  const epoch = ++projectOpenEpoch;
   try {
-    const resp = await fetch(`${API_BASE}/api/project`, {
+    const request = projectMutationQueue.then(() => fetch(`${API_BASE}/api/project`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ root: rootPath }),
-    });
+    }));
+    projectMutationQueue = request.catch(() => {});
+    const resp = await request;
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.openFailed'));
+    if (epoch !== projectOpenEpoch) return;
     projectRoot = data.root || null;
     projectName = data.name || null;
     projectRecent = data.recent || [];
@@ -436,7 +472,10 @@ async function openProjectPath(rootPath) {
     filesCurrentPath = '.';
     filesLastSig = '';
     closeFilePreview();
+    await syncIDEProject();
+    if (epoch !== projectOpenEpoch) return;
     await loadFilesList('.', false);
+    if (epoch !== projectOpenEpoch) return;
     const projectSession = sessionsCache
       .filter(session => session.archived !== true && String(session.projectRoot || '').toLowerCase() === String(projectRoot || '').toLowerCase())
       .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
@@ -466,11 +505,16 @@ async function openProjectPicker() {
 }
 
 async function closeProject() {
+  const epoch = ++projectOpenEpoch;
   try {
-    await fetch(`${API_BASE}/api/project/clear`, { method: 'POST' });
+    const request = projectMutationQueue.then(() => fetch(`${API_BASE}/api/project/clear`, { method: 'POST' }));
+    projectMutationQueue = request.catch(() => {});
+    await request;
   } catch { /* */ }
+  if (epoch !== projectOpenEpoch) return;
   projectRoot = null;
   projectName = null;
+  await syncIDEProject();
   filesCurrentPath = '.';
   filesLastSig = '';
   gitStatusSignature = '';
@@ -498,19 +542,25 @@ async function loadFilesList(relPath, silent) {
   }
 
   const target = relPath == null ? filesCurrentPath : relPath;
+  const expectedRoot = projectRoot;
+  const expectedEpoch = projectOpenEpoch;
   try {
     if (!silent) list.innerHTML = '<div class="files-empty">' + IexaI18n.t('files.loading') + '</div>';
     const resp = await fetch(`${API_BASE}/api/fs/list?path=${encodeURIComponent(target)}`);
     const data = await resp.json();
+    if (expectedEpoch !== projectOpenEpoch || projectRoot !== expectedRoot) return;
     if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.loadFailed'));
 
     if (data.empty || !data.root) {
       projectRoot = null;
+      void syncIDEProject();
       showFilesEmpty(projectRecent);
       return;
     }
 
+    const rootChanged = String(projectRoot || '').toLowerCase() !== String(data.root).toLowerCase();
     projectRoot = data.root;
+    if (rootChanged) void syncIDEProject();
     projectName = data.name || projectName;
     filesCurrentPath = data.path || '.';
 
@@ -577,7 +627,7 @@ async function loadFilesList(relPath, silent) {
       });
     });
   } catch (err) {
-    if (!silent) list.innerHTML = `<div class="files-empty">${IexaI18n.t('files.loadFailedPrefix')}${escapeHtml(err.message || String(err))}</div>`;
+    if (expectedEpoch === projectOpenEpoch && expectedRoot === projectRoot && !silent) list.innerHTML = `<div class="files-empty">${IexaI18n.t('files.loadFailedPrefix')}${escapeHtml(err.message || String(err))}</div>`;
   }
 }
 
@@ -635,6 +685,7 @@ function closeFilePreview() {
 
 function initFilesPanel() {
   installPluginWorkspaceBridge();
+  window.IexaIDE?.init();
   document.querySelectorAll('.workbench-tab').forEach((button) => {
     button.addEventListener('click', () => switchWorkbenchView(button.dataset.workbenchView));
   });

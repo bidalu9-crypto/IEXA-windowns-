@@ -16,6 +16,7 @@ import { CommandPolicy } from './shell/CommandPolicy';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
 import { PathSandbox, PathPolicy } from '../security/PathSandbox';
 import { NetworkPolicy } from '../security/NetworkPolicy';
+import { recordIDEFileChange } from '../ide/IDEReviewStore';
 
 export type ToolPathPolicy = Omit<PathPolicy, 'workspaceDir' | 'allowMissing'>;
 
@@ -196,6 +197,7 @@ function changeSummary(filePath: string, before: string, after: string, absolute
   // keep long, edit-heavy sessions light (they used to carry 120K chars per side).
   const limit = 30000;
   const afterBytes = encodedAfter || Buffer.from(after, 'utf8');
+  recordIDEFileChange(absolutePath, before, after, beforeExists, afterBytes);
   const diff = fileChanges.diff(before, after);
   const rollback = beforeBytes.length <= 512 * 1024 && afterBytes.length <= 512 * 1024 ? {
     version: 1 as const, beforeExists, beforeBase64: beforeBytes.toString('base64'),

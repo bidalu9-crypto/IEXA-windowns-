@@ -21,3 +21,14 @@ test('tool commands and outputs remain literal text, never executable markup',t=
 test('overflow fade follows actual scroll geometry and clears at bottom',t=>{
  const {b,api}=fixture(t);api.updateTool(b,'shell_execute',{command:'npm test'});const viewport=b.querySelector('.tool-console-viewport');Object.defineProperties(viewport,{scrollHeight:{value:800,configurable:true},clientHeight:{value:200,configurable:true}});api.refreshDetail(b);assert.equal(viewport.dataset.overflow,'true');assert.equal(viewport.dataset.atBottom,'false');viewport.scrollTop=600;api.refreshDetail(b);assert.equal(viewport.dataset.atBottom,'true');Object.defineProperty(viewport,'scrollHeight',{value:100});api.refreshDetail(b);assert.equal(viewport.dataset.overflow,'false');
 });
+
+test('tabbed wait results replace exact child links, hide failed results and retain output nodes',t=>{
+ const {w,b,api}=fixture(t);w.eval(fs.readFileSync(path.join(__dirname,'../src/renderer/services/ToolCard.js'),'utf8'));
+ b.querySelector('.tool-body').innerHTML=w.IexaToolCard.bodyMarkup('wait');const output=b.querySelector('.tool-result');output.textContent='real wait output';
+ api.updateTool(b,'wait_agent',{ids:['a','b']},{success:true,output:JSON.stringify({agents:[{id:'a',nickname:'Reader A'},{id:'b',nickname:'Reader B'}]})});
+ const actions=b.querySelector('.tool-agent-actions');assert.ok(actions);assert.equal(actions.hidden,false);assert.equal(actions.querySelectorAll('.tool-agent-link').length,2);assert.equal(b.querySelector('.tool-result'),output);assert.equal(b.querySelector('.tool-detail-panel'),null);
+ const seen=[];w.addEventListener('iexa:open-subagent',e=>seen.push(e.detail.id));for(const link of actions.querySelectorAll('.tool-agent-link'))link.click();assert.deepEqual(seen.sort(),['a','b']);
+ api.updateTool(b,'wait_agent',undefined,{success:true,output:JSON.stringify({agents:[{id:'b',nickname:'Reader B'}]})});assert.equal(actions.querySelectorAll('.tool-agent-link').length,1);
+ api.updateTool(b,'wait_agent',undefined,{success:false,output:'failed'});assert.equal(actions.hidden,true);assert.equal(actions.querySelectorAll('.tool-agent-link').length,0);assert.equal(output.textContent,'real wait output');
+ api.updateTool(b,'wait_agent',undefined,{success:true,output:'truncated {bad json'});assert.equal(actions.hidden,true);assert.equal(actions.querySelectorAll('.tool-agent-link').length,0);
+});

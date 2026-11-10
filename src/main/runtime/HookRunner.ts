@@ -18,6 +18,8 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { stripBom } from '../persistence/stripBom';
+import { terminateProcessTree } from '../tools/shell/ProcessManager';
+import { settleWithin } from './AbortWait';
 
 export type HookPhase = 'preToolUse' | 'postToolUse';
 
@@ -99,18 +101,23 @@ export function loadHookSpecs(workspaceDir: string): HookSpec[] {
 function runOne(spec: HookSpec, payload: HookPayload, cwd: string, signal: AbortSignal): Promise<{ block: boolean; reason?: string; error?: string }> {
   return new Promise((resolve) => {
     let settled = false;
+    let termination: Promise<void> | undefined;
     const finish = (value: { block: boolean; reason?: string; error?: string }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
-      resolve(value);
+      // The owned process cleanup continues even if its OS helper is slow.
+      // Releasing a cancelled turn must not wait for the helper indefinitely.
+      if (termination) void settleWithin(termination, 150).then(() => resolve(value)); else resolve(value);
     };
-    const onAbort = () => { try { child.kill(); } catch { /* already gone */ } finish({ block: false, error: 'hook 已取消' }); };
+    const stop = () => { termination ??= terminateProcessTree(child, 500).catch(() => {}); };
+    const onAbort = () => { stop(); finish({ block: false, error: 'hook 已取消' }); };
 
     const child = spawn(process.execPath, [spec.script], {
       cwd,
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
       // In a packaged build process.execPath is IEXA-WIN.exe. Without this flag
       // Electron boots a second full application for every hook invocation —
@@ -119,16 +126,17 @@ function runOne(spec: HookSpec, payload: HookPayload, cwd: string, signal: Abort
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', IEXA_HOOK_PHASE: spec.phase, IEXA_SESSION_ID: payload.sessionId },
     });
     const timer = setTimeout(() => {
-      try { child.kill(); } catch { /* already gone */ }
+      stop();
       finish({ block: false, error: `hook 超时（${spec.timeoutMs}ms）` });
     }, spec.timeoutMs);
     signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
 
     let stdout = '';
     let overflow = false;
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8');
-      if (stdout.length > MAX_HOOK_STDOUT) { overflow = true; try { child.kill(); } catch { /* already gone */ } }
+      if (stdout.length > MAX_HOOK_STDOUT && !overflow) { overflow = true; stop(); }
     });
     child.stderr.on('data', () => { /* diagnostics are intentionally discarded */ });
     child.on('error', (error) => finish({ block: false, error: `hook 启动失败：${error.message}` }));
@@ -159,6 +167,7 @@ export async function runHooks(specs: HookSpec[], payload: HookPayload, cwd: str
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) controller.abort();
   try {
     for (const spec of matching) {
       if (controller.signal.aborted) break;

@@ -102,8 +102,8 @@ test('real browser: a paused turn shows a banner that resumes the same stream', 
   await evaluate("chatInput.value='a long job'; void sendMessage(); true");
   await wait("isProcessing === true && typeof window.__pushChat === 'function'");
 
-  // The stop button parks the turn instead of killing it.
-  await evaluate("document.getElementById('stopBtn').click(); true");
+  // Explicit pause parks the turn; the Stop button now cancels immediately.
+  await evaluate("void pauseProcessing(); true");
   await wait("window.__calls.some((url) => url.startsWith('/api/pause'))");
   assert.equal(await evaluate("window.__calls.some((url) => url.startsWith('/api/cancel'))"), false, 'stopping does not cancel');
 

@@ -703,7 +703,7 @@ function handleToolResult(id, output, success, todos, fileChange, imageData, ima
 
   window.IexaToolLifecycleView.applyResult(info.block, { success, executionStatus, metadata }, setToolStepStatus);
   info.block.dataset.finishedAt = String(Date.now());
-  window.IexaChatActivity.updateTool(info.block, info.name, undefined, { success, fileChange, pluginUI });
+  window.IexaChatActivity.updateTool(info.block, info.name, undefined, { success, output, fileChange, pluginUI });
   refreshToolGroupSummary(info.block.closest('.tool-steps'));
 
   if (Array.isArray(todos) && success && currentAssistantMsg) {

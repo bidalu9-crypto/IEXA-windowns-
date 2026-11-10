@@ -9,9 +9,9 @@ test('constructing an agent is lazy; no desktop process starts',()=>{
  const agent=new DesktopAgent(process.cwd());assert.equal(agent.healthyUntil,0);agent.close();
 });
 test('concurrent native startup for the same endpoint is shared across agents',async()=>{
- const a=new DesktopAgent(process.cwd()),b=new DesktopAgent(process.cwd());let count=0,release;
+ const a=new DesktopAgent(process.cwd()),b=new DesktopAgent(process.cwd());let count=0,release,started=false;
  const ready=new Promise(r=>release=r);
- for(const agent of [a,b]){agent.healthy=async()=>false;agent.start=async()=>{count++;await ready;};}
+ for(const agent of [a,b]){agent.healthy=async()=>started;agent.start=async()=>{count++;await ready;started=true;};}
  const tasks=[a.ensureStarted(),b.ensureStarted()];await new Promise(r=>setImmediate(r));assert.equal(count,1);release();await Promise.all(tasks);a.close();b.close();
 });
 test('Electron before-quit releases helper ownership independently of HTTP close',()=>{

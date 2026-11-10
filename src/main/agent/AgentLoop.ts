@@ -43,6 +43,7 @@ import { contextWindowForModel, estimateMessageTokens } from './ContextCompactor
 import { ContextManager } from '../context/ContextManager';
 import { RetryManager } from '../runtime/RetryManager';
 import { ProviderError } from '../providers/ProviderError';
+import { awaitOrAbort } from '../runtime/AbortWait';
 
 /** Keep live tool evidence useful without letting build logs dominate context. */
 const MAX_TOOL_RESULT_CHARS = 2400;
@@ -231,6 +232,7 @@ export class AgentLoop {
   cancel(): void {
     this.isCancelled = true;
     this.compactionController?.abort();
+    this.completionAbort?.abort();
   }
 
   /**
@@ -619,11 +621,12 @@ export class AgentLoop {
     let projectInstructions = '';
     if (this.config.hasProject) {
       try {
-        projectInstructions = ProjectInstructions.format(await new ProjectInstructions(this.config.workspaceDir).resolve('.', 'directory'));
+        projectInstructions = ProjectInstructions.format(await awaitOrAbort(new ProjectInstructions(this.config.workspaceDir).resolve('.', 'directory'), signal));
       } catch (error) {
         projectInstructions = `Project instruction loading failed: ${(error as Error).message}. Use project_instructions to inspect the scope before editing.`;
       }
     }
+    if (this.isAborted) { callbacks.onCancelled(); return; }
     const baseSystemPrompt = buildSystemPrompt({
       projectInstructions,
       projectScope: this.config.projectScope,
@@ -754,7 +757,15 @@ export class AgentLoop {
           streamSignal,
         );
 
-        for await (const event of stream) {
+        const iterator = stream[Symbol.asyncIterator]();
+        let streamFinished = false;
+        try { while (true) {
+          // A steer can fire inside next() just before an already-produced
+          // delta resolves. Drain that one microtask before interrupting so
+          // the displayed partial answer remains in history.
+          const next = await awaitOrAbort(iterator.next(), streamSignal, 1);
+          if (next.done) { streamFinished = true; break; }
+          const event = next.value;
           if (!firstTokenAt && isStreamedToken(event)) firstTokenAt = Date.now();
           if (this.isAborted) {
             callbacks.onCancelled();
@@ -812,6 +823,11 @@ export class AgentLoop {
               stopReason = event.stopReason;
               break;
           }
+          if (streamSignal.aborted) { const interrupted = new Error('Completion interrupted.'); interrupted.name = 'AbortError'; throw interrupted; }
+        } } finally {
+          // Some SDKs await their pending next() inside return(). Never await
+          // that cleanup on the path that acknowledges a user's stop.
+          if (!streamFinished) { try { void Promise.resolve(iterator.return?.(undefined as never)).catch(() => {}); } catch { /* SDK cleanup is best effort */ } }
         }
         if (firstTokenAt) {
           this.generationMs += Date.now() - firstTokenAt;
@@ -864,8 +880,14 @@ export class AgentLoop {
         let toolIndex = 0;
         while (toolIndex < toolCalls.length) {
           if (this.isAborted) {
-            callbacks.onCancelled();
-            return;
+            // Resolve every emitted call in cached history before the next
+            // user turn. Unstarted calls must not survive as dangling toolUse.
+            for (const tc of toolCalls.slice(toolIndex)) {
+              const result: ToolExecutionResult = { output: 'Tool cancelled before execution.', success: false, cancelled: true, executionStatus: 'cancelled' };
+              callbacks.onToolResult(tc.id, result);
+              toolResults.push({ type: 'toolResult', id: tc.id, name: tc.name, content: result.output, isError: true });
+            }
+            break;
           }
           const first = toolCalls[toolIndex];
           let batchEnd = toolIndex;
@@ -994,11 +1016,12 @@ export class AgentLoop {
     args: Record<string, unknown>,
   ): Promise<ToolExecutionResult> {
     const signal = this.config.getAbortSignal();
+    const callbacks = this.callbacks;
     if (!signal) return { output: 'Tool runtime is not active.', success: false };
     try { return await this.config.toolRuntime.execute(name, args, { signal, sessionId: this.config.sessionId, toolCallId: id, workspaceDir: this.config.workspaceDir,
       onToolState: event => {
-        this.callbacks?.onToolState?.(event);
-        if (event.status === 'running' && !event.desktop) this.callbacks?.onToolExecutionStart?.(id, name, args);
+        callbacks?.onToolState?.(event);
+        if (event.status === 'running' && !event.desktop && !signal.aborted) callbacks?.onToolExecutionStart?.(id, name, args);
       },
     }); }
     catch (error: unknown) { return { output: (error as Error).message || 'Tool execution failed.', success: false }; }

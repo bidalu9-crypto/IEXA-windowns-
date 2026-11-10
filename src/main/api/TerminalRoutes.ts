@@ -10,6 +10,7 @@ import * as http from 'http';
 import { URL } from 'url';
 import { jsonReply, readBody, HttpError } from './HttpServer';
 import { TerminalManager } from '../terminals/TerminalManager';
+import { resolveIDEWorkspaceRoot } from '../ide/IDEContext';
 
 export interface TerminalRouteContext {
   terminals: TerminalManager;
@@ -29,9 +30,9 @@ if (url.pathname === '/api/terminal/sessions' && req.method === 'GET') {
     }
 
 if (url.pathname === '/api/terminal/sessions' && req.method === 'POST') {
-      const projectRoot = ctx.getProjectRoot() || ctx.workspaceDir;
       try {
         const body = JSON.parse(await readBody(req) || '{}');
+        const projectRoot = body.ideProjectRoot === undefined ? ctx.getProjectRoot() || ctx.workspaceDir : resolveIDEWorkspaceRoot(body.ideProjectRoot);
         jsonReply(res, 201, { session: ctx.terminals.create(projectRoot, body.shell) });
       } catch (error) {
         jsonReply(res, 400, { error: (error as Error).message });

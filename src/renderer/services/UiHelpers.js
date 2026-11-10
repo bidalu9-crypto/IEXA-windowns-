@@ -917,6 +917,8 @@ function setProcessing(processing) {
   // iOS: input stays editable while processing so user can insert follow-ups.
   // Stop is always available during a run; send becomes "queue" mode.
   stopBtn.style.display = processing ? 'flex' : 'none';
+  stopBtn.disabled = processing && !!runtime?.turnStopPending;
+  if (stopBtn.disabled) stopBtn.setAttribute('aria-busy', 'true'); else stopBtn.removeAttribute('aria-busy');
   sendBtn.style.display = processing ? 'none' : 'flex';
   sendBtn.disabled = false;
   chatInput.disabled = false;

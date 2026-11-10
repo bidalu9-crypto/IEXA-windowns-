@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { URL } from 'url';
 import { AgentRuntime, AgentRuntimeConfig } from './runtime/AgentRuntime';
+import { awaitOrAbort } from './runtime/AbortWait';
 import { STREAM_RATE_VERSION } from './agent/AgentLoop';
 import { ProviderFactory } from './providers/ProviderFactory';
 import { makeAgentTools } from './tools/ToolDefinitions';
@@ -83,7 +84,7 @@ import { createTaskScheduler } from './tasks/TaskRuntime';
 import { TerminalManager } from './terminals/TerminalManager';
 import { McpManager } from './mcp/McpManager';
 import { normalizeMcpToolResult } from './mcp/McpToolResult';
-import { readDesktopPreview } from './tools/desktop/DesktopPreview';
+import { readActiveDesktopPreview, readDesktopLiveStatus } from './tools/desktop/DesktopLiveState';
 import { VisionFallback } from './vision/VisionFallback';
 import { loadHookSpecs } from './runtime/HookRunner';
 import { imageDimensions } from './vision/ImageMetadata';
@@ -103,6 +104,7 @@ import {
 import { createTurnCheckpoint, planResume } from './session/TurnDurability';
 import type { ChatMessage, ChatAttachmentMeta } from './session/ChatMessage';
 import { stripBom } from './persistence/stripBom';
+import { getIDEContextForRoot, resolveIDEWorkspaceRoot, registerIDEContextTool } from './ide/IDEContext';
 
 const PORT = 19840;
 const MAX_CHAT_BODY_BYTES = 50 * 1024 * 1024;
@@ -294,7 +296,7 @@ function saveProjectState(state: ProjectState): void {
 let projectState = loadProjectState();
 
 /** Active project root for tools + file browser; null when none. */
-function getProjectRoot(): string | null {
+export function getProjectRoot(): string | null {
   if (projectState.root && fs.existsSync(projectState.root) && fs.statSync(projectState.root).isDirectory()) {
     return projectState.root;
   }
@@ -1001,6 +1003,8 @@ function questionPayload(item: PendingQuestion): Record<string, unknown> {
 }
 /** Live turns only; cached idle agents remain reusable and are not considered running. */
 const runningSessionIds = new Set<string>();
+/** Covers preparation before AgentRuntime.begin resets its per-run signal. */
+const chatTurnControllers = new Map<string, AbortController>();
 /**
  * Settings alter the next request envelope. Never abort an active stream just
  * to refresh that envelope; discard its cached runtime after it completes.
@@ -1353,6 +1357,7 @@ async function runNativeBotWork(botId: string, message: string, signal: AbortSig
 }
 
 function cancelSessionAgent(sessionId: string, dispose = true): void {
+  chatTurnControllers.get(sessionId)?.abort();
   pendingAgentInvalidation.delete(sessionId);
   const agent = agentCache.get(sessionId);
   if (agent) {
@@ -1474,7 +1479,7 @@ function backfillSessionContexts(): void {
 // 'wasm-unsafe-eval' lets the desktop pet's local u2netp inference compile its
 // wasm module. It is far narrower than 'unsafe-eval': it permits WebAssembly
 // instantiation only, never string-to-JS evaluation.
-const APP_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const APP_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void {
   const pathname = new URL(req.url || '/', 'http://localhost').pathname;
@@ -1855,9 +1860,12 @@ function createServer(auth: LocalApiAuth): http.Server {
           const control = desktopControlScheduler.snapshot();
           jsonReply(res, ok ? 200 : 503, {ok,paused:control.paused,settled:!control.active,isolated,primary});return;
         }
-        const upstream = operation === 'frame'
-          ? await readDesktopPreview('http://127.0.0.1:17891', abort.signal)
-          : await fetch('http://127.0.0.1:17891/health', { signal: abort.signal });
+        const control = desktopControlScheduler.snapshot();
+        if (operation === 'status') {
+          jsonReply(res, 200, { ...readDesktopLiveStatus(), paused: control.paused, active: !!control.active, queued: control.queued.length }); return;
+        }
+        if (control.paused) { jsonReply(res, 423, { error: '桌面操作与画面采集已暂停。', paused: true }); return; }
+        const upstream = await readActiveDesktopPreview(abort.signal);
         res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json', 'Cache-Control': 'no-store', 'X-Captured-At': upstream.headers.get('x-captured-at') || '', 'X-IEXA-Frame-Mode': upstream.headers.get('x-iexa-frame-mode') || '' });
         res.end(Buffer.from(await upstream.arrayBuffer()));
       } catch {
@@ -1969,7 +1977,8 @@ function createServer(auth: LocalApiAuth): http.Server {
         perSession: JOB_RETENTION_PER_SESSION,
         total: JOB_RETENTION_TOTAL,
       },
-      cancelSession: (sessionId) => cancelSessionAgent(sessionId, false), clearRunningSession: (sessionId) => runningSessionIds.delete(sessionId), cancelLiveJobs,
+      cancelSession: (sessionId) => cancelSessionAgent(sessionId, false), clearRunningSession: (sessionId) => runningSessionIds.delete(sessionId),
+      isSessionRunning: (sessionId) => runningSessionIds.has(sessionId), cancelLiveJobs,
       getGoal: (sessionId) => goalStore.get(sessionId),
       clearGoal: (sessionId) => goalStore.clear(sessionId),
       listShellSessions: (sessionId) => shellSessions.summaries(sessionId),
@@ -2159,9 +2168,15 @@ function createServer(auth: LocalApiAuth): http.Server {
       }
 
       if (req.method === 'POST') {
+        let requestedRoot: string | undefined;
+        try {
+          const body = JSON.parse(await readBody(req) || '{}');
+          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('会话请求格式无效');
+          if (body.ideProjectRoot !== undefined) requestedRoot = resolveIDEWorkspaceRoot(body.ideProjectRoot);
+        } catch (error) { jsonReply(res, 400, { error: (error as Error).message }); return; }
         const store = loadSessionStore();
         const initialProfile = activeProfile();
-        const projectRoot = getProjectRoot();
+        const projectRoot = requestedRoot || getProjectRoot();
         const now = Date.now();
         const session: Session = {
           id: 'sess_' + now,
@@ -2620,6 +2635,7 @@ function createServer(auth: LocalApiAuth): http.Server {
       const body = await readBody(req, MAX_CHAT_BODY_BYTES);
       let requestSessionId = '';
       let ownsSessionLock = false;
+      let requestController: AbortController | undefined;
       try {
         const parsed = JSON.parse(body);
         let message: string = parsed.message || '';
@@ -2652,6 +2668,7 @@ function createServer(auth: LocalApiAuth): http.Server {
         // Soft-cancel any in-flight turn but keep agent so multi-turn memory stays warm.
         // If none exists (app restart / first message), create and hydrate from disk.
         cancelSessionAgent(sessionId, false);
+        requestController = new AbortController(); chatTurnControllers.set(sessionId, requestController);
         let agent = agentCache.get(sessionId) || null;
         const needHydrate = !agent || agent.getHistoryLength() === 0;
         if (!agent) {
@@ -2661,7 +2678,7 @@ function createServer(auth: LocalApiAuth): http.Server {
           jsonReply(res, 400, { error: '创建 Agent 失败。' });
           return;
         }
-        await agent.initialize();
+        await awaitOrAbort(agent.initialize(), requestController.signal);
         // Reapply the durable session index on every turn. The AgentLoop may
         // survive a normal turn, or may have just been recreated after a
         // restart/profile change; either way the model receives the same
@@ -2681,7 +2698,7 @@ function createServer(auth: LocalApiAuth): http.Server {
 ${recentMemories}
 </memory-log>`
           : '';
-        agent.setSessionContext(durableContext + memorySection);
+        agent.setSessionContext(durableContext + memorySection + getIDEContextForRoot(sessionProjectRoot(sessionId)));
         // Restore Codex-style compaction summary (survives restarts)
         const persistedSummary = loadSessionSummary(sessionId);
         if (persistedSummary) {
@@ -2704,6 +2721,9 @@ ${recentMemories}
             agent.restoreContextUsage(persistedUsage.usedTokens);
           }
         }
+        const ideRoot = sessionProjectRoot(sessionId);
+        const hasIDEContext = !!getIDEContextForRoot(ideRoot);
+        if (hasIDEContext && ideRoot) registerIDEContextTool(agent, ideRoot);
         const visionProfile = configuredVisionProfile(profile.id);
         // The configured vision profile is a fallback, not a replacement for
         // a chat profile that already accepts image input. Native vision must
@@ -2772,7 +2792,7 @@ ${recentMemories}
         for (const binding of pluginBindings) {
           agent.registerDynamicTool(binding.definition, (args, context) => pluginManager.invoke(binding.pluginId, binding.localName, args, context.signal));
         }
-        const availableTools = [...makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true }), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent'].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
+        const availableTools = [...makeAgentTools(true, { shellSession: true, jobs: true, goal: true, bots: true, scheduledTasks: true }), ...agent.toolDefinitions().filter(tool => ['spawn_agent', 'send_input', 'wait_agent', 'close_agent', 'resume_agent', ...(hasIDEContext ? ['ide_context'] : [])].includes(tool.name)), ...(visionProfile && useVisionProxy ? [{
           name: 'read_image', description: `Use the configured vision model ${visionProfile.name} to inspect an image file. It returns factual description and OCR text.`,
           parameters: { path: { type: 'string' as const, description: 'Absolute image file path.' }, prompt: { type: 'string' as const, description: 'Optional image question.' } },
           required: ['path'], propertyOrdering: ['path', 'prompt'],
@@ -3210,6 +3230,7 @@ ${recentMemories}
           };
         }
         try {
+          if (requestController.signal.aborted) { cb.onCancelled(); await terminalWork; return; }
           await agent.run({ message, tools, callbacks: cb, attachments: agentAttachments }, { continueTurn });
           await terminalWork;
           if (pausedTurn && !res.writableEnded) {
@@ -3237,12 +3258,17 @@ ${recentMemories}
       } catch (err: unknown) {
         if (ownsSessionLock) clearPermissionSubscription(requestSessionId);
         if (ownsSessionLock) clearQuestionSubscription(requestSessionId);
-        if (!res.headersSent) jsonReply(res, 500, { error: (err as Error).message });
+        if (requestController?.signal.aborted && !res.writableEnded && !res.destroyed) {
+          if (!res.headersSent) { res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); }
+          sendSSE(res, 'cancelled', {}); res.end();
+        }
+        else if (!res.headersSent) jsonReply(res, 500, { error: (err as Error).message });
         else if (!res.writableEnded && !res.destroyed) {
           sendSSE(res, 'error', { message: (err as Error).message });
           res.end();
         }
       } finally {
+        if (requestController && chatTurnControllers.get(requestSessionId) === requestController) chatTurnControllers.delete(requestSessionId);
         if (ownsSessionLock) { runningSessionIds.delete(requestSessionId); finishPendingAgentInvalidation(requestSessionId); }
       }
       return;

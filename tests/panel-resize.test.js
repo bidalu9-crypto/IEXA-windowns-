@@ -20,6 +20,47 @@ const browser = process.env.IEXA_TEST_BROWSER || [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find(candidate => fs.existsSync(candidate));
 
+function panelFixture(t, { sidebar, files, storedSidebar, storedFiles, pinnedSidebar } = {}) {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM('<style>:root{--sidebar-width:240px;--files-panel-width:300px}.sidebar{--sidebar-width:240px}</style><div class="sidebar" id="sidebar"></div><div id="sidebarResizer"></div><div class="files-panel" id="filesPanel"></div><div id="filesResizer"></div>', { url: 'http://localhost/', runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  const w = dom.window;
+  Object.defineProperty(w, 'innerWidth', { value: 1600, configurable: true });
+  let saves = 0;
+  w.scheduleAppearanceSave = () => { saves++; };
+  if (sidebar) w.document.documentElement.style.setProperty('--sidebar-width', sidebar + 'px');
+  if (files) w.document.documentElement.style.setProperty('--files-panel-width', files + 'px');
+  if (pinnedSidebar) w.document.getElementById('sidebar').style.setProperty('--sidebar-width', pinnedSidebar + 'px');
+  if (storedSidebar) w.localStorage.setItem('iexa-sidebar-width', String(storedSidebar));
+  if (storedFiles) w.localStorage.setItem('iexa-files-width', String(storedFiles));
+  w.eval(fs.readFileSync(path.join(__dirname, '../src/renderer/services/ShellLayout.js'), 'utf8'));
+  w.initPanelResizers();
+  return { w, width: (id, variable) => w.document.getElementById(id).style.getPropertyValue(variable), saves: () => saves };
+}
+
+test('panel startup restores hydrated widths ahead of panel stylesheet defaults and older local storage', t => {
+  const f = panelFixture(t, { sidebar: 416, files: 320, storedSidebar: 256, storedFiles: 300 });
+  assert.equal(f.width('sidebar', '--sidebar-width'), '416px');
+  assert.equal(f.width('filesPanel', '--files-panel-width'), '320px');
+  assert.equal(f.w.document.documentElement.style.getPropertyValue('--sidebar-width'), '', 'the hydrated width moves to the panel');
+  assert.equal(f.w.document.documentElement.style.getPropertyValue('--files-panel-width'), '');
+  assert.equal(f.saves(), 0, 'hydrating widths must not save them again');
+  f.w.document.getElementById('sidebarResizer').dispatchEvent(new f.w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(f.width('sidebar', '--sidebar-width'), '432px');
+  assert.equal(f.w.localStorage.getItem('iexa-sidebar-width'), '432');
+  assert.equal(f.saves(), 1);
+});
+
+test('panel startup uses stored widths when appearance hydration is unavailable and respects an already pinned panel', t => {
+  const stored = panelFixture(t, { storedSidebar: 416, storedFiles: 340 });
+  assert.equal(stored.width('sidebar', '--sidebar-width'), '416px');
+  assert.equal(stored.width('filesPanel', '--files-panel-width'), '340px');
+  assert.equal(stored.saves(), 0);
+  const pinned = panelFixture(t, { sidebar: 416, storedSidebar: 256, pinnedSidebar: 352 });
+  assert.equal(pinned.width('sidebar', '--sidebar-width'), '352px');
+  assert.equal(pinned.saves(), 0);
+});
+
 test('real browser: panel drag writes stay scoped and commit once', { skip: !browser, timeout: 90000 }, async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-resize-'));
   process.env.IEXA_WORKSPACE = path.join(dir, 'workspace');
@@ -194,9 +235,11 @@ test('real browser: panel drag writes stay scoped and commit once', { skip: !bro
   })()`);
   assert.equal(persisted.saved, persisted.width, `server stores the committed width (${persisted.saved} vs ${persisted.width})`);
 
+  // Page.reload acknowledges navigation before replacing the old document. Its
+  // ready flags can still pass for one poll and disappear before the next read.
+  const previousTimeOrigin = await evaluate('performance.timeOrigin');
   await cdp('Page.reload', { ignoreCache: false });
-  await wait("document.body && document.body.dataset.mobileClient === 'desktop' && document.getElementById('sidebar')", 'app shell after reload');
-  await new Promise(resolve => setTimeout(resolve, 600));
+  await wait(`performance.timeOrigin !== ${JSON.stringify(previousTimeOrigin)} && document.body && document.body.dataset.mobileClient === 'desktop' && document.body.dataset.panelResize === 'ready' && document.getElementById('sidebar') && document.getElementById('sidebarResizer')`, 'interactive panel restore in the new document after reload');
   const restored = await evaluate(`(() => {
     const width = Math.round(document.getElementById('sidebar').getBoundingClientRect().width);
     return width;

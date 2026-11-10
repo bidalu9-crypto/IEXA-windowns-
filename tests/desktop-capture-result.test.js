@@ -13,3 +13,18 @@ test('capture diagnostics do not inflate model output without bound',()=>{
  const output=formatDesktopResult({ok:true,action:'observe',data:{frame:{trust:'background-unverified',diagnostic:'x'.repeat(10000)}}});
  assert.ok(output.length<2000);
 });
+
+test('compact window discovery retains hidden, shell-cloaked and unknown states instead of implying absence',()=>{
+ const windows=[
+  {handle:10,title:'Content',process:'application',pid:7,isVisible:true,cloakedMask:2},
+  {handle:11,title:'Host',process:'host',pid:8,isVisible:true,cloakedMask:0},
+  {handle:12,title:'Hidden',process:'application',pid:7,isVisible:false,cloakedMask:null},
+ ];
+ const listed=formatDesktopResult({ok:true,action:'list_windows',data:{windows}});
+ for(const window of windows){
+  const line=listed.split('\n').find(line=>line.includes(`handle=${window.handle} |`));assert.ok(line,'Every existing window remains represented');
+  const state=JSON.parse(line.split('windowState=')[1]);assert.equal(state.isVisible,window.isVisible);assert.equal(state.cloakedMask,window.cloakedMask);
+ }
+ const observed=formatDesktopResult({ok:true,action:'observe',data:{foreground:windows[0],frame:{trust:'background-unverified',diagnostic:'DWM mask=0x2; shell hiding reported; virtual-desktop membership unverified.'}}});
+ assert.match(observed,/"cloakedMask":2/);assert.match(observed,/membership unverified/);assert.match(observed,/没有发送输入/);
+});

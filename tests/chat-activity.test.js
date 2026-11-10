@@ -33,7 +33,7 @@ test('actual waiting handler suppresses cancelled-turn recreation and creates no
  w.showWaitingIndicator();w.showWaitingIndicator();assert.equal(w.document.querySelectorAll('.waiting-indicator').length,1);w.document.querySelector('.waiting-indicator').remove();w.runtimeForSession=()=>({turnStopPending:true});w.showWaitingIndicator();assert.equal(w.document.querySelector('.waiting-indicator'),null);
 });
 test('production app integrates compact rendering for live and historical calls',()=>{
- assert.match(app,/IexaChatActivity\.updateTool\(block, tc\.name, tc\.args, tc\.result\)/);assert.match(app,/IexaChatActivity\.updateTool\(info\.block, info\.name, undefined, \{ success, fileChange, pluginUI \}\)/);
+ assert.match(app,/IexaChatActivity\.updateTool\(block, tc\.name, tc\.args, tc\.result\)/);assert.match(app,/IexaChatActivity\.updateTool\(info\.block, info\.name, undefined, \{ success, output, fileChange, pluginUI \}\)/);
  const html=fs.readFileSync(path.join(root,'src/renderer/index.html'),'utf8');assert.ok(html.indexOf('services/ChatActivityView.js')<html.indexOf('src="app.js"'));
 });
 
@@ -41,4 +41,21 @@ test('actual live completion handler prepares compact rows without falsely marki
  const w=setup(t),b=block(w);w.currentToolBlocks={call:{block:b,name:'file_write'}};w.setPagedText=(el,text)=>{el.textContent=text;};w.toolMeta=()=>'';w.toolLiveTitle=()=>'';w.updateTaskSummary=()=>{};w.scrollToBottom=()=>{};w.uiIcon=()=>'';
  loadFunctions(w,['handleToolComplete','setToolStepStatus']);w.handleToolComplete('call','file_write',{path:'src/fixture.ts',content:'hello'});
  assert.equal(b.querySelector('.tool-meta').textContent,'src/fixture.ts');assert.equal(b.querySelector('.activity-operation'),null);assert.equal(b.dataset.status,'queued');assert.equal(b.querySelector('.tool-header').tagName,'BUTTON');assert.equal(b.querySelector('.activity-diff').textContent,'');
+});
+
+test('real live result event supplies child output to tabbed agent details without reloading history',t=>{
+ const w=setup(t);w.eval(fs.readFileSync(path.join(root,'src/renderer/services/ToolCard.js'),'utf8'));
+ const b=block(w);b.querySelector('.tool-body').innerHTML=w.IexaToolCard.bodyMarkup('live-agent');
+ w.currentToolBlocks={call:{block:b,name:'spawn_agent'}};w.currentAssistantMsg=null;
+ w.setPagedText=(el,text)=>{el.textContent=text;};w.refreshToolGroupSummary=()=>{};w.showWaitingIndicator=()=>{};w.scrollToBottom=()=>{};
+ w.IexaToolLifecycleView={applyResult:node=>{node.dataset.status='done';}};
+ loadFunctions(w,['handleToolResult','setToolStepStatus']);w.IexaChatActivity.updateTool(b,'spawn_agent',{nickname:'Live Reader'});
+ const raw=JSON.stringify({id:'live-child',nickname:'Live <b>Reader</b>'}),seen=[];w.addEventListener('iexa:open-subagent',event=>seen.push(event.detail.id));
+ w.handleToolResult('call',raw,true);
+ b.querySelector('.tool-header').click();const actions=b.querySelector('[data-pane="output"] .tool-agent-actions');
+ assert.equal(b.querySelector('[data-pane="output"]').hidden,false);assert.ok(actions);assert.equal(actions.hidden,false);assert.equal(actions.querySelectorAll('.tool-agent-link').length,1);assert.equal(actions.querySelector('b'),null);
+ actions.querySelector('.tool-agent-link').click();assert.deepEqual(seen,['live-child']);assert.equal(b.querySelector('.tool-result').textContent,raw);
+ w.currentToolBlocks.call.name='wait_agent';w.handleToolResult('call',JSON.stringify({agents:[{id:'live-child'},{id:'second-child'}]}),true);
+ assert.equal(actions.querySelectorAll('.tool-agent-link').length,2);
+ w.handleToolResult('call','interrupted result',false);assert.equal(actions.hidden,true);assert.equal(actions.querySelectorAll('.tool-agent-link').length,0);
 });

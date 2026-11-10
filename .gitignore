@@ -72,6 +72,15 @@ debug.log
 /.iexa-jobs.json
 /skills/
 
+# Official pinned Code OSS kernel is reproduced and hash-checked by vendor-codeoss.cjs.
+/resources/codeoss/
+# Pinned Open VSX bundles are reproduced by vendor-codeoss-extensions.cjs.
+/resources/codeoss-bundled-extensions/*/
+
+# Standalone MIT Pyright runtime is restored by vendor-python-language.cjs.
+/resources/language-services/pyright/dist/
+/resources/language-services/pyright/package.json
+
 # Video pipeline: source stills, narration and the rendered film are all
 # regenerable via .video/build.cjs, so they stay out of the repo.
 /.video-shots/

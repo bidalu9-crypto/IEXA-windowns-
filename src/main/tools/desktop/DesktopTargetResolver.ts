@@ -2,6 +2,9 @@ export interface DesktopElement {
   id: string; role: string; text: string; enabled?: boolean; source?: string; confidence?: number | null;
   bounds?: { left: number; top: number; width: number; height: number };
   selector?: { automationId?: string; controlType?: string; name?: string };
+  capabilities?: string[]; focused?: boolean; checked?: boolean; expanded?: boolean | string;
+  options?: { value: string; label: string; disabled: boolean; selected: boolean }[];
+  scroll?: { top: number; left: number; width: number; height: number; clientWidth: number; clientHeight: number };
 }
 export interface DesktopTarget { automationId?: string; name?: string; role?: string; elementId?: string; }
 const normal = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase();

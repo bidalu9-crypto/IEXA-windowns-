@@ -1,0 +1,7 @@
+/* Preserve the upstream colors; SVGs are local, decorative file identities. */
+.ide-file-icon { display:inline-block; width:16px; height:16px; min-width:16px; max-width:16px; object-fit:contain; flex:0 0 16px; vertical-align:middle; user-select:none; pointer-events:none; filter:none!important; }
+.ide-tree-row > .ide-file-icon { margin-right:1px; }
+.ide-editor-tab > .ide-file-icon,.ide-editor-tab > button > .ide-file-icon { margin-right:2px; }
+.ide-editor-tab > button:first-child:has(.ide-file-icon) { display:flex; align-items:center; gap:4px; }
+.ide-recent button:has(.ide-file-icon) { display:flex; align-items:center; gap:5px; }
+.ide-changes-file > .ide-file-icon { margin-right:1px; }

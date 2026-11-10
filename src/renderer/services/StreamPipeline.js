@@ -89,6 +89,13 @@ function handleSSEEvent(raw, turnToken) {
   try {
     const data = JSON.parse(dataStr);
     if (turnToken != null && turnToken !== activeChatTurnToken) return;
+    const runtime = runtimeForSession(currentSessionId);
+    if (turnToken != null && runtime.finishedChatTurnToken === turnToken) return;
+    // Once Stop is clicked, discard queued progress from the old execution.
+    // Its terminal event still owns the completion barrier for the next turn.
+    const terminalToolState = eventType === 'tool_state' && ['completed', 'failed', 'cancelled', 'denied', 'timed_out'].includes(data.status);
+    const terminalToolResult = eventType === 'tool_result' && ['cancelled', 'timed_out'].includes(data.executionStatus);
+    if (runtime.turnStopPending && !terminalToolState && !terminalToolResult && !['cancelled', 'done', 'error', 'paused'].includes(eventType)) return;
     if (eventType === 'text_delta') {
       const previous = pendingStreamUpdates.get(currentSessionId)?.text ?? currentAssistantMsg?._assistantText ?? '';
       data.content = (data.reset ? '' : previous) + (data.content || '');
@@ -134,6 +141,11 @@ function handleSSEEvent(raw, turnToken) {
         break;
       }
       case 'tool_result':
+        // Synchronize even if this conversation's tool card is not mounted.
+        // The IDE reads the full disk file; fileChange.after is only a preview.
+        if (data.success && data.fileChange) {
+          try { Promise.resolve(window.IexaIDE?.onFileChange?.(data.fileChange)).catch(() => {}); } catch { /* IDE lifecycle is independent from chat rendering. */ }
+        }
         handleToolResult(data.id, data.output, data.success, data.todos, data.fileChange, data.imageData, data.imageMimeType, data.artifacts, data.executionStatus, data.durationMs, data.pluginUI, data.metadata);
         break;
       case 'context':

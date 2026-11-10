@@ -2,20 +2,31 @@
 // Initial semantic-operation probe; not a claim about existing user apps or model autonomy.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn,execFileSync}=require('node:child_process'),{randomUUID,createHash}=require('node:crypto');
-const {DesktopAgent}=require('../dist/main/tools/DesktopAgent');
-const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts','native-isolated',`${Date.now()}-${randomUUID().slice(0,8)}`);
+const root=path.resolve(__dirname,'..'),out=process.env.IEXA_DESKTOP_TEST_OUT?path.resolve(process.env.IEXA_DESKTOP_TEST_OUT):path.join(root,'.iexa-artifacts','native-isolated',`${Date.now()}-${randomUUID().slice(0,8)}`);
+const appRoot=process.env.IEXA_DESKTOP_APP_ROOT?path.resolve(process.env.IEXA_DESKTOP_APP_ROOT):root;
+const {DesktopAgent}=require(path.join(appRoot,'dist/main/tools/DesktopAgent'));
+const {readDesktopLiveStatus}=require(path.join(appRoot,'dist/main/tools/desktop/DesktopLiveState'));
 const wait=ms=>new Promise(r=>setTimeout(r,ms));const report={scope:'real Win32 Notepad on an owned non-input desktop; deterministic semantic operations',cases:[],actions:[]};
 const children=[];let agent;const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));
 function json(file){try{return JSON.parse(fs.readFileSync(path.join(out,file),'utf8').replace(/^\uFEFF/,''));}catch{return null;}}
 async function until(fn,label,ms=15000){const end=Date.now()+ms;while(Date.now()<end){const value=await fn();if(value)return value;if(json('isolated-error.json'))throw Error(JSON.stringify(json('isolated-error.json')));await wait(100);}throw Error(label);}
 function launch(exe,args){const fd=fs.openSync(path.join(out,`child-${children.length}.log`),'a');const p=spawn(exe,args,{windowsHide:true,stdio:['ignore',fd,fd]});fs.closeSync(fd);p.on('error',e=>{report.launchError=e.stack;save();});children.push(p);return p;}
 function focusEvents(){try{return fs.readFileSync(path.join(out,'focus-events.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);}catch{return [];}}
+function assertBackgroundAudit(){
+ assert.deepEqual(report.focusEvents,[]);assert.equal(report.focusInitial.foreground,report.focusFinal.foreground);
+ assert.equal(report.focusInitial.mouseHookInstalled,true);assert.equal(report.focusInitial.keyboardHookInstalled,true);
+ assert.deepEqual(report.focusFinal.cursor,report.focusInitial.cursor);assert.equal(report.focusFinal.cursorChanges,0);
+ assert.equal(report.focusFinal.injectedMouseEvents,0);assert.equal(report.focusFinal.injectedKeyboardEvents,0);
+}
 async function main(){
  fs.mkdirSync(out,{recursive:true});save();
  const build=path.join(out,'native-build'),obj=path.join(out,'native-obj')+path.sep;
- try { fs.writeFileSync(path.join(out,'native-build.log'),execFileSync('dotnet',['build','desktop-agent/Iexa.DesktopAgent.csproj','-c','Debug','-o',build,'-p:BaseIntermediateOutputPath='+obj],{cwd:root,windowsHide:true,encoding:'utf8'})); }
- catch(e){fs.writeFileSync(path.join(out,'native-build.log'),String(e.stdout||'')+String(e.stderr||''));throw e;}
- const exe=path.join(build,'Iexa.DesktopAgent.exe');
+ if(!process.env.IEXA_NATIVE_TEST_EXE){
+  try { fs.writeFileSync(path.join(out,'native-build.log'),execFileSync('dotnet',['build','desktop-agent/Iexa.DesktopAgent.csproj','-c','Debug','-o',build,'-p:BaseIntermediateOutputPath='+obj],{cwd:root,windowsHide:true,encoding:'utf8'})); }
+  catch(e){fs.writeFileSync(path.join(out,'native-build.log'),String(e.stdout||'')+String(e.stderr||''));throw e;}
+ }
+ const exe=process.env.IEXA_NATIVE_TEST_EXE?path.resolve(process.env.IEXA_NATIVE_TEST_EXE):path.join(build,'Iexa.DesktopAgent.exe');
+ report.appRoot=appRoot;report.runtimeFiles=Object.fromEntries(['dist/main/tools/DesktopAgent.js','dist/main/tools/desktop/DesktopControlSession.js','dist/main/tools/desktop/DesktopLiveState.js','dist/main/tools/desktop/DesktopBackgroundAdapter.js'].map(file=>[file,createHash('sha256').update(fs.readFileSync(path.join(appRoot,file))).digest('hex')]));
  report.binary={path:exe,dllSha256:createHash('sha256').update(fs.readFileSync(exe.replace(/\.exe$/,'.dll'))).digest('hex')};
  const port=await new Promise(resolve=>{const server=require('node:net').createServer();server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});});
  const endpoint=`http://127.0.0.1:${port}`,document=path.join(out,'owned-note.txt');fs.writeFileSync(document,'IEXA baseline');
@@ -26,12 +37,12 @@ async function main(){
   report.host=report.model.host;report.hostEnded=report.model.hostEnded;
   fs.writeFileSync(path.join(out,'stop-monitor'),'');report.focusFinal=await until(()=>json('focus-ended.json'),'Model foreground audit stop');report.focusEvents=focusEvents();
   assert.equal(report.model.status,'passed',JSON.stringify({error:report.model.error,businessVerified:report.model.businessVerified,metrics:report.model.metrics}));
-  assert.deepEqual(report.focusEvents,[]);assert.equal(report.focusInitial.foreground,report.focusFinal.foreground);
+  assertBackgroundAudit();
   report.cases.push({name:'Real model autonomous Notepad launch/edit/save with independent disk receipt and zero foreground events',status:'passed'});
   report.status='passed';return;
  }
 
- agent=new DesktopAgent(root,false,path.join(out,'journal'),undefined,{executable:exe});
+ agent=new DesktopAgent(appRoot,false,path.join(out,'journal'),undefined,{executable:exe});
  const run=async args=>{const r=await agent.execute({backend:'native-isolated',...args,detail:'raw'},undefined,{owner:'isolated-notepad'});report.actions.push({args,success:r.success,output:r.output,desktop:r.metadata?.desktop});save();assert.equal(r.success,true,r.output);return JSON.parse(r.output).data;};
  await run({action:'list_windows',background:true});
  report.host=agent.isolatedWorkspace.diagnostics();
@@ -51,6 +62,8 @@ async function main(){
  report.cases.push({name:'Native worker itself rejects physical input, pointer fallback and foreign-desktop observation',status:'passed'});
 
  report.observation=observed;
+ report.liveState=readDesktopLiveStatus();assert.equal(report.liveState.control?.mode,'background');assert.equal(report.liveState.control?.backend,'native-isolated');assert.equal(report.liveState.control?.physicalInput,false);
+ report.cases.push({name:'Actual managed isolated observation publishes background control state to DesktopLiveState',status:'passed',evidence:report.liveState});
  assert.ok(observed.elements.some(e=>['edit','document'].includes(e.role)&&e.selector?.className==='Edit'),'Native editor exposes semantic UIA target');
  assert.deepEqual(focusEvents(),[],'Foreground changed before background input');
  const edits=observed.elements.filter(e=>['edit','document'].includes(e.role)&&e.selector?.className==='Edit');assert.equal(edits.length,1,'Use only unambiguous real editor');
@@ -68,8 +81,8 @@ async function main(){
  agent.close();report.hostEnded=await until(()=>{try{return JSON.parse(fs.readFileSync(path.join(report.host.directory,'ended.json'),'utf8'));}catch{return null;}},'Owned desktop shutdown');
  assert.equal(report.hostEnded.desktopClosed,true);assert.equal(report.hostEnded.workerExited,true);
  fs.writeFileSync(path.join(out,'stop-monitor'),'');report.focusFinal=await until(()=>json('focus-ended.json'),'Foreground audit stop');report.focusEvents=focusEvents();
- assert.deepEqual(report.focusEvents,[]);assert.equal(report.focusInitial.foreground,report.focusFinal.foreground);
- report.cases.push({name:'No foreground transition across creation, real native edit, and owned-process cleanup',status:'passed'});
+ assertBackgroundAudit();
+ report.cases.push({name:'No foreground transition, cursor movement or injected input across real edit and owned-process cleanup',status:'passed',evidence:{initial:report.focusInitial,final:report.focusFinal}});
  report.status='passed';
 }
 main().catch(e=>{report.status='failed';report.error=e.stack;process.exitCode=1;}).finally(async()=>{

@@ -1,0 +1,42 @@
+'use strict';
+const { test, before, after } = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const temp = require('./helpers/temp-dir');
+const { recordDesktopControlResult, recordDesktopTransportPreview } = require('../dist/main/tools/desktop/DesktopLiveState');
+const { desktopControlScheduler } = require('../dist/main/tools/desktop/DesktopControlScheduler');
+const scratch = temp.make('iexa-desktop-live-routes-');
+process.env.IEXA_WORKSPACE = path.join(scratch, 'data');
+const backend = require('../dist/main/server');
+let server, origin, token;
+before(async () => { server = await backend.startServer(0, false); origin = `http://127.0.0.1:${server.address().port}`; token = backend.getServerCredentials(server).token; });
+after(async () => { desktopControlScheduler.resume(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); temp.remove(scratch); });
+const request = route => fetch(origin + route, { headers: { Authorization: `Bearer ${token}` } });
+
+test('desktop-live HTTP status and frame follow actual backend and cached observation', async () => {
+  let status = await request('/api/desktop-live/status');
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).observed, false);
+  assert.equal((await request('/api/desktop-live/frame')).status, 404);
+  const endpoint = 'http://127.0.0.1:9222';
+  recordDesktopTransportPreview({ success: true, output: JSON.stringify({ data: { frame: { capturedAt: 24680 } } }), imageData: Buffer.from('route-observation-fixture'), imageMimeType: 'image/png' }, { backend: 'chromium-cdp', endpoint, targetId: 'test' });
+  recordDesktopControlResult({ success: true, output: '{}', metadata: { cdpEndpoint: endpoint, cdpTargetId: 'test', desktop: { control: { mode: 'background', backend: 'chromium-cdp', capability: 'browser-dom', physicalInput: false, noForegroundFallback: true } } } }, 'session-route-test');
+  const snapshot = await (await request('/api/desktop-live/status')).json();
+  assert.equal(snapshot.control.backend, 'chromium-cdp');
+  assert.equal(snapshot.control.mode, 'background');
+  assert.equal(snapshot.capturedAt, 24680);
+  assert.equal(snapshot.paused, false);
+  const frame = await request('/api/desktop-live/frame');
+  assert.equal(frame.status, 200);
+  assert.equal(frame.headers.get('x-iexa-frame-mode'), 'cached-observation');
+  assert.equal(frame.headers.get('x-captured-at'), '24680');
+  assert.equal(await frame.text(), 'route-observation-fixture');
+  desktopControlScheduler.pause();
+  assert.equal((await request('/api/desktop-live/frame')).status, 423);
+  assert.equal((await (await request('/api/desktop-live/status')).json()).paused, true);
+  desktopControlScheduler.resume();
+});
+test('desktop-live API requires authentication and rejects arbitrary operations', async () => {
+  assert.equal((await fetch(origin + '/api/desktop-live/status')).status, 401);
+  assert.equal((await request('/api/desktop-live/arbitrary')).status, 404);
+});

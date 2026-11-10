@@ -10,6 +10,29 @@
   const terminal = new Set(['completed','failed','denied','cancelled','timed_out']);
   const desktopLabels = Object.freeze({ queued: '等待桌面控制权', observe: '观察窗口', resolve: '定位目标', action_start: '执行操作', action_end: '操作已返回', verify: '核对界面', completed: '本次操作结束', failed: '操作失败', takeover: '用户已接管 · 已停止输入', cancelled: '操作已取消' });
   const desktopEvents = new WeakMap();
+  function desktopMode(block, metadata) {
+    if (!block?.ownerDocument) return;
+    const control = metadata?.desktop?.control;
+    let badge = block.querySelector('.desktop-control-mode');
+    if (!control || typeof control !== 'object' || Array.isArray(control)) {
+      badge?.remove(); delete block.dataset.desktopMode; delete block.dataset.desktopBackend; return;
+    }
+    const mode = control.mode === 'background' || control.mode === 'foreground' ? control.mode : 'unknown';
+    const backend = typeof control.backend === 'string' ? control.backend : typeof metadata.backend === 'string' ? metadata.backend : '';
+    const route = backend === 'native-isolated' ? '独立桌面' : backend === 'chromium-cdp' ? '浏览器' : backend === 'native' ? '应用控件' : '后端未记录';
+    const label = mode === 'foreground' ? '前台 · 鼠标键盘' : `${mode === 'background' ? '后台' : '模式未记录'} · ${route}`;
+    if (!badge) {
+      badge = block.ownerDocument.createElement('span'); badge.className = 'desktop-control-mode';
+      const header = block.querySelector('.tool-header');
+      if (header) header.append(badge); else block.append(badge);
+    }
+    badge.textContent = label; badge.dataset.mode = mode;
+    const detail = [label, `后端：${backend.slice(0, 100) || '未记录'}`, `能力：${typeof control.capability === 'string' ? control.capability.slice(0, 100) : '未记录'}`];
+    if (mode === 'background') detail.push('后台路径不回退到物理鼠标键盘。');
+    if (control.providerMayChangeFocus === true) detail.push(backend === 'native' ? '应用控件可能自行改变焦点；此路径不代表独立桌面隔离。' : '应用控件或页面事件可能自行改变焦点。');
+    badge.title = detail.join('\n'); badge.setAttribute('aria-label', label);
+    block.dataset.desktopMode = mode; block.dataset.desktopBackend = backend.slice(0, 100);
+  }
   function desktopTrace(block, incoming) {
     if (!Array.isArray(incoming) || !block?.ownerDocument) return;
     const doc = block.ownerDocument;
@@ -62,6 +85,7 @@
     block.dataset.toolRun = event.runId; block.dataset.toolSequence = String(event.sequence);
     if (Number.isFinite(event.startedAt)) block.dataset.startedAt = String(event.startedAt);
     present(block, event.status, render);
+    if (event.desktop?.control) desktopMode(block, { desktop: event.desktop });
     if (event.desktop) desktopTrace(block, [event.desktop]);
     const panel = block.querySelector?.('.desktop-control-trace');
     if (panel && terminal.has(event.status)) panel.dataset.active = 'false';
@@ -74,6 +98,7 @@
       : !result ? 'unknown' : result.cancelled ? 'cancelled' : result.timedOut ? 'timed_out'
       : result.success === true ? 'completed' : result.success === false ? 'failed' : 'unknown';
     present(block, status, render);
+    desktopMode(block, result?.metadata);
     desktopTrace(block, result?.metadata?.desktop?.events);
     const panel = block.querySelector?.('.desktop-control-trace');
     if (panel && terminal.has(status)) panel.dataset.active = 'false';

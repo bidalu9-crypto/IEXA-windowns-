@@ -30,7 +30,7 @@ internal static class CompositorCapture
         if (!IsWindowVisible(window) || IsIconic(window))
             throw new InvalidOperationException("Target is hidden or minimized; no activation attempted.");
         Check(DwmGetWindowAttribute(window, 14, out int cloaked, sizeof(int)), "DWM cloaking query");
-        if (cloaked != 0) throw new InvalidOperationException("Target is cloaked on another desktop; no desktop switch attempted.");
+        if (cloaked != 0) throw new InvalidOperationException($"Target is hidden by DWM cloaking: mask=0x{cloaked:X}, application={(cloaked & 1) != 0}, shell={(cloaked & 2) != 0}, inherited={(cloaked & 4) != 0}. The cause and virtual-desktop membership are unverified; cloaking alone does not establish another desktop. No activation or desktop switch attempted.");
         GraphicsCaptureItem item;
         try { item = CreateItem(window); }
         catch (Exception error) { throw new InvalidOperationException($"CreateForWindow failed (0x{error.HResult:x8}): {error.Message}", error); }
@@ -182,6 +182,12 @@ internal static class CompositorCapture
     {
         Marshal.ThrowExceptionForHR(DwmGetWindowAttribute(window, 9, out RECT rect, Marshal.SizeOf<RECT>()));
         return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+    }
+    internal static int? ReadCloakedMask(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        try { return DwmGetWindowAttribute(window, 14, out int mask, sizeof(int)) >= 0 ? mask : null; }
+        catch { return null; } // Diagnostic failure does not mean uncloaked or absent.
     }
     static Rectangle RawWindowBounds(IntPtr window)
     {

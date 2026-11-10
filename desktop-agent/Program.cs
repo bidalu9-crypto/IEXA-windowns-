@@ -41,6 +41,12 @@ internal static class Program
     static int ActiveStep;
     static int TotalSteps;
     static int Paused;
+    static NativeModalPolicy.Window? ModalRoot;
+    static readonly Dictionary<long, NativeModalPolicy.Window> ModalWindows = new();
+    static readonly Dictionary<long, long> ModalParents = new();
+    static string WindowTransitionDiagnostic = "not-requested";
+    static NativeModalPolicy.Window? PostActionFollowWindow;
+    static long PostActionFollowGrantedAt;
     sealed record CaptureEvidence(string Trust, long RenderSurface = 0, string? Diagnostic = null);
     sealed record ObservedFrame(string Token, long Handle, Rectangle Bounds, CaptureEvidence Evidence, long CapturedAt, byte[] Png);
     static ObservedFrame? LastObservedFrame;
@@ -154,6 +160,7 @@ internal static class Program
                 ActiveAction = action;
                 ActiveStep = 0;
                 TotalSteps = 0;
+                if (action != "session_state") PostActionFollowWindow = null;
                 ValidateBackgroundRequest(req, action);
                 object data = action switch
                 {
@@ -163,7 +170,7 @@ internal static class Program
                     "activate" => Activate(req),
                     "minimize" => Minimize(req),
                     "bind_window" => BindWindow(req),
-                    "session_state" => SessionState(),
+                    "session_state" => SessionState(req),
                     "click" => Click(req),
                     "drag" => Drag(req),
                     "click_element" => ClickElement(req),
@@ -191,7 +198,7 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            await Reply(context, 400, new { ok = false, elapsedMs = sw.ElapsedMilliseconds, error = ex.Message });
+            await Reply(context, 400, new { ok = false, elapsedMs = sw.ElapsedMilliseconds, error = ex.Message, actualForeground = WindowInfo(GetForegroundWindow()) });
         }
     }
 
@@ -283,6 +290,7 @@ internal static class Program
         ThrowIfCancelled();
         if (includeRegions && capture.Trust == "foreground" && bitmap.Width > 1) semantic.AddRange(DetectRegions(bitmap, captureBounds, semantic));
         var merged = MergeElements(semantic).Take(limit).ToArray();
+        RememberModalWindow(fg);
         BoundWindow = fg; BoundBounds = captureBounds; ObservationEpoch++;
         ObservationToken = MakeObservationToken(fg, captureBounds, current.Hash, ObservationEpoch);
         ElementCache.Clear(); foreach (var element in merged) ElementCache[element.Id] = element;
@@ -546,7 +554,19 @@ internal static class Program
         var ordered = elements.OrderByDescending(e => e.Selector != null).ThenByDescending(e => e.Confidence).ToList(); var result = new List<SemanticElement>();
         foreach (var e in ordered)
         {
-            var duplicate = result.Any(x => Overlap(x, e.Left, e.Top, e.Width, e.Height) > .72 && (string.IsNullOrEmpty(e.Text) || string.IsNullOrEmpty(x.Text) || x.Text.Contains(e.Text, StringComparison.OrdinalIgnoreCase) || e.Text.Contains(x.Text, StringComparison.OrdinalIgnoreCase)));
+            // Containment is not duplication: an empty UIA pane can cover every
+            // OCR line in a menu. Require comparable geometry and equivalent
+            // text before preferring the already retained semantic element.
+            var duplicate = result.Any(x =>
+            {
+                var xArea = (double)x.Width * x.Height; var eArea = (double)e.Width * e.Height;
+                if (xArea <= 0 || eArea <= 0 || Math.Min(xArea, eArea) / Math.Max(xArea, eArea) < .72
+                    || Overlap(x, e.Left, e.Top, e.Width, e.Height) <= .72) return false;
+                var xText = x.Text.Trim(); var eText = e.Text.Trim();
+                if (xText.Length == 0 || eText.Length == 0)
+                    return xText.Length == 0 && eText.Length == 0 && x.Role == e.Role;
+                return string.Equals(xText, eText, StringComparison.OrdinalIgnoreCase);
+            });
             if (!duplicate) result.Add(e);
         }
         return result.OrderBy(e => e.Top).ThenBy(e => e.Left).ToArray();
@@ -654,14 +674,20 @@ internal static class Program
     static object ClickElement(JsonObject req)
     {
         ThrowIfCancelled();
+        var button = req["button"]?.GetValue<string>()?.ToLowerInvariant() ?? "left";
+        if (button is not ("left" or "right" or "middle")) throw new InvalidOperationException("Unknown mouse button.");
+        if (button != "left" && (req["background"]?.GetValue<bool>() == true || IsolatedDesktopHost.IsVerified()))
+            throw new InvalidOperationException("Non-left clicks require foreground pointer input; background and isolated semantic clicks have no matching capability.");
         var element = ResolveTargetAsync(req, allowTextAsLabel: true).GetAwaiter().GetResult(); var background = req["background"]?.GetValue<bool>() ?? false; var previousForeground = GetForegroundWindow(); var duration = Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000); var method = "pointer"; var before = CaptureBoundFrame();
+        var originalWindow = BoundWindow;
+        var count = Math.Clamp(req["count"]?.GetValue<int>() ?? 1, 1, 3);
         AutomationActionResult? automation = null;
         var forcePointer = req["forcePointer"]?.GetValue<bool>() ?? false;
         if (background && (element.Selector == null || forcePointer))
             throw new InvalidOperationException("Background click requires a native UIA selector; physical fallback is disabled.");
-        if (element.Selector != null && !forcePointer)
+        if (element.Selector != null && (!forcePointer || button != "left"))
         {
-            automation = Automation.Click(element.Selector, ThrowIfCancelled, background, IsolatedDesktopHost.IsVerified());
+            automation = Automation.Click(element.Selector, ThrowIfCancelled, background, IsolatedDesktopHost.IsVerified(), count, button);
             if (automation.Success)
             {
                 method = automation.Method;
@@ -679,13 +705,30 @@ internal static class Program
             lock (InputLock)
             {
                 using var input = new InputLease();
+                if (button != "left")
+                {
+                    EnsureBoundForeground(req);
+                    if (element.Width < 1 || element.Height < 1 || !BoundBounds.Contains(new Point(element.Left + element.Width / 2, element.Top + element.Height / 2)))
+                        throw new InvalidOperationException("Resolved non-left click target is outside the bound window.");
+                }
                 HumanMove(element.Left + element.Width / 2, element.Top + element.Height / 2, duration);
-                input.Click(req["button"]?.GetValue<string>() ?? "left");
+                for (var i = 0; i < count; i++)
+                {
+                    ThrowIfCancelled();
+                    if (button != "left") EnsureBoundForeground(req);
+                    input.Click(button);
+                    if (i + 1 < count) Thread.Sleep(70);
+                }
             }
         }
         Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 100, 0, 2000));
+        // Only reached after the entire provider/pointer action acknowledged.
+        // This is a dispatch receipt; the control plane independently verifies
+        // the exact old HWND and never inherits whichever window gained focus.
+        if (!background && req["expectWindowClosed"]?.GetValue<bool>() == true && (!IsWindow(originalWindow) || GetForegroundWindow() != originalWindow))
+            return new { element = PublicElement(element), method, button, count, inputCompleted = true, closurePendingVerification = true, closedHandle = originalWindow.ToInt64(), foregroundVerified = false };
         var foreground = GetForegroundWindow();
-        if (!background) FollowForegroundWindow(foreground);
+        if (!background) { GrantPostActionModalFollow(); FollowForegroundWindow(foreground, req["expectWindowClosed"]?.GetValue<bool>() == true); }
         var stillBound = background ? IsWindow(BoundWindow) : foreground == BoundWindow;
         var after = stillBound && !background ? CaptureBoundFrame() : before;
         var changed = stillBound && !background ? FrameDifference(before, after) : 0;
@@ -696,7 +739,7 @@ internal static class Program
             throw new InvalidOperationException("Background UI Automation changed foreground; input may have executed. No focus restoration or replay is attempted.");
         }
         ElementCache.Clear(); ObservationToken = "";
-        return new { element = PublicElement(element), method, automation, effectObserved, foregroundVerified = !background && stillBound, backgroundApplied = background, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
+        return new { element = PublicElement(element), method, button, count, automation, effectObserved, inputCompleted = true, foregroundVerified = !background && stillBound, backgroundApplied = background, foreground = WindowInfo(foreground), changedRatio = changed, beforeHash = before.Hash, afterHash = stillBound ? after.Hash : "window-transition" };
     }
 
     static async Task<object> TypeElement(JsonObject req)
@@ -799,14 +842,17 @@ internal static class Program
         var query = req["window"]?.GetValue<string>() ?? "";
         var process = req["process"]?.GetValue<string>() ?? "";
         var pid = req["pid"]?.GetValue<int>() ?? 0;
+        var requestedHandle = req["handle"]?.GetValue<long>() ?? 0;
         var includeHidden = req["includeHidden"]?.GetValue<bool>() ?? false;
         var limit = Math.Clamp(req["limit"]?.GetValue<int>() ?? 40, 1, 100);
         var windows = new List<object>();
+        if (requestedHandle != 0) IsolatedDesktopHost.VerifyWindow(new IntPtr(requestedHandle));
         EnumWindows((h, _) =>
         {
+            if (requestedHandle != 0 && h.ToInt64() != requestedHandle) return true;
             if (windows.Count >= limit || (!includeHidden && !IsWindowVisible(h))) return true;
             var title = GetWindowText(h);
-            if (string.IsNullOrWhiteSpace(title)) return true;
+            if (requestedHandle == 0 && string.IsNullOrWhiteSpace(title)) return true;
             GetWindowThreadProcessId(h, out var actualPid);
             string processName = "";
             try { processName = Process.GetProcessById((int)actualPid).ProcessName; } catch { }
@@ -836,18 +882,22 @@ internal static class Program
         var pid = req["pid"]?.GetValue<int>() ?? 0;
         var timeout = Math.Clamp(req["waitForWindowMs"]?.GetValue<int>() ?? 15000, 500, 60000);
         var forceNew = req["forceNew"]?.GetValue<bool>() ?? false;
+        var explorerLaunch = expectedProcess.Equals("explorer", StringComparison.OrdinalIgnoreCase);
 
         // Single-instance apps (Weixin, Spotify, …) hand a second launch to the
         // copy that is already running and never open a new top-level window, so
-        // waiting for one always burned the full timeout. Bind to the live one.
-        if (!forceNew && !IsolatedDesktopHost.Requested && pid <= 0 && !string.IsNullOrWhiteSpace(process))
+        // waiting for one always burned the full timeout. Reuse is only an
+        // activation shortcut: a requested document/URL/directory must reach the
+        // executable. Explorer also needs a real launch to open its Home folder.
+        if (!forceNew && !explorerLaunch && string.IsNullOrWhiteSpace(launchArguments)
+            && !IsolatedDesktopHost.Requested && pid <= 0 && !string.IsNullOrWhiteSpace(process))
         {
             var reusable = FindReusableWindow(title, process);
             if (reusable != IntPtr.Zero && IsWindow(reusable))
             {
                 ForceForeground(reusable);
                 await Task.Delay(120);
-                var reusedHandle = FollowLaunchWindowTransition(reusable, GetWindowText(reusable), 0);
+                var reusedHandle = FollowLaunchWindowTransition(reusable, GetWindowText(reusable), 0, explorerLaunch);
                 BindToWindow(reusedHandle);
                 return new
                 {
@@ -887,19 +937,26 @@ internal static class Program
             if (!string.IsNullOrWhiteSpace(title) || !string.IsNullOrWhiteSpace(process) || pid > 0)
             {
                 h = FindWindow(title, process, pid);
-                if (h != IntPtr.Zero && !IsUsableAppWindow(h)) h = IntPtr.Zero;
+                if (h != IntPtr.Zero && !IsUsableLaunchWindow(h, explorerLaunch)) h = IntPtr.Zero;
                 if (h != IntPtr.Zero && before.Contains(h.ToInt64()) && string.IsNullOrWhiteSpace(title) && pid <= 0)
                     h = IntPtr.Zero;
             }
-            try { started.Refresh(); if (h == IntPtr.Zero && started.MainWindowHandle != IntPtr.Zero) h = started.MainWindowHandle; } catch { }
+            try
+            {
+                started.Refresh();
+                var main = started.MainWindowHandle;
+                if (h == IntPtr.Zero && IsUsableLaunchWindow(main, explorerLaunch)
+                    && WindowMatchesRequest(main, title, process, pid)) h = main;
+            }
+            catch { }
             if (h == IntPtr.Zero)
             {
                 var foreground = GetForegroundWindow();
-                if (foreground != IntPtr.Zero && foreground != foregroundBefore && IsUsableAppWindow(foreground)
+                if (foreground != IntPtr.Zero && foreground != foregroundBefore && IsUsableLaunchWindow(foreground, explorerLaunch)
                     && (WindowMatchesRequest(foreground, title, process, pid) || !before.Contains(foreground.ToInt64())))
                     h = foreground;
             }
-            if (h == IntPtr.Zero && !IsolatedDesktopHost.Requested) h = FindNewWindow(before, process);
+            if (h == IntPtr.Zero && !IsolatedDesktopHost.Requested) h = FindNewWindow(before, process, explorerLaunch);
             if (h != IntPtr.Zero && IsolatedDesktopHost.Requested) { GetWindowThreadProcessId(h, out var candidatePid); if (candidatePid != started.Id) h = IntPtr.Zero; }
             if (h != IntPtr.Zero && IsWindow(h)) break;
             await Task.Delay(80);
@@ -909,16 +966,17 @@ internal static class Program
             // Single-instance apps forward the launch to the copy that is already
             // running and reveal its window instead of creating a new one; bind
             // to that rather than reporting a timeout for a working app.
-            var revealed = FindReusableWindow(title, process);
+            var revealed = FindReusableWindow(title, process, explorerLaunch);
             if (revealed != IntPtr.Zero && IsWindow(revealed))
             {
                 ForceForeground(revealed);
                 await Task.Delay(120);
-                var revealedHandle = FollowLaunchWindowTransition(revealed, GetWindowText(revealed), 0);
+                var revealedHandle = FollowLaunchWindowTransition(revealed, GetWindowText(revealed), 0, explorerLaunch);
                 BindToWindow(revealedHandle);
                 return new
                 {
-                    launched = false, reused = true, requestedApp = app, executable = fileName,
+                    launched = true, reused = true, requestedApp = app, executable = fileName,
+                    arguments = launchArguments, startedPid = started.Id,
                     reason = "revealed-existing", window = WindowInfo(revealedHandle), session = SessionState(),
                 };
             }
@@ -926,11 +984,11 @@ internal static class Program
         }
         var logicalTitle = GetWindowText(h);
         GetWindowThreadProcessId(h, out var logicalPid);
-        if (!IsolatedDesktopHost.Requested) { ForceForeground(h); await Task.Delay(120); h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid); }
+        if (!IsolatedDesktopHost.Requested) { ForceForeground(h); await Task.Delay(120); h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid, explorerLaunch); }
         if (!IsolatedDesktopHost.Requested && GetForegroundWindow() != h)
         {
             ForceForeground(h); await Task.Delay(120);
-            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid, explorerLaunch);
         }
         if (!IsolatedDesktopHost.Requested && GetForegroundWindow() != h) throw new InvalidOperationException($"Application launched but foreground verification failed for handle {h.ToInt64()}.");
         // WinUI/UWP windows often expose only their frame for several hundred
@@ -944,7 +1002,7 @@ internal static class Program
         do
         {
             ThrowIfCancelled();
-            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid);
+            if (!IsolatedDesktopHost.Requested) h = FollowLaunchWindowTransition(h, logicalTitle, logicalPid, explorerLaunch);
             try
             {
                 var readiness = Automation.Observe(h, 12, 0, ThrowIfCancelled);
@@ -961,11 +1019,12 @@ internal static class Program
         return new { launched = true, requestedApp = app, executable = fileName, arguments = launchArguments, startedPid = started.Id, waitedMs = clock.ElapsedMilliseconds, readyWaitMs = readyClock.ElapsedMilliseconds, readyElements, readyBackend, readyStableSamples = stableReadySamples, window = WindowInfo(h), session = SessionState() };
     }
 
-    static IntPtr FollowLaunchWindowTransition(IntPtr original, string logicalTitle, uint logicalPid)
+    static IntPtr FollowLaunchWindowTransition(IntPtr original, string logicalTitle, uint logicalPid, bool explorerLaunch = false)
     {
         var foreground = GetForegroundWindow();
         if (foreground == original) return original;
         if (foreground == IntPtr.Zero || !IsWindow(foreground) || !IsWindowVisible(foreground)) return original;
+        if (explorerLaunch && !IsUsableLaunchWindow(foreground, true)) return original;
         GetWindowThreadProcessId(foreground, out var foregroundPid);
         var foregroundTitle = GetWindowText(foreground);
         var titleMatches = !string.IsNullOrWhiteSpace(logicalTitle)
@@ -1011,12 +1070,28 @@ internal static class Program
         return result;
     }
 
-    static IntPtr FindNewWindow(HashSet<long> before, string process = "")
+    static bool IsUsableLaunchWindow(IntPtr h, bool explorerLaunch)
+    {
+        if (!IsUsableAppWindow(h)) return false;
+        if (!explorerLaunch) return true;
+        // Explorer owns the desktop, taskbar and shell frames as well as folder
+        // windows. The broker process may exit after forwarding the arguments;
+        // only a real folder surface is a valid result, regardless of its PID.
+        var className = GetClassName(h);
+        if (!className.Equals("CabinetWClass", StringComparison.OrdinalIgnoreCase)
+            && !className.Equals("ExploreWClass", StringComparison.OrdinalIgnoreCase)) return false;
+        GetWindowThreadProcessId(h, out var pid);
+        try { return Process.GetProcessById((int)pid).ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    static IntPtr FindNewWindow(HashSet<long> before, string process = "", bool explorerLaunch = false)
     {
         IntPtr result = IntPtr.Zero; long bestScore = -1;
         EnumWindows((h, _) =>
         {
             if (before.Contains(h.ToInt64()) || !IsWindowVisible(h)) return true;
+            if (explorerLaunch && !IsUsableLaunchWindow(h, true)) return true;
             var title = GetWindowText(h);
             // "Default IME", tray icons and friends appear as new visible windows
             // while the app is still starting; picking one binds every later
@@ -1033,6 +1108,7 @@ internal static class Program
                 try { processMatch = Process.GetProcessById((int)pid).ProcessName.Contains(process, StringComparison.OrdinalIgnoreCase); }
                 catch { processMatch = false; }
             }
+            if (explorerLaunch && !processMatch) return true;
             var score = (processMatch ? 1_000_000_000L : 0) + Math.Min(area, 99_999_999L);
             if (score > bestScore) { bestScore = score; result = h; }
             return true;
@@ -1062,21 +1138,58 @@ internal static class Program
         return SessionState();
     }
 
-    static void BindToWindow(IntPtr h)
+    static void BindToWindow(IntPtr h, NativeModalPolicy.Window? verifiedIdentity = null)
     {
         IsolatedDesktopHost.VerifyWindow(h);
         if (!IsWindow(h) || !GetWindowRect(h, out var wr)) throw new InvalidOperationException("Target window is invalid.");
+        if (verifiedIdentity != null)
+        {
+            var live = ReadModalWindow(h);
+            if (h != GetForegroundWindow() || !NativeModalPolicy.SameWindow(verifiedIdentity, live) || live.Owner != verifiedIdentity.Owner
+                || live.Visible != verifiedIdentity.Visible || live.Enabled != verifiedIdentity.Enabled || !NativeModalPolicy.SameSurface(verifiedIdentity, live)) throw new InvalidOperationException("Verified modal changed before binding.");
+        }
+        else RememberModalWindow(h);
         BoundWindow = h; BoundBounds = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
         ObservationEpoch = 0; ObservationToken = ""; ElementCache.Clear(); LastFrame = null; LastObservedFrame = null;
     }
 
-    static object SessionState()
+    static void GrantPostActionModalFollow()
     {
+        PostActionFollowWindow = ModalWindows.TryGetValue(BoundWindow.ToInt64(), out var recorded) ? recorded : null;
+        PostActionFollowGrantedAt = Environment.TickCount64;
+    }
+
+    static void FollowPostActionModal(JsonObject req)
+    {
+        if (req["followOwnedModal"]?.GetValue<bool>() != true) return;
+        var granted = PostActionFollowWindow; PostActionFollowWindow = null;
+        if (IsolatedDesktopHost.Requested || req["background"]?.GetValue<bool>() == true)
+            throw new InvalidOperationException("Post-action modal following requires foreground native control.");
+        var foreground = GetForegroundWindow();
+        if (foreground == BoundWindow) return;
+        if (granted == null || granted.Handle != BoundWindow.ToInt64() || Environment.TickCount64 - PostActionFollowGrantedAt is < 0 or > 2000
+            || !ModalWindows.TryGetValue(granted.Handle, out var recorded) || !NativeModalPolicy.SameWindow(granted, recorded) || granted.Owner != recorded.Owner)
+            throw new InvalidOperationException("No fresh successful foreground action grants a post-action owned-modal check.");
+        if (IsWindow(BoundWindow))
+        {
+            var live = ReadModalWindow(BoundWindow);
+            if (!NativeModalPolicy.SameWindow(granted, live) || granted.Owner != live.Owner)
+                throw new InvalidOperationException("Post-action bound window identity changed before modal verification.");
+        }
+        // A late real modal can appear after input returned but before this
+        // state query. Verify the same strict ownership proof without activation
+        // or replay; arbitrary foreground changes remain foreground=false.
+        FollowForegroundWindow(foreground, req["expectWindowClosed"]?.GetValue<bool>() == true, true);
+    }
+
+    static object SessionState(JsonObject? req = null)
+    {
+        if (req != null) FollowPostActionModal(req);
         var valid = BoundWindow != IntPtr.Zero && IsWindow(BoundWindow);
         var foreground = valid && GetForegroundWindow() == BoundWindow;
         Rectangle current = Rectangle.Empty;
         if (valid && GetWindowRect(BoundWindow, out var wr)) current = Rectangle.FromLTRB(wr.Left, wr.Top, wr.Right, wr.Bottom);
-        return new { bound = valid, foreground, handle = valid ? BoundWindow.ToInt64() : 0, observationToken = ObservationToken, epoch = ObservationEpoch, bounds = Rect(current), geometryChanged = valid && current != BoundBounds };
+        return new { bound = valid, foreground, handle = valid ? BoundWindow.ToInt64() : 0, observationToken = ObservationToken, epoch = ObservationEpoch, bounds = Rect(current), geometryChanged = valid && current != BoundBounds, windowTransition = WindowTransitionDiagnostic, actualForeground = WindowInfo(GetForegroundWindow()) };
     }
 
     static IntPtr ResolveRequestedWindow(JsonObject req, bool required)
@@ -1149,16 +1262,21 @@ internal static class Program
         var button = req["button"]?.GetValue<string>()?.ToLowerInvariant() ?? "left";
         var count = Math.Clamp(req["count"]?.GetValue<int>() ?? 1, 1, 3);
         EnsureBoundForeground(req); var before = CaptureBoundFrame();
+        var originalWindow = BoundWindow;
         lock (InputLock)
         {
             using var input = new InputLease();
             if (point.HasValue) HumanMove(point.Value.X, point.Value.Y, Math.Clamp(req["durationMs"]?.GetValue<int>() ?? 100, 0, 5000));
-            for (var i = 0; i < count; i++) { input.Click(button); if (i + 1 < count) Thread.Sleep(70); }
+            for (var i = 0; i < count; i++) { ThrowIfCancelled(); EnsureBoundForeground(req); input.Click(button); if (i + 1 < count) Thread.Sleep(70); }
         }
         Thread.Sleep(Math.Clamp(req["settleMs"]?.GetValue<int>() ?? 80, 0, 2000));
-        var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground); var foregroundVerified = foreground == BoundWindow; var after = CaptureBoundFrame();
-        if (!foregroundVerified) throw new InvalidOperationException("Target window lost foreground during click.");
-        GetCursorPos(out var p); return new { x = p.X, y = p.Y, relativeX = p.X - BoundBounds.Left, relativeY = p.Y - BoundBounds.Top, button, count, foregroundVerified, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
+        if (req["background"]?.GetValue<bool>() != true && req["expectWindowClosed"]?.GetValue<bool>() == true && (!IsWindow(originalWindow) || GetForegroundWindow() != originalWindow))
+            return new { button, count, inputCompleted = true, closurePendingVerification = true, closedHandle = originalWindow.ToInt64(), foregroundVerified = false };
+        GrantPostActionModalFollow();
+        var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground, req["expectWindowClosed"]?.GetValue<bool>() == true); var foregroundVerified = foreground == BoundWindow;
+        if (!foregroundVerified) throw new InvalidOperationException($"Target window lost foreground during click. {WindowTransitionDiagnostic}");
+        var after = CaptureBoundFrame();
+        GetCursorPos(out var p); return new { x = p.X, y = p.Y, relativeX = p.X - BoundBounds.Left, relativeY = p.Y - BoundBounds.Top, button, count, inputCompleted = true, foregroundVerified, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
     }
 
     static object Drag(JsonObject req)
@@ -1221,14 +1339,19 @@ internal static class Program
         ThrowIfCancelled();
         var key = Required(req, "key"); var count = Math.Clamp(req["count"]?.GetValue<int>() ?? 1, 1, 50);
         EnsureBoundForeground(req); var before = CaptureBoundFrame();
+        var originalWindow = BoundWindow;
         lock (InputLock)
         {
             using var input = new InputLease();
-            for (var i = 0; i < count; i++) { input.Tap(ParseKey(key)); Thread.Sleep(25); }
+            for (var i = 0; i < count; i++) { ThrowIfCancelled(); EnsureBoundForeground(req); input.Tap(ParseKey(key)); Thread.Sleep(25); }
         }
-        Thread.Sleep(80); var after = CaptureBoundFrame();
-        if (GetForegroundWindow() != BoundWindow) throw new InvalidOperationException("Target window lost foreground during key action.");
-        return new { key, count, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
+        Thread.Sleep(80);
+        if (req["background"]?.GetValue<bool>() != true && req["expectWindowClosed"]?.GetValue<bool>() == true && (!IsWindow(originalWindow) || GetForegroundWindow() != originalWindow))
+            return new { key, count, inputCompleted = true, closurePendingVerification = true, closedHandle = originalWindow.ToInt64(), foregroundVerified = false };
+        GrantPostActionModalFollow(); var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground, req["expectWindowClosed"]?.GetValue<bool>() == true);
+        if (foreground != BoundWindow) throw new InvalidOperationException($"Target window lost foreground during key action. {WindowTransitionDiagnostic}");
+        var after = CaptureBoundFrame();
+        return new { key, count, inputCompleted = true, foregroundVerified = true, changedRatio = FrameDifference(before, after), beforeHash = before.Hash, afterHash = after.Hash };
     }
 
     static void EnsureBoundForeground(JsonObject req, bool allowBackground = false)
@@ -1253,14 +1376,179 @@ internal static class Program
         if (!string.IsNullOrEmpty(token) && token != ObservationToken) throw new InvalidOperationException("Observation token is stale. Observe again.");
     }
 
-    static bool FollowForegroundWindow(IntPtr foreground)
+    static void RememberModalWindow(IntPtr window)
     {
-        if (foreground == IntPtr.Zero || foreground == BoundWindow || !IsWindow(foreground) || BoundWindow == IntPtr.Zero) return false;
-        GetWindowThreadProcessId(BoundWindow, out var boundPid);
-        GetWindowThreadProcessId(foreground, out var foregroundPid);
-        if (boundPid == 0 || boundPid != foregroundPid) return false;
-        BindToWindow(foreground);
-        return true;
+        try
+        {
+            var current = ReadModalWindow(window);
+            if (ModalRoot != null && ModalWindows.TryGetValue(current.Handle, out var known) && NativeModalPolicy.SameWindow(known, current) && known.Owner == current.Owner) return;
+            if (ModalRoot != null && BoundWindow != IntPtr.Zero && window != BoundWindow && window == GetForegroundWindow()
+                && ModalWindows.TryGetValue(BoundWindow.ToInt64(), out var previous))
+            {
+                try
+                {
+                    current = VerifyModalEntry(window, previous, out var owner);
+                    ModalWindows[current.Handle] = current; ModalParents[current.Handle] = owner.Handle;
+                    WindowTransitionDiagnostic = $"Explicit observation retained verified modal HWND {current.Handle}, owner HWND {owner.Handle}, root HWND {ModalRoot.Handle}.";
+                    return;
+                }
+                catch (Exception error) when (error is not OperationCanceledException)
+                {
+                    // Explicit observation may select a new application, but an
+                    // unproved relationship never grants a later implicit return.
+                    ModalWindows.Clear(); ModalParents.Clear(); ModalRoot = current; ModalWindows[current.Handle] = current;
+                    WindowTransitionDiagnostic = "Explicit window identity recorded; prior modal relationship rejected: " + error.Message;
+                    return;
+                }
+            }
+            ModalWindows.Clear(); ModalParents.Clear(); ModalRoot = current; ModalWindows[current.Handle] = current;
+            WindowTransitionDiagnostic = "Explicit window identity recorded.";
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // A process which cannot be inspected still permits an explicit
+            // observation, but never receives inferred cross-window authority.
+            ModalRoot = null; ModalWindows.Clear(); ModalParents.Clear();
+            WindowTransitionDiagnostic = "Window transition identity unavailable: " + error.Message;
+        }
+    }
+
+    static NativeModalPolicy.Process ReadModalProcess(uint pid)
+    {
+        var process = OpenProcessForIdentity(0x1000, false, pid); // QUERY_LIMITED_INFORMATION; no process modification rights.
+        if (process == IntPtr.Zero) throw new InvalidOperationException($"Process identity access denied for PID {pid}.");
+        try
+        {
+            if (!GetProcessTimesForIdentity(process, out var created, out var exited, out _, out _) || created <= 0 || exited != 0)
+                throw new InvalidOperationException($"Process creation time unavailable or process exited: PID {pid}.");
+            if (NtQueryInformationProcess(process, 0, out var basic, Marshal.SizeOf<PROCESS_BASIC_INFORMATION>(), out _) != 0 || basic.UniqueProcessId.ToInt64() != pid)
+                throw new InvalidOperationException($"Verified parent process identity unavailable: PID {pid}.");
+            var length = 32768; var executable = new StringBuilder(length);
+            if (!QueryFullProcessImageName(process, 0, executable, ref length) || length == 0)
+                throw new InvalidOperationException($"Full executable path unavailable: PID {pid}.");
+            var parent = basic.InheritedFromUniqueProcessId.ToInt64();
+            if (parent < 0 || parent > uint.MaxValue) throw new InvalidOperationException("Invalid parent process identity.");
+            return new NativeModalPolicy.Process(pid, (uint)parent, created, Path.GetFullPath(executable.ToString()));
+        }
+        finally { CloseProcessIdentityHandle(process); }
+    }
+
+    static NativeModalPolicy.Window ReadModalWindow(IntPtr window)
+    {
+        IsolatedDesktopHost.VerifyWindow(window);
+        if (window == IntPtr.Zero || !IsWindow(window)) throw new InvalidOperationException("Window identity no longer exists.");
+        GetWindowThreadProcessId(window, out var pid); var process = ReadModalProcess(pid);
+        GetWindowThreadProcessId(window, out var checkedPid);
+        if (!IsWindow(window) || checkedPid != pid) throw new InvalidOperationException("Window process changed while checking identity.");
+        return new NativeModalPolicy.Window(window.ToInt64(), GetWindow(window, 4).ToInt64(), IsWindowVisible(window), IsWindowEnabled(window), process,
+            GetClassName(window), GetWindowLongPtr(window, -16).ToInt64(), GetWindowLongPtr(window, -20).ToInt64());
+    }
+
+    static void AddModalAncestry(NativeModalPolicy.Process process, NativeModalPolicy.Process root, Dictionary<uint, NativeModalPolicy.Process> processes)
+    {
+        var visited = new HashSet<uint>();
+        for (var depth = 0; depth < 32 && visited.Add(process.Pid); depth++)
+        {
+            if (processes.TryGetValue(process.Pid, out var previous) && !NativeModalPolicy.SameProcess(previous, process)) throw new InvalidOperationException("Process identity changed during modal ancestry verification.");
+            processes[process.Pid] = process;
+            if (process.Pid == root.Pid) return;
+            if (process.ParentPid == 0) throw new InvalidOperationException("Modal process has no verified application ancestor.");
+            process = ReadModalProcess(process.ParentPid);
+        }
+        throw new InvalidOperationException("Modal process ancestry is cyclic or exceeds the verification limit.");
+    }
+
+    static NativeModalPolicy.Window VerifyModalEntry(IntPtr foreground, NativeModalPolicy.Window previous, out NativeModalPolicy.Window bound, bool postActionAuthorized = false)
+    {
+        if (ModalRoot == null) throw new InvalidOperationException("No recorded application root for modal verification.");
+        var clock = Stopwatch.StartNew();
+        while (true)
+        {
+            ThrowIfCancelled();
+            if (foreground == IntPtr.Zero || foreground != GetForegroundWindow()) throw new InvalidOperationException("Foreground changed during modal verification.");
+            var root = ReadModalWindow(new IntPtr(ModalRoot.Handle));
+            if (!NativeModalPolicy.SameWindow(ModalRoot, root)) throw new InvalidOperationException("Original application HWND/PID/creation time changed.");
+            var candidate = ReadModalWindow(foreground);
+            bound = ReadModalWindow(new IntPtr(previous.Handle));
+            if (!NativeModalPolicy.SameWindow(previous, bound) || previous.Owner != bound.Owner) throw new InvalidOperationException("Bound HWND/PID/creation time or owner changed.");
+            var chain = new List<NativeModalPolicy.Window> { candidate }; var visited = new HashSet<long> { candidate.Handle };
+            for (var depth = 0; depth < 32 && chain[^1].Handle != bound.Handle; depth++)
+            {
+                var owner = chain[^1].Owner;
+                if (owner == 0 || !visited.Add(owner)) throw new InvalidOperationException("Foreground modal has no matching GW_OWNER chain to the bound application window.");
+                chain.Add(ReadModalWindow(new IntPtr(owner)));
+            }
+            if (chain[^1].Handle != bound.Handle) throw new InvalidOperationException("Modal owner chain exceeds the verification limit.");
+            var processes = new Dictionary<uint, NativeModalPolicy.Process>();
+            foreach (var member in chain) AddModalAncestry(member.Process, root.Process, processes);
+            foreach (var member in chain)
+                if (!NativeModalPolicy.DescendsFrom(root.Process, member.Process, processes)) throw new InvalidOperationException("Modal owner process is outside the exact recorded application ancestry.");
+            if (NativeModalPolicy.CanEnter(root, bound, candidate, chain, processes) || NativeModalPolicy.CanEnterOwnedPopup(root, bound, candidate, chain, processes, postActionAuthorized))
+            {
+                // Recheck live state as well as identity/ownership. A real dialog
+                // may become foreground before its visible/enabled state settles.
+                var liveChain = chain.Select(member => ReadModalWindow(new IntPtr(member.Handle))).ToArray();
+                for (var index = 0; index < chain.Count; index++)
+                    if (!NativeModalPolicy.SameWindow(chain[index], liveChain[index]) || !NativeModalPolicy.SameSurface(chain[index], liveChain[index]) || chain[index].Owner != liveChain[index].Owner)
+                        throw new InvalidOperationException("Modal owner chain changed during verification.");
+                var liveRoot = ReadModalWindow(new IntPtr(root.Handle));
+                if (!NativeModalPolicy.SameWindow(root, liveRoot)) throw new InvalidOperationException("Application root changed during modal verification.");
+                if (foreground != GetForegroundWindow()) throw new InvalidOperationException("Foreground changed during modal verification.");
+                if (NativeModalPolicy.CanEnter(liveRoot, liveChain[^1], liveChain[0], liveChain, processes) || NativeModalPolicy.CanEnterOwnedPopup(liveRoot, liveChain[^1], liveChain[0], liveChain, processes, postActionAuthorized))
+                {
+                    bound = liveChain[^1]; return liveChain[0];
+                }
+            }
+            if (clock.ElapsedMilliseconds >= 500)
+                throw new InvalidOperationException($"Foreground window is not a verified owned modal or authorized popup in the exact application process tree: root HWND {root.Handle} visible={root.Visible}; owner HWND {bound.Handle} visible={bound.Visible} enabled={bound.Enabled}; candidate HWND {candidate.Handle} PID {candidate.Process.Pid} GW_OWNER {candidate.Owner} class={candidate.ClassName} style=0x{candidate.Style:X} exStyle=0x{candidate.ExStyle:X} visible={candidate.Visible} enabled={candidate.Enabled}; waited {clock.ElapsedMilliseconds} ms without input or activation. Re-observe the actual foreground HWND before any further input; do not replay the prior action.");
+            // This repeats only read-only evidence gathering. It never replays
+            // the input which opened the dialog or activates a foreground target.
+            Thread.Sleep(40);
+        }
+    }
+
+    static bool FollowForegroundWindow(IntPtr foreground, bool expectWindowClosed = false, bool postActionAuthorized = false)
+    {
+        if (foreground == BoundWindow) return false;
+        WindowTransitionDiagnostic = "Foreground transition rejected: no verified modal ownership.";
+        if (IsolatedDesktopHost.Requested || foreground == IntPtr.Zero || foreground != GetForegroundWindow() || BoundWindow == IntPtr.Zero || ModalRoot == null || !ModalWindows.TryGetValue(BoundWindow.ToInt64(), out var previous)) return false;
+        if (!postActionAuthorized)
+        {
+            var grant = PostActionFollowWindow; PostActionFollowWindow = null;
+            postActionAuthorized = grant != null && grant.Handle == previous.Handle && NativeModalPolicy.SameWindow(grant, previous)
+                && grant.Owner == previous.Owner && Environment.TickCount64 - PostActionFollowGrantedAt is >= 0 and <= 2000;
+        }
+        try
+        {
+            if (NativeModalPolicy.TryResolveOwnedPopupReturn(ModalRoot, previous, foreground.ToInt64(), ModalWindows, ModalParents, postActionAuthorized,
+                handle => IsWindow(new IntPtr(handle)), handle => ReadModalWindow(new IntPtr(handle)), out var popupOwner))
+            {
+                if (foreground != GetForegroundWindow()) return false;
+                BindToWindow(foreground, popupOwner!);
+                ModalParents.Remove(previous.Handle); ModalWindows.Remove(previous.Handle);
+                WindowTransitionDiagnostic = $"Authorized popup dismissal returned to its exact stored owner HWND {popupOwner!.Handle}.";
+                return true;
+            }
+            if (!IsWindow(BoundWindow))
+            {
+                // The only return path is the owner stored when this exact
+                // modal was accepted; an arbitrary foreground ancestor is not enough.
+                if (!NativeModalPolicy.TryResolveClosedReturn(ModalRoot, previous, foreground.ToInt64(), ModalWindows, ModalParents, expectWindowClosed,
+                    handle => IsWindow(new IntPtr(handle)), handle => ReadModalWindow(new IntPtr(handle)), out var returnedOwner, out var rejection))
+                    throw new InvalidOperationException(rejection);
+                if (foreground != GetForegroundWindow()) return false;
+                BindToWindow(foreground, returnedOwner!);
+                ModalParents.Remove(previous.Handle); ModalWindows.Remove(previous.Handle);
+                WindowTransitionDiagnostic = $"Explicit modal close returned to verified owner HWND {returnedOwner!.Handle}, PID {returnedOwner.Process.Pid}, creation FILETIME {returnedOwner.Process.Created}.";
+                return true;
+            }
+            var candidate = VerifyModalEntry(foreground, previous, out var bound, postActionAuthorized);
+            ModalWindows[candidate.Handle] = candidate; ModalParents[candidate.Handle] = bound.Handle;
+            BindToWindow(foreground, candidate);
+            WindowTransitionDiagnostic = $"Verified owned {(bound.Enabled ? "popup after acknowledged input" : "modal")} HWND {candidate.Handle}, PID {candidate.Process.Pid}, creation FILETIME {candidate.Process.Created}, owner HWND {bound.Handle}, root PID {ModalRoot.Process.Pid}; full executable and parent creation chain matched.";
+            return true;
+        }
+        catch (Exception error) when (error is not OperationCanceledException) { WindowTransitionDiagnostic = "Foreground transition rejected: " + error.Message; return false; }
     }
 
     static FrameState CaptureBoundFrame()
@@ -1271,7 +1559,11 @@ internal static class Program
     static object Hotkey(JsonObject req)
     {
         ThrowIfCancelled();
+        var count = 1;
+        if (req.ContainsKey("count") && (req["count"] is not JsonValue countValue || !countValue.TryGetValue<int>(out count) || count is < 1 or > 50))
+            throw new InvalidOperationException("Hotkey count must be an integer from 1 to 50.");
         EnsureBoundForeground(req);
+        var originalWindow = BoundWindow;
         var keys = req["keys"]?.AsArray().Select(x => ParseKey(x?.GetValue<string>() ?? "")).ToArray() ?? throw new InvalidOperationException("keys is required");
         if (keys.Length < 1) throw new InvalidOperationException("keys is empty");
         if (!(req["allowClose"]?.GetValue<bool>() ?? false) && keys.Contains((ushort)0x12) && keys.Contains((ushort)0x73))
@@ -1279,9 +1571,21 @@ internal static class Program
         lock (InputLock)
         {
             using var input = new InputLease();
-            input.Hotkey(keys);
+            for (var i = 0; i < count; i++)
+            {
+                ThrowIfCancelled();
+                if (BoundWindow != originalWindow) throw new InvalidOperationException("Bound window changed during hotkey repetition.");
+                EnsureBoundForeground(req);
+                input.Hotkey(keys);
+                if (i + 1 < count) Thread.Sleep(25);
+            }
         }
-        return new { keys = req["keys"] };
+        Thread.Sleep(80);
+        if (req["background"]?.GetValue<bool>() != true && req["expectWindowClosed"]?.GetValue<bool>() == true && (!IsWindow(originalWindow) || GetForegroundWindow() != originalWindow))
+            return new { keys = req["keys"], count, inputCompleted = true, closurePendingVerification = true, closedHandle = originalWindow.ToInt64(), foregroundVerified = false };
+        GrantPostActionModalFollow(); var foreground = GetForegroundWindow(); FollowForegroundWindow(foreground, req["expectWindowClosed"]?.GetValue<bool>() == true);
+        if (foreground != BoundWindow) throw new InvalidOperationException($"Target window lost foreground during hotkey action. {WindowTransitionDiagnostic}");
+        return new { keys = req["keys"], count, inputCompleted = true, foregroundVerified = true };
     }
 
     static object Scroll(JsonObject req)
@@ -1394,12 +1698,13 @@ internal static class Program
     /// A window worth reusing: visible, not a tool window, big enough to be an
     /// application surface, and actually exposing controls.
     /// </summary>
-    static IntPtr FindReusableWindow(string query, string process)
+    static IntPtr FindReusableWindow(string query, string process, bool explorerLaunch = false)
     {
         var candidates = new List<(IntPtr Handle, long Area)>();
         EnumWindows((h, _) =>
         {
             if (!IsWindowVisible(h)) return true;
+            if (explorerLaunch && !IsUsableLaunchWindow(h, true)) return true;
             var title = GetWindowText(h);
             if (!string.IsNullOrWhiteSpace(query) && !title.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
             if (LooksLikeHelperWindow(title)) return true;
@@ -1465,10 +1770,10 @@ internal static class Program
 
     static object WindowInfo(IntPtr h)
     {
-        if (h == IntPtr.Zero) return new { handle = 0L, title = "", process = "", pid = 0, bounds = Rect(new Rectangle()) };
+        if (h == IntPtr.Zero) return new { handle = 0L, title = "", process = "", pid = 0, isVisible = false, cloakedMask = (int?)null, bounds = Rect(new Rectangle()) };
         GetWindowThreadProcessId(h, out var pid); GetWindowRect(h, out var r);
         string process = ""; try { process = Process.GetProcessById((int)pid).ProcessName; } catch { }
-        return new { handle = h.ToInt64(), title = GetWindowText(h), process, pid, bounds = new { left = r.Left, top = r.Top, width = r.Right - r.Left, height = r.Bottom - r.Top } };
+        return new { handle = h.ToInt64(), title = GetWindowText(h), process, pid, ownerHandle = GetWindow(h, 4).ToInt64(), className = GetClassName(h), isVisible = IsWindowVisible(h), cloakedMask = CompositorCapture.ReadCloakedMask(h), bounds = new { left = r.Left, top = r.Top, width = r.Right - r.Left, height = r.Bottom - r.Top } };
     }
 
     static void HumanMove(int tx, int ty, int durationMs)
@@ -1623,7 +1928,10 @@ internal static class Program
 
         static void SendKeyboard(ushort key, bool up, bool throwOnFailure = true)
         {
-            var input = new INPUT { type = 1, U = new InputUnion { ki = new KEYBDINPUT { wVk = key, dwFlags = up ? 0x0002u : 0 } } };
+            // These virtual keys denote the dedicated navigation cluster, not
+            // NumLock-dependent keypad keys. Preserve the flag on key-up too.
+            var extended = key is 0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28 or 0x2D or 0x2E;
+            var input = new INPUT { type = 1, U = new InputUnion { ki = new KEYBDINPUT { wVk = key, dwFlags = (up ? 0x0002u : 0) | (extended ? 0x0001u : 0) } } };
             if (SendInput(1, [input], Marshal.SizeOf<INPUT>()) != 1 && throwOnFailure)
                 throw new InvalidOperationException($"SendInput keyboard failed: {Marshal.GetLastWin32Error()}");
         }
@@ -1652,6 +1960,7 @@ internal static class Program
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
     [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc cb, IntPtr lp);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr h);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")] static extern IntPtr GetWindowLongPtr(IntPtr h, int index);
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll", SetLastError = true)] static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
@@ -1667,6 +1976,12 @@ internal static class Program
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
     [DllImport("user32.dll")] static extern bool AttachThreadInput(uint source, uint target, bool attach);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("kernel32.dll", EntryPoint = "OpenProcess", SetLastError = true)] static extern IntPtr OpenProcessForIdentity(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", EntryPoint = "CloseHandle")] static extern bool CloseProcessIdentityHandle(IntPtr handle);
+    [DllImport("kernel32.dll", EntryPoint = "GetProcessTimes", SetLastError = true)] static extern bool GetProcessTimesForIdentity(IntPtr process, out long created, out long exited, out long kernel, out long user);
+    [DllImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool QueryFullProcessImageName(IntPtr process, uint flags, StringBuilder path, ref int length);
+    [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr process, int informationClass, out PROCESS_BASIC_INFORMATION information, int size, out int returned);
+    [StructLayout(LayoutKind.Sequential)] struct PROCESS_BASIC_INFORMATION { public IntPtr Reserved1, PebBaseAddress, Reserved2a, Reserved2b, UniqueProcessId, InheritedFromUniqueProcessId; }
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
     [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
@@ -1690,3 +2005,138 @@ internal static class Program
     [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public UIntPtr dwExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] struct HARDWAREINPUT { public uint uMsg; public ushort wParamL, wParamH; }
 }
+
+// BEGIN NATIVE_MODAL_POLICY - compiled directly by native-modal-ownership.test.js.
+// This policy has no Win32 calls. Its inputs are immutable, live identity facts
+// gathered by the native helper; caller/model arguments never grant ownership.
+internal static class NativeModalPolicy
+{
+    internal sealed record Process(uint Pid, uint ParentPid, long Created, string Executable);
+    internal sealed record Window(long Handle, long Owner, bool Visible, bool Enabled, Process Process, string ClassName = "", long Style = 0, long ExStyle = 0);
+
+    internal static bool SameProcess(Process left, Process right) => left.Pid != 0 && left.Pid == right.Pid
+        && left.ParentPid == right.ParentPid && left.Created > 0 && left.Created == right.Created && !string.IsNullOrWhiteSpace(left.Executable)
+        && string.Equals(left.Executable, right.Executable, StringComparison.OrdinalIgnoreCase);
+    internal static bool SameWindow(Window left, Window right) => left.Handle != 0 && left.Handle == right.Handle && SameProcess(left.Process, right.Process);
+    internal static bool SameSurface(Window left, Window right) => left.ClassName == right.ClassName && left.Style == right.Style && left.ExStyle == right.ExStyle;
+
+    internal static bool DescendsFrom(Process root, Process child, IReadOnlyDictionary<uint, Process> processes)
+    {
+        var visited = new HashSet<uint>();
+        for (var depth = 0; depth < 32 && visited.Add(child.Pid); depth++)
+        {
+            if (!processes.TryGetValue(child.Pid, out var observed) || !SameProcess(child, observed)
+                || child.Created <= 0 || string.IsNullOrWhiteSpace(root.Executable) || !string.Equals(root.Executable, child.Executable, StringComparison.OrdinalIgnoreCase)) return false;
+            if (child.Pid == root.Pid) return SameProcess(root, child);
+            if (!processes.TryGetValue(child.ParentPid, out var parent) || parent.Pid != child.ParentPid || parent.Created <= 0 || parent.Created > child.Created) return false;
+            child = parent;
+        }
+        return false;
+    }
+
+    internal static bool CanEnter(Window root, Window bound, Window candidate, IReadOnlyList<Window> ownerChain, IReadOnlyDictionary<uint, Process> processes)
+    {
+        if (!root.Visible || !bound.Visible || bound.Enabled || !candidate.Visible || !candidate.Enabled || candidate.Handle == bound.Handle || ownerChain.Count < 2
+            || !SameWindow(ownerChain[0], candidate) || !SameWindow(ownerChain[^1], bound)) return false;
+        var visited = new HashSet<long>();
+        for (var index = 0; index < ownerChain.Count; index++)
+        {
+            var current = ownerChain[index];
+            if (!current.Visible || current.Handle == 0 || !visited.Add(current.Handle) || !DescendsFrom(root.Process, current.Process, processes)) return false;
+            if (index + 1 < ownerChain.Count && current.Owner != ownerChain[index + 1].Handle) return false;
+        }
+        return true;
+    }
+
+    internal static bool CanReturn(Window modal, Window savedOwner, Window candidate, bool expectWindowClosed, bool modalStillExists)
+        => expectWindowClosed && !modalStillExists && modal.Handle != savedOwner.Handle && candidate.Visible && candidate.Enabled && SameWindow(savedOwner, candidate);
+
+    // A browser bubble/menu is owned but does not disable its parent. This
+    // narrow exception requires an internal one-use post-input grant; class,
+    // styles, HWND ownership and exact process identity all come from Win32.
+    internal static bool IsOwnedPopup(Window window)
+    {
+        if ((window.Style & 0x40000000L) != 0 || (window.ExStyle & 0x40000L) != 0) return false; // WS_CHILD / WS_EX_APPWINDOW
+        var popup = (window.Style & 0x80000000L) != 0;
+        // Windows Ribbon menus keep their owner enabled. Require both popup
+        // and tool-window styles; process/owner/grant checks remain mandatory.
+        if (window.ClassName is "Net UI Tool Window" or "Net UI Tool Window Layered")
+            return popup && (window.ExStyle & 0x80L) != 0;
+        return window.ClassName == "#32768" ? popup
+            : (window.ClassName == "Chrome_WidgetWin_0" || window.ClassName == "Chrome_WidgetWin_1")
+                && (popup || (window.ExStyle & 0x80L) != 0); // WS_POPUP / WS_EX_TOOLWINDOW
+    }
+
+    internal static bool CanEnterOwnedPopup(Window root, Window bound, Window candidate, IReadOnlyList<Window> ownerChain,
+        IReadOnlyDictionary<uint, Process> processes, bool postActionAuthorized)
+    {
+        if (!postActionAuthorized || !root.Visible || !bound.Visible || !bound.Enabled || !candidate.Visible || !candidate.Enabled
+            || candidate.Handle == bound.Handle || !IsOwnedPopup(candidate) || ownerChain.Count < 2
+            || !SameWindow(ownerChain[0], candidate) || !SameSurface(ownerChain[0], candidate)
+            || !SameWindow(ownerChain[^1], bound) || !SameSurface(ownerChain[^1], bound)) return false;
+        var visited = new HashSet<long>();
+        for (var index = 0; index < ownerChain.Count; index++)
+        {
+            var current = ownerChain[index];
+            if (!current.Visible || !current.Enabled || current.Handle == 0 || !visited.Add(current.Handle)
+                || !SameProcess(bound.Process, current.Process) || !DescendsFrom(root.Process, current.Process, processes)) return false;
+            if (index + 1 < ownerChain.Count && (current.Owner != ownerChain[index + 1].Handle || !IsOwnedPopup(current))) return false;
+        }
+        return true;
+    }
+
+    internal static bool TryResolveOwnedPopupReturn(Window root, Window previous, long foreground,
+        IReadOnlyDictionary<long, Window> windows, IReadOnlyDictionary<long, long> parents, bool postActionAuthorized,
+        Func<long, bool> exists, Func<long, Window> read, out Window? candidate)
+    {
+        candidate = null;
+        if (!postActionAuthorized || !IsOwnedPopup(previous) || previous.Handle == root.Handle
+            || !windows.TryGetValue(previous.Handle, out var recorded) || !SameWindow(previous, recorded) || !SameSurface(previous, recorded)
+            || !parents.TryGetValue(previous.Handle, out var parent) || previous.Owner != parent || foreground != parent
+            || !windows.TryGetValue(parent, out var savedOwner) || !SameProcess(previous.Process, savedOwner.Process)
+            || !exists(root.Handle) || !SameWindow(root, read(root.Handle)) || !exists(parent)) return false;
+        // Chromium may destroy a menu or cache its HWND while hiding it. A
+        // still-visible popup grants no implicit return to any other window.
+        if (exists(previous.Handle))
+        {
+            var popup = read(previous.Handle);
+            if (!SameWindow(previous, popup) || !SameSurface(previous, popup) || popup.Owner != parent || popup.Visible) return false;
+        }
+        var live = read(parent);
+        if (!SameWindow(savedOwner, live) || savedOwner.Owner != live.Owner || !live.Visible || !live.Enabled) return false;
+        if (exists(previous.Handle))
+        {
+            var checkedPopup = read(previous.Handle);
+            if (!SameWindow(previous, checkedPopup) || !SameSurface(previous, checkedPopup) || checkedPopup.Owner != parent || checkedPopup.Visible) return false;
+        }
+        candidate = live; return true;
+    }
+
+    // This is the production close orchestration, not a second test model. A
+    // modal which has disappeared must never be read for live process identity.
+    // Authority comes only from its previously verified saved owner relation.
+    internal static bool TryResolveClosedReturn(Window root, Window previous, long foreground,
+        IReadOnlyDictionary<long, Window> windows, IReadOnlyDictionary<long, long> parents, bool expectWindowClosed,
+        Func<long, bool> exists, Func<long, Window> read, out Window? candidate, out string rejection)
+    {
+        candidate = null; rejection = "Expected close has no previously verified modal-owner relation.";
+        if (!expectWindowClosed || previous.Handle == root.Handle || exists(previous.Handle)
+            || !windows.TryGetValue(previous.Handle, out var recordedModal) || !SameWindow(previous, recordedModal)
+            || !parents.TryGetValue(previous.Handle, out var parent) || !windows.TryGetValue(parent, out var savedOwner)) return false;
+        if (!exists(root.Handle) || !SameWindow(root, read(root.Handle)))
+        {
+            rejection = "Original application identity changed before expected modal return."; return false;
+        }
+        if (foreground == 0 || !exists(foreground))
+        {
+            rejection = "Expected modal return has no live foreground owner."; return false;
+        }
+        var live = read(foreground);
+        if (!CanReturn(previous, savedOwner, live, expectWindowClosed, exists(previous.Handle)))
+        {
+            rejection = "Expected modal return did not match its stored exact visible enabled owner identity."; return false;
+        }
+        candidate = live; rejection = ""; return true;
+    }
+}
+// END NATIVE_MODAL_POLICY

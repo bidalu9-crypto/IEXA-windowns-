@@ -150,7 +150,14 @@ export class ShellSessionTools {
     this.manager.write(id, line.length ? line : ' ', true);
   }
 
-  private async runCommand(session: OwnedSession, command: string, timeoutSec: number): Promise<ToolExecutionResult> {
+  private async runCommand(session: OwnedSession, command: string, timeoutSec: number, signal?: AbortSignal): Promise<ToolExecutionResult> {
+    let termination: Promise<void> | undefined;
+    const abort = () => {
+      if (!termination) termination = this.manager.terminate(session.info.id).then(() => {}, () => {});
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    try {
     const token = randomUUID().replace(/-/g, '').slice(0, 10);
     const beginToken = `__IEXA_BEGIN_${token}__`;
     const endToken = `__IEXA_END_${token}__`;
@@ -158,8 +165,12 @@ export class ShellSessionTools {
     const started = Date.now();
     const timeoutMs = Math.min(Math.max(1, timeoutSec), MAX_TIMEOUT_SEC) * 1000;
 
+    if (signal?.aborted) return { output: '命令已取消，终端会话正在结束。', success: false, cancelled: true, executionStatus: 'cancelled' };
     await this.writeLine(session.info.id, markers.begin(token));
-    for (const line of command.replace(/\r\n/g, '\n').split('\n')) await this.writeLine(session.info.id, line);
+    for (const line of command.replace(/\r\n/g, '\n').split('\n')) {
+      if (signal?.aborted) break;
+      await this.writeLine(session.info.id, line);
+    }
     // A blank line closes any multi-line block still open in PowerShell.
     await this.writeLine(session.info.id, '');
     await this.writeLine(session.info.id, markers.end(token));
@@ -168,6 +179,7 @@ export class ShellSessionTools {
     let lastSeq = session.cursor;
     let done = false;
     while (Date.now() - started < timeoutMs) {
+      if (signal?.aborted) return { output: '命令已取消，终端会话正在结束。', success: false, cancelled: true, executionStatus: 'cancelled' };
       const slice = this.manager.output(session.info.id, lastSeq);
       lastSeq = slice.lastSeq;
       if (slice.chunks.length) {
@@ -207,6 +219,7 @@ export class ShellSessionTools {
       success: parsed.exitCode === null || parsed.exitCode === 0,
       metadata: { sessionId: session.info.id, exitCode: parsed.exitCode, elapsedSec: Number(elapsed) },
     };
+    } finally { signal?.removeEventListener('abort', abort); }
   }
 
   async execute(action: string, args: Record<string, unknown>, owner: string, signal?: AbortSignal, defaultCwd?: string): Promise<ToolExecutionResult> {
@@ -235,8 +248,8 @@ export class ShellSessionTools {
           if (!command.trim()) return { output: 'command 不能为空。', success: false };
           if (command.length > 90_000) return { output: 'command 过长（上限 90000 字符）；请写入脚本文件再执行。', success: false };
           const session = this.owned(id, owner);
-          if (signal?.aborted) return { output: '已取消，命令可能仍在会话中运行；用 action=read 取输出。', success: false, cancelled: true };
-          return await this.runCommand(session, command, Number(args.timeout) || DEFAULT_TIMEOUT_SEC);
+          if (signal?.aborted) return { output: '命令已取消。', success: false, cancelled: true };
+          return await this.runCommand(session, command, Number(args.timeout) || DEFAULT_TIMEOUT_SEC, signal);
         }
         case 'read': {
           const session = this.owned(String(args.session_id || '').trim(), owner, true);

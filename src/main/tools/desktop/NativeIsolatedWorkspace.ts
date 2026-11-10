@@ -5,6 +5,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { stripBom } from '../../persistence/stripBom';
+import { desktopApplicationRoot, resolveDesktopHelper } from './DesktopHelperPath';
 
 const liveWorkspaces = new Set<NativeIsolatedWorkspace>();
 export async function controlNativeIsolatedWorkspaces(operation: 'pause' | 'resume', signal?: AbortSignal) {
@@ -21,7 +22,8 @@ export class NativeIsolatedWorkspace {
   private closed = false;
   private failed = false;
   private directory?: string;
-  constructor(private readonly appRoot: string, private readonly executableOverride?: string) {}
+  // The explicit executable override is internal; the legacy root is not a project search path.
+  constructor(_appRoot: string = desktopApplicationRoot(), private readonly executableOverride?: string) {}
   async ensureStarted(signal?: AbortSignal): Promise<WorkspaceReady> {
     if (signal?.aborted) throw new Error('Isolated workspace creation cancelled.');
     if (this.closed || this.failed) throw new Error('Isolated workspace closed or lost; do not replay prior actions. Start a new explicit workspace.');
@@ -38,19 +40,14 @@ export class NativeIsolatedWorkspace {
     return this.pending;
   }
   private executable(): string {
-    const resources = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath || path.dirname(process.execPath);
-    const candidates = this.executableOverride ? [this.executableOverride] : [
-      path.join(this.appRoot,'desktop-agent','publish','Iexa.DesktopAgent.exe'),
-      path.join(resources,'app.asar.unpacked','desktop-agent','publish','Iexa.DesktopAgent.exe'),
-      path.join(resources,'desktop-agent','publish','Iexa.DesktopAgent.exe'),
-    ];
-    for (const exe of candidates) {
-      try {
+    const exe = this.executableOverride || resolveDesktopHelper()?.executable;
+    try {
+      if (exe && fs.statSync(exe).isFile()) {
         const capability = JSON.parse(stripBom(fs.readFileSync(path.join(path.dirname(exe),'isolated-desktop-capability.json'),'utf8')));
         const hash = createHash('sha256').update(fs.readFileSync(exe.replace(/\.exe$/i,'.dll'))).digest('hex');
-        if (fs.existsSync(exe) && capability.version === 1 && hash === String(capability.sha256).toLowerCase()) return exe;
-      } catch { /* An old helper must not be launched with unrecognized isolation arguments. */ }
-    }
+        if (capability.version === 1 && hash === String(capability.sha256).toLowerCase()) return exe;
+      }
+    } catch { /* An old helper must not be launched with unrecognized isolation arguments. */ }
     throw new Error('A rebuilt native isolated-desktop helper and matching capability hash are required; no foreground fallback.');
   }
   private async start(signal?: AbortSignal): Promise<WorkspaceReady> {

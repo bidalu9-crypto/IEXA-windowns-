@@ -21,6 +21,30 @@ test('isolated launch stays in the isolated transport and returns a new owner ob
  assert.ok(f.calls.every(c=>c.backend==='native-isolated'));assert.equal(f.calls.at(-1).action,'observe');
  assert.equal(r.metadata.desktop.dispatchedActions,1);
 });
+
+test('an unbound background launch automatically selects isolated native, including after window listing',async()=>{
+ const f=fixture();assert.equal((await f.run({action:'list_windows'})).success,true);
+ const result=await f.run({action:'launch',app:'C:\\Windows\\System32\\notepad.exe'});
+ assert.equal(result.success,true,result.output);
+ const launch=f.calls.find(call=>call.action==='launch');assert.equal(launch.backend,'native-isolated');assert.equal(launch.background,true);
+ assert.equal(result.metadata.desktop.control.capability,'isolated-semantic');
+ assert.equal(result.metadata.desktop.control.providerMayChangeFocus,false);
+ assert.equal(f.calls.some(call=>call.action==='activate'),false);
+});
+
+test('a bound existing window keeps its backend instead of implicitly moving to isolated desktop',async()=>{
+ const f=fixture();await f.run({action:'observe',handle:10});const before=f.calls.length;
+ const result=await f.run({action:'launch',app:'notepad'});
+ assert.equal(result.success,false);assert.equal(result.metadata.desktop.noAction,true);assert.equal(f.calls.length,before);
+ assert.equal(f.calls.some(call=>call.backend==='native-isolated'),false);
+});
+
+test('browser and isolated backends reject explicit foreground mode before transport',async()=>{
+ for(const backend of ['native-isolated','chromium-cdp']){
+  const f=fixture();const result=await f.run({action:'observe',backend,controlMode:'foreground',...(backend==='chromium-cdp'?{cdpEndpoint:'http://127.0.0.1:9222'}:{})});
+  assert.equal(result.success,false);assert.match(result.output,/requires background/);assert.equal(f.calls.length,0);
+ }
+});
 test('isolated backend never widens generic background launch or permits an explicit foreground downgrade',async()=>{
  for(const args of [{action:'launch',backend:'native',background:true},{action:'launch',backend:'native-isolated',background:false},{action:'activate',backend:'native-isolated'},{action:'launch',backend:'native-isolated',autoActivate:true}]){
   const f=fixture();assert.equal((await f.run(args)).success,false);assert.equal(f.calls.length,0);

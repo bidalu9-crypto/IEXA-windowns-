@@ -7,6 +7,17 @@ const { ensureNative, probe } = require('./scripts/rebuild-native.cjs');
 const { copyProductionDependencies } = require('./scripts/package-production.cjs');
 const { fileHashes } = require('./download_electron.js');
 const RELEASE = path.join(ROOT, 'release');
+async function renameRelease(source, destination) {
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.promises.rename(source, destination); return; }
+    catch (error) {
+      // Windows may briefly retain handles after a packaged native probe or
+      // antivirus scan. Retry the directory rename before rolling back.
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes(error.code) || attempt >= 7) throw error;
+      await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+  }
+}
 function runNode(args) {
   const result = spawnSync(process.execPath, args, { cwd: ROOT, stdio: 'inherit', windowsHide: true });
   if (result.error || result.status !== 0) throw result.error || Error(`Build command failed: node ${args.join(' ')}`);
@@ -22,7 +33,9 @@ async function main() {
   await ensureNative();
   fs.mkdirSync(RELEASE, { recursive: true });
   const staging = assertInside(RELEASE, path.join(RELEASE, `IEXA.staging-${process.pid}`));
-  const destination = assertInside(RELEASE, path.join(RELEASE, 'IEXA'));
+  const destinationName = process.env.IEXA_DIST_NAME || 'IEXA';
+  if (!/^IEXA(?:[-.][a-zA-Z0-9-]+)?$/.test(destinationName)) throw Error('Invalid distribution directory name');
+  const destination = assertInside(RELEASE, path.join(RELEASE, destinationName));
   if (fs.existsSync(staging)) throw Error(`Staging path already exists: ${staging}`);
   try {
     fs.cpSync(runtimeDir(), staging, { recursive: true }); // preserve all runtime files/locales
@@ -51,11 +64,11 @@ async function main() {
     // Preserve previous output for rollback, never recursively delete the release directory.
     let previous;
     if (fs.existsSync(destination)) {
-      previous = assertInside(RELEASE, path.join(RELEASE, `IEXA.previous-${Date.now()}`));
-      fs.renameSync(destination, previous);
+      previous = assertInside(RELEASE, path.join(RELEASE, `${destinationName}.previous-${Date.now()}`));
+      await renameRelease(destination, previous);
     }
-    try { fs.renameSync(staging, destination); }
-    catch (error) { if (previous) fs.renameSync(previous, destination); throw error; }
+    try { await renameRelease(staging, destination); }
+    catch (error) { if (previous) await renameRelease(previous, destination); throw error; }
     console.log(`Distribution verified: ${destination}; Electron ${electronVersion()}; ${packages} production packages`);
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
 }

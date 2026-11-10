@@ -66,7 +66,9 @@
     },
     "asarUnpack": [
       "desktop-agent/publish/**/*",
-      "node_modules/node-pty/**/*"
+      "node_modules/node-pty/**/*",
+      "resources/formatters/**/*",
+      "resources/language-services/**/*"
     ],
     "icon": "resources/icon.ico"
   },
@@ -76,6 +78,7 @@
     "highlight.js": "11.12.0",
     "iconv-lite": "0.7.3",
     "marked": "18.0.13",
+    "monaco-editor": "0.52.2",
     "node-pty": "1.1.0",
     "onnxruntime-web": "1.23.0",
     "qrcode": "1.5.4",

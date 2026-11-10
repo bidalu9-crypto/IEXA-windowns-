@@ -8,6 +8,8 @@ import { ToolExecutionResult } from '../providers/types';
 import { desktopAdapterRegistry } from './desktop/DesktopBackgroundAdapter';
 import { ChromiumCdpAdapter } from './desktop/ChromiumCdpAdapter';
 import { NativeIsolatedWorkspace } from './desktop/NativeIsolatedWorkspace';
+import { desktopApplicationRoot, resolveDesktopHelper } from './desktop/DesktopHelperPath';
+import { recordDesktopControlResult, recordDesktopTransportPreview } from './desktop/DesktopLiveState';
 
 const ENDPOINT = 'http://127.0.0.1:17891';
 const PROTOCOL_VERSION = 6;
@@ -16,19 +18,23 @@ const nativeStarts = new Map<string, Promise<void>>();
 
 export class DesktopAgent {
   private healthyUntil = 0;
+  private nativeInstanceNonce?: string;
   private cdpAdapters = new Map<string, ChromiumCdpAdapter>();
   private recoveryNoticesDelivered = new Set<string>();
 
   private readonly control: DesktopControlSession;
+  private readonly appRoot = desktopApplicationRoot();
   private isolatedWorkspace?: NativeIsolatedWorkspace;
   private isolatedTransport?: DesktopAgent;
-  constructor(private readonly appRoot: string, private readonly captureFramesByDefault: boolean = false, journalDir?: string, private readonly endpoint: string = ENDPOINT, private readonly isolation?: { expectedDesktopName?: string; executable?: string }) {
+  // Retain the positional constructor API; project roots no longer locate binaries.
+  constructor(_appRoot: string = desktopApplicationRoot(), private readonly captureFramesByDefault: boolean = false, journalDir?: string, private readonly endpoint: string = ENDPOINT, private readonly isolation?: { expectedDesktopName?: string; executable?: string }) {
     const url = new URL(endpoint);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Desktop endpoint must be a loopback HTTP origin.');
     this.control = new DesktopControlSession((args, signal) => this.executeNative(args, signal), undefined, journalDir);
   }
   async execute(args: Record<string, unknown>, signal?: AbortSignal, context: DesktopContext = { owner: 'local' }): Promise<ToolExecutionResult> {
     const result = await this.control.execute(args, signal, context);
+    recordDesktopControlResult(result, context.owner);
     if (result.success && args.detail !== 'raw') {
       try { result.output = formatDesktopResult(JSON.parse(result.output)); } catch {}
     }
@@ -44,7 +50,12 @@ export class DesktopAgent {
       // Place this before the verbose observation so model-context compaction retains the warning.
       result.output = `恢复警告：${recovery.unresolvedOperationCount || 0} 项历史操作可能已执行但结果未确认。先观察并核对业务状态，不要重复提交。${omitted}${recovery.journalIntegrity === 'partial' ? '日志存在不完整记录，缺失记录不等于未执行。' : ''}\n${operations}\n` + result.output;
     }
-    if (trace && args.detail !== 'raw') result.output += `\n控制闭环：${trace.events.map((event: any) => event.phase).join(' → ')}\n验证：${trace.verified ? '指定界面文字已核对' : '未证明业务目标完成'}；恢复策略：重新观察，不重放输入。`;
+    if (trace && args.detail !== 'raw') {
+      const control = trace.control;
+      if (control) result.output += `\n实际操控：${control.mode === 'foreground' ? '前台' : '后台'}；后端=${control.backend}；能力=${control.capability}；物理输入=${control.physicalInput ? '显式启用' : '禁用'}；前台回退=禁用。${control.providerMayChangeFocus ? ' 应用控件/页面事件可能改变焦点；此路径不代表独立桌面隔离。' : ''}`;
+      if (args.action === 'batch' || !result.success) result.output += `\n派发记录：已派发=${trace.dispatchedActions ?? '未知'}；收到动作回执=${trace.acknowledgedActions ?? '未知'}；完成步骤=${trace.completedSteps ?? '未知'}。${trace.noAction === true ? '本次未派发动作；先修正参数或观察条件。' : result.success ? '动作回执已返回；仍须观察核对业务结果，勿因证据不足重放整批。' : '可能已有操作生效；先观察并核对实际结果，不重放整批或重复输入。'}`;
+      result.output += `\n控制闭环：${trace.events.map((event: any) => event.phase).join(' → ')}\n验证：${trace.verified ? '指定界面文字已核对' : '未证明业务目标完成'}；恢复策略：重新观察，不重放输入。`;
+    }
     return result;
   }
 
@@ -65,7 +76,7 @@ export class DesktopAgent {
         && typeof health.instanceNonce === 'string'
         && health.instanceNonce.length >= 16;
       const isolationValid = !this.isolation?.expectedDesktopName || (health.isolatedDesktop as any)?.verified === true && (health.isolatedDesktop as any)?.desktopName === this.isolation.expectedDesktopName;
-      if (valid && isolationValid) this.healthyUntil = Date.now() + 5000;
+      if (valid && isolationValid) { this.healthyUntil = Date.now() + 5000; this.nativeInstanceNonce = String(health.instanceNonce); }
       return valid && isolationValid;
     } catch { return false; }
   }
@@ -78,20 +89,15 @@ export class DesktopAgent {
     let pending = nativeStarts.get(this.endpoint);
     if (!pending) { pending = this.start(); nativeStarts.set(this.endpoint, pending); }
     try { await pending; } finally { if (nativeStarts.get(this.endpoint) === pending) nativeStarts.delete(this.endpoint); }
+    // A different DesktopAgent instance may have owned the shared startup;
+    // every caller must obtain the resulting helper identity for its snapshot.
+    if (!await this.healthy()) throw new Error('Desktop helper did not provide a valid instance identity after startup.');
   }
 
   private async start(): Promise<void> {
     await this.stopIncompatibleHelper();
-    const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath || path.dirname(process.execPath);
-    const candidates = [
-      path.join(this.appRoot, 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
-      path.join(process.cwd(), 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
-      path.join(resourcesPath, 'app.asar.unpacked', 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
-      path.join(resourcesPath, 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
-      path.join(path.dirname(process.execPath), 'desktop-agent', 'publish', 'Iexa.DesktopAgent.exe'),
-    ];
-    const exe = candidates.find((p) => fs.existsSync(p));
-    const dll = candidates.map((candidate) => candidate.replace(/\.exe$/, '.dll')).find((candidate) => fs.existsSync(candidate));
+    const helper = resolveDesktopHelper();
+    const exe = helper?.executable, dll = helper?.dll;
     if (!exe && !dll) throw new Error('Desktop agent is missing. Run dotnet publish desktop-agent/Iexa.DesktopAgent.csproj.');
     const logDir = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'IEXA-WIN', 'logs');
     fs.mkdirSync(logDir, { recursive: true });
@@ -175,9 +181,11 @@ export class DesktopAgent {
       if (!adapter) { adapter = new ChromiumCdpAdapter(cdpEndpoint); this.cdpAdapters.set(cdpEndpoint, adapter); }
       if (signal?.aborted) return { output: 'Desktop action cancelled.', success: false, cancelled: true };
       const result = await adapter.execute(args, signal);
+      const cdpTargetId = String(result.metadata?.cdpTargetId || args.cdpTargetId || '');
+      recordDesktopTransportPreview(result, { backend: 'chromium-cdp', endpoint: cdpEndpoint, targetId: cdpTargetId });
       const attachObservationFrame = args.captureFrame === true || (args.captureFrame !== false && this.captureFramesByDefault);
       if (args.action === 'observe' && !attachObservationFrame) { delete result.imageData; delete result.imageMimeType; }
-      return { ...result, metadata: { ...result.metadata, backend: 'chromium-cdp', cdpEndpoint: cdpEndpoint } };
+      return { ...result, metadata: { ...result.metadata, backend: 'chromium-cdp', cdpEndpoint, cdpTargetId } };
     }
     const started = Date.now();
     const controller = new AbortController();
@@ -216,6 +224,9 @@ export class DesktopAgent {
         if (preflight && !preflight.allowed) throw new Error(`Background action rejected by ${adapter.id}: ${preflight.reason || 'capability unavailable'}`);
       }
       await this.ensureStarted(controller.signal);
+      if (args.expectedNativeInstanceNonce !== undefined && args.expectedNativeInstanceNonce !== this.nativeInstanceNonce)
+        return {success:false,output:'Desktop helper restarted before input dispatch. Fresh observe is required; the previous input was not sent.',
+          metadata:{nativeInstanceNonce:this.nativeInstanceNonce,noInputDispatched:true,helperRestarted:true}};
       if (nativeNeedsIdleCheck.has(this.endpoint)) await this.awaitNativeIdle();
       if (action === 'frame') {
         const frame = await fetch(`${this.endpoint}/frame?full=0&observationToken=${encodeURIComponent(String(args.observationToken || ""))}`, { signal: controller.signal });
@@ -232,6 +243,7 @@ export class DesktopAgent {
       }
       const payload: Record<string, unknown> = { ...args, action };
       delete payload.tool_title;
+      delete payload.expectedNativeInstanceNonce;
       if (controller.signal.aborted) throw new Error('Desktop action cancelled before dispatch.');
       dispatched = true;
       const response = await fetch(`${this.endpoint}/execute`, {
@@ -247,7 +259,7 @@ export class DesktopAgent {
         output: typeof parsed === 'string' ? parsed : args.detail === 'raw' ? JSON.stringify(parsed) : formatDesktopResult(parsed),
         success: response.ok && (parsed as any)?.ok !== false && (parsed as any)?.data?.found !== false,
         durationMs: Date.now() - started,
-        metadata: { endpoint: this.endpoint, action, backgroundAdapter: adapter.id, backgroundCapabilities: [...adapter.capabilities] },
+        metadata: { endpoint: this.endpoint, action, nativeInstanceNonce: this.nativeInstanceNonce, backgroundAdapter: adapter.id, backgroundCapabilities: [...adapter.capabilities] },
       };
       const captureFrame = args.captureFrame === true || (args.captureFrame !== false && this.captureFramesByDefault);
       if (response.ok && action === 'observe' && captureFrame) {
@@ -279,8 +291,12 @@ export function formatDesktopResult(value: any): string {
   if (!value || typeof value !== 'object') return String(value);
   if (!value.ok) return `桌面操作失败：${value.error || 'Unknown error'}`;
   const data = value.data || {};
+  const windowState = (window: any) => {
+    const state = Object.fromEntries(['isVisible', 'cloakedMask'].filter(key => window[key] !== undefined).map(key => [key, window[key]]));
+    return Object.keys(state).length ? ` | windowState=${JSON.stringify(state)}` : '';
+  };
   const lines = [`${value.action} · ${value.elapsedMs ?? 0} ms · ${data.found === false ? '未找到目标' : '已执行'}`];
-  if (data.foreground) lines.push(`窗口：${data.foreground.title} (${data.foreground.process}) handle=${data.foreground.handle}`);
+  if (data.foreground) lines.push(`窗口：${data.foreground.title} (${data.foreground.process}) handle=${data.foreground.handle}${windowState(data.foreground)}`);
   if (data.window) lines.push(`目标：${data.window.title} (${data.window.process}) pid=${data.window.pid} handle=${data.window.handle}`);
   if (data.session) lines.push(`observationToken=${data.session.observationToken || ''}`);
   if (data.frame) lines.push(`画面：${data.frame.width}×${data.frame.height}，capturedAt=${data.frame.capturedAt}，hash=${data.frame.hash}，trust=${data.frame.trust || 'unknown'}`);
@@ -289,11 +305,18 @@ export function formatDesktopResult(value: any): string {
   if (data.relatedWindows?.length) lines.push('关联对话框（请显式 observe 其 handle 后再操作）：' + JSON.stringify(data.relatedWindows));
   if (data.elements) for (const element of data.elements.slice(0, 80)) {
     const confidence = typeof element.confidence === 'number' && Number.isFinite(element.confidence) ? element.confidence.toFixed(2) : 'unavailable';
-    lines.push(`${element.id} | ${element.role} | ${String(element.text || '').slice(0, 180)} | ${JSON.stringify(element.bounds)} | source=${element.source || 'unknown'} | confidence=${confidence}${element.selector ? ` | selector=${JSON.stringify({ automationId: element.selector.automationId, name: element.selector.name, controlType: element.selector.controlType })}` : ''}`);
+    const component = Object.fromEntries(['capabilities','focused','checked','expanded','options','scroll','min','max','step'].filter(key=>element[key]!==undefined).map(key=>[key,element[key]]));
+    lines.push(`${element.id} | ${element.role} | ${String(element.text || '').slice(0, 180)} | ${JSON.stringify(element.bounds)} | source=${element.source || 'unknown'} | confidence=${confidence}${element.selector ? ` | selector=${JSON.stringify({ automationId: element.selector.automationId, name: element.selector.name, controlType: element.selector.controlType })}` : ''}${Object.keys(component).length ? ` | component=${JSON.stringify(component)}` : ''}`);
   }
-  if (data.results) for (const [index, step] of data.results.entries()) lines.push(`${index + 1}. ${step.action}: ${JSON.stringify(step.result)}`);
+  if (Array.isArray(data.results)) for (const [index, step] of data.results.entries()) {
+    // Managed batches return complete {ok,action,data} envelopes. Older native
+    // batches wrapped the receipt in result; retain both without dropping data.
+    const receipt = step?.result !== undefined ? step.result : step;
+    const action = step?.action || receipt?.action || 'input';
+    lines.push(`${index + 1}. ${action}: ${JSON.stringify(receipt) ?? '回执缺失；重新观察核对，不重复输入。'}`);
+  }
   if (data.windows) for (const window of data.windows.slice(0, 40)) {
-    lines.push(`窗口：${window.title} | process=${window.process} | pid=${window.pid} | handle=${window.handle} | bounds=${JSON.stringify(window.bounds)}`);
+    lines.push(`窗口：${window.title} | process=${window.process} | pid=${window.pid} | handle=${window.handle} | bounds=${JSON.stringify(window.bounds)}${windowState(window)}`);
   }
   const { elements, windows, screens, frame, foreground, session, results, ...rest } = data;
   if (Object.keys(rest).length) lines.push(JSON.stringify(rest));

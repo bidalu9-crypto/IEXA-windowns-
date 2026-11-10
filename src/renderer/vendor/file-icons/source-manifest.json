@@ -1,0 +1,762 @@
+{
+  "repository": "https://github.com/material-extensions/vscode-material-icon-theme",
+  "commit": "ced21b9b5241c1efa502a8c46ec7363a690a7058",
+  "license": "MIT",
+  "fetchedAt": "2026-11-08T12:59:09Z",
+  "assets": [
+    {
+      "path": "LICENSE",
+      "source": "LICENSE",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/LICENSE",
+      "sha256": "cdab3014d4f69b49dde2b85e81792208c72de613aa6aed7f7a9b5c6609b89670",
+      "bytes": 1085
+    },
+    {
+      "path": "bun.svg",
+      "source": "icons/bun.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/bun.svg",
+      "sha256": "5aa8b6d3cd8a96a542b00dfff8b16d687f8ed6be967e2d74127897ef82b0e27a",
+      "bytes": 990
+    },
+    {
+      "path": "c.svg",
+      "source": "icons/c.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/c.svg",
+      "sha256": "4adba54251e85851f3bcc78f10bfb055f17b24aad8a53d0efbd00085dd202bae",
+      "bytes": 245
+    },
+    {
+      "path": "cmake.svg",
+      "source": "icons/cmake.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/cmake.svg",
+      "sha256": "a7b782fe42372a21b32c22e8dc6e6728b146d7fbfd961e10273bdd2978f5213c",
+      "bytes": 328
+    },
+    {
+      "path": "console.svg",
+      "source": "icons/console.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/console.svg",
+      "sha256": "c5f33efa92ce94d240e3dca2041f44c30dcad53e9b1cc937be0e757719a619ce",
+      "bytes": 223
+    },
+    {
+      "path": "cpp.svg",
+      "source": "icons/cpp.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/cpp.svg",
+      "sha256": "336346afba3afb620b3edb5f08e0a2bcf14cb85a495113deffb3bbcc87b8aeab",
+      "bytes": 325
+    },
+    {
+      "path": "csharp.svg",
+      "source": "icons/csharp.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/csharp.svg",
+      "sha256": "5446afdcd43ba9f36691f510d411e412d63f127d91806ebbab468732ea1945e9",
+      "bytes": 331
+    },
+    {
+      "path": "css.svg",
+      "source": "icons/css.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/css.svg",
+      "sha256": "afe20f8da21f1f2de59b11e0bd0b6bc63866a43e42238af5daca6c5669493cd5",
+      "bytes": 674
+    },
+    {
+      "path": "dll.svg",
+      "source": "icons/dll.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/dll.svg",
+      "sha256": "5c45ee3a6a63e5292be4d704b29a96238ed67a625e831d42941b68b0c8fd1d8c",
+      "bytes": 772
+    },
+    {
+      "path": "docker.svg",
+      "source": "icons/docker.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/docker.svg",
+      "sha256": "3d032b712bbedea1dd8a1103c40cf5f27ce5b1af83ae0c9312fd15eb3c341c66",
+      "bytes": 1501
+    },
+    {
+      "path": "document.svg",
+      "source": "icons/document.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/document.svg",
+      "sha256": "64f5da56de591d5f429d2c7f5f5733388b3ce704762631ba0b487a08475f9452",
+      "bytes": 234
+    },
+    {
+      "path": "editorconfig.svg",
+      "source": "icons/editorconfig.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/editorconfig.svg",
+      "sha256": "199762cbea98d7859fedd037feb98093ed712b15942dd3850054e8ce40e8bbbe",
+      "bytes": 8091
+    },
+    {
+      "path": "eslint.svg",
+      "source": "icons/eslint.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/eslint.svg",
+      "sha256": "aeb3a553e20f087a60e4a4f09ebbe59f9928a8c58293ce4c80b9e00f2ece1db7",
+      "bytes": 665
+    },
+    {
+      "path": "exe.svg",
+      "source": "icons/exe.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/exe.svg",
+      "sha256": "423e33947323264bcfccb2574a222c816589bf2a02cda0f731fa7167162cb9c8",
+      "bytes": 178
+    },
+    {
+      "path": "folder-base-open.svg",
+      "source": "icons/folder-base.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-base.svg",
+      "sha256": "ebbe6095d06fb3deb1e2ece26786ffae42055c1cc6e55d13d6afb14b11e6d80d",
+      "bytes": 415,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "2d1637960109ca9f9d4666b6b22704b411744cdcf4b77b663fc2a4053739e53d"
+      }
+    },
+    {
+      "path": "folder-base.svg",
+      "source": "icons/folder-base.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-base.svg",
+      "sha256": "2d1637960109ca9f9d4666b6b22704b411744cdcf4b77b663fc2a4053739e53d",
+      "bytes": 367
+    },
+    {
+      "path": "folder-components-open.svg",
+      "source": "icons/folder-components.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-components.svg",
+      "sha256": "b552b7a8c526cd840004b55525aec71ad57fd2e0534b3f0f8d6d18b135904f59",
+      "bytes": 393,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "4bcc25b2729cdce0852a3e71d8d9bc972974b0c9ed02a841aed194c75e623011"
+      }
+    },
+    {
+      "path": "folder-components.svg",
+      "source": "icons/folder-components.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-components.svg",
+      "sha256": "4bcc25b2729cdce0852a3e71d8d9bc972974b0c9ed02a841aed194c75e623011",
+      "bytes": 345
+    },
+    {
+      "path": "folder-config-open.svg",
+      "source": "icons/folder-config.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-config.svg",
+      "sha256": "b3b8133f4337152f6265b33bca78caa4375ef645c984f6be9e6bd3ca7bfa6bc8",
+      "bytes": 1007,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "f08a417086b05fa01c6635850a53a545467097ad8d8e46c55d4e9252bfb98f71"
+      }
+    },
+    {
+      "path": "folder-config.svg",
+      "source": "icons/folder-config.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-config.svg",
+      "sha256": "f08a417086b05fa01c6635850a53a545467097ad8d8e46c55d4e9252bfb98f71",
+      "bytes": 959
+    },
+    {
+      "path": "folder-dist-open.svg",
+      "source": "icons/folder-dist.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-dist.svg",
+      "sha256": "3d5cf05f694850fabb8607ae5a3c14e0ddc783daae912aabc08e414dfcd3517c",
+      "bytes": 422,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "0a1d768485b25d8e464ea7306c82057b34e354e00157940d73a62fdb8660af62"
+      }
+    },
+    {
+      "path": "folder-dist.svg",
+      "source": "icons/folder-dist.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-dist.svg",
+      "sha256": "0a1d768485b25d8e464ea7306c82057b34e354e00157940d73a62fdb8660af62",
+      "bytes": 374
+    },
+    {
+      "path": "folder-docs-open.svg",
+      "source": "icons/folder-docs.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-docs.svg",
+      "sha256": "8c33468095ebcf8021b26eeea42e14bf081872326f7ae3cfc42bc9cf33285e0d",
+      "bytes": 436,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "71bec357e64761462d18b66fa9c6095fe390ab29e1d5977c1f89e3dbd3e6fca3"
+      }
+    },
+    {
+      "path": "folder-docs.svg",
+      "source": "icons/folder-docs.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-docs.svg",
+      "sha256": "71bec357e64761462d18b66fa9c6095fe390ab29e1d5977c1f89e3dbd3e6fca3",
+      "bytes": 388
+    },
+    {
+      "path": "folder-font-open.svg",
+      "source": "icons/folder-font.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-font.svg",
+      "sha256": "b76691da92ecafe95482246e09de3d1903844955f611aeecd0f1de52c3f2cea1",
+      "bytes": 398,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "0190b4295ebe489cd8a8247255b2f6ef08f8949a56eeaf8ff3f61b9a94b608d4"
+      }
+    },
+    {
+      "path": "folder-font.svg",
+      "source": "icons/folder-font.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-font.svg",
+      "sha256": "0190b4295ebe489cd8a8247255b2f6ef08f8949a56eeaf8ff3f61b9a94b608d4",
+      "bytes": 350
+    },
+    {
+      "path": "folder-git-open.svg",
+      "source": "icons/folder-git.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-git.svg",
+      "sha256": "9d68765ee09021f04cac71b90ec59a235e6ad1a960535f5f65f66e9e19092718",
+      "bytes": 736,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "519e310d47d2eaa4c58e2504674f221593218c4a1955e8de6411ebecce73a91d"
+      }
+    },
+    {
+      "path": "folder-git.svg",
+      "source": "icons/folder-git.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-git.svg",
+      "sha256": "519e310d47d2eaa4c58e2504674f221593218c4a1955e8de6411ebecce73a91d",
+      "bytes": 688
+    },
+    {
+      "path": "folder-github-open.svg",
+      "source": "icons/folder-github.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-github.svg",
+      "sha256": "1fb7f975362dfba3b6a67bd1dae11e02aa4369b073660c7f37ff7ce9dc9bcfad",
+      "bytes": 886,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "1b3c2daf3a63e03300d196d10c6a5c74cc1982c6203c1bd96818c193d5f1d499"
+      }
+    },
+    {
+      "path": "folder-github.svg",
+      "source": "icons/folder-github.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-github.svg",
+      "sha256": "1b3c2daf3a63e03300d196d10c6a5c74cc1982c6203c1bd96818c193d5f1d499",
+      "bytes": 838
+    },
+    {
+      "path": "folder-images-open.svg",
+      "source": "icons/folder-images.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-images.svg",
+      "sha256": "3ad64e00702319e24183b91631cf6cb6538a9b77c33a00d0c87d2a7c30b53d98",
+      "bytes": 472,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "89fc87665c8d0b9b336a3ff5f15690ab0ca1ac42b848102bf2308a757777ed74"
+      }
+    },
+    {
+      "path": "folder-images.svg",
+      "source": "icons/folder-images.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-images.svg",
+      "sha256": "89fc87665c8d0b9b336a3ff5f15690ab0ca1ac42b848102bf2308a757777ed74",
+      "bytes": 424
+    },
+    {
+      "path": "folder-node-open.svg",
+      "source": "icons/folder-node.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-node.svg",
+      "sha256": "bacc0ed245bdeb945acb55f5c586bf2c9e511f610f2283194242e90d14075148",
+      "bytes": 368,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "feb7e261d9fa12a79ca890272beb26543450ae04ad25a079c1d1d391b738cd49"
+      }
+    },
+    {
+      "path": "folder-node.svg",
+      "source": "icons/folder-node.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-node.svg",
+      "sha256": "feb7e261d9fa12a79ca890272beb26543450ae04ad25a079c1d1d391b738cd49",
+      "bytes": 320
+    },
+    {
+      "path": "folder-public-open.svg",
+      "source": "icons/folder-public.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-public.svg",
+      "sha256": "a210850c68f3a925f15fa507eb0c10af9d44d2c2c293a39f77fb0c8ae4bae74f",
+      "bytes": 847,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "91b53f2575f80b7868c3063cfb7ec0a8b5bff21112ae70532f80752780a022ca"
+      }
+    },
+    {
+      "path": "folder-public.svg",
+      "source": "icons/folder-public.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-public.svg",
+      "sha256": "91b53f2575f80b7868c3063cfb7ec0a8b5bff21112ae70532f80752780a022ca",
+      "bytes": 799
+    },
+    {
+      "path": "folder-resource-open.svg",
+      "source": "icons/folder-resource.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-resource.svg",
+      "sha256": "e294a8f74a1fb5a31569974387adb7f1ef291cfc1969a5de9712421bcd5b1eaf",
+      "bytes": 474,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "d333856835c73ed9dad1e0fe7defa7896fa4f31bb67f653c521b5bd66a75434e"
+      }
+    },
+    {
+      "path": "folder-resource.svg",
+      "source": "icons/folder-resource.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-resource.svg",
+      "sha256": "d333856835c73ed9dad1e0fe7defa7896fa4f31bb67f653c521b5bd66a75434e",
+      "bytes": 426
+    },
+    {
+      "path": "folder-scripts-open.svg",
+      "source": "icons/folder-scripts.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-scripts.svg",
+      "sha256": "7f163318b1526485f8069ffef2be8e201ce8ade739182437e122aa9bf3e92585",
+      "bytes": 450,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "22c08cdb7bdc46362d673f24e8312d824f114686879adb997f363da235fd32ee"
+      }
+    },
+    {
+      "path": "folder-scripts.svg",
+      "source": "icons/folder-scripts.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-scripts.svg",
+      "sha256": "22c08cdb7bdc46362d673f24e8312d824f114686879adb997f363da235fd32ee",
+      "bytes": 402
+    },
+    {
+      "path": "folder-src-open.svg",
+      "source": "icons/folder-src.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-src.svg",
+      "sha256": "159da562a912929aa265cdee9f31ca544097ffd11abaace2dfafa1780df7db62",
+      "bytes": 957,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "0615e08b96c279fe2e62bac2d34209efb3e72e43a34ba000fc4dfab8b2e31f8f"
+      }
+    },
+    {
+      "path": "folder-src.svg",
+      "source": "icons/folder-src.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-src.svg",
+      "sha256": "0615e08b96c279fe2e62bac2d34209efb3e72e43a34ba000fc4dfab8b2e31f8f",
+      "bytes": 909
+    },
+    {
+      "path": "folder-test-open.svg",
+      "source": "icons/folder-test.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-test.svg",
+      "sha256": "030340c7423e0f152bf29fc1dc872d9602bb857d27f54f20937537c726c3321f",
+      "bytes": 440,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "d44bd5888cbd17ad890eaf19451e0e82ea305c3d9121fcc51eb6ac0b83b20e88"
+      }
+    },
+    {
+      "path": "folder-test.svg",
+      "source": "icons/folder-test.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-test.svg",
+      "sha256": "d44bd5888cbd17ad890eaf19451e0e82ea305c3d9121fcc51eb6ac0b83b20e88",
+      "bytes": 392
+    },
+    {
+      "path": "folder-vscode-open.svg",
+      "source": "icons/folder-vscode.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-vscode.svg",
+      "sha256": "f61eaef5c8cf41faa28b5b097b649742d47b1d0eaf7d90317f40ac84fd99397e",
+      "bytes": 448,
+      "generated": {
+        "method": "replace only #folder d with official OPEN_FOLDER_PATH",
+        "generator": "src/scripts/svg/generateOpenFolderIcons.ts",
+        "generatorSha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+        "parentSha256": "ea15a68466c83127183d91dfad3475fea8fa91080fb192c99b1ae401647757a8"
+      }
+    },
+    {
+      "path": "folder-vscode.svg",
+      "source": "icons/folder-vscode.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/folder-vscode.svg",
+      "sha256": "ea15a68466c83127183d91dfad3475fea8fa91080fb192c99b1ae401647757a8",
+      "bytes": 400
+    },
+    {
+      "path": "font.svg",
+      "source": "icons/font.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/font.svg",
+      "sha256": "092850724e8e29ff1ad8afc53a87185d6fb8c7b8287174dd7783f8531d2acccd",
+      "bytes": 165
+    },
+    {
+      "path": "generateOpenFolderIcons.ts",
+      "source": "src/scripts/svg/generateOpenFolderIcons.ts",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/src/scripts/svg/generateOpenFolderIcons.ts",
+      "sha256": "da04ec028d6e5a1f4452b15f92e00ad005dae1fd5e8b99eea90b3225a3d60608",
+      "bytes": 4124
+    },
+    {
+      "path": "git.svg",
+      "source": "icons/git.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/git.svg",
+      "sha256": "b0caee7c9cb4e602536e2f5a384740e7c8bc5ab94d98bfdde529f1eb97938213",
+      "bytes": 729
+    },
+    {
+      "path": "go-mod.svg",
+      "source": "icons/go-mod.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/go-mod.svg",
+      "sha256": "16e8eccbe173616d4b253dedfc51c2bb08f63626e00790b75648605e7782d392",
+      "bytes": 745
+    },
+    {
+      "path": "go.svg",
+      "source": "icons/go.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/go.svg",
+      "sha256": "eb3b74fcad124042c463505961ee93dd335165275a2b84828083fb8dcb5064c9",
+      "bytes": 745
+    },
+    {
+      "path": "h.svg",
+      "source": "icons/h.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/h.svg",
+      "sha256": "73fa9417071d70dcda54d5e464c292a5ba59cca3105d0e5634b8702e8bb3fd83",
+      "bytes": 185
+    },
+    {
+      "path": "hex.svg",
+      "source": "icons/hex.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/hex.svg",
+      "sha256": "a0fc28268ef0da7fa50b77c9217a07472751ce96704c74e3a8bb50e2c59ba04b",
+      "bytes": 271
+    },
+    {
+      "path": "hpp.svg",
+      "source": "icons/hpp.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/hpp.svg",
+      "sha256": "a030bcbf24e67aeddc09a9b7b0a8996387549f6105f3466d9480bd0371d60db6",
+      "bytes": 232
+    },
+    {
+      "path": "html.svg",
+      "source": "icons/html.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/html.svg",
+      "sha256": "23e04ad5f1ae9cd16dc79fe52c4290e5bd80f2f7bfe4c0769e7485832b3eb146",
+      "bytes": 232
+    },
+    {
+      "path": "image.svg",
+      "source": "icons/image.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/image.svg",
+      "sha256": "838e1953a3a2ebf5c6a06b662892ba17e1c605c4379a77c61737639e51fb4f0a",
+      "bytes": 346
+    },
+    {
+      "path": "javascript.svg",
+      "source": "icons/javascript.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/javascript.svg",
+      "sha256": "00eb9422f451901565f2eb8cbaf07718b2da03f9a866fae7f68cdc3807290d6b",
+      "bytes": 291
+    },
+    {
+      "path": "jsconfig.svg",
+      "source": "icons/jsconfig.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/jsconfig.svg",
+      "sha256": "0852282dcfa5f97583892e5ef397943580ef2f2f89f0570df0cd2bf87772af20",
+      "bytes": 454
+    },
+    {
+      "path": "json.svg",
+      "source": "icons/json.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/json.svg",
+      "sha256": "649ad4f4d01cec788959017710bb0c63281a645db8cef389c50008fbd059da03",
+      "bytes": 540
+    },
+    {
+      "path": "lib.svg",
+      "source": "icons/lib.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/lib.svg",
+      "sha256": "dc04429517312f527fce520058f5a1428a2040748d96e4b6249c61aa36d9ef36",
+      "bytes": 287
+    },
+    {
+      "path": "license.svg",
+      "source": "icons/license.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/license.svg",
+      "sha256": "4b0a147a39eade32f9164fcd6b8465fd543cda315b71bbc9e28c236a6abf5d09",
+      "bytes": 225
+    },
+    {
+      "path": "lock.svg",
+      "source": "icons/lock.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/lock.svg",
+      "sha256": "f28fe89b018236f9de2abd1c10abf278bf3f2ec9b757bb6746a44704ebedc084",
+      "bytes": 246
+    },
+    {
+      "path": "log.svg",
+      "source": "icons/log.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/log.svg",
+      "sha256": "71501c5f23a5b85b8080f2c619b2b84807ee5203fa48e9ed740cf5acef060116",
+      "bytes": 236
+    },
+    {
+      "path": "makefile.svg",
+      "source": "icons/makefile.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/makefile.svg",
+      "sha256": "a6d8260757abc4928a488455272a9b486b8aa317cd7c198150ad1a885d9da748",
+      "bytes": 943
+    },
+    {
+      "path": "markdown.svg",
+      "source": "icons/markdown.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/markdown.svg",
+      "sha256": "42f95867350ed1f349ab29b3f254405f84ae65e6d42972d74b01442027eddfcd",
+      "bytes": 161
+    },
+    {
+      "path": "nodejs.svg",
+      "source": "icons/nodejs.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/nodejs.svg",
+      "sha256": "365af5c7b70d11c2da6d70a21240a47ba941602530c46d808d37ae913be7402e",
+      "bytes": 375
+    },
+    {
+      "path": "npm.svg",
+      "source": "icons/npm.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/npm.svg",
+      "sha256": "6bd740d3e31675d17e615d4c9ea4eab6714d1cd20a0d8220b87897236d82170b",
+      "bytes": 132
+    },
+    {
+      "path": "pdf.svg",
+      "source": "icons/pdf.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/pdf.svg",
+      "sha256": "c14c66a3914b894da40778a6dcd00f0daa134426521aaddbd8ccea86ba4f5ffc",
+      "bytes": 976
+    },
+    {
+      "path": "pnpm.svg",
+      "source": "icons/pnpm.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/pnpm.svg",
+      "sha256": "a3d8e5760f080d0f10a4b92e115918acaa3ec2db3779e31154b1fd1999b4e19f",
+      "bytes": 222
+    },
+    {
+      "path": "poetry.svg",
+      "source": "icons/poetry.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/poetry.svg",
+      "sha256": "4707f2fed0418adbbf9925dcd69dcf3e0ff58e68051649177ea5fe7310bcf017",
+      "bytes": 289
+    },
+    {
+      "path": "powershell.svg",
+      "source": "icons/powershell.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/powershell.svg",
+      "sha256": "b8ad2264d8f1fe82e7e0a2af062ce85a49083f7d9a8c51a16e77de2a7aec158f",
+      "bytes": 610
+    },
+    {
+      "path": "prettier.svg",
+      "source": "icons/prettier.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/prettier.svg",
+      "sha256": "b81b3661b6ec0aacaf8806311be235ea0bd4eb641fb73b8c0173680efdc6c83f",
+      "bytes": 346
+    },
+    {
+      "path": "python-misc.svg",
+      "source": "icons/python-misc.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/python-misc.svg",
+      "sha256": "f2bfc56a050de0fdffdae49c4321d3666a511a3a3b542becff03b481606e4b21",
+      "bytes": 683
+    },
+    {
+      "path": "python.svg",
+      "source": "icons/python.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/python.svg",
+      "sha256": "798fcd59653af34e5b8124d3fe45412eef79f9c1925e286dadd94f923486fd1f",
+      "bytes": 773
+    },
+    {
+      "path": "react.svg",
+      "source": "icons/react.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/react.svg",
+      "sha256": "6a7fb2e8b5e168c0d0f605147138f0bb437eea6618008b82b708ce42e56bafae",
+      "bytes": 1104
+    },
+    {
+      "path": "react_ts.svg",
+      "source": "icons/react_ts.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/react_ts.svg",
+      "sha256": "f5caa02786d9ce9650fa25442b6605630a60e40156083679036be101b145ad37",
+      "bytes": 1104
+    },
+    {
+      "path": "readme.svg",
+      "source": "icons/readme.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/readme.svg",
+      "sha256": "ed41dbf841368745ed1c9e333c451f45224f53491b4cac4fda0b487df98cfa71",
+      "bytes": 215
+    },
+    {
+      "path": "rust.svg",
+      "source": "icons/rust.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/rust.svg",
+      "sha256": "a58c24641e82c1ba47c74781da039e2a8e372202cfaaaeff39559138a11bcc39",
+      "bytes": 526
+    },
+    {
+      "path": "sass.svg",
+      "source": "icons/sass.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/sass.svg",
+      "sha256": "e613bd47d598c54c9bda64db765039b54b3db4a6b45de0b1976b45956ebc1023",
+      "bytes": 1281
+    },
+    {
+      "path": "settings.svg",
+      "source": "icons/settings.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/settings.svg",
+      "sha256": "8fbcaf6c132a8eef0b23ca597ae35ec362a35510f3e3961950a0f5b2527b75e9",
+      "bytes": 1334
+    },
+    {
+      "path": "svg.svg",
+      "source": "icons/svg.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/svg.svg",
+      "sha256": "120ceffcaa97658ae665caab7f0cbd4aed9aa9d069447f7b908548c755934ec0",
+      "bytes": 1285
+    },
+    {
+      "path": "toml.svg",
+      "source": "icons/toml.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/toml.svg",
+      "sha256": "eaeb55ba45f14a504d8f162282ec8f87c930426220ca88035bf340dc8b1e7008",
+      "bytes": 180
+    },
+    {
+      "path": "tsconfig.svg",
+      "source": "icons/tsconfig.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/tsconfig.svg",
+      "sha256": "a7bd2a966578a9ecd8916b950d02201e19048ec267e2f287a1b3f4629f5764d6",
+      "bytes": 411
+    },
+    {
+      "path": "tune.svg",
+      "source": "icons/tune.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/tune.svg",
+      "sha256": "786079eb0fe6434373f36f016470176df8983372756a3facd900ea39e5d36771",
+      "bytes": 268
+    },
+    {
+      "path": "typescript-def.svg",
+      "source": "icons/typescript-def.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/typescript-def.svg",
+      "sha256": "3dd13d3bc29103eae7ed8bd7cc5bb1d2062c66068b8de0188de497363a907f27",
+      "bytes": 274
+    },
+    {
+      "path": "typescript.svg",
+      "source": "icons/typescript.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/typescript.svg",
+      "sha256": "1822f88268b452ced242ed06a770302c15dff46bb8a2e077e95e19597f737397",
+      "bytes": 267
+    },
+    {
+      "path": "uv.svg",
+      "source": "icons/uv.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/uv.svg",
+      "sha256": "2a0496ec51ee4f08f47bcf75795f50b0584b5da117696ebc1a12c489656b7a03",
+      "bytes": 146
+    },
+    {
+      "path": "visualstudio.svg",
+      "source": "icons/visualstudio.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/visualstudio.svg",
+      "sha256": "77d769c0d763dffb1200ff6e6d6d1aacea85d39065c2069ec9ec5c70af7ee791",
+      "bytes": 232
+    },
+    {
+      "path": "vue.svg",
+      "source": "icons/vue.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/vue.svg",
+      "sha256": "039814fe6b28ff71bbff54a477132b160fdc5c208553c5d154809b834069c0ff",
+      "bytes": 259
+    },
+    {
+      "path": "webassembly.svg",
+      "source": "icons/webassembly.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/webassembly.svg",
+      "sha256": "a1b7c5aa0bd3c32256705be6c12d1db66f4839636be3053759efcdd82c4b6a03",
+      "bytes": 253
+    },
+    {
+      "path": "xml.svg",
+      "source": "icons/xml.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/xml.svg",
+      "sha256": "51bfeb938c24772c0dfeb12ab3e6bab446fbea0410dadf1ec18106d60d52914a",
+      "bytes": 290
+    },
+    {
+      "path": "yaml.svg",
+      "source": "icons/yaml.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/yaml.svg",
+      "sha256": "666b724d61cfa091cd085a465faa3727989ba5286c8ac99a6fbf5229cb6c8f9e",
+      "bytes": 199
+    },
+    {
+      "path": "yarn.svg",
+      "source": "icons/yarn.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/yarn.svg",
+      "sha256": "a9ded67f57faa1763a4712aa8edede162f83bb063f4a8274ea415b7ed7cfd34e",
+      "bytes": 918
+    },
+    {
+      "path": "zip.svg",
+      "source": "icons/zip.svg",
+      "url": "https://raw.githubusercontent.com/material-extensions/vscode-material-icon-theme/ced21b9b5241c1efa502a8c46ec7363a690a7058/icons/zip.svg",
+      "sha256": "dad79a45f756542d37abd422502ecfbea15720b92ea1c9d80ef0439ab6b9448a",
+      "bytes": 230
+    }
+  ]
+}

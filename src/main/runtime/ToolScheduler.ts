@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolExecutionContext } from './ToolRegistry';
 import { ToolExecutionResult } from '../providers/types';
+import { awaitOrAbort } from './AbortWait';
 
 export class ToolScheduler {
   async execute(tool: ToolDefinition, args: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolExecutionResult> {
@@ -7,6 +8,7 @@ export class ToolScheduler {
     if (context.signal.aborted) return { output: 'Tool cancelled before execution.', success: false, cancelled: true, executionStatus: 'cancelled', durationMs: 0 };
     const controller = new AbortController();
     let reason: 'cancelled' | 'timed_out' | undefined;
+    let acceptingEvents = true;
     const cancel = (value: 'cancelled' | 'timed_out') => {
       if (reason) return;
       reason = value;
@@ -19,12 +21,16 @@ export class ToolScheduler {
     if (tool.timeoutMs && Number.isFinite(tool.timeoutMs) && tool.timeoutMs > 0) timer = setTimeout(() => cancel('timed_out'), tool.timeoutMs);
     let result: ToolExecutionResult;
     try {
-      // Wait for the executor to settle/clean up. Returning from Promise.race here
-      // used to mark a tool finished while its process could still be executing.
-      result = await tool.execute(args, { ...context, signal: controller.signal });
+      // Cooperative tools get a short cleanup window. An extension or provider
+      // that ignores abort must not hold the chat's terminal event forever.
+      // Shell/Desktop executors receive abort immediately and own process cleanup.
+      result = await awaitOrAbort(Promise.resolve().then(() => tool.execute(args, { ...context, signal: controller.signal,
+        onToolState: event => { if (acceptingEvents && !controller.signal.aborted) context.onToolState?.(event); },
+      })), controller.signal, 150);
     } catch (error) {
       result = { output: (error as Error)?.message || 'Tool execution failed.', success: false };
     } finally {
+      acceptingEvents = false;
       if (timer) clearTimeout(timer);
       context.signal.removeEventListener('abort', abortFromParent);
     }

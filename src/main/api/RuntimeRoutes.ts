@@ -32,6 +32,8 @@ export interface RuntimeRoutesContext {
   readTraces(sessionId: string, limit: number): unknown[];
   cancelSession(sessionId: string): void;
   clearRunningSession(sessionId: string): void;
+  /** Includes initialization/persistence outside AgentRuntime.run(). */
+  isSessionRunning?(sessionId: string): boolean;
   cancelLiveJobs(sessionId: string, settled?: boolean): void;
   /** Objective kept outside the transcript so compaction cannot drop it. */
   getGoal(sessionId: string): unknown;
@@ -81,7 +83,7 @@ export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.Se
   if (url.pathname === '/api/agent/state' && req.method === 'GET') {
     const sessionId = url.searchParams.get('sessionId') || '';
     const agent = sessionId ? context.agents.get(sessionId) : undefined;
-    jsonReply(res, 200, { state: agent?.getState() || null, observability: agent?.getObservability() || null });
+    jsonReply(res, 200, { running: context.isSessionRunning?.(sessionId) ?? agent?.isRunning() ?? false, state: agent?.getState() || null, observability: agent?.getObservability() || null });
     return true;
   }
   if (url.pathname === '/api/traces' && req.method === 'GET') {
@@ -210,7 +212,8 @@ export async function handleRuntimeRoute(req: http.IncomingMessage, res: http.Se
       // Acknowledgement is a stop request, not proof that the executor has settled.
       context.cancelLiveJobs(sessionId, false);
     }
-    jsonReply(res, 200, { ok: true });
+    const agent = sessionId ? context.agents?.get(sessionId) : undefined;
+    jsonReply(res, 200, { ok: true, sessionId, settled: !(context.isSessionRunning?.(sessionId) ?? agent?.isRunning() ?? false), status: (agent?.getState() as { status?: string } | undefined)?.status || 'idle' });
     return true;
   }
   return false;

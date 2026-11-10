@@ -481,6 +481,8 @@ function syncActiveSessionUI() {
   const processing = runtime ? !!runtime.isProcessing : isProcessing;
   isProcessing = processing;
   stopBtn.style.display = processing ? 'flex' : 'none';
+  stopBtn.disabled = processing && !!runtime?.turnStopPending;
+  if (stopBtn.disabled) stopBtn.setAttribute('aria-busy', 'true'); else stopBtn.removeAttribute('aria-busy');
   sendBtn.style.display = processing ? 'none' : 'flex';
   sendBtn.disabled = false;
   chatInput.disabled = false;
@@ -1013,7 +1015,7 @@ chatInput.addEventListener('keydown', (e) => {
 
 // Native streaming speech input: explicit lifecycle prevents stuck starts/stops.
 (() => {
-  let recognition = null, voiceState = 'idle', baseText = '', interimText = '', internalUpdate = false, stopTimer = null;
+  let recognition = null, voiceState = 'idle', baseText = '', interimText = '', internalUpdate = false, stopTimer = null, startSequence = 0;
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const setVoiceState = (state, message) => {
     voiceState = state;
@@ -1026,12 +1028,32 @@ chatInput.addEventListener('keydown', (e) => {
   };
   if (!SpeechRecognition) { voiceBtn?.setAttribute('hidden', ''); return; }
   recognition = new SpeechRecognition(); recognition.continuous = true; recognition.interimResults = true; recognition.lang = navigator.language?.toLowerCase().startsWith('zh') ? 'zh-CN' : (navigator.language || 'en-US');
-  recognition.onstart = () => { clearTimeout(stopTimer); if (voiceState === 'stopping') { recognition.abort(); return; } voiceState = 'listening'; baseText = chatInput.value.trimEnd(); interimText = ''; setVoiceState('listening', '正在聆听，点击停止'); chatInput.classList.add('is-voice-live'); chatInput.focus(); };
+  recognition.onstart = () => { clearTimeout(stopTimer); if (voiceState !== 'starting') { recognition.abort(); return; } voiceState = 'listening'; baseText = chatInput.value.trimEnd(); interimText = ''; setVoiceState('listening', '正在聆听，点击停止'); chatInput.classList.add('is-voice-live'); chatInput.focus(); };
   recognition.onresult = event => { let finalText = '', liveText = ''; for (let i = event.resultIndex; i < event.results.length; i++) { const text = event.results[i][0].transcript; if (event.results[i].isFinal) finalText += text; else liveText += text; } if (finalText) baseText = `${baseText}${baseText ? ' ' : ''}${finalText}`; interimText = liveText; internalUpdate = true; chatInput.value = `${baseText}${interimText ? `${baseText ? ' ' : ''}${interimText}` : ''}`; chatInput.dispatchEvent(new Event('input', { bubbles: true })); internalUpdate = false; };
   recognition.onerror = event => { clearTimeout(stopTimer); const intentional = voiceState === 'stopping' || event.error === 'aborted'; voiceState = 'idle'; chatInput.classList.remove('is-voice-live'); if (!intentional) { setVoiceState('error', event.error === 'not-allowed' ? IexaI18n.t('voice.denied') : IexaI18n.t('voice.failed', { error: event.error })); setStatusText(event.error === 'not-allowed' ? IexaI18n.t('voice.deniedHint') : IexaI18n.t('voice.failed', { error: event.error })); } else setVoiceState('idle', IexaI18n.t('voice.input')); };
-  recognition.onend = () => { clearTimeout(stopTimer); const wasStopping = voiceState === 'stopping'; voiceState = 'idle'; interimText = ''; chatInput.classList.remove('is-voice-live'); setVoiceState('idle', wasStopping ? '语音输入已停止' : '语音输入'); };
-  voiceBtn?.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); if (voiceState === 'listening' || voiceState === 'starting') { voiceState = 'stopping'; setVoiceState('stopping', '正在停止语音输入'); try { recognition.stop(); } catch {} stopTimer = setTimeout(() => { try { recognition.abort(); } catch {} voiceState = 'idle'; chatInput.classList.remove('is-voice-live'); setVoiceState('idle', '语音输入已停止'); }, 700); return; } if (voiceState === 'stopping') return; setVoiceState('starting', '正在启动语音输入'); try { recognition.start(); } catch { setVoiceState('error', '语音输入启动失败'); } });
-  window.addEventListener('beforeunload', () => { try { recognition.abort(); } catch {} });
+  recognition.onend = () => { clearTimeout(stopTimer); const wasStopping = voiceState === 'stopping'; interimText = ''; chatInput.classList.remove('is-voice-live'); if (voiceState === 'error') return; setVoiceState('idle', wasStopping ? '语音输入已停止' : '语音输入'); };
+  voiceBtn?.addEventListener('click', async event => {
+    event.preventDefault(); event.stopPropagation();
+    if (voiceState === 'listening' || voiceState === 'starting') {
+      ++startSequence; setVoiceState('stopping', '正在停止语音输入');
+      try { recognition.stop(); } catch {}
+      stopTimer = setTimeout(() => { try { recognition.abort(); } catch {} chatInput.classList.remove('is-voice-live'); setVoiceState('idle', '语音输入已停止'); }, 700);
+      return;
+    }
+    if (voiceState === 'stopping') return;
+    const sequence = ++startSequence;
+    setVoiceState('starting', '正在启动语音输入');
+    let permission;
+    try { permission = await navigator.permissions?.query?.({ name: 'microphone' }); } catch {}
+    if (sequence !== startSequence || voiceState !== 'starting') return;
+    if (permission?.state === 'denied') {
+      setVoiceState('error', IexaI18n.t('voice.denied'));
+      setStatusText(IexaI18n.t('voice.deniedHint'));
+      return;
+    }
+    try { recognition.start(); } catch { setVoiceState('error', '语音输入启动失败'); }
+  });
+  window.addEventListener('beforeunload', () => { ++startSequence; try { recognition.abort(); } catch {} });
 })();
 
 sendBtn.addEventListener('click', sendMessage);
@@ -1389,20 +1411,20 @@ function requestImmediateQueueHandoff(sessionId = currentSessionId) {
   if (runtime.queueHandoffPending) return;
   runtime.queueHandoffPending = true;
   runtime.turnStopPending = true;
+  runtime.stopRecoveryDeadline = Date.now() + 6000;
   runtime.suppressQueueDrain = false;
   snapshotActiveSessionRuntime();
   setStatusText(followUpStatusText());
   hideWaitingIndicator();
-  fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST' })
-    .then((response) => {
+  fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST', signal: AbortSignal.timeout(3000) })
+    .then(async (response) => {
       if (!response.ok) throw new Error('当前任务未能中断');
-      // Normally the cancelled/done event drains. If that stream event is lost,
-      // do not leave the immediate insert sitting in the queue forever.
-      clearTimeout(runtime.handoffTimer);
-      runtime.handoffTimer = setTimeout(() => {
-        runtime.queueHandoffPending = false;
-        if (!runtime.isProcessing) scheduleQueueDrain(sessionId);
-      }, 6000);
+      const acknowledgement = await response.json().catch(() => ({}));
+      if (!runtime.turnStopPending) return;
+      const token = runtime.activeChatTurnToken;
+      if (acknowledgement.settled === true) {
+        withSessionRuntime(sessionId, () => { handleCancelled(token); snapshotActiveSessionRuntime(); });
+      } else recoverStoppedChatTurn(sessionId, token);
     })
     .catch((error) => {
       runtime.queueHandoffPending = false;
@@ -1943,17 +1965,31 @@ async function runChatTurn(message, displayText, attachments, opts) {
   const turnToken = ++activeChatTurnToken;
   // Measured from the send, so attachment uploads count toward the turn timer.
   const turnStartedAt = Date.now();
+  const turnController = new AbortController();
   setProcessing(true);
   const turnRuntime = runtimeForSession(sessionId);
-  if (turnRuntime) { turnRuntime.interruptedTurn = null; turnRuntime.pausedTurn = null; }
+  if (turnRuntime) { turnRuntime.interruptedTurn = null; turnRuntime.pausedTurn = null; turnRuntime.turnController = turnController; }
   snapshotActiveSessionRuntime();
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
   try {
     const preparedAttachments = await prepareAttachmentsForChat(attachments, sessionId);
+    if (turnController.signal.aborted) return;
+    // Publish the latest buffer and selection before the backend assembles
+    // model context, including a send immediately after typing or selecting.
+    if (window.IexaIDE?.flushContext) await new Promise((resolve, reject) => {
+      const finish = error => { clearTimeout(timer); turnController.signal.removeEventListener('abort', aborted); error ? reject(error) : resolve(); };
+      const aborted = () => finish(new Error('已停止'));
+      const timer = setTimeout(() => finish(new Error('IDE 上下文同步超时，请重试发送。')), 1500);
+      turnController.signal.addEventListener('abort', aborted, { once: true });
+      if (turnController.signal.aborted) { aborted(); return; }
+      Promise.resolve().then(() => window.IexaIDE.flushContext()).then(() => finish(), finish);
+    });
+    if (turnController.signal.aborted) return;
     if (typeof statusText !== 'undefined' && statusText) setStatusText(IexaI18n.t('msg.processing'));
     const response = await fetch(API_BASE + '/api/chat', {
       method: 'POST',
+      signal: turnController.signal,
       headers: { 'Content-Type': 'application/json', 'X-IEXA-Client-Id': conversationClientId, 'X-IEXA-Stream': 'delta' },
       body: JSON.stringify({
         message: message || displayText,
@@ -1981,6 +2017,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     // The fetch may resolve after the user has opened another session.
     // Create this response placeholder in its owning session, never whichever
     // conversation happens to be visible at that instant.
+    if (turnController.signal.aborted) return;
     withSessionRuntime(sessionId, () => {
       // A continuation revives the parked bubble. The server replays the prose it
       // already streamed, so opening a fresh bubble would duplicate that prose and
@@ -2020,6 +2057,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let batchStarted = performance.now();
 
     while (true) {
       const step = await reader.read();
@@ -2030,9 +2068,17 @@ async function runChatTurn(message, displayText, attachments, opts) {
       buffer = parts.pop() || '';
 
       for (let i = 0; i < parts.length; i++) {
+        if (turnController.signal.aborted) break;
         const part = parts[i];
         if (!part.trim()) continue;
         withSessionRuntime(sessionId, () => handleSSEEvent(part.trim(), turnToken));
+        // A command can deliver thousands of frames in one read. Let input
+        // events run between bounded batches so Stop never waits for the whole
+        // output backlog or transcript rendering to finish.
+        if (performance.now() - batchStarted >= 8) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          batchStarted = performance.now();
+        }
       }
     }
 
@@ -2043,6 +2089,8 @@ async function runChatTurn(message, displayText, attachments, opts) {
       // closed stream. Treat that close as the terminal event as well, or the
       // stop gate would remain set forever and queued prompts would stall.
       if (turnToken === activeChatTurnToken && (isProcessing || runtime.turnStopPending)) {
+        if (runtime.turnStopPending) return; // state recovery owns a lost terminal frame
+        markChatTurnSettled(turnToken);
         protectLiveTurnDom(sessionId);
         runtime.turnStopPending = false;
         hideWaitingIndicator();
@@ -2056,6 +2104,10 @@ async function runChatTurn(message, displayText, attachments, opts) {
   } catch (err) {
     withSessionRuntime(sessionId, () => {
       if (turnToken !== activeChatTurnToken) return;
+      const runtime = runtimeForSession(sessionId);
+      if (runtime.finishedChatTurnToken === turnToken) return;
+      if (runtime.turnStopPending) { recoverStoppedChatTurn(sessionId, turnToken); return; }
+      markChatTurnSettled(turnToken);
       protectLiveTurnDom(sessionId);
       runtimeForSession(sessionId).turnStopPending = false;
       addError(err.message || String(err));
@@ -2277,6 +2329,7 @@ function handleUsage(usage) {
 
 function handleError(message, turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  if (!markChatTurnSettled(turnToken)) return;
   hidePausedBanner();
   clearSteerNotes();
   window.IexaPermissionDialog.closeSession?.(currentSessionId);
@@ -2311,6 +2364,7 @@ function handleSessionTitle(sessionId, title, category) {
 
 function handleDone(stopReason, turnToken, generationMs, generationRateVersion, firstTokenMs) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  if (!markChatTurnSettled(turnToken)) return;
   hidePausedBanner();
   document.dispatchEvent(new Event('iexa:turn-finished'));
   clearSteerNotes();
@@ -2434,6 +2488,7 @@ function hidePausedBanner() {
 /** The server parked the turn: nothing is finalised, the stream stays open. */
 function handlePaused(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  if (!markChatTurnSettled(turnToken)) return;
   const runtime = runtimeForSession(currentSessionId);
   runtime.isPaused = false;
   runtime.pausePending = false;
@@ -2495,6 +2550,7 @@ async function resumeProcessing() {
 
 function handleCancelled(turnToken) {
   if (turnToken != null && turnToken !== activeChatTurnToken) return;
+  if (!markChatTurnSettled(turnToken)) return;
   hidePausedBanner();
   runtimeForSession(currentSessionId).pausePending = false;
   clearSteerNotes();
@@ -2542,51 +2598,86 @@ function clearContextBusy() {
 // Stop Processing
 // =============================================================================
 
-async function stopProcessing(options) {
-  // Mirror iOS cancel(): stop current agent turn, but KEEP promptQueue and
-  // resume draining remaining inserted messages after cleanup.
-  // (Session switch/create sets suppressQueueDrain=true before calling this.)
-  // The cancel HTTP response can arrive before the server's onCancelled
-  // callback persists the partial assistant reply. Claim the live DOM before
-  // changing isProcessing so metadata sync cannot reload an incomplete history
-  // snapshot and wipe the streamed content from the screen.
-  protectLiveTurnDom();
+/** Fence late frames from a finished turn and release its local network read. */
+function markChatTurnSettled(turnToken = activeChatTurnToken) {
   const runtime = runtimeForSession(currentSessionId);
-  // Stopping a running turn parks it so the user can continue; stopping a turn
-  // that is already parked ends it for good.
-  const hard = options?.hard === true || runtime.isPaused === true;
-  // A parked turn has no live agent and no open stream, so nothing will ever send
-  // the terminal event that the hard path normally waits for.
-  const parked = hard && !!(runtime.pausedTurn || runtime.interruptedTurn);
-  if (hard) runtime.turnStopPending = true; else runtime.pausePending = true;
-  // Remove the indicator synchronously; the cancellation SSE event may arrive
-  // later, and late tool results are blocked from adding it back above.
-  hideWaitingIndicator();
-  try {
-    const sid = currentSessionId || '';
-    const route = hard ? '/api/cancel' : '/api/pause';
-    const response = await fetch(API_BASE + route + '?sessionId=' + encodeURIComponent(sid), { method: 'POST' });
-    if (!response.ok) throw new Error(hard ? '停止请求失败，请重试。' : '暂停请求失败，请重试。');
-    if (parked) {
-      // The cancel acknowledgement is the whole story here: nothing is running,
-      // so settle locally instead of waiting for an event that cannot arrive.
-      runtime.pausedTurn = null;
-      runtime.interruptedTurn = null;
-      runtime.turnStopPending = false;
-      setProcessing(false);
-      syncPausedBanner();
-      return;
-    }
-    if (hard && runtime.turnStopPending) setStatusText('正在停止，等待执行器清理…');
-    if (!hard && runtime.pausePending) setStatusText(IexaI18n.t('msg.pausing'));
-  } catch (e) {
+  if (runtime.finishedChatTurnToken === turnToken) return false;
+  runtime.finishedChatTurnToken = turnToken;
+  runtime.turnStopPending = false;
+  runtime.pausePending = false;
+  clearTimeout(runtime.stopRecoveryTimer);
+  runtime.stopRecoveryTimer = null;
+  runtime.turnController?.abort();
+  if (currentSessionId === visibleSessionId) { stopBtn.disabled = false; stopBtn.removeAttribute('aria-busy'); }
+  return true;
+}
+
+/** Recover when cancellation succeeded but its SSE terminal frame was lost.
+ * Only an authoritative non-running state can unlock the next turn. */
+function recoverStoppedChatTurn(sessionId, turnToken) {
+  const runtime = runtimeForSession(sessionId);
+  clearTimeout(runtime.stopRecoveryTimer);
+  if (!runtime.turnStopPending || runtime.activeChatTurnToken !== turnToken) return;
+  const deadline = runtime.stopRecoveryDeadline || (runtime.stopRecoveryDeadline = Date.now() + 6000);
+  runtime.stopRecoveryTimer = setTimeout(async () => {
+    if (!runtime.turnStopPending || runtime.activeChatTurnToken !== turnToken) return;
+    try {
+      const response = await fetch(API_BASE + '/api/agent/state?sessionId=' + encodeURIComponent(sessionId), { signal: AbortSignal.timeout(1500) });
+      const state = response.ok ? await response.json() : null;
+      if (!runtime.turnStopPending || runtime.activeChatTurnToken !== turnToken) return;
+      if (state?.running === false) {
+        withSessionRuntime(sessionId, () => { handleCancelled(turnToken); snapshotActiveSessionRuntime(); });
+        return;
+      }
+    } catch { /* the bounded retry below retains the real run state */ }
+    if (!runtime.turnStopPending || runtime.activeChatTurnToken !== turnToken) return;
+    if (Date.now() < deadline) { recoverStoppedChatTurn(sessionId, turnToken); return; }
     runtime.turnStopPending = false;
-    runtime.pausePending = false;
-    addError(e.message || '停止请求失败，请重试。');
+    withSessionRuntime(sessionId, () => {
+      if (sessionId === visibleSessionId) { stopBtn.disabled = false; stopBtn.removeAttribute('aria-busy'); setStatusText('停止尚未确认，请再次点击停止重试'); }
+      snapshotActiveSessionRuntime();
+    });
+  }, 200);
+}
+
+async function stopProcessing(options) {
+  // Stop always cancels now. Explicit pauseProcessing still parks at a safe
+  // boundary. Keep the partial reply and queued prompts in their own session.
+  const sessionId = currentSessionId;
+  if (!sessionId) return;
+  const runtime = runtimeForSession(sessionId), turnToken = activeChatTurnToken;
+  if (runtime.turnStopPending) return;
+  protectLiveTurnDom(sessionId);
+  flushStreamUpdates(sessionId);
+  const parked = !!(runtime.pausedTurn || runtime.interruptedTurn);
+  runtime.turnStopPending = true; runtime.pausePending = false;
+  runtime.stopRecoveryDeadline = Date.now() + 6000;
+  hideWaitingIndicator();
+  if (sessionId === visibleSessionId) { stopBtn.disabled = true; stopBtn.setAttribute('aria-busy', 'true'); setStatusText('正在停止…'); }
+  try {
+    const response = await fetch(API_BASE + '/api/cancel?sessionId=' + encodeURIComponent(sessionId), { method: 'POST', signal: AbortSignal.timeout(3000) });
+    if (!response.ok) throw new Error('停止请求失败，请重试。');
+    const acknowledgement = await response.json().catch(() => ({}));
+    if (!runtime.turnStopPending || runtime.activeChatTurnToken !== turnToken) return;
+    if (parked || acknowledgement.settled === true) {
+      withSessionRuntime(sessionId, () => {
+        runtime.pausedTurn = null; runtime.interruptedTurn = null;
+        if (parked) {
+          runtime.turnStopPending = false; runtime.pausePending = false;
+          setProcessing(false); syncPausedBanner();
+        } else handleCancelled(turnToken);
+        snapshotActiveSessionRuntime();
+      });
+    } else recoverStoppedChatTurn(sessionId, turnToken);
+  } catch (e) {
+    if (runtime.activeChatTurnToken !== turnToken || runtime.finishedChatTurnToken === turnToken) return;
+    runtime.turnStopPending = false; runtime.pausePending = false;
+    withSessionRuntime(sessionId, () => {
+      if (sessionId === visibleSessionId) { stopBtn.disabled = false; stopBtn.removeAttribute('aria-busy'); setStatusText('停止请求失败，请再次点击停止重试'); }
+      addError(e.name === 'TimeoutError' ? '停止请求超时，请重试。' : e.message || '停止请求失败，请重试。');
+      snapshotActiveSessionRuntime();
+    });
   }
-  // Keep processing true until the terminal SSE event confirms actual cleanup.
-  // The SSE terminal event clears turnStopPending and drains the queue. Do not
-  // start another request merely because the cancel HTTP call returned.
 }
 
 // =============================================================================

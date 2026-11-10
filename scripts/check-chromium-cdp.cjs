@@ -3,12 +3,14 @@
  * independent WinEvent foreground monitoring. No activation or pointer restoration. */
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process'),{randomUUID,createHash}=require('node:crypto');
-const {DesktopAgent}=require('../dist/main/tools/DesktopAgent');
-const {ChromiumCdpAdapter}=require('../dist/main/tools/desktop/ChromiumCdpAdapter');
-const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts','chromium-cdp',`${Date.now()}-${randomUUID().slice(0,8)}`);
+const root=path.resolve(__dirname,'..'),out=process.env.IEXA_DESKTOP_TEST_OUT?path.resolve(process.env.IEXA_DESKTOP_TEST_OUT):path.join(root,'.iexa-artifacts','chromium-cdp',`${Date.now()}-${randomUUID().slice(0,8)}`);
+const appRoot=process.env.IEXA_DESKTOP_APP_ROOT?path.resolve(process.env.IEXA_DESKTOP_APP_ROOT):root;
+const {DesktopAgent}=require(path.join(appRoot,'dist/main/tools/DesktopAgent'));
+const {ChromiumCdpAdapter}=require(path.join(appRoot,'dist/main/tools/desktop/ChromiumCdpAdapter'));
+const {readDesktopLiveStatus,readActiveDesktopPreview}=require(path.join(appRoot,'dist/main/tools/desktop/DesktopLiveState'));
 const visible=process.argv.includes('--visible'),wait=ms=>new Promise(r=>setTimeout(r,ms));
 const children=[],agents=[],receipts=[],report={scope:visible?'visible Electron/Chromium CDP with foreground hook':'headless Chromium CDP',cases:[],actions:[],receipts};
-let server,endpoint,probe,focusMonitor,monitoring;const controller=new AbortController();
+let server,endpoint,probe,focusMonitor,monitoring,visibleHostProcess;const controller=new AbortController();
 const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));
 function launch(exe,args,env=process.env){const fd=fs.openSync(path.join(out,`child-${children.length}.log`),'a');const child=spawn(exe,args,{env,windowsHide:true,stdio:['ignore',fd,fd]});fs.closeSync(fd);children.push(child);child.on('error',e=>{report.launchError=e.message;save();});return child;}
 async function until(fn,label){for(let i=0;i<100;i++){const v=await fn();if(v)return v;await wait(75);}throw Error(label);}
@@ -20,6 +22,7 @@ async function check(name,fn){const started=Date.now();try{assert.equal(controll
 async function connectProbe(target){const socket=new WebSocket(target.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});let seq=0;const pending=new Map();socket.addEventListener('message',e=>{const m=JSON.parse(e.data);const p=pending.get(m.id);if(p){pending.delete(m.id);clearTimeout(p.timer);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);}});return {close:()=>socket.close(),send:(method,params={})=>new Promise((resolve,reject)=>{const id=++seq,timer=setTimeout(()=>{pending.delete(id);reject(Error('Disturbance command timed out'));},5000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}));})};}
 async function main(){
  fs.mkdirSync(out,{recursive:true});save();
+ report.appRoot=appRoot;report.runtimeFiles=Object.fromEntries(['dist/main/tools/DesktopAgent.js','dist/main/tools/desktop/DesktopControlSession.js','dist/main/tools/desktop/DesktopLiveState.js','dist/main/tools/desktop/DesktopBackgroundAdapter.js'].map(file=>[file,createHash('sha256').update(fs.readFileSync(path.join(appRoot,file))).digest('hex')]));
  const appPort=await port(),cdpPort=await port();
  server=http.createServer(async(req,res)=>{
   if(req.url==='/submit'&&req.method==='POST'){let body='';for await(const chunk of req)body+=chunk;receipts.push(JSON.parse(body));save();res.end('ok');return;}
@@ -30,7 +33,7 @@ async function main(){
   focusMonitor=launch('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/foreground-audit.ps1'),'-OutputDirectory',out]);
   report.focusInitial=await until(()=>json('focus-ready.json'),'Foreground monitor readiness');
   const env={...process.env,IEXA_CDP_TEST_OUT:out,IEXA_CDP_TEST_URL:url,IEXA_CDP_TEST_PORT:String(cdpPort)};delete env.ELECTRON_RUN_AS_NODE;
-  launch(require('electron'),[path.join(__dirname,'fixtures/chromium-visible.cjs')],env);
+  visibleHostProcess=launch(require('electron'),[path.join(__dirname,'fixtures/chromium-visible.cjs')],env);
   report.visibleHost=await until(()=>json('visible-ready.json'),'Visible Chromium readiness');assert.equal(report.visibleHost.focused,false);assert.equal(report.visibleHost.visible,true);
  }else{
   const exe=['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe','C:/Program Files/Google/Chrome/Application/chrome.exe'].find(fs.existsSync);assert.ok(exe,'Chromium missing');
@@ -41,7 +44,7 @@ async function main(){
  const mutate=async expression=>{const r=await probe.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});assert.equal(!!r.exceptionDetails,false,JSON.stringify(r.exceptionDetails));return r.result?.value;};
  await until(()=>mutate("document.readyState === 'complete' && !!document.querySelector('#reference')"),'Page application readiness');
  if(visible)monitoring=setInterval(()=>{if(focusEvents().length)controller.abort();},30);
- const agent=new DesktopAgent(root,false,path.join(out,'journal'),'http://127.0.0.1:17996');agents.push(agent);
+ const agent=new DesktopAgent(appRoot,false,path.join(out,'journal'),'http://127.0.0.1:17996');agents.push(agent);
  const raw=async(args,owner='cdp',signal=controller.signal)=>{const r=await agent.execute({...args,detail:'raw'},signal,{owner,operationId:randomUUID()});report.actions.push({action:args.action,success:r.success,output:r.output,trace:r.metadata?.desktop});save();return r;};
  const run=async args=>{const r=await raw(args);assert.equal(r.success,true,r.output);return JSON.parse(r.output).data;};
  const observe=async()=>{
@@ -54,6 +57,8 @@ async function main(){
  };
  await check('Actual page screenshot and value append, delayed submission, independent receipt',async()=>{
   const snapshot=await observe();assert.equal(snapshot.frame.trust,'background-window-rendered');assert.ok(snapshot.frame.width>0&&snapshot.frame.height>0);
+  report.liveState=readDesktopLiveStatus();assert.equal(report.liveState.control?.mode,'background');assert.equal(report.liveState.control?.backend,'chromium-cdp');assert.equal(report.liveState.control?.physicalInput,false);assert.equal(report.liveState.hasFrame,true);
+  const liveFrame=await readActiveDesktopPreview();assert.equal(liveFrame.status,200);assert.equal(liveFrame.headers.get('X-IEXA-Frame-Mode'),'cached-observation');assert.ok((await liveFrame.arrayBuffer()).byteLength>0);
   const frame=await raw({action:'frame',background:true});assert.equal(frame.success,true,frame.output);fs.writeFileSync(path.join(out,'page.png'),frame.imageData);
   const value='CDP-'+randomUUID();await run({action:'type',background:true,target:{name:'Reference',role:'edit'},text:value,replace:true});
   await run({action:'type',background:true,target:{name:'Reference',role:'edit'},text:'-append',replace:false,verifyText:value+'-append'});
@@ -98,8 +103,11 @@ async function main(){
  });
  if(monitoring)clearInterval(monitoring);
  if(visible){
+  probe?.close();probe=null;for(const agent of agents)agent.close();
+  fs.writeFileSync(path.join(out,'stop'),'');await until(()=>visibleHostProcess.exitCode!==null,'Visible Chromium host clean exit');
   await wait(100);report.focusEvents=focusEvents();fs.writeFileSync(path.join(out,'stop-monitor'),'');report.focusFinal=await until(()=>json('focus-ended.json'),'Foreground monitor stop');
   report.cases.push({name:'Visible background task leaves user foreground unchanged for full measured interval',status:report.focusEvents.length===0&&report.focusInitial.foreground===report.focusFinal.foreground?'passed':'failed',evidence:{initial:report.focusInitial,final:report.focusFinal,events:report.focusEvents}});
+  report.cases.push({name:'Visible background task and cleanup preserve cursor and dispatch no injected mouse or keyboard events',status:report.focusInitial.mouseHookInstalled&&report.focusInitial.keyboardHookInstalled&&report.focusFinal.cursorChanges===0&&JSON.stringify(report.focusInitial.cursor)===JSON.stringify(report.focusFinal.cursor)&&report.focusFinal.injectedMouseEvents===0&&report.focusFinal.injectedKeyboardEvents===0?'passed':'failed',evidence:{initial:report.focusInitial,final:report.focusFinal,hostExitCode:visibleHostProcess.exitCode}});
  }
  save();console.log(JSON.stringify({out,scope:report.scope,cases:report.cases},null,2));if(report.cases.some(c=>c.status!=='passed'))process.exitCode=1;
 }

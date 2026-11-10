@@ -25,7 +25,7 @@ type PendingListener = (pending: PendingPermission) => void;
 const PLAN_READ_ONLY_TOOLS = new Set([
   'project_instructions', 'todo_write', 'ask_user', 'file_read', 'grep', 'glob',
   'memory_get', 'web_search', 'browser_fetch', 'display_file', 'read_image',
-  'job_list', 'job_output',
+  'job_list', 'job_output', 'ide_context',
 ]);
 
 const READ_ONLY_DESKTOP_ACTIONS = new Set([
@@ -120,7 +120,7 @@ export class PermissionManager {
       return;
     }
     const requiresApproval = this.mode === 'ask'
-      ? !['todo_write', 'file_read', 'memory_get', 'project_instructions'].includes(request.tool.name)
+      ? !['todo_write', 'file_read', 'memory_get', 'project_instructions', 'ide_context'].includes(request.tool.name)
       : this.mode === 'full'
         ? false
         : request.tool.requiresApproval || request.tool.risk === 'high' || request.tool.risk === 'critical';

@@ -32,7 +32,7 @@ body {
 }
 
 button { font: inherit; letter-spacing: 0; }
-.live-window { display: grid; grid-template-rows: 38px 36px minmax(0, 1fr); width: 100%; height: 100%; border: 1px solid var(--line); background: var(--window); }
+.live-window { display: grid; grid-template-rows: 38px 36px auto minmax(0, 1fr); width: 100%; height: 100%; border: 1px solid var(--line); background: var(--window); }
 .live-titlebar {
   -webkit-app-region: drag;
   display: grid;
@@ -68,9 +68,13 @@ button { font: inherit; letter-spacing: 0; }
 .live-canvas img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; image-rendering: auto; }
 .live-canvas img[hidden] { display: none; }
 .live-placeholder { color: #8d8d94; font-size: 12px; }
+.live-control-state { min-width:0; min-height:29px; display:flex; align-items:center; gap:8px; padding:4px 9px; border-bottom:1px solid var(--line); background:var(--window); }
+.live-control-mode { flex:0 0 auto; color:var(--text); border:1px solid var(--line); border-radius:4px; padding:2px 5px; font-size:10px; line-height:1.4; }
+.live-control-mode[data-mode="foreground"] { color:#c28c32; }
+.live-control-route { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; color:var(--muted); }
 
 @media (max-width: 470px) {
-  .live-window { grid-template-rows: 36px 64px minmax(0, 1fr); }
+  .live-window { grid-template-rows: 36px 64px auto minmax(0, 1fr); }
   .live-titlebar { grid-template-columns: 62px 1fr 62px; padding: 0 8px; }
   .live-toolbar { align-content: center; flex-wrap: wrap; }
   .live-status { width: 100%; margin-left: 0; }

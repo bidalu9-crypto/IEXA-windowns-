@@ -45,6 +45,22 @@ test('actual tool result links open the matching child without interpreting resu
  f.w.addEventListener('iexa:open-subagent',event=>void f.view.open(event.detail.id));block.querySelector('.tool-agent-link').click();await pause();assert.equal(f.w.document.querySelector('.subagent-body').hidden,false);assert.equal(f.w.document.querySelector('.subagent-row').getAttribute('aria-pressed'),'true');
 });
 
+test('production tabbed agent result links open the matching child inspector and preserve card tabs',async t=>{
+ const f=fixture(t);f.view.session('s');await pause();
+ f.w.eval(fs.readFileSync(path.join(__dirname,'../src/renderer/services/ToolCard.js'),'utf8'));
+ const block=f.w.document.createElement('div');block.className='tool-block';
+ block.innerHTML='<div class="tool-header"><span class="tool-heading"><span class="tool-name"></span><span class="tool-meta"></span></span><span class="tool-status"></span></div><div class="tool-body">'+f.w.IexaToolCard.bodyMarkup('spawn')+'</div>';f.w.document.body.appendChild(block);
+ const result={success:true,output:JSON.stringify({id:'a',nickname:'<b>Agent</b>'})};
+ f.w.IexaChatActivity.updateTool(block,'spawn_agent',{message:'任务'},result);f.w.IexaChatActivity.updateTool(block,'spawn_agent',undefined,result);
+ block.querySelector('.tool-header').click();
+ assert.equal(block.querySelector('[data-pane="output"]').hidden,false);assert.equal(block.querySelector('[data-pane="input"]').hidden,true);
+ assert.equal(block.querySelectorAll('.tool-tabs').length,1);assert.equal(block.querySelector('.tool-detail-panel'),null);
+ const actions=block.querySelector('[data-pane="output"] .tool-agent-actions');assert.ok(actions);assert.equal(actions.hidden,false);assert.equal(actions.querySelectorAll('.tool-agent-link').length,1);assert.equal(actions.querySelector('b'),null);
+ f.w.addEventListener('iexa:open-subagent',event=>void f.view.open(event.detail.id));actions.querySelector('.tool-agent-link').click();await pause();
+ assert.equal(f.w.document.querySelector('.subagent-body').hidden,false);assert.equal(f.w.document.querySelector('.subagent-row').getAttribute('aria-pressed'),'true');
+ block.querySelector('[data-tool-tab="input"]').click();assert.equal(block.querySelector('[data-pane="input"]').hidden,false);assert.equal(block.querySelector('[data-pane="output"]').hidden,true);
+});
+
 test('all terminal and idle-only records hide the composer dock on reload, but remain inspectable from history',async t=>{
  for(const status of ['completed','failed','cancelled','closed','interrupted','idle']){
   const f=fixture(t);f.record={...f.record,status};f.view.session('s');await pause();assert.equal(f.w.document.getElementById('panel').hidden,true,status);

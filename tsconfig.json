@@ -16,5 +16,5 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "release"]
+  "exclude": ["node_modules", "dist", "release", "src/renderer/vendor"]
 }

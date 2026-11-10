@@ -42,8 +42,8 @@ test('tray, IME and message-only windows are never chosen as the target', () => 
   const pickAt = source.indexOf('h = FindWindow(title, process, pid);');
   assert.ok(pickAt > 0, 'the launch poll picks a window by process');
   const guard = source.slice(pickAt, pickAt + 400);
-  assert.match(guard, /!IsUsableAppWindow\(h\)/, 'the launch poll rejects helper windows right after picking');
-  assert.match(source, /h = FindNewWindow\(before, process\)/, 'the new-window scan is process aware');
+  assert.match(guard, /!IsUsableLaunchWindow\(h, explorerLaunch\)/, 'the launch poll rejects helper and shell windows right after picking');
+  assert.match(source, /h = FindNewWindow\(before, process, explorerLaunch\)/, 'the new-window scan is process and folder aware');
 });
 
 test('the client timeout follows waitForWindowMs for a launch', () => {

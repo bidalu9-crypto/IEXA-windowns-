@@ -90,14 +90,71 @@ internal sealed class MatureAutomation : IDisposable
             : new AutomationObservation("uia3", false, primary.ToArray(), diagnostics.ToArray());
     }
 
-    public AutomationActionResult Click(AutomationSelector selector, Action cancellationCheck, bool background = false, bool isolatedDesktop = false)
+    public AutomationActionResult Click(AutomationSelector selector, Action cancellationCheck, bool background = false, bool isolatedDesktop = false, int count = 1, string button = "left")
     {
+        if (button is not ("left" or "right" or "middle"))
+            return Failure(selector, selector.Backend, "button-check", "Unknown mouse button.");
+        if (button != "left" && (background || isolatedDesktop || selector.Backend == "win32-menu"))
+            return Failure(selector, selector.Backend, "button-capability", "Non-left clicks require foreground pointer input; no semantic substitute is available.");
         if (selector.Backend == "win32-menu") return Win32MenuAutomation.Click(selector, cancellationCheck);
         return WithLocatedElement(selector, "click", cancellationCheck, (element, backend, resolved) =>
         {
             if (IsExplicitlyDisabled(element))
                 return Failure(resolved, backend, "enabled-check", "The resolved UI Automation element is disabled.");
 
+            // Invoke/Select are primary-button actions. Choose the requested
+            // physical button before any provider mutation, using fresh bounds.
+            if (button != "left")
+                return new AutomationActionResult(false, true, backend, "pointer", resolved, "button-pointer", "Explicit non-left click uses foreground pointer input; no provider action was attempted.");
+
+            // An Edit's legacy default action can acknowledge without moving
+            // keyboard focus. Pick the input route before any provider mutation.
+            // Read-only edits still need real focus for selecting/copying text.
+            if (resolved.ControlType == "Edit")
+            {
+                if (!background && !isolatedDesktop)
+                    return new AutomationActionResult(false, true, backend, "pointer", resolved, "editable-pointer", "Edit uses foreground pointer input; no provider action was attempted.");
+                if (!isolatedDesktop)
+                    return Failure(resolved, backend, "editable-focus", "Background Edit click cannot establish keyboard focus; no provider action was attempted.");
+                if (count != 1)
+                    return Failure(resolved, backend, "editable-focus", "Repeated Edit click has no isolated semantic equivalent; no provider action was attempted.");
+                cancellationCheck();
+                element.FrameworkAutomationElement.SetFocus();
+                if (!element.Properties.HasKeyboardFocus.ValueOrDefault)
+                    return Failure(resolved, backend, "editable-focus", "Edit keyboard focus was not verified; no legacy action or pointer replay was attempted.");
+                return Success(resolved, backend, "uia_focus");
+            }
+
+            // Editable combo providers can acknowledge Invoke or SetFocus without
+            // focusing their editor. Foreground mode chooses a physical click
+            // before any provider mutation; isolated mode stays semantic-only.
+            if (count == 1 && (!background || isolatedDesktop) && resolved.ControlType == "ComboBox"
+                && element.Patterns.Value.TryGetPattern(out var comboValue)
+                && comboValue.IsReadOnly.TryGetValue(out var comboReadOnly) && !comboReadOnly)
+            {
+                if (!background && !isolatedDesktop)
+                    return new AutomationActionResult(false, true, backend, "pointer", resolved, "editable-pointer", "Editable combo uses foreground pointer input; no provider action was attempted.");
+                cancellationCheck();
+                element.FrameworkAutomationElement.SetFocus();
+                if (!element.Properties.HasKeyboardFocus.ValueOrDefault)
+                    return Failure(resolved, backend, "editable-focus", "Editable combo keyboard focus was not verified; observe before further input. No Invoke or pointer replay was attempted.");
+                return Success(resolved, backend, "uia_focus");
+            }
+
+            // Explorer items expose Invoke for opening. A single click instead
+            // selects the item and leaves keyboard commands (for example F2)
+            // directed at that item. Ordinary background mode remains Invoke-only.
+            var selectableItem = resolved.ControlType is "ListItem" or "DataItem" or "TreeItem" or "TabItem";
+            if (count == 1 && (!background || isolatedDesktop) && selectableItem
+                && element.Patterns.SelectionItem.TryGetPattern(out var itemSelection))
+            {
+                itemSelection.Select();
+                cancellationCheck();
+                element.FrameworkAutomationElement.SetFocus();
+                if (!element.Properties.HasKeyboardFocus.ValueOrDefault)
+                    return Failure(resolved, backend, "selection-focus", "Item was selected but keyboard focus was not verified; observe before further input. No Invoke or pointer replay was attempted.");
+                return Success(resolved, backend, "uia_select_focus");
+            }
             if (element.Patterns.Invoke.TryGetPattern(out var invoke))
             {
                 invoke.Invoke();
@@ -105,6 +162,10 @@ internal sealed class MatureAutomation : IDisposable
             }
             if (background && !isolatedDesktop)
                 return Failure(resolved, backend, "background-pattern", "Background click requires Invoke; other patterns and physical fallback are disabled.");
+            if (count > 1)
+                return background
+                    ? Failure(resolved, backend, "background-pattern", "Repeated click requires an Invoke pattern in an isolated desktop; physical double-click fallback is disabled.")
+                    : new AutomationActionResult(false, true, backend, "pointer", resolved, "pattern-selection", "Repeated click has no Invoke pattern; use the requested physical click count.");
             if (element.Patterns.SelectionItem.TryGetPattern(out var selection))
             {
                 selection.Select();
@@ -142,7 +203,19 @@ internal sealed class MatureAutomation : IDisposable
             {
                 var next = replace ? text : (value.Value.ValueOrDefault ?? "") + text;
                 value.SetValue(next);
-                return Success(resolved, backend, "uia_value");
+                // Some providers acknowledge SetValue without updating the edit
+                // control. Re-read the value, allowing a short asynchronous update,
+                // before reporting success. Never repeat an uncertain write.
+                var verification = Stopwatch.StartNew();
+                do
+                {
+                    cancellationCheck();
+                    if (value.Value.TryGetValue(out var actual) && string.Equals(actual ?? "", next, StringComparison.Ordinal))
+                        return Success(resolved, backend, "uia_value");
+                    if (verification.ElapsedMilliseconds >= 300) break;
+                    Thread.Sleep(40);
+                } while (true);
+                return Failure(resolved, backend, "value-verification", "Provider returned from SetValue but the target value did not read back as requested. Input may have partially executed; observe the target before continuing. No backend or keyboard replay was attempted.");
             }
             if (background)
                 return Failure(resolved, backend, "background-pattern", "Background typing requires Value; legacy and keyboard fallback are disabled.");
@@ -225,6 +298,9 @@ internal sealed class MatureAutomation : IDisposable
                     cancellationCheck();
                     var result = execute(element, backend, resolved);
                     if (result.Success || !result.RequiresInputFallback) return result;
+                    // This is a preselected input route, not a failed provider
+                    // action. A different backend must not turn it into Invoke.
+                    if (action == "click" && result.ErrorStage is "editable-pointer" or "button-pointer") return result;
                     inputFallback = result;
                     errors.Add($"[{backend}:{action}-pattern] {result.Error}");
                 }

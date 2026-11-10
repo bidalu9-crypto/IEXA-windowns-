@@ -7,6 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ToolExecutionResult } from '../../providers/types';
 import { IexaError } from '../../errors/IexaError';
+import { settleWithin } from '../../runtime/AbortWait';
 
 export interface ProcessPolicy { timeoutMs: number; maxOutputBytes: number; killGracePeriodMs: number; }
 export type ShellKind = 'auto' | 'cmd' | 'powershell' | 'pwsh';
@@ -31,10 +32,12 @@ interface ProcessLaunch {
 
 export class ProcessManager {
   async run(command: string, cwd: string, signal: AbortSignal, policy: ProcessPolicy, shell: ShellKind = 'auto'): Promise<ToolExecutionResult> {
+    if (signal.aborted) return { output: 'Command cancelled.', success: false, exitCode: -1, cancelled: true };
     let launch: ProcessLaunch;
     try {
-      launch = await this.launch(command, cwd, shell);
+      launch = await this.launch(command, cwd, shell, signal);
     } catch (error) {
+      if (signal.aborted) return { output: 'Command cancelled.', success: false, exitCode: -1, cancelled: true };
       return {
         output: `Command execution error: ${(error as Error).message}`,
         success: false,
@@ -75,11 +78,8 @@ export class ProcessManager {
         child.off('close', onClose);
         child.stdout?.destroy();
         child.stderr?.destroy();
-        void Promise.resolve(terminationPromise)
-          .catch(() => {})
-          .then(() => launch.cleanup?.())
-          .catch(() => {})
-          .finally(() => resolve(result));
+        void settleWithin(Promise.resolve(terminationPromise).then(() => launch.cleanup?.()),
+          Math.max(250, Math.min(2500, policy.killGracePeriodMs + 250))).finally(() => resolve(result));
       };
       const append = (value: Buffer, target: 'stdout' | 'stderr') => {
         if (terminationReason) return;
@@ -124,7 +124,8 @@ export class ProcessManager {
     });
   }
 
-  private async launch(command: string, cwd: string, shell: ShellKind): Promise<ProcessLaunch> {
+  private async launch(command: string, cwd: string, shell: ShellKind, signal: AbortSignal): Promise<ProcessLaunch> {
+    signal.throwIfAborted();
     if (!fsSync.existsSync(cwd) || !fsSync.statSync(cwd).isDirectory()) {
       throw new Error(`Command working directory does not exist: ${cwd}`);
     }
@@ -146,17 +147,18 @@ export class ProcessManager {
         cwd,
         env,
         shell === 'pwsh' || legacyPowerShell?.executable.toLowerCase().startsWith('pwsh') ? 'pwsh.exe' : 'powershell.exe',
+        signal,
       );
     }
 
     // Materializing CMD input removes Node -> cmd.exe command-line quoting from
     // the equation. It also makes single-line and multi-line calls behave the
     // same for %, !, ^, &, pipes, parentheses and nested quotes.
-    return createCmdLaunch(command, cwd, env, cmdExecutable);
+    return createCmdLaunch(command, cwd, env, cmdExecutable, signal);
   }
 }
 
-async function createCmdLaunch(command: string, cwd: string, env: NodeJS.ProcessEnv, executable: string): Promise<ProcessLaunch> {
+async function createCmdLaunch(command: string, cwd: string, env: NodeJS.ProcessEnv, executable: string, signal: AbortSignal): Promise<ProcessLaunch> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-cmd-'));
   const scriptPath = path.join(tempDir, 'command.cmd');
   const pythonSource = extractMultilinePythonInlineSource(command);
@@ -168,6 +170,9 @@ async function createCmdLaunch(command: string, cwd: string, env: NodeJS.Process
       batchCommand = `${pythonSource.prefix}${pythonSource.executable} "${pythonScriptPath}"${pythonSource.suffix}`;
     }
     await fs.writeFile(scriptPath, `@echo off\r\n@chcp 65001 >nul\r\n${batchCommand}\r\n`, 'utf8');
+    // File creation is asynchronous. Stop may have arrived while materializing
+    // the command, before there is any child to receive the abort listener.
+    signal.throwIfAborted();
   } catch (error) {
     await fs.rm(tempDir, { recursive: true, force: true });
     throw error;
@@ -178,7 +183,7 @@ async function createCmdLaunch(command: string, cwd: string, env: NodeJS.Process
   };
 }
 
-async function createPowerShellLaunch(script: string, cwd: string, env: NodeJS.ProcessEnv, executable: string): Promise<ProcessLaunch> {
+async function createPowerShellLaunch(script: string, cwd: string, env: NodeJS.ProcessEnv, executable: string, signal: AbortSignal): Promise<ProcessLaunch> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'iexa-ps-'));
   const scriptPath = path.join(tempDir, 'command.ps1');
   const escapedCwd = cwd.replace(/'/g, "''");
@@ -186,6 +191,7 @@ async function createPowerShellLaunch(script: string, cwd: string, env: NodeJS.P
   try {
     // Windows PowerShell 5.1 needs a BOM to decode non-ASCII script source as UTF-8.
     await fs.writeFile(scriptPath, `\uFEFF${source}`, 'utf8');
+    signal.throwIfAborted();
   } catch (error) {
     await fs.rm(tempDir, { recursive: true, force: true });
     throw error;
@@ -217,7 +223,7 @@ function truncateUtf8(value: string, maxBytes: number): string {
  * been cancelled. Retry with the absolute system path; only when no candidate
  * can start does the direct-child fallback stand.
  */
-function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promise<void> {
+export function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promise<void> {
   if (!child.pid) return Promise.resolve();
   if (process.platform !== 'win32') {
     try { process.kill(-child.pid, 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch {} }
@@ -261,7 +267,7 @@ function terminateProcessTree(child: ChildProcess, gracePeriodMs: number): Promi
         started.once('error', retry);
         // A failed attempt also emits 'close'; it must not end the wait while a
         // retry is in flight.
-        started.once('close', () => { if (!advanced) finish(); });
+        started.once('close', code => { if (!advanced) { if (code === 0) finish(); else retry(); } });
       } catch {
         // Synchronous spawn failure: try the next candidate.
         attempt(index + 1);

@@ -64,6 +64,12 @@
     if (body.querySelector('.tool-tabs')) {
       const output = body.querySelector('[data-pane="output"]');
       if (output) {
+        // Agent result links belong to the existing output pane. Tabbed cards
+        // have no legacy detail bar, so supply their own visible action strip.
+        if (Object.hasOwn(agentOperations, name) && !output.querySelector('.tool-agent-actions')) {
+          const actions = make('div', 'tool-agent-actions'); actions.hidden = true;
+          output.prepend(actions);
+        }
         const isShell = name === 'shell_execute' || name.startsWith('terminal_');
         const preview = isShell ? input.command : '';
         let command = output.querySelector('.tool-command');
@@ -203,7 +209,7 @@
       }
     }
     if (agentOperations[name] && result !== undefined) {
-      const actions = block.querySelector('.tool-detail-actions');
+      const actions = block.querySelector('.tool-agent-actions, .tool-detail-actions');
       actions?.querySelectorAll('.tool-agent-link').forEach(button => button.remove());
       if (actions && result.success === true && typeof result.output === 'string') {
         try {
@@ -217,6 +223,7 @@
           }
         } catch { /* A truncated/legacy result stays readable without a guessed agent link. */ }
       }
+      if (actions?.classList.contains('tool-agent-actions')) actions.hidden = !actions.querySelector('.tool-agent-link');
     }
     window.IexaPluginCards?.updateTool(block, result);
     // Only show recorded change counts; pending/failed writes never get invented green numbers.

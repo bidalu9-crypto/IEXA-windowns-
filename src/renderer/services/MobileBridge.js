@@ -182,10 +182,14 @@ async function updateMobileDeviceCapability(id, capability) {
 
 function initMobileBridge() {
   document.getElementById('mobileBridgeEnabled')?.addEventListener('change', async (event) => {
+    // currentTarget is cleared when DOM dispatch ends, before the request settles.
+    const control = event.currentTarget;
+    const enabled = control.checked;
+    const previous = mobileBridgeState ? !!mobileBridgeState.enabled : !enabled;
     try {
-      await configureMobileBridge({ enabled: event.currentTarget.checked });
-      showMobileBridgeResult(event.currentTarget.checked ? '手机桥接已开启。现在可以生成二维码。' : '手机桥接已关闭，所有手机连接已被阻止。');
-    } catch (error) { event.currentTarget.checked = !event.currentTarget.checked; showMobileBridgeResult(error.message || String(error), true); }
+      const state = await configureMobileBridge({ enabled });
+      showMobileBridgeResult(state.enabled ? '手机桥接已开启。现在可以生成二维码。' : '手机桥接已关闭，所有手机连接已被阻止。');
+    } catch (error) { control.checked = previous; showMobileBridgeResult(error.message || String(error), true); }
   });
   document.getElementById('mobileBridgeCapability')?.addEventListener('change', async (event) => {
     try { await configureMobileBridge({ defaultCapability: event.currentTarget.value }); }

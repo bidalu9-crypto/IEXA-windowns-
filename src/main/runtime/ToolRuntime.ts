@@ -13,9 +13,11 @@ import { LoopDetector } from './LoopDetector';
 import { ArtifactStore } from '../context/ArtifactStore';
 import { CommandPolicy } from '../tools/shell/CommandPolicy';
 import { DesktopAgent } from '../tools/DesktopAgent';
+import { desktopApplicationRoot } from '../tools/desktop/DesktopHelperPath';
 import { makeAgentTools } from '../tools/ToolDefinitions';
 import { QuestionResolver, normalizeAskUserArgs, formatQuestionAnswers } from './QuestionBroker';
 import { HookSpec, runHooks } from './HookRunner';
+import { awaitOrAbort } from './AbortWait';
 import { ShellSessionTools } from '../tools/ShellSessionTools';
 import { GoalStore } from '../agent/GoalStore';
 import { BotStore } from '../bots/BotStore';
@@ -69,7 +71,7 @@ export class ToolRuntime {
     this.budget = config.budget || new BudgetManager();
     this.shell = new ShellExecutor(config.workspaceDir);
     this.memory = new MemoryTools(config.memoryDir);
-    this.desktop = new DesktopAgent(path.resolve(config.workspaceDir, '..'), config.desktopCaptureFrames === true, path.join(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), 'desktop'));
+    this.desktop = new DesktopAgent(desktopApplicationRoot(), config.desktopCaptureFrames === true, path.join(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), 'desktop'));
     this.artifacts = new ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
     if (config.bots) this.botTools = new BotTools(config.bots.store, config.bots.callerTools, config.bots.defaultProfile);
     if (config.scheduledTasks) {
@@ -146,7 +148,7 @@ export class ToolRuntime {
       const authorizedTool: ToolDefinition = name === 'shell_execute'
         ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')) as ToolDefinition['risk'], requiresApproval: true }
         : name === 'shell_session'
-          ? ['read', 'list', 'close'].includes(String(args.action || ''))
+          ? String(args.action || '') !== 'send'
             ? { ...tool, risk: 'low', requiresApproval: false }
             : { ...tool, risk: this.commandPolicy.classify(String(args.command || '')) as ToolDefinition['risk'], requiresApproval: true }
         : name === 'desktop_control' && !['list_windows','observe','frame','session_state','find_element','read_focused','wait','wait_change'].includes(String(args.action || 'observe'))
@@ -155,24 +157,25 @@ export class ToolRuntime {
       const permissions = name === 'shell_execute'
         ? new PermissionManager(this.config.auditDir || path.join(this.config.workspaceDir, '.iexa-audit'), this.config.permissionResolver, this.permissionMode)
         : this.permissions;
-      await permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args, signal: context.signal, toolCallId: context.toolCallId, runId: this.lifecycle.runId,
-        onAwaitingApproval: () => emit('awaiting_approval') });
+      await awaitOrAbort(permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args, signal: context.signal, toolCallId: context.toolCallId, runId: this.lifecycle.runId,
+        onAwaitingApproval: () => { if (!context.signal.aborted) emit('awaiting_approval'); } }), context.signal);
       if (context.signal.aborted) throw new Error('Tool cancelled after approval.');
       this.budget.recordTool();
       const hookSpecs = this.config.hooks?.() || [];
       let blockedByHook: ToolExecutionResult | undefined;
       if (hookSpecs.length) {
-        const pre = await runHooks(hookSpecs, { phase: 'preToolUse', tool: name, args, sessionId: context.sessionId }, this.config.workspaceDir, context.signal);
+        const pre = await awaitOrAbort(runHooks(hookSpecs, { phase: 'preToolUse', tool: name, args, sessionId: context.sessionId }, this.config.workspaceDir, context.signal), context.signal);
         if (pre.block) blockedByHook = { output: `Hook 阻止了 ${name}：${pre.reason || '未说明原因'}`, success: false, executionStatus: 'denied' };
       }
+      if (context.signal.aborted) throw new Error('Tool cancelled before execution.');
       if (!blockedByHook) emit('running');
       result = blockedByHook || await this.scheduler.execute(tool, args, { ...context, onCancellation });
-      if (hookSpecs.length && !blockedByHook) {
+      if (hookSpecs.length && !blockedByHook && !context.signal.aborted) {
         try {
-          await runHooks(hookSpecs, {
+          await awaitOrAbort(runHooks(hookSpecs, {
             phase: 'postToolUse', tool: name, args, sessionId: context.sessionId,
             result: { success: result.success, output: result.output, executionStatus: result.executionStatus },
-          }, this.config.workspaceDir, context.signal);
+          }, this.config.workspaceDir, context.signal), context.signal);
         } catch { /* a hook failure never changes a completed tool result */ }
       }
     } catch (error) {
@@ -183,9 +186,9 @@ export class ToolRuntime {
     else if (context.signal.aborted || result.cancelled) result = { ...result, success: false, cancelled: true, executionStatus: 'cancelled' };
     else result.executionStatus = result.success ? 'completed' : result.executionStatus === 'denied' ? 'denied' : 'failed';
     // An optional output attachment failing does not undo an already successful command.
-    if (result.output.length > 24_000) {
+    if (result.output.length > 24_000 && !context.signal.aborted) {
       try {
-        const artifact = await this.artifacts.put(result.output);
+        const artifact = await awaitOrAbort(this.artifacts.put(result.output), context.signal);
         result.artifacts = [...(result.artifacts || []), { kind: 'file', path: artifact.path, mimeType: 'text/plain', size: artifact.size }];
       } catch (error) { result.metadata = { ...result.metadata, artifactError: (error as Error).message }; }
     }
@@ -234,7 +237,7 @@ export class ToolRuntime {
       add(definition, async (args, context) => {
         if (definition.name === 'desktop_control') return this.desktop.execute(args, context.signal, {
           owner: context.sessionId, operationId: `${this.lifecycle.runId}:${context.toolCallId}`,
-          onEvent: desktop => { try { context.onToolState?.(this.lifecycle.progress(context.sessionId, context.toolCallId, desktop)); } catch {} },
+          onEvent: desktop => { if (!context.signal.aborted) { try { context.onToolState?.(this.lifecycle.progress(context.sessionId, context.toolCallId, desktop)); } catch {} } },
         });
         if (definition.name === 'todo_write') return todo(args);
       // Bot roster and scheduled tasks. Both surfaces are optional: they are only

@@ -58,35 +58,40 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
     }
     throw new Error('UI condition timeout: ' + expression);
   }
+  async function actionTint(buttonId) {
+    const expression = `(() => {
+      const button = document.getElementById(${JSON.stringify(buttonId)});
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
+      button.parentElement.appendChild(probe);
+      const expected = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { actual: getComputedStyle(button).backgroundColor, expected };
+    })()`;
+    // Both buttons animate their background. Compare settled computed colors,
+    // resolving the token in the action's own inherited scope.
+    await wait(`(() => { const tint = ${expression}; return tint.actual === tint.expected; })()`);
+    return evaluate(expression);
+  }
 
   await cdp('Runtime.enable');
   await cdp('Page.enable');
   await cdp('Page.navigate', { url: `http://127.0.0.1:${port}/#login=${code}` });
   await wait("typeof sendMessage === 'function' && typeof currentSessionId !== 'undefined'");
   await wait("currentSessionId");
+  await wait("document.body.dataset.panelResize === 'ready' && !appearanceHydrating");
+  // A saved skin intentionally overrides accent presets. Exercise the preset
+  // behavior with the default skin after server appearance hydration finishes.
+  await evaluate("IexaSkins.restoreDefault(); setThemeMode('light'); setAccent('violet'); true");
 
   // The primary action must follow the active accent, not a fixed black fill.
-  const accentFill = await evaluate(`(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
-    document.body.appendChild(probe);
-    const expected = getComputedStyle(probe).backgroundColor;
-    probe.remove();
-    return { send: getComputedStyle(sendBtn).backgroundColor, expected };
-  })()`);
-  assert.equal(accentFill.send, accentFill.expected, 'send follows the theme accent');
-  await evaluate("document.documentElement.dataset.accent = 'green'");
-  const greenFill = await evaluate(`(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
-    document.body.appendChild(probe);
-    const expected = getComputedStyle(probe).backgroundColor;
-    probe.remove();
-    return { send: getComputedStyle(sendBtn).backgroundColor, expected };
-  })()`);
-  assert.equal(greenFill.send, greenFill.expected, 'the button re-resolves with the accent');
-  assert.notEqual(greenFill.send, accentFill.send, 'changing the accent changes the button');
-  await evaluate("document.documentElement.dataset.accent = 'violet'");
+  const accentFill = await actionTint('sendBtn');
+  assert.equal(accentFill.actual, accentFill.expected, 'send follows the theme accent');
+  await evaluate("setAccent('green')");
+  const greenFill = await actionTint('sendBtn');
+  assert.equal(greenFill.actual, greenFill.expected, 'the button re-resolves with the accent');
+  assert.notEqual(greenFill.actual, accentFill.actual, 'changing the accent changes the button');
+  await evaluate("setAccent('violet')");
 
   // Secondary and primary actions must read as the same size: identical boxes,
   // identical glyph size, and a ring strong enough to hold the outline.
@@ -152,21 +157,13 @@ test('real browser: default immediate insert, plus queue and steer routing', { s
   // the composer carries no mode jargon.
   assert.equal(await evaluate("getComputedStyle(stopBtn).display !== 'none'"), true, 'stop is the visible action');
   assert.equal(await evaluate("getComputedStyle(sendBtn).display === 'none'"), true, 'send is not shown beside stop');
-  const stopTint = `(() => {
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;left:-9999px;background:var(--action-bg)';
-    document.body.appendChild(probe);
-    const expected = getComputedStyle(probe).backgroundColor;
-    probe.remove();
-    return { stop: getComputedStyle(stopBtn).backgroundColor, expected };
-  })()`;
-  const stopDefault = await evaluate(stopTint);
-  assert.equal(stopDefault.stop, stopDefault.expected, 'stop follows the theme accent');
-  await evaluate("document.documentElement.dataset.accent = 'green'");
-  const stopGreen = await evaluate(stopTint);
-  assert.equal(stopGreen.stop, stopGreen.expected, 'stop re-resolves with the accent');
-  assert.notEqual(stopGreen.stop, stopDefault.stop, 'changing the accent repaints stop');
-  await evaluate("document.documentElement.dataset.accent = 'violet'");
+  const stopDefault = await actionTint('stopBtn');
+  assert.equal(stopDefault.actual, stopDefault.expected, 'stop follows the theme accent');
+  await evaluate("setAccent('green')");
+  const stopGreen = await actionTint('stopBtn');
+  assert.equal(stopGreen.actual, stopGreen.expected, 'stop re-resolves with the accent');
+  assert.notEqual(stopGreen.actual, stopDefault.actual, 'changing the accent repaints stop');
+  await evaluate("setAccent('violet')");
   assert.equal(await evaluate("chatInput.placeholder"), '有问题，随便问');
   assert.equal(await evaluate("document.querySelector('.input-actions').textContent.trim()"), '');
 
