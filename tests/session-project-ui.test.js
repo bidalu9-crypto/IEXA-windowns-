@@ -18,7 +18,7 @@ function setup(t) {
     uiIcon: name => `<svg data-icon="${name}"></svg>`, formatTime: value => String(value),
     IexaDialogs: { alert: async () => {} },
   });
-  w.eval(functions(['renderSessionList', 'toggleSessionPin', 'openSessionMenu', 'closeSessionMenu', 'sessionMenuOutside', 'sessionMenuKeyboard', 'sessionMenuViewportChanged']));
+  w.eval(functions(['renderSessionList', 'readCollapsedProjects', 'writeCollapsedProjects', 'toggleSessionPin', 'openSessionMenu', 'closeSessionMenu', 'sessionMenuOutside', 'sessionMenuKeyboard', 'sessionMenuViewportChanged']));
   return w;
 }
 
