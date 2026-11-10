@@ -233,15 +233,27 @@
 }
 
 .session-project-group { display: grid; gap: 3px; margin-bottom: 8px; }
+/* The header is a button so the fold is reachable by keyboard and by touch.
+   Everything visual stays as it was; only the affordance is new. */
 .session-project-heading {
   display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 8px 3px;
-  color: var(--text-muted); font-size: calc(0.68rem * var(--ui-font-scale, 1)); font-weight: 650;
-  letter-spacing: .02em;
+  width: 100%; margin: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-muted); font: inherit;
+  font-size: calc(0.68rem * var(--ui-font-scale, 1)); font-weight: 650;
+  letter-spacing: .02em; text-align: left; cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
+.session-project-heading:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
+.session-project-heading:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 1px; }
 .session-project-heading .ui-icon { width: 13px; height: 13px; flex: 0 0 13px; }
+/* Expanded points down, folded points right. Transform only: no layout shift. */
+.session-project-heading .ui-icon-chevron-right { transform: rotate(90deg); transition: transform 140ms ease; }
+.session-project-group.is-collapsed .session-project-heading .ui-icon-chevron-right { transform: rotate(0deg); }
 .session-project-heading span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-project-heading b { margin-left: auto; min-width: 18px; text-align: center; font-size: .62rem; font-weight: 600; }
 .session-project-items { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+/* Folded groups keep their header and count; the rows are removed from flow. */
+.session-project-group.is-collapsed .session-project-items { display: none; }
 
 .session-item {
   display: flex;

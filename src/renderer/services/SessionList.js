@@ -14,6 +14,35 @@ const searchInput = document.getElementById('searchInput');
 const searchClear = document.getElementById('searchClear');
 const searchResults = document.getElementById('searchResults');
 
+// ---------------------------------------------------------------------------
+// Collapsed project groups
+//
+// The sidebar keeps one group per project. A machine with a dozen projects
+// turns that into a wall of rows, so each group can be folded to a single
+// header. The folded set is stored as project roots rather than indexes: it
+// survives reordering, renames and newly added projects, and an empty string
+// covers the "no project" bucket.
+// ---------------------------------------------------------------------------
+const COLLAPSED_PROJECTS_KEY = 'iexa-collapsed-projects';
+
+function readCollapsedProjects() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSED_PROJECTS_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw.filter((value) => typeof value === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedProjects(collapsed) {
+  try {
+    localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify([...collapsed]));
+  } catch {
+    // Storage full or disabled: the fold still works for this session.
+  }
+}
+
+
 function sessionVersion(session) {
   return `${Number(session?.updated) || 0}:${Number(session?.messageCount) || 0}:${session?.title || ''}:${session?.archived === true}:${session?.pinned === true}:${Number(session?.pinnedAt) || 0}:${session?.projectRoot || ''}`;
 }
@@ -271,6 +300,7 @@ function renderSessionList() {
         <button type="button" class="session-item-more" data-ui-action="openSessionMenu" data-session-menu="${escapeHtml(s.id)}" data-ui-arg="${escapeHtml(s.id)}" title="${IexaI18n.t('session.more')}" aria-label="${IexaI18n.t('session.more')}" aria-haspopup="menu" aria-expanded="false">${uiIcon('more')}</button>
       </div>`;
   };
+  const collapsedProjects = readCollapsedProjects();
   sessionsList.innerHTML = orderedGroups.map(group => {
     const sorted = [...group.sessions].sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true)
       || (Number(b.pinnedAt) || 0) - (Number(a.pinnedAt) || 0)
@@ -278,8 +308,15 @@ function renderSessionList() {
       // the list reshuffle whenever a session was merely opened, which is what
       // looked like the order changing on its own.
       || (Number(b.created) || Number(b.updated) || 0) - (Number(a.created) || Number(a.updated) || 0));
-    return `<section class="session-project-group" data-project-root="${escapeHtml(group.root)}">
-      <div class="session-project-heading" title="${escapeHtml(group.root || IexaI18n.t('session.unboundProject'))}">${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || IexaI18n.t('session.noProject'))}</span><b>${sorted.length}</b></div>
+    // A folded group that holds the open conversation unfolds itself: hiding the
+    // row you are currently in reads as a bug, not as a tidy sidebar. The stored
+    // preference stays untouched, so it folds again once you move elsewhere.
+    const groupKey = String(group.root || '').toLowerCase();
+    const holdsActive = sorted.some(session => session.id === currentSessionId);
+    const collapsed = collapsedProjects.has(groupKey) && !holdsActive;
+    const title = escapeHtml(group.root || IexaI18n.t('session.unboundProject'));
+    return `<section class="session-project-group${collapsed ? ' is-collapsed' : ''}" data-project-root="${escapeHtml(group.root)}">
+      <button type="button" class="session-project-heading" data-project-toggle="${escapeHtml(group.root)}" aria-expanded="${collapsed ? 'false' : 'true'}" title="${title}">${uiIcon('chevron-right')}${uiIcon(group.root ? 'folder' : 'chat')}<span>${escapeHtml(group.name || IexaI18n.t('session.noProject'))}</span><b>${sorted.length}</b></button>
       <div class="session-project-items">${sorted.map(renderItem).join('')}</div>
     </section>`;
   }).join('');
@@ -515,6 +552,7 @@ function applySessionProject(project) {
   projectRoot = project.root || null;
   projectName = project.name || null;
   projectRecent = project.recent || projectRecent;
+  if (typeof syncIDEProject === 'function') void syncIDEProject();
   filesCurrentPath = '.'; filesLastSig = ''; gitStatusSignature = ''; gitLoadEpoch++;
   if (projectRoot) loadFilesList('.', false); else showFilesEmpty(projectRecent);
   window.syncHeroWorkspace?.();
@@ -1119,6 +1157,22 @@ function installSessionListControls() {
     disarmSessionTitleMarquee(title);
   });
   sessionsList?.addEventListener('scroll', () => closeSessionMenu(), { passive: true });
+  // Fold / unfold one project group. Toggled on the live node rather than by
+  // re-rendering: a re-render would reset the sidebar scroll offset and blink
+  // every other row, which is exactly the kind of jitter a sidebar should not
+  // have. The choice is persisted so a restart keeps the sidebar tidy.
+  sessionsList?.addEventListener('click', event => {
+    const heading = event.target.closest?.('[data-project-toggle]');
+    if (!heading || !sessionsList.contains(heading)) return;
+    const group = heading.closest('.session-project-group');
+    if (!group) return;
+    const collapsed = group.classList.toggle('is-collapsed');
+    heading.setAttribute('aria-expanded', String(!collapsed));
+    const key = String(heading.dataset.projectToggle || '').toLowerCase();
+    const stored = readCollapsedProjects();
+    if (collapsed) stored.add(key); else stored.delete(key);
+    writeCollapsedProjects(stored);
+  });
   // Runs after app.js's capture handler on the same node: the menu is removed
   // before the queued action reads the session id it was clicked for.
   document.addEventListener('click', event => {
