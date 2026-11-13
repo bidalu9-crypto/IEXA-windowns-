@@ -2,13 +2,21 @@
 setlocal
 cd /d "%~dp0"
 
+rem When this copy lives outside the checkout (Desktop, a USB stick), fall back
+rem to the repository path baked in below so double-click still works.
+git rev-parse --is-inside-work-tree >nul 2>&1
+if not errorlevel 1 goto :ready
+if exist "E:\IEXA-WIN\.git" (
+  cd /d "E:\IEXA-WIN"
+  git rev-parse --is-inside-work-tree >nul 2>&1
+)
+if errorlevel 1 goto :nogit
+
+:ready
 echo ===========================
 echo   IEXA-WIN push
 echo ===========================
 echo.
-
-git rev-parse --is-inside-work-tree >nul 2>&1
-if errorlevel 1 goto :nogit
 
 git config user.email >nul 2>&1
 if errorlevel 1 goto :noident
@@ -55,6 +63,8 @@ goto :end
 
 :nogit
 echo Not a git repository.
+echo Looked in: %~dp0
+echo and in:   E:\IEXA-WIN
 echo Clone first: git clone git@github.com:bidalu9-crypto/IEXA-windowns-.git
 goto :end
 
