@@ -2163,7 +2163,15 @@ function createServer(auth: LocalApiAuth): http.Server {
         const store = loadSessionStore();
         // Sort newest first
         store.sessions.sort((a, b) => b.updated - a.updated);
-        jsonReply(res, 200, { sessions: store.sessions, activeSessionId: store.activeSessionId });
+        // Carry the live run flag with the list. A backgrounded mobile tab
+        // loses the SSE stream, so the terminal `done` frame never arrives and
+        // its own isProcessing stays stuck at true. Comparing against this
+        // flag is the only way the client can tell "still running" from
+        // "finished while I was away" without guessing at a timeout.
+        jsonReply(res, 200, {
+          sessions: store.sessions.map(session => ({ ...session, running: runningSessionIds.has(session.id) })),
+          activeSessionId: store.activeSessionId,
+        });
         return;
       }
 

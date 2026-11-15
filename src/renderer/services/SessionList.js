@@ -119,6 +119,18 @@ async function syncConversationMetadata(forceCurrentRefresh = false, forceSessio
     }
     if (oldListVersion !== newListVersion) renderSessionList();
 
+    // A hidden tab loses SSE, so `done` never arrives and isProcessing sticks at
+    // true. The list's server flag proves the turn ended; a missing flag never counts.
+    if (currentSessionId && isProcessing) {
+      if (nextSessions.find(s => s.id === currentSessionId)?.running === false) {
+        const stale = sessionRuntimes.get(currentSessionId);
+        if (stale) stale.isMirroredTurn = false;
+        // setProcessing(false) consumes this flag and schedules the forced
+        // reload, which is the same path a normal turn end takes.
+        pendingCurrentSessionSync = true; setProcessing(false); return;
+      }
+    }
+
     const archiveOnly = changeReason === 'archived' || changeReason === 'unarchived';
     const shouldRefreshCurrent = !archiveOnly && currentSessionId && (
       forceCurrentRefresh ||
