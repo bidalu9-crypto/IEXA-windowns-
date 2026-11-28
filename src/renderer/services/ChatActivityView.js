@@ -262,11 +262,58 @@
     const label = block.querySelector('.thinking-elapsed');
     label.textContent = duration < 1000 ? IexaI18n.t('activity.elapsed.subSecond') : IexaI18n.t('activity.elapsed.seconds', { seconds: Math.round(duration / 1000) });
   }
+  // Idle lines shown while a turn is running but has nothing new to report.
+  // One is picked at random every three seconds so the surface keeps breathing
+  // instead of freezing on a single label for a long tool run.
+  const WAITING_PHRASES = [
+    '她数天花板，忽然愣神...',
+    '她的思绪绕着晚风转...',
+    '她把星子一颗颗归位...',
+    '她捧着杯子，忘了要喝水..',
+    '她的思绪，飘出了窗外...',
+    '她刷着屏，视线定住...',
+    '她盯着云，想了很久...',
+    '她在捡散落的小念头...',
+    '她眼神虚了几秒，在想事...',
+  ];
+  const WAITING_ROTATE_MS = 3000;
+
+  function nextWaitingPhrase(previous) {
+    if (WAITING_PHRASES.length < 2) return WAITING_PHRASES[0] || '';
+    let phrase = previous;
+    // Never repeat the line that is already on screen; a couple of redraws is
+    // enough because the list is short.
+    for (let attempt = 0; attempt < 8 && phrase === previous; attempt += 1) {
+      phrase = WAITING_PHRASES[Math.floor(Math.random() * WAITING_PHRASES.length)];
+    }
+    return phrase;
+  }
+
+  function rotateWaitingLabel(indicator, label) {
+    const timer = window.setInterval(() => {
+      // The turn ended and the indicator was taken out of the transcript.
+      if (!indicator.isConnected) { window.clearInterval(timer); return; }
+      const first = label.firstChild;
+      const current = first && first.nodeType === 3 ? first.nodeValue : label.textContent || '';
+      const phrase = nextWaitingPhrase(current);
+      // Write into the label's own text node: LabelGlow keeps its animated copy
+      // as a later child and re-syncs from that node.
+      if (first && first.nodeType === 3) first.nodeValue = phrase;
+      else label.textContent = phrase;
+      window.IexaLabelGlow?.attach(label);
+    }, WAITING_ROTATE_MS);
+    indicator.dataset.rotateTimer = String(timer);
+  }
+
   function createWaiting() {
     const indicator = make('div', 'waiting-indicator');
     indicator.setAttribute('role', 'status'); indicator.setAttribute('aria-live', 'polite');
-    indicator.appendChild(make('span', 'waiting-indicator__label', IexaI18n.t('activity.waitingLabel')));
-    window.IexaLabelGlow?.attach(indicator.querySelector('.waiting-indicator__label'));
+    const label = make('span', 'waiting-indicator__label', WAITING_PHRASES[0]);
+    indicator.appendChild(label);
+    // Decoration must never cost the indicator itself: if the glow or the
+    // rotation throws, the reader would get no progress feedback at all.
+    try { window.IexaLabelGlow?.attach(label); } catch { /* plain label is fine */ }
+    try { rotateWaitingLabel(indicator, label); } catch { /* static label is fine */ }
     return indicator;
   }
   window.IexaChatActivity = Object.freeze({ updateTool, prepareThinking, finishThinking, createWaiting, refreshDetail });

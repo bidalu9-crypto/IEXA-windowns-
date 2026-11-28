@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Session checkpoints
+// iExA PC - Session checkpoints
 //
 // A checkpoint is one user request's worth of file changes: for every file the
 // agent touched we keep the snapshot taken *before its first edit in that run*,

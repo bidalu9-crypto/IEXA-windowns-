@@ -356,7 +356,7 @@
   /** Accepts an exported patch; returns an error message or null. */
   function importPatch(raw) {
     const source = raw && typeof raw === 'object' ? raw : null;
-    if (!source || source.format !== 'iexa-skin') return '这不是 IEXA 皮肤文件。';
+    if (!source || source.format !== 'iexa-skin') return '这不是 iExA 皮肤文件。';
     const custom = source.customSkin;
     if (!custom || typeof custom !== 'object') return '皮肤文件缺少配色数据。';
     const candidate = {

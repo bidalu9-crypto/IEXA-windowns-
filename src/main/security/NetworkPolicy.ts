@@ -166,7 +166,7 @@ export class NetworkPolicy {
             if (opts?.all) callback(null, [{ ...pinned }]);
             else callback(null, pinned.address, pinned.family);
           }) as import('net').LookupFunction,
-          headers: { 'User-Agent': 'IEXA/2.0 (+local desktop research client)', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,text/plain;q=0.7,*/*;q=0.5', 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8', 'Accept-Encoding': 'identity', Connection: 'close', ...headers },
+          headers: { 'User-Agent': 'iExA/2.0 (+local desktop research client)', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,text/plain;q=0.7,*/*;q=0.5', 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8', 'Accept-Encoding': 'identity', Connection: 'close', ...headers },
         }, (response) => {
           responseStream = response;
           response.on('error', fail);

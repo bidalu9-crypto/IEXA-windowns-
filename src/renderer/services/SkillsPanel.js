@@ -259,7 +259,7 @@ async function importSkillFromFile() {
   if (input) input.click();
 }
 
-/** Open IEXA PC's skills directory in Explorer for manual management */
+/** Open iExA PC's skills directory in Explorer for manual management */
 async function openSkillsDirectory() {
   try {
     const resp = await fetch(`${API_BASE}/api/skills`);

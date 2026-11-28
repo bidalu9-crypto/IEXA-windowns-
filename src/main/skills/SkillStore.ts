@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Skill Store (mirrors iOS SkillStore.swift)
+// iExA PC - Skill Store (mirrors iOS SkillStore.swift)
 // Anthropic-style SKILL.md progressive disclosure
 // =============================================================================
 
@@ -334,7 +334,7 @@ export class SkillStore {
     if (sections.length === 0) return null;
     return [
       '## 内置系统技能（应用级指令）',
-      '以下技能由 IEXA 应用内置并在每次请求中加载。它们属于系统提示词，不是用户消息，也不需要通过 file_read 再加载。',
+      '以下技能由 iExA 应用内置并在每次请求中加载。它们属于系统提示词，不是用户消息，也不需要通过 file_read 再加载。',
       '系统安全边界、工具权限和本系统明确约束始终优先于技能正文。',
       '',
       sections.join('\n\n'),

@@ -23,7 +23,7 @@
   }
 
   async function confirmRun(name) {
-    const message = t('fileActions.runConfirm', 'Run {name}? It will start outside IEXA.', { name });
+    const message = t('fileActions.runConfirm', 'Run {name}? It will start outside iExA.', { name });
     if (window.IexaDialogs && typeof window.IexaDialogs.confirm === 'function') {
       return await window.IexaDialogs.confirm(message);
     }

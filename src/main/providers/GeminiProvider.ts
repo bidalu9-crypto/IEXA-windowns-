@@ -1,7 +1,7 @@
 import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
 import { ProviderError } from './ProviderError';
 // =============================================================================
-// IEXA PC - Gemini Provider
+// iExA PC - Gemini Provider
 // Mirrors iOS GeminiProvider.swift + GeminiAgentProvider.swift
 // Uses Google Gemini API with SSE streaming
 // =============================================================================

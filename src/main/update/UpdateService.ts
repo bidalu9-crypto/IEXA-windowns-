@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Auto-update service
+// iExA PC - Auto-update service
 //
 // Thin, testable wrapper around electron-updater. The adapter is injected so the
 // state machine can be exercised without Electron, and the service stays inert

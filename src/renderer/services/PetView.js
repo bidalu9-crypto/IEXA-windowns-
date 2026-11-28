@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA - Desktop pet page
+// iExA - Desktop pet page
 //
 // Upload an image, cut the subject out with u2netp (onnxruntime-web, fully
 // local), then hand the PNG to the server and let the Electron host show it.
@@ -19,10 +19,22 @@ const PET_ALPHA_CUTOFF = 0.45;
 function petEl(id) { return document.getElementById(id); }
 
 async function loadPetSnapshot() {
-  const response = await fetch(API_BASE + '/api/pet');
-  if (!response.ok) throw new Error('无法读取桌宠状态');
+  // The mobile gate answers 401 before pairing and 403 for a chat-only device.
+  // Neither is a failure worth a dialog: this client simply owns no pet yet.
+  const response = await fetch(API_BASE + '/api/pet', { cache: 'no-store' });
+  if (!response.ok) {
+    const error = new Error('无法读取桌宠状态');
+    error.status = response.status;
+    error.accessDenied = response.status === 401 || response.status === 403;
+    throw error;
+  }
   petView.snapshot = await response.json();
   return petView.snapshot;
+}
+
+/** True when the pet is unreachable because this client may not read it yet. */
+function petAccessDenied(error) {
+  return Boolean(error) && error.accessDenied === true;
 }
 
 // ---- segmentation ---------------------------------------------------------
@@ -349,6 +361,9 @@ function petInit() {
   }
 
   loadPetSnapshot().then(() => petRender()).catch((error) => {
+    // Before pairing the phone is not allowed to read the pet; stay quiet and
+    // let the pairing gate own the screen.
+    if (petAccessDenied(error)) return;
     window.IexaDialogs?.alert?.(error.message || '无法读取桌宠状态');
   });
 }

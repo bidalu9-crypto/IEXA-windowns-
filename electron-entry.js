@@ -3,7 +3,7 @@
 // Native desktop window using the local agent server
 // =============================================================================
 
-const { app, BrowserWindow, WebContentsView, shell, dialog, Tray, Menu, nativeImage, ipcMain, screen, session, crashReporter, desktopCapturer } = require('electron');
+const { app, BrowserWindow, WebContentsView, shell, dialog, Tray, Menu, nativeImage, nativeTheme, ipcMain, screen, session, crashReporter, desktopCapturer } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { UpdateService } = require('./dist/main/update/UpdateService');
 const path = require('path');
@@ -86,6 +86,21 @@ function writeJsonAtomic(filePath, value) {
   const temporary = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, JSON.stringify(value, null, 2), 'utf8');
   fs.renameSync(temporary, filePath);
+}
+
+/**
+ * The window's own background, painted before the page has drawn anything.
+ * It has to agree with the first frame the renderer will show: a dark window
+ * opening on white flashes, and `auto` means the answer lives in Windows, not
+ * in the saved file.
+ */
+function appearanceBackgroundColor() {
+  const saved = readJsonFile(workspaceFile('.iexa-appearance.json'), {});
+  const theme = saved && saved.theme;
+  const dark = theme === 'light' ? false : theme === 'dark' ? true : nativeTheme.shouldUseDarkColors;
+  // Matches the first paint of styles/base.css: the house palette is rose on a
+  // warm charcoal canvas, so the window frame never flashes cool grey.
+  return dark ? '#221a1d' : '#f7edf0';
 }
 
 function loadWindowState() {
@@ -779,7 +794,7 @@ function createWindow() {
     minHeight: 600,
     title: 'IEXA-WIN',
     icon: path.join(__dirname, 'resources', 'icon.png'),
-    backgroundColor: readJsonFile(workspaceFile('.iexa-appearance.json')).theme === 'dark' ? '#1c1c1f' : '#ffffff',
+    backgroundColor: appearanceBackgroundColor(),
     show: false,
     webPreferences: {
       nodeIntegration: false,

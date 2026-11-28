@@ -58,7 +58,7 @@ export class NativeIsolatedWorkspace {
       server.listen(0,'127.0.0.1',()=>{const p=(server.address() as net.AddressInfo).port;server.close(error=>error?reject(error):resolve(p));});
     });
     if (signal?.aborted || this.closed) throw new Error('Isolated workspace creation cancelled.');
-    this.directory = path.join(process.env.LOCALAPPDATA || os.tmpdir(),'IEXA-WIN','desktop-workspaces',randomUUID());
+    this.directory = path.join(process.env.LOCALAPPDATA || os.tmpdir(),'iExA-WIN','desktop-workspaces',randomUUID());
     fs.mkdirSync(this.directory,{recursive:true});
     fs.writeFileSync(path.join(this.directory,'request.json'),JSON.stringify({Port:port,ParentPid:process.pid}),{mode:0o600});
     const fd=fs.openSync(path.join(this.directory,'host.log'),'a');
@@ -78,7 +78,7 @@ export class NativeIsolatedWorkspace {
         let info: WorkspaceReady | undefined;
         try { info=JSON.parse(stripBom(fs.readFileSync(readyFile, 'utf8'))); } catch { /* Partial readiness file, no action dispatched. */ }
         if(info) {
-          if(info.hostPid !== this.child.pid || info.port !== port || !info.jobBound || !/^IEXA-Owned-[a-f0-9]{32}$/.test(info.desktopName)) throw new Error('Isolated host identity mismatch.');
+          if(info.hostPid !== this.child.pid || info.port !== port || !info.jobBound || !/^iExA-Owned-[a-f0-9]{32}$/.test(info.desktopName)) throw new Error('Isolated host identity mismatch.');
           try {
             const response=await fetch(`http://127.0.0.1:${port}/health`,{signal:AbortSignal.timeout(500)});
             const health=await response.json() as any;

@@ -388,7 +388,7 @@ function renderDeliverables(messageEl, files) {
 async function openDeliverablePreview(path, absolutePath) {
   const normalized = String(path || '').replace(/\\/g, '/').replace(/^\.\//, '');
   if (isHtmlFilePath(absolutePath || normalized) && openHtmlPreview(absolutePath || normalized)) return;
-  // The project file preview is safer and keeps the user in IEXA when this
+  // The project file preview is safer and keeps the user in iExA when this
   // deliverable belongs to the currently opened project.
   if (projectRoot && normalized && !/^(?:[A-Za-z]:\/|\/)/.test(normalized)) {
     await openFilePreview(normalized);

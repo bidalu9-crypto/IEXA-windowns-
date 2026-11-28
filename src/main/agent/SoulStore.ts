@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - SOUL.md persistent assistant identity and personality
+// iExA PC - SOUL.md persistent assistant identity and personality
 // Mirrors the iOS SOUL.md contract while keeping the desktop implementation
 // synchronous and dependency-free for the request construction path.
 // =============================================================================
@@ -26,7 +26,7 @@ export interface SoulLimitCheck {
 }
 
 export const DEFAULT_SOUL: SoulFile = {
-  metadata: { name: 'IEXA', style: '', lang: 'auto' },
+  metadata: { name: 'iExA', style: '', lang: 'auto' },
   body: '',
 };
 
@@ -160,7 +160,7 @@ export function buildSoulPromptSection(file: SoulFile | undefined | null): strin
   const style = metadata.style ? `\n\n回复风格：${metadata.style}` : '';
   const lang = metadata.lang && metadata.lang !== 'auto' ? `\n首选回复语言：${metadata.lang}。` : '';
   const body = String(soul.body || '').trim();
-  return `# IEXA 应用层身份与人格契约
+  return `# iExA 应用层身份与人格契约
 
 ${identity}${style}${lang}
 

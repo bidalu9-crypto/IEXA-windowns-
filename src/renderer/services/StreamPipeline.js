@@ -42,13 +42,18 @@ function queueStreamUpdate(event, data, turnToken) {
   }
   if (!pending) {
     pending = { turnToken, events: [] };
-    if (sessionId === visibleSessionId && document.visibilityState !== 'hidden') {
-      pending.timer = setTimeout(() => {
-        pending.frame = requestAnimationFrame(() => flushStreamUpdates(sessionId));
-      }, 32);
-      // Hidden tabs may suspend animation frames after the timer was scheduled.
-      pending.fallback = setTimeout(() => flushStreamUpdates(sessionId), 400);
-    } else pending.timer = setTimeout(() => flushStreamUpdates(sessionId), 400);
+    // Paint on the frame after a short delay. The 32ms wait lets several deltas
+    // coalesce, which is what keeps the text flowing smoothly instead of being
+    // repainted on every token.
+    pending.timer = setTimeout(() => {
+      pending.frame = requestAnimationFrame(() => flushStreamUpdates(sessionId));
+    }, 32);
+    // Hard fallback. Animation frames are suspended while the window is occluded,
+    // minimised or behind a fullscreen app, and a suspended frame means the queue
+    // never drains - the reply then lands in one block when the turn ends. This
+    // timer does not depend on the compositor, so it always fires; whichever path
+    // runs first cancels the other inside flushStreamUpdates.
+    pending.fallback = setTimeout(() => flushStreamUpdates(sessionId), 400);
     pendingStreamUpdates.set(sessionId, pending);
   }
   if (event === 'text') pending.text = data.content; // cumulative baseline for text_delta transport
@@ -382,13 +387,46 @@ function renderMarkdownContent(contentEl, markdown, finalRender = false) {
   enhanceTables(contentEl);
 }
 
+/** True when the conversation on screen is the natural one. */
+/**
+ * True when the conversation being streamed is the natural one.
+ *
+ * Keyed on the session, never on the UI mode. The mode says which list the
+ * sidebar shows; a standard conversation keeps running in the background after
+ * the user switches away, and its deltas must still paint. Reading the mode here
+ * made every background reply invisible the moment natural chat was opened.
+ */
+function isNaturalChatTurn() {
+  if (typeof sessionsCache === 'undefined' || !Array.isArray(sessionsCache)) return false;
+  if (!currentSessionId) return false;
+  const session = sessionsCache.find((entry) => entry.id === currentSessionId);
+  return Boolean(session && session.natural === true);
+}
+
 function handleTextDelta(fullText) {
+  // Natural chat paints the reply as several short bursts. Streaming the whole
+  // paragraph first would show the complete answer and then the same text again
+  // in pieces, so this turn keeps the rotating waiting label until the bursts
+  // arrive. The text is still tracked for the turn's own bookkeeping.
+  if (isNaturalChatTurn()) {
+    if (currentAssistantMsg) currentAssistantMsg._assistantText = String(fullText || '');
+    return;
+  }
   const followLatest = shouldFollowLatestMessage();
+  // Text arrived for a turn whose bubble is gone: a runtime swap or a list
+  // rebuild can drop `currentAssistantMsg` mid-turn. Bailing here threw the
+  // delta away while the waiting label was already hidden, so the transcript
+  // stayed blank until the turn ended and the whole reply appeared at once.
+  if (!currentAssistantMsg) ensureAssistantMessage();
+  if (!currentAssistantMsg) return;
+  // Arriving text proves the bubble has content. The empty-state check runs at
+  // finalize instead of here: the answer element is created further down, so
+  // checking now would always read an empty bubble and hide the whole reply.
+  currentAssistantMsg.classList.remove('is-filtered-out');
   hideWaitingIndicator();
   finishActiveThinkingBlock();
   // The model is answering the inserted message: its "waiting" note is done.
   if (String(fullText || '').trim()) window.clearSteerNotes?.();
-  if (!currentAssistantMsg) return;
   // The answer is now the current activity; finished tool steps fold back.
   window.IexaToolRail?.collapseActive?.();
   const previous = String(currentAssistantMsg._assistantText || '');
@@ -401,6 +439,11 @@ function handleTextDelta(fullText) {
     contentEl._textStart = 0; currentAssistantMsg.dataset.transcriptState = 'text-reset';
   }
   currentAssistantMsg._assistantText = value;
+  // The bubble may have been hidden when it was still empty, or the new text may
+  // be nothing but filtered phrases. Re-evaluate on every delta.
+  if (window.IexaNonDisplay) {
+    currentAssistantMsg.classList.toggle('is-filtered-out', window.IexaNonDisplay.isEmpty(value));
+  }
   contentEl.classList.add('streaming-markdown');
   renderMarkdownContent(contentEl, value.slice(contentEl._textStart || 0));
   // Hide empty preamble bubbles

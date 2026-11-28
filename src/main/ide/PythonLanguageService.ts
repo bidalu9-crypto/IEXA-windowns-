@@ -215,7 +215,7 @@ export class PythonLanguageService extends EventEmitter {
       await this.rpc('initialize', {
         processId: process.pid, rootUri, rootPath: this.root,
         workspaceFolders: [{ uri: rootUri, name: path.basename(this.root!) }],
-        clientInfo: { name: 'IEXA Monaco Python', version: '1' }, locale: 'zh-cn',
+        clientInfo: { name: 'iExA Monaco Python', version: '1' }, locale: 'zh-cn',
         initializationOptions: { diagnosticMode: 'openFilesOnly', disablePullDiagnostics: true },
         capabilities: {
           workspace: { configuration: true, workspaceFolders: true, didChangeWatchedFiles: { dynamicRegistration: false } },

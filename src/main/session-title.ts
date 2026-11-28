@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Session Title Generation (mirrors iOS AIChatViewModel+TitleGeneration)
+// iExA PC - Session Title Generation (mirrors iOS AIChatViewModel+TitleGeneration)
 // =============================================================================
 
 import { ProviderFactory, LLMProvider } from './providers/ProviderFactory';

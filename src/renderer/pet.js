@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA - Desktop pet surface
+// iExA - Desktop pet surface
 //
 // Runs inside its own transparent BrowserWindow. It owns nothing but the
 // sprite, the idle motion and the drag gesture; every state change is reported

@@ -38,8 +38,7 @@ export class AgentRuntime {
   private readonly subAgents?: SubAgentManager;
   private permissionMode: PermissionMode;
   constructor(private readonly config: AgentRuntimeConfig) {
-    this.permissionMode = config.permissionMode || 'risk';
-    this.costs = new CostTracker(config.provider.name, config.provider.model);
+    this.permissionMode = config.permissionMode || 'risk';    this.costs = new CostTracker(config.provider.name, config.provider.model);
     this.budget = new BudgetManager(config.budget);
     this.traceStore = config.traceDir ? new TraceStore(config.traceDir) : undefined;
     this.tools = new ToolRuntime({ workspaceDir: config.workspaceDir, memoryDir: config.memoryDir, memoryEnabled: config.memoryEnabled, auditDir: config.auditDir, permissionResolver: config.permissionResolver, permissionMode: config.permissionMode, budget: this.budget, desktopCaptureFrames: config.desktopCaptureFrames, questionResolver: config.questionResolver, hooks: config.hooks, shellSessions: config.shellSessions, jobBridge: config.jobBridge, goalStore: config.goalStore, bots: config.bots, scheduledTasks: config.scheduledTasks });
@@ -136,6 +135,16 @@ export class AgentRuntime {
     else { this.subAgents?.cancelAll(); if (!this.activeRun) void this.subAgents?.settleAll(); }
   }
   async settleBackground(): Promise<void> { await this.subAgents?.settleAll(); }
+
+  /**
+   * 这个实例是用哪套 prompt 建的。
+   *
+   * 调用方必须拿它和会话当前的 natural 状态比对：不一致就丢弃重建。
+   * 缓存命中不等于配置正确——实例一旦建好，prompt 就固定了，之后会话
+   * 模式再变也不会自己更新。
+   */
+  isNaturalChat(): boolean { return this.config.naturalChat === true; }
+
   getSubAgents(): SubAgentManager | undefined { return this.subAgents; }
   hasBackgroundWork(): boolean { return this.subAgents?.hasActiveWork() || false; }
   contextSnapshot(): string { return this.loop.contextSnapshot(); }
@@ -143,11 +152,13 @@ export class AgentRuntime {
   getState(): AgentState & { toolExecutions: ReturnType<ToolRuntime['getToolExecutions']> } { return { ...this.state, budget: this.budget.snapshot(), toolExecutions: this.tools.getToolExecutions() }; }
   getObservability(): { metrics: Record<string, number>; cost: ReturnType<CostTracker['snapshot']>; trace: ReturnType<Trace['snapshot']> } { return { metrics: this.metrics.snapshot(), cost: this.costs.snapshot(), trace: this.trace.snapshot() }; }
   getHistoryLength(): number { return this.loop.getHistoryLength(); }
+  scrubAssistantText(scrub: (text: string) => string): void { this.loop.scrubAssistantText(scrub); }
   toolDefinitions(): AgentToolDefinition[] { return this.tools.definitions(); }
   registerDynamicTool(...args: Parameters<ToolRuntime['registerDynamicTool']>): void { this.tools.registerDynamicTool(...args); }
   grantPermission(toolName: string): void { this.tools.grantPermission(this.config.sessionId, toolName); }
   setPermissionMode(mode: PermissionMode): void { this.permissionMode = mode; this.tools.setPermissionMode(mode); if (!this.config.subAgentTree) this.subAgents?.setPermissionMode(mode); }
   setSessionContext(value: string | null | undefined, placement?: 'message' | 'system'): void { this.loop.setSessionContext(value, placement); }
+  setNaturalMemory(value: string | null | undefined): void { this.loop.setNaturalMemory(value); }
   setCompactorSummary(value: string | null | undefined): void { this.loop.setCompactorSummary(value); }
   restoreContextUsage(usedTokens: number): void { this.loop.restoreContextUsage(usedTokens); }
   getCompactorSummary(): string { return this.loop.getCompactorSummary(); }

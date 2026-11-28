@@ -3,7 +3,7 @@
 //
 // DeepSeek Harness keeps the workspace above the composer on the new-session
 // page — folder, name, chevron — so a session can be pointed at a folder before
-// the first message is typed. IEXA already owns that data in FilesPanel
+// the first message is typed. iExA already owns that data in FilesPanel
 // (projectRoot / projectName / projectRecent), so this is a second entrance to
 // the existing picker, not a second implementation.
 //
@@ -124,9 +124,46 @@ function heroWorkspaceRenderMenu() {
     }
     button.append(text);
     if (entry.current) button.append(heroWorkspaceIcon('check', 'ui-icon hero-workspace-item-check'));
-    fragment.append(button);
+
+    if (entry.action !== 'project') {
+      fragment.append(button);
+      continue;
+    }
+
+    // A recent entry needs its own row: the forget control cannot live inside
+    // the row button, and nesting buttons is invalid markup.
+    const row = document.createElement('div');
+    row.className = 'hero-workspace-row';
+    row.append(button);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'hero-workspace-remove';
+    remove.dataset.heroRemove = entry.path;
+    remove.title = globalThis.IexaI18n ? IexaI18n.t('files.removeRecent') : 'Remove from list';
+    remove.setAttribute('aria-label', remove.title);
+    remove.append(heroWorkspaceIcon('close', 'ui-icon'));
+    row.append(remove);
+    fragment.append(row);
   }
   menu.replaceChildren(fragment);
+}
+
+/** Drop one entry from the recent list without touching the folder on disk. */
+async function heroWorkspaceForget(path) {
+  const response = await fetch(`${API_BASE}/api/project/recent/remove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Could not remove');
+  // The server answers with the trimmed list; mirror it so every surface that
+  // reads projectRecent (sidebar chip, right panel) agrees immediately.
+  if (typeof projectRecent !== 'undefined') projectRecent = data.recent || [];
+  if (typeof window.syncHeroWorkspace === 'function') window.syncHeroWorkspace();
+  if (typeof syncHeroWorkspace === 'function') syncHeroWorkspace();
+  if (heroWorkspaceState.open) heroWorkspaceRenderMenu();
+  if (typeof showFilesEmpty === 'function' && !projectRoot) showFilesEmpty(projectRecent);
 }
 
 /** The chip sits mid-page, so the menu opens upward unless there is no room. */
@@ -184,6 +221,17 @@ function initHeroWorkspace() {
   });
 
   menu.addEventListener('click', (event) => {
+    const remove = event.target.closest?.('[data-hero-remove]');
+    if (remove) {
+      event.stopPropagation();
+      const path = remove.dataset.heroRemove;
+      remove.disabled = true;
+      void heroWorkspaceForget(path).catch((error) => {
+        remove.disabled = false;
+        if (globalThis.IexaDialogs?.alert) IexaDialogs.alert(error.message || String(error));
+      });
+      return;
+    }
     const item = event.target.closest?.('.hero-workspace-item');
     if (!item) return;
     void heroWorkspaceRun(item.dataset.heroAction, item.dataset.path);

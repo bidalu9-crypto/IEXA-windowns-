@@ -21,7 +21,7 @@
     logs: ['运行日志与网页错误', 'Server logs & web errors', '実行ログと Web エラー'], clear: ['清空', 'Clear', 'クリア'],
     ready: ['就绪', 'Ready', '準備完了'], stopped: ['已停止', 'Stopped', '停止中'], starting: ['启动中', 'Starting', '起動中'], running: ['运行中', 'Running', '実行中'], error: ['错误', 'Error', 'エラー'],
     welcome: ['从项目开始', 'Start with a project', 'プロジェクトから始める'], welcomeHint: ['打开本地文件夹，浏览和编辑代码，运行文件、构建或测试项目；网页项目还可启动独立预览。', 'Open a local folder to edit code, run files, build or test projects, and start an isolated preview for web projects.', 'ローカルフォルダーでコードを編集し、ファイルの実行やビルド・テストを行えます。Web プロジェクトは独立したプレビューも利用できます。'],
-    desktop: ['请在 IEXA-WIN 桌面应用中打开 IDE，以访问本地项目、终端任务和网页预览。', 'Open IDE in the IEXA-WIN desktop app for local projects, terminal tasks and web previews.', 'ローカルプロジェクト、ターミナルタスク、Web プレビューには IEXA-WIN デスクトップアプリをご利用ください。'],
+    desktop: ['请在 iExA-WIN 桌面应用中打开 IDE，以访问本地项目、终端任务和网页预览。', 'Open IDE in the iExA-WIN desktop app for local projects, terminal tasks and web previews.', 'ローカルプロジェクト、ターミナルタスク、Web プレビューには iExA-WIN デスクトップアプリをご利用ください。'],
     selectFile: ['从资源管理器打开一个文件', 'Open a file from the explorer', 'エクスプローラーからファイルを開く'],
     previewHint: ['打开 HTML 文件后，切到“网页预览”即可加载；编辑后保存以刷新页面。需要开发服务的项目使用“启动网页预览”。', 'Open an HTML file and switch to Web preview to load it. Save edits to refresh. For projects requiring a development server, choose Start web preview.', 'HTML ファイルを開いて「Web プレビュー」に切り替えると表示されます。保存すると更新されます。開発サーバーが必要なプロジェクトは「Web プレビューを起動」を選択してください。'],
     noFiles: ['没有匹配的文件', 'No matching files', '一致するファイルはありません'], empty: ['空文件夹', 'Empty folder', '空のフォルダー'],

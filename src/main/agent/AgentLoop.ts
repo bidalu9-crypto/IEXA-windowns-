@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Agent Loop
+// iExA PC - Agent Loop
 // Mirrors iOS AIChatViewModel.runAgentLoop()
 // =============================================================================
 
@@ -33,6 +33,8 @@ function isStreamedToken(event: AgentStreamEvent): boolean {
     || event.type === 'contentBlockStart';
 }
 import { buildSystemPrompt } from './SystemPrompt';
+import { NATURE_LOVE_PROMPT } from './naturelove';
+import { naturalTimeStamp } from '../natural/clock';
 import { applyToolProtocols } from './ToolProtocols';
 import type { GoalStore } from './GoalStore';
 import { ProjectInstructions } from './ProjectInstructions';
@@ -145,6 +147,8 @@ export interface AgentLoopConfig {
   memoryDir: string;
   memoryEnabled: boolean;
   maxTokens?: number;
+  /** Natural chat: replies are chat lines, so the prompt caps their length. */
+  naturalChat?: boolean;
   /** True when workspaceDir is a user-opened project folder. */
   hasProject?: boolean;
   projectName?: string | null;
@@ -182,6 +186,8 @@ export class AgentLoop {
   private callbacks: AgentLoopCallbacks | null = null;
   /** Durable per-session anchors supplied by the server after rehydration. */
   private sessionContext = '';
+  /** Memory log handed to natural chat; its only app-supplied input. */
+  private naturalMemory = '';
   /**
    * 'message' (default): drift-prone anchors ride the newest user message so
    * the request head stays stable for provider-side prompt caching.
@@ -411,6 +417,17 @@ export class AgentLoop {
     this.sessionContextPlacement = placement === 'system' ? 'system' : 'message';
   }
 
+  /**
+   * What she has written down, handed to natural chat as its only companion.
+   *
+   * Her persona is the whole system prompt; the app contributes nothing else. The
+   * memory log is the one exception, because forgetting him is the one failure the
+   * persona cannot describe its way out of.
+   */
+  setNaturalMemory(memory: string | null | undefined): void {
+    this.naturalMemory = typeof memory === 'string' ? memory.trim() : '';
+  }
+
   /** Current Codex-style compaction summary (persisted across restarts). */
   getCompactorSummary(): string {
     return this.compactor ? this.compactor.summary() : this.pendingCompactorSummary;
@@ -440,6 +457,36 @@ export class AgentLoop {
    * a large-window model must replay the conversation it actually had, or a
    * reopen silently becomes a smaller, different context.
    */
+  /**
+   * 把她自己说过的「收尾句」从活动历史里洗掉。
+   *
+   * 再水化只发生在 agent 创建后的第一次请求。之后每条新回复都追加进
+   * agentHistory，里面全是她刚说过的回避句；下一轮原样回到模型眼前，
+   * 她照着再说一遍，越积越紧。窗口层的清洗管不到这一层——这就是
+   * 长度守卫没能打破循环的原因。
+   */
+  scrubAssistantText(scrub: (text: string) => string): void {
+    const next: AgentMessage[] = [];
+    for (const message of this.agentHistory) {
+      if (message.role !== 'assistant' || !Array.isArray(message.parts)) {
+        next.push(message);
+        continue;
+      }
+      let hasNonText = false;
+      let hasText = false;
+      const parts = message.parts.map((part) => {
+        if (part.type !== 'text') { hasNonText = true; return part; }
+        const text = scrub(part.text);
+        if (text.trim()) hasText = true;
+        return { ...part, text };
+      });
+      // 只剩空文本、又没有工具调用的消息，整条丢掉。
+      if (!hasText && !hasNonText) continue;
+      next.push({ ...message, parts });
+    }
+    this.agentHistory = next;
+  }
+
   seedHistoryFromChat(
     msgs: Array<{
       role: string;
@@ -605,11 +652,27 @@ export class AgentLoop {
       //
       // The goal follows the same rule for the same reason, and is re-read from
       // the store on every turn so compaction can never age it out.
-      const goalBlock = this.config.goalStore?.promptBlock(this.config.sessionId) || '';
+      const goalBlock = this.config.naturalChat === true
+        ? ''
+        : (this.config.goalStore?.promptBlock(this.config.sessionId) || '');
       if (goalBlock) parts.unshift({ type: 'text', text: `<current-goal>\n${goalBlock}\n</current-goal>` });
-      if (this.sessionContext && this.sessionContextPlacement === 'message') {
+      // Natural chat reads none of the app's task scaffolding: not the goal, not
+      // the durable technical digest. Both describe a work session, and reading
+      // them is what made one reply sound briefed and the next sound like her.
+      if (this.config.naturalChat !== true && this.sessionContext && this.sessionContextPlacement === 'message') {
         parts.unshift({ type: 'text', text: `<durable-session-context>\n${this.sessionContext}\n</durable-session-context>` });
       }
+      // 自然聊天不塞时钟。
+      //
+      // 自然聊天不注入时钟。
+//
+// 原来每条用户消息前面都挂一句「现在是 2026年11月20日 星期五 22:56（晚上）」，
+// 她的回复里就反复出现「都快零点了」「这个点还没睡」这类话，把一个正在发生
+// 的对话变成了带时间戳的日志。她不需要知道钟点，需要知道的是他刚才说了什么。
+      // 本意是防止模型把下午说成今晚。代价是她会照着这句话办事——晚上十点往后
+      // 就开始「都十点多了」「你该歇着了」「回我两个字就行：睡了」，一句接一句
+      // 把话往外推。他明确说过「不要老是和我说时间 我知道 我能看到时间」。
+      // 时钟留在消息时间戳里，需要时她自己能看，不用每轮喂给她。
 
       const userMsg: AgentMessage = {
         role: 'user',
@@ -643,6 +706,31 @@ export class AgentLoop {
       sessionTools: this.config.toolRuntime?.registry?.has?.('shell_session') === true,
       tools,
     });
+    // Natural chat leads with her own persona, ahead of the shared envelope.
+    // The block states its own precedence, and putting it first is what makes
+    // that true in practice - a rule buried under a page of tool instructions is
+    // a rule the model weighs less. Standard conversations never see it.
+    //
+    // The shared envelope opens with the client identity contract ("你是 iExA，
+    // 运行在 Windows PC 桌面端的 AI 助手") and calls it 首要身份. Keeping that
+    // beside her own block left two identities in one request, and the answer
+    // came back stiff and defensive - an assistant being briefed rather than her
+    // talking. Only the operational part survives: those are real constraints,
+    // the identity is hers.
+    // Natural chat is hers alone.
+    //
+    // Anything else the app adds - the client identity contract, the tool
+    // catalogue, the workspace digest, the technical session summary - pulls the
+    // voice back toward "assistant answering a request". That is exactly what the
+    // user kept hearing: a stiff first reply and a warm follow-up, from the same
+    // conversation. The follow-up never saw any of it.
+    //
+    // So this path gets her persona and her memory, nothing more. Tools still
+    // reach the model through the request's own tool definitions, so she can
+    // still write things down.
+    const personaPrompt = this.config.naturalChat === true
+      ? [NATURE_LOVE_PROMPT, this.naturalMemory].filter(Boolean).join('\n\n')
+      : baseSystemPrompt;
     // Prefix stability (prompt caching): indexes that drift between turns
     // (root-session anchors) must not sit in the system prompt — a changed
     // request head makes prefix-caching providers re-bill the entire
@@ -651,8 +739,8 @@ export class AgentLoop {
     // written once and stable for the whole runtime (sub-agent identity) keep
     // the original system-prompt placement.
     const systemPrompt = this.sessionContext && this.sessionContextPlacement === 'system'
-      ? `${baseSystemPrompt}\n\n<durable-session-context>\n${this.sessionContext}\n</durable-session-context>`
-      : baseSystemPrompt;
+      ? `${personaPrompt}\n\n<durable-session-context>\n${this.sessionContext}\n</durable-session-context>`
+      : personaPrompt;
     const contextWindow = this.config.contextWindow != null
       ? this.config.contextWindow
       : contextWindowForModel(this.config.provider.model, this.config.provider.name);
@@ -916,7 +1004,7 @@ export class AgentLoop {
             });
             // Provider adapters serialize images as model-visible user input.
             // Keeping pixels only as toolResult metadata made desktop frames
-            // visible in the IEXA UI but invisible to the model itself.
+            // visible in the iExA UI but invisible to the model itself.
             const images = result.images?.length ? result.images
               : result.imageData && result.imageMimeType ? [{ data: result.imageData, mimeType: result.imageMimeType }] : [];
             for (const image of images) {

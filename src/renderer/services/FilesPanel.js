@@ -384,7 +384,10 @@ function showFilesEmpty(recent) {
       items.map((r) => {
         const p = typeof r === 'string' ? r : r.path;
         const n = typeof r === 'string' ? (r.split(/[/\\]/).pop() || r) : (r.name || r.path);
-        return `<button type="button" class="files-recent-item" data-root="${escapeHtml(p)}" title="${escapeHtml(p)}">${escapeHtml(n)}</button>`;
+        return `<div class="files-recent-row">` +
+          `<button type="button" class="files-recent-item" data-root="${escapeHtml(p)}" title="${escapeHtml(p)}">${escapeHtml(n)}</button>` +
+          `<button type="button" class="files-recent-remove" data-root="${escapeHtml(p)}" data-name="${escapeHtml(n)}" title="${IexaI18n.t('files.removeRecent')}" aria-label="${IexaI18n.t('files.removeRecent')}">${uiIcon('close')}</button>` +
+          `</div>`;
       }).join('') + `</div>`;
   }
 
@@ -401,6 +404,26 @@ function showFilesEmpty(recent) {
   if (mainOpen) mainOpen.addEventListener('click', openProjectPicker);
   list.querySelectorAll('.files-recent-item').forEach((btn) => {
     btn.addEventListener('click', () => openProjectPath(btn.dataset.root));
+  });
+  list.querySelectorAll('.files-recent-remove').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`${API_BASE}/api/project/recent/remove`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: btn.dataset.root }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || IexaI18n.t('files.removeRecentFailed'));
+        projectRecent = data.recent || [];
+        showFilesEmpty(projectRecent);
+      } catch (err) {
+        btn.disabled = false;
+        addError(IexaI18n.t('files.removeRecentFailedPrefix') + (err.message || err));
+      }
+    });
   });
 }
 
@@ -476,11 +499,9 @@ async function openProjectPath(rootPath) {
     if (epoch !== projectOpenEpoch) return;
     await loadFilesList('.', false);
     if (epoch !== projectOpenEpoch) return;
-    const projectSession = sessionsCache
-      .filter(session => session.archived !== true && String(session.projectRoot || '').toLowerCase() === String(projectRoot || '').toLowerCase())
-      .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
-    if (projectSession) await switchSession(projectSession.id);
-    else await createSession();
+    // Opening a project prepares the workbench only. Switching the conversation
+    // here hijacked the chat the user was reading and started a fresh thread
+    // under the new project, so the transcript now stays exactly where it is.
     if (workbenchView === 'git') loadGitWorkbench();
     window.syncHeroWorkspace?.();
   } catch (err) {
@@ -521,10 +542,8 @@ async function closeProject() {
   gitLoadEpoch++;
   switchWorkbenchView('files');
   await loadProjectState();
-  const unbound = sessionsCache
-    .filter(session => session.archived !== true && !session.projectRoot)
-    .sort((a, b) => Number(b.pinned === true) - Number(a.pinned === true) || Number(b.updated) - Number(a.updated))[0];
-  if (unbound) await switchSession(unbound.id); else await createSession();
+  // Closing the project leaves the current conversation alone for the same
+  // reason opening one does: the sidebar is a file scope, not a chat switch.
   window.syncHeroWorkspace?.();
 }
 

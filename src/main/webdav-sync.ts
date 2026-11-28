@@ -193,7 +193,7 @@ export async function syncAll(cfg: WebDAVConfig, workspace: string, sessionsDir:
     const state = loadSyncState(workspace);
     // Also sanitize pre-upgrade conflict copies even if no new conflicts arise.
     new WebDAVConflictStore(workspace).list(true);
-    for (const dir of ['/IEXA', '/IEXA/sessions', '/IEXA/memory', '/IEXA/skills']) await ensureRemoteDir(client, dir);
+    for (const dir of ['/iExA', '/iExA/sessions', '/iExA/memory', '/iExA/skills']) await ensureRemoteDir(client, dir);
     const sync = async (key: string, local: string) => {
       const result = await syncManagedFile(client, state, workspace, key, local, store);
       uploaded += result.uploaded; downloaded += result.downloaded;
@@ -209,20 +209,20 @@ export async function syncAll(cfg: WebDAVConfig, workspace: string, sessionsDir:
       const names = new Set([...locals, ...entries.filter(e => e.type === 'file' && e.basename.endsWith(extension)).map(e => e.basename as string)]);
       for (const name of names) { assertRemoteBasename(name); await sync(`${kind}:${name}`, path.join(dir, name)); }
     };
-    await syncDirectory(sessionsDir, 'session', '/IEXA/sessions', '.json');
-    await syncDirectory(path.join(workspace, '.iexa-memory'), 'memory', '/IEXA/memory', '.md');
+    await syncDirectory(sessionsDir, 'session', '/iExA/sessions', '.json');
+    await syncDirectory(path.join(workspace, '.iexa-memory'), 'memory', '/iExA/memory', '.md');
     const skillsIndex = path.join(workspace, '.iexa-skills.json');
     if (fs.existsSync(skillsIndex)) await sync('skills_index', skillsIndex);
     const skillsDir = path.join(workspace, 'skills');
     assertLocalSyncPath(skillsDir);
     fs.mkdirSync(skillsDir, { recursive: true });
     const localSkills = fs.readdirSync(skillsDir, { withFileTypes: true }).filter(e => e.isDirectory() && fs.existsSync(path.join(skillsDir, e.name, 'SKILL.md'))).map(e => e.name);
-    const entries = await remoteEntries(client, '/IEXA/skills');
+    const entries = await remoteEntries(client, '/iExA/skills');
     for (const id of new Set([...localSkills, ...entries.filter(e => e.type === 'directory').map(e => e.basename as string)])) {
       assertRemoteBasename(id);
       const local = path.join(skillsDir, id, 'SKILL.md');
       assertLocalSyncPath(local);
-      await ensureRemoteDir(client, `/IEXA/skills/${id}`);
+      await ensureRemoteDir(client, `/iExA/skills/${id}`);
       await sync(`skill:${id}`, local);
     }
     if (configFile) saveConfig({ ...cfg, lastSync: Date.now() }, store);

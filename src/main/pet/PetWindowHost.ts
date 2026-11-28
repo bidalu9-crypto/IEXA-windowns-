@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA - Desktop pet window host
+// iExA - Desktop pet window host
 //
 // The HTTP server owns the pet's data but not the window: only the Electron main
 // process can create a transparent, always-on-top surface. This module is the

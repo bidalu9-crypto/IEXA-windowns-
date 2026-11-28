@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Frontend Application
+// iExA PC - Frontend Application
 // Handles chat UI, SSE streaming, tool display, and settings
 // =============================================================================
 
@@ -16,7 +16,14 @@ function uiIcon(name, label = '') {
 // =============================================================================
 // Markdown + code highlighting
 // =============================================================================
-const renderSafeMarkdown = window.SafeMarkdown.renderSafeMarkdown;
+// Every assistant bubble goes through here, so wrapping this one function is
+// enough to apply the display-only phrase list to both the standard transcript
+// and natural chat. See services/NonDisplay.js.
+const renderSafeMarkdownRaw = window.SafeMarkdown.renderSafeMarkdown;
+const renderSafeMarkdown = (source, options) => renderSafeMarkdownRaw(
+  window.IexaNonDisplay ? window.IexaNonDisplay.filter(String(source || '')) : source,
+  options,
+);
 
 // Trusted UI templates use data actions; SafeMarkdown strips all data-* attributes.
 // Capture preserves the former stopPropagation behavior on nested cards/downloads.
@@ -36,7 +43,12 @@ const rendererActions = Object.freeze({
   deleteSession: (value) => deleteSession(value),
   archiveSession: (value) => setSessionArchived(value, true),
   toggleSessionPin: (value) => toggleSessionPin(value),
+  toggleSessionLock: (value) => toggleSessionLock(value),
   openSessionMenu: (value, control) => openSessionMenu(value, control),
+  moveSessionCategory: (value, control) => {
+    const categoryId = control?.dataset?.categoryId || '';
+    return assignSessionCategory(value, categoryId);
+  },
   toggleToolBody: (value) => toggleToolBody(value),
   removeAttachment: (value) => removeAttachment(value),
   activateProfile: (value) => activateProfile(value),
@@ -210,9 +222,14 @@ let currentSessionId = '';
 // temporarily load another runtime, but must never replace this DOM surface.
 let visibleSessionId = '';
 let sessionsCache = [];
-const conversationClientId = sessionStorage.getItem('iexa-conversation-client-id') ||
-  (globalThis.crypto?.randomUUID?.() || `client_${Date.now()}_${Math.random().toString(36).slice(2)}`);
-sessionStorage.setItem('iexa-conversation-client-id', conversationClientId);
+// 每次页面加载都换一个新的客户端 id。
+//
+// 服务端广播流事件时会把「发起这一轮的那个客户端」排除掉，避免自己收到自己的
+// 回声。这个 id 原来存在 sessionStorage 里——刷新之后还是同一个，于是服务端
+// 认为你还是发起方，一个镜像帧都不发；页面只能看到磁盘上的半截检查点，进度
+// 就停在那里不动了。换 id 之后刷新会被当成另一个观察者，流会接回来。
+const conversationClientId = globalThis.crypto?.randomUUID?.()
+  || `client_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 const sessionSyncSnapshot = new Map();
 let conversationEventSource = null;
 let conversationEventQueue = Promise.resolve();
@@ -269,9 +286,179 @@ function protectLiveTurnDom(sessionId = currentSessionId) {
   runtimeForSession(sessionId).liveTurnDomOwnedUntil = Date.now() + LIVE_TURN_DOM_OWNERSHIP_MS;
 }
 
+/** Bubble reused while an unprompted natural line streams in. */
+let naturalLineEl = null;
+
+/** Characters that render as nothing but survive `trim()`. */
+const INVISIBLE_ONLY = /^[\s\u200b\u200c\u200d\u2060\ufeff]*$/;
+
+/**
+ * Paint one reply as the several messages a person would have sent.
+ *
+ * The pauses are the point: four bubbles appearing in the same millisecond read
+ * as one long paragraph with lines through it, which is exactly what natural
+ * chat is trying to avoid. Each burst waits a randomised 1-3s, and the whole
+ * queue is cancelled if the conversation changes underneath it.
+ */
+async function appendNaturalBursts(segments, unprompted) {
+  // A burst can be empty on screen while being non-empty as a string: zero-width
+  // joiners and stray whitespace pass `trim()`. Those painted as a bubble with an
+  // avatar, a control row and a timestamp but no text, so they are dropped here
+  // as well as in the segmenter.
+  const list = (Array.isArray(segments) ? segments : [])
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && !INVISIBLE_ONLY.test(value));
+  if (!list.length) return;
+  const sessionAtStart = currentSessionId;
+  // This turn never streams its text into a bubble, so the placeholder the turn
+  // opened stays blank until the bursts arrive. It is tagged when created, so
+  // only this turn's own placeholder is removed - a message from history, or one
+  // that already holds text, is never touched.
+  if (naturalLineEl && naturalLineEl.isConnected) naturalLineEl.remove();
+  naturalLineEl = null;
+  for (const node of [...chatMessages.querySelectorAll('.message.assistant[data-natural-placeholder="true"]')]) {
+    node.remove();
+  }
+  hideWaitingIndicator?.();
+  // 每次都从 map 里重新取，不缓存引用。
+  //
+  // switchSession / createSession 会用 `sessionRuntimes.set(id, {...})` 换掉整个
+  // 对象。缓存下来的引用指向那个已经没人读的旧对象：循环继续往里写
+  // naturalUndrawn，而界面读的是新对象，于是气泡凭空消失，刷新后才从磁盘回来。
+  const rt = () => runtimeForSession(sessionAtStart);
+  const opening = rt();
+  const startedAt = Date.now();
+  // 上一轮卡住了（抛错没走到复位）：超过三分钟就当作它已经死了。
+  //
+  // 没有这个兜底，一次异常会让 naturalPacing 永远停在 true，之后每一条都进
+  // 队列、永远不画——通知照发，界面一片空白，只能刷新。
+  const stuck = opening.naturalPacing === true
+    && Number(opening.naturalPacingSince) > 0
+    && startedAt - Number(opening.naturalPacingSince) > 180_000;
+  if (stuck) {
+    opening.naturalPacing = false;
+    opening.naturalPacingSince = 0;
+    opening.naturalQueue = [];
+    opening.naturalUndrawn = [];
+  }
+  // 已经有一轮在吐气泡：排队，等它吐完再来。
+  //
+  // 不排的话两个循环并行，气泡交错着冒——她难过时那两条跟进还没说完，按概率
+  // 来的那条就插进来了。生成是快的（几秒），投递是慢的（每句 3–7 秒），所以
+  // 服务端那一层挡不住这个，必须在投递这一侧串行化。
+  if (opening.naturalPacing === true) {
+    if (!Array.isArray(opening.naturalQueue)) opening.naturalQueue = [];
+    opening.naturalQueue.push({ segments: list, unprompted: unprompted === true });
+    return;
+  }
+  // 用户中途开口时，runChatTurn 会把这个值 +1。节奏循环每画一条前都比一次，
+  // 变了就收手——否则旧的独白还在每 3-7 秒吐一句，新的回复又插进来，两条流交错。
+  const pacingEpoch = Number(opening.naturalPacingEpoch) || 0;
+  opening.naturalPacing = true;
+  opening.naturalPacingSince = startedAt;
+  // She spoke on her own: the sidebar must keep breathing for as long as the
+  // lines are paced out, not switch to the working ring the moment the model
+  // stops. A reply to the user keeps the ring.
+  opening.naturalUnprompted = unprompted === true;
+  // Lines whose turn came up while another conversation was on screen. Their
+  // moment has already passed, so they are painted at once when this one
+  // returns rather than being replayed with fresh pauses.
+  opening.naturalUndrawn = [];
+  if (typeof renderSessionList === 'function') renderSessionList();
+  // 这一轮的第一条之前放一个时间分隔。放在这里而不是循环前，是因为循环
+  // 可能因为会话切走而 continue——那样会在错误的 DOM 上留一个孤立的分隔。
+  let dividerPlaced = false;
+  try {
+    for (let index = 0; index < list.length; index += 1) {
+      const runtime = rt();
+      // 用户插话了：剩下的不再画，连等待也一起取消。
+      if (Number(runtime.naturalPacingEpoch) !== pacingEpoch) return;
+      if (index > 0) {
+        const wait = 3000 + Math.round(Math.random() * 4000);
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      // 等待期间也可能被打断，画之前再比一次。
+      if (Number(rt().naturalPacingEpoch) !== pacingEpoch) return;
+      if (currentSessionId !== sessionAtStart) {
+        // Still pacing while hidden: her reply finishes on its own schedule, it
+        // just has nowhere to paint. Remember it instead of dropping it.
+        rt().naturalUndrawn.push(list[index]);
+        continue;
+      }
+      // Back on screen: flush whatever came due while hidden, then this line.
+      const shown = rt();
+      if (shown.naturalUndrawn.length) {
+        if (!dividerPlaced) { dividerPlaced = true; appendChatTimeDivider(Date.now()); }
+        for (const line of shown.naturalUndrawn) {
+          addMessage('assistant', line);
+          shown.mountedMessageCount = (Number(shown.mountedMessageCount) || 0) + 1;
+        }
+        shown.naturalUndrawn = [];
+      }
+      if (!dividerPlaced) { dividerPlaced = true; appendChatTimeDivider(Date.now()); }
+      addMessage('assistant', list[index]);
+      shown.mountedMessageCount = (Number(shown.mountedMessageCount) || 0) + 1;
+      scrollToBottom();
+    }
+  } finally {
+    // 无论正常结束、抛错还是提前 return，都必须解锁——否则下一条永远进队列。
+    const done = rt();
+    done.naturalPacing = false;
+    done.naturalPacingSince = 0;
+    done.naturalUnprompted = false;
+    done.naturalUndrawn = [];
+    if (typeof renderSessionList === 'function') renderSessionList();
+    // 排队中的下一轮：接着吐，不并排。
+    const queued = Array.isArray(done.naturalQueue) ? done.naturalQueue.shift() : null;
+    if (queued) void appendNaturalBursts(queued.segments, queued.unprompted);
+  }
+}
+
+/**
+ * Paint the unprompted line while the model is still writing it. One bubble is
+ * reused for the whole stream; the final `natural_segments` event replaces it.
+ */
+function streamNaturalLine(text) {
+  const body = String(text || '');
+  if (!body) return;
+  if (!naturalLineEl || !naturalLineEl.isConnected || naturalLineEl.dataset.sessionId !== currentSessionId) {
+    naturalLineEl = addMessage('assistant', '');
+    if (naturalLineEl) {
+      naturalLineEl.dataset.naturalLine = 'true';
+      naturalLineEl.dataset.sessionId = currentSessionId || '';
+    }
+  }
+  if (!naturalLineEl) return;
+  const content = naturalLineEl.querySelector('.message-content');
+  if (content) content.textContent = body;
+  scrollToBottom();
+}
+
+/**
+ * Append one assistant line that arrived without a user turn (natural chat).
+ * The line is already persisted on the server; this only paints it and keeps the
+ * mounted-count baseline in step so the next metadata poll does not rebuild a
+ * transcript that already contains it.
+ */
+function appendNaturalLine(text) {
+  const body = String(text || '').trim();
+  if (!body) return;
+  if (naturalLineEl && naturalLineEl.isConnected) {
+    const content = naturalLineEl.querySelector('.message-content');
+    if (content) content.textContent = body;
+    naturalLineEl = null;
+  } else {
+    addMessage('assistant', body);
+  }
+  if (currentSessionId) {
+    const runtime = runtimeForSession(currentSessionId);
+    runtime.mountedMessageCount = (Number(runtime.mountedMessageCount) || 0) + 1;
+  }
+  scrollToBottom();
+}
+
 /** Number of transcript bubbles currently mounted for a session. */
-function countRenderedMessages(sessionId) {
-  if (!sessionId) return 0;
+function countRenderedMessages(sessionId) {  if (!sessionId) return 0;
   if (sessionId === visibleSessionId) return visibleChatMessages.querySelectorAll('.message').length;
   const runtime = sessionRuntimes.get(sessionId);
   return runtime ? runtime.fragment.querySelectorAll('.message').length : 0;
@@ -305,12 +492,16 @@ function snapshotActiveSessionRuntime(detachSurface = false) {
   // Only a user-initiated session switch moves visible DOM into storage.
   // Background SSE updates render against the detached fragment directly.
   if (detachSurface && currentSessionId === visibleSessionId) {
+    // Read the viewport BEFORE moving the children: emptying the surface
+    // collapses its scroll box, and every read after that point is 0. That is
+    // why a reader who had scrolled up came back to the newest line instead of
+    // their place - the position was never recorded in the first place.
+    // A mount that is still positioning the surface does not own the reader's
+    // scroll yet, so its transient offsets are not stored.
+    const top = visibleChatMessages.scrollTop;
+    const positioning = visibleChatMessages.classList.contains('is-positioning-history');
     while (chatMessages.firstChild) runtime.fragment.appendChild(chatMessages.firstChild);
-    // A cold-start/history mount owns the viewport until its lazy layout has
-    // settled. Do not persist the transient top position observed mid-mount.
-    if (!(runtime.historyFollowLatestUntil > Date.now()) && !runtime.forceHistoryLatest) {
-      runtime.scrollTop = visibleChatMessages.scrollTop;
-    }
+    if (!positioning) runtime.scrollTop = top;
   }
   runtime.isProcessing = isProcessing;
   runtime.currentAssistantMsg = currentAssistantMsg;
@@ -337,6 +528,41 @@ function mountSessionRuntime(sessionId, surface = visibleChatMessages) {
   if (surface === visibleChatMessages && Number.isFinite(runtime.scrollTop) && !(runtime.historyFollowLatestUntil > Date.now()) && !runtime.forceHistoryLatest) {
     visibleChatMessages.scrollTop = runtime.scrollTop;
   }
+}
+
+/**
+ * 回到一段已经读过的对话，停在读者离开时的位置。
+ *
+ * 缓存里的会话一挂载就会被 scrollHistoryToLatest 钉到最底部——那是给冷启动
+ * 用的，用在「切走再切回」上就是把人的位置直接扔掉。这里改成一个只认目标
+ * 位置的短循环：惰性布局（content-visibility、分页工具输出）会在头几帧改变
+ * scrollHeight，所以要像钉底那套一样多复述几次，直到高度稳定；读者一动手
+ * 就立刻让位。
+ */
+function restoreSessionScroll(sessionId, target) {
+  const runtime = runtimeForSession(sessionId);
+  runtime.historyFollowLatestUntil = 0;
+  runtime.forceHistoryLatest = false;
+  let frame = 0;
+  let previousHeight = -1;
+  const startedAt = performance.now();
+  const apply = () => {
+    if (sessionId !== currentSessionId || sessionId !== visibleSessionId) return;
+    if (isChatGestureScrolling()) return;
+    visibleChatMessages.scrollTop = target;
+    const height = visibleChatMessages.scrollHeight;
+    const settled = height === previousHeight;
+    previousHeight = height;
+    frame += 1;
+    runtime.scrollTop = visibleChatMessages.scrollTop;
+    if ((frame >= 2 && settled) || performance.now() - startedAt > 600) {
+      isNearChatBottom = isChatNearBottom();
+      updateScrollToBottomButton();
+      return;
+    }
+    requestAnimationFrame(apply);
+  };
+  requestAnimationFrame(apply);
 }
 
 // History is rendered with lazy layout (content-visibility, Markdown tables,
@@ -383,8 +609,27 @@ function scrollHistoryToLatest(sessionId = currentSessionId) {
     if (cancelHistoryScrollPositioning === cleanup) cancelHistoryScrollPositioning = null;
   };
   if (typeof cancelHistoryScrollPositioning !== 'undefined') cancelHistoryScrollPositioning = () => cleanup(false);
+  /* Hand the viewport back instead of dragging it.
+     This loop only exists to land the reader on the newest line after a cold
+     start. A turn that was just sent in this view owns the surface instead: its
+     send-time anchor borrows the container's bottom padding, so
+     `scrollHeight - clientHeight` here points at the bottom of that borrowed
+     room rather than at the newest line. Pinning to it walked the transcript
+     down through empty space, and the moment the padding was given back the
+     browser clamped scrollTop onto the first message: the reader lost their
+     place, and with the borrowed room gone there was often nothing left to
+     scroll. Keep pinning once the reader takes over with wheel or touch and
+     every streamed token drags them back the same way. */
+  const abandon = () => {
+    cleanup(false);
+    if (runtime && generation === historyScrollGeneration) {
+      runtime.historyFollowLatestUntil = 0;
+      runtime.forceHistoryLatest = false;
+    }
+  };
   const pin = () => {
-    if (generation !== historyScrollGeneration || sessionId !== currentSessionId || sessionId !== visibleSessionId) return false;
+    if (cancelled || generation !== historyScrollGeneration || sessionId !== currentSessionId || sessionId !== visibleSessionId) return false;
+    if (turnAnchor || isChatGestureScrolling()) { abandon(); return false; }
     visibleChatMessages.scrollTop = Math.max(0, visibleChatMessages.scrollHeight - visibleChatMessages.clientHeight);
     if (runtime) runtime.scrollTop = visibleChatMessages.scrollTop;
     return true;
@@ -566,7 +811,10 @@ const VIEW_REFRESH = {
   scheduled: () => { renderScheduledTasks(); loadScheduledTasks(); },
   mcp: () => loadMcpServers(),
   plugins: () => loadPlugins(),
-  pet: () => loadPetSnapshot().then(petRender),
+  pet: () => loadPetSnapshot().then(petRender).catch((error) => {
+    if (petAccessDenied(error)) return;
+    window.IexaDialogs?.alert?.(error.message || '无法读取桌宠状态');
+  }),
   sync: () => loadMobileBridge(),
   doc: () => window.IexaDoc?.init(),
 };
@@ -620,11 +868,15 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
 // =============================================================================
 
 let soulSaving = false;
-let soulState = { metadata: { name: 'IEXA', style: '', lang: 'auto' }, body: '' };
+let soulState = { metadata: { name: 'iExA', style: '', lang: 'auto' }, body: '' };
 let soulSaveFeedbackTimer = null;
 
 function soulName() {
-  return String(soulState?.metadata?.name || '').trim() || 'IEXA';
+  const stored = String(soulState?.metadata?.name || '').trim();
+  // Souls saved before the brand rename still carry the all-caps spelling, and
+  // this value drives the sidebar wordmark, so map it back to the product form.
+  if (!stored || stored === 'IEXA') return 'iExA';
+  return stored;
 }
 
 function estimateSoulTokens(text) {
@@ -656,7 +908,7 @@ function estimateSoulTokens(text) {
 function soulFormValue() {
   return {
     metadata: {
-      name: document.getElementById('soulName')?.value || 'IEXA',
+      name: document.getElementById('soulName')?.value || 'iExA',
       style: document.getElementById('soulStyle')?.value || '',
       lang: document.getElementById('soulLanguage')?.value || 'auto',
     },
@@ -672,13 +924,15 @@ function applySoulIdentity() {
   const welcome = chatMessages?.querySelector('.welcome');
   if (welcome) {
     const title = welcome.querySelector('h2');
-    if (title) title.textContent = '今天想构建什么？';
+    // Natural chat owns its own opening line; the product headline would
+    // overwrite it on every soul refresh.
+    if (title && !welcome.classList.contains('is-natural')) title.textContent = IexaI18n.t('ui.9');
   }
 }
 
 function updateSoulPreview() {
   const value = soulFormValue();
-  const name = String(value.metadata.name || '').trim() || 'IEXA';
+  const name = String(value.metadata.name || '').trim() || 'iExA';
   const style = String(value.metadata.style || '').trim();
   const nameEl = document.getElementById('soulPreviewName');
   const styleEl = document.getElementById('soulPreviewStyle');
@@ -741,7 +995,7 @@ function setSoulSaveFeedback(message = '', state = '') {
 function populateSoulForm(data) {
   soulState = {
     metadata: {
-      name: data?.metadata?.name || 'IEXA',
+      name: data?.metadata?.name || 'iExA',
       style: data?.metadata?.style || '',
       lang: data?.metadata?.lang || 'auto',
     },
@@ -1969,6 +2223,11 @@ async function runChatTurn(message, displayText, attachments, opts) {
   setProcessing(true);
   const turnRuntime = runtimeForSession(sessionId);
   if (turnRuntime) { turnRuntime.interruptedTurn = null; turnRuntime.pausedTurn = null; turnRuntime.turnController = turnController; }
+  // 用户开口了：上一轮还在按 3-7 秒节奏吐的独白立刻收手。
+  // 不这么做，旧的继续画、新的插进来，两条流交错成一团。
+  if (turnRuntime) turnRuntime.naturalPacingEpoch = (Number(turnRuntime.naturalPacingEpoch) || 0) + 1;
+  // 排队等着吐的也一起丢掉：用户已经说话了，那些独白不该再冒出来。
+  if (turnRuntime) turnRuntime.naturalQueue = [];
   snapshotActiveSessionRuntime();
   document.querySelectorAll('.error-message').forEach(function (el) { el.remove(); });
 
@@ -2011,7 +2270,13 @@ async function runChatTurn(message, displayText, attachments, opts) {
 
     if (!response.ok) {
       const data = await response.json().catch(function () { return {}; });
-      throw new Error(data.error || ('服务器错误：' + response.status));
+      const message = data.error || ('服务器错误：' + response.status);
+      // 小楠的模式读不出来时不拿标准聊天的规则顶替，也不把半截记录画出来。
+      // 直接告诉他重启，比让她用错的人格回一句话好。
+      if (response.status >= 500 || /会话数据读取失败|会话不存在或尚未加载|会话模式/.test(message)) {
+        window.IexaDialogs?.alert?.('小楠遇到了一个致命错误\n建议重启客户端');
+      }
+      throw new Error(message);
     }
 
     // The fetch may resolve after the user has opened another session.
@@ -2096,6 +2361,7 @@ async function runChatTurn(message, displayText, attachments, opts) {
         hideWaitingIndicator();
         finishTaskSummary();
         finalizeAssistantMessage(currentAssistantMsg);
+        window.IexaPlanDock?.finish(sessionId);
         setProcessing(false);
         scheduleQueueDrain();
       }
@@ -2340,6 +2606,8 @@ function handleError(message, turnToken) {
   hideWaitingIndicator();
   finalizeAssistantMessage(currentAssistantMsg);
   addError(message);
+  // A run that ended in an error also stops being live progress.
+  window.IexaPlanDock?.finish(currentSessionId);
   clearContextBusy();
   setProcessing(false);
   scheduleQueueDrain();
@@ -2377,6 +2645,9 @@ function handleDone(stopReason, turnToken, generationMs, generationRateVersion, 
   protectLiveTurnDom();
   runtimeForSession(currentSessionId).turnStopPending = false;
   finishTaskSummary();
+  // The turn is over, so its plan is history. Leaving the dock up made a
+  // finished run look like it was still stuck on step one.
+  window.IexaPlanDock?.finish(currentSessionId);
   clearContextBusy();
   setProcessing(false);
 
@@ -2565,6 +2836,8 @@ function handleCancelled(turnToken) {
   hideWaitingIndicator();
   finishTaskSummary();
   finalizeAssistantMessage(currentAssistantMsg);
+  // A cancelled run leaves no live progress behind.
+  window.IexaPlanDock?.finish(currentSessionId);
   clearContextBusy();
   setProcessing(false);
   currentAssistantMsg = null;
@@ -2722,7 +2995,7 @@ async function loadSystemInfo() {
     const data = await resp.json();
     if (badge && data && data.version) {
       badge.textContent = `Ver ${data.version}`;
-      badge.title = `IEXA-WIN ${data.version}`;
+      badge.title = `iExA-WIN ${data.version}`;
       badge.hidden = false;
     }
     if (el && data && data.label) {
@@ -2754,7 +3027,7 @@ function currentAppearance() {
   return {
     ...(window.IexaUiScale?.current() || {fontScale:100,iconScale:100}),
     ...(window.IexaSkins?.snapshot() || {}),
-    theme: getThemeMode(),
+    theme: getThemePreference(),
     motion: getMotionMode(),
     accent: getAccent(),
     collapseConsecutiveTools: consecutiveToolFoldEnabled(),
@@ -2794,8 +3067,10 @@ async function loadAppearanceSettings() {
     const response = await fetch(`${API_BASE}/api/appearance`, { cache: 'no-store' });
     const value = await response.json();
     if (!response.ok) throw new Error(value.error || '读取外观设置失败');
-    const mode = value.theme === 'dark' ? 'dark' : 'light';
+    const preference = THEME_PREFERENCES.includes(value.theme) ? value.theme : 'dark';
+    const mode = resolveTheme(preference);
     const accent = ACCENT_PRESETS.some((item) => item.id === value.accent) ? value.accent : 'violet';
+    document.documentElement.setAttribute('data-theme-mode', preference);
     document.documentElement.setAttribute('data-theme', mode);
     applyMotionMode(value.motion);
     window.IexaUiScale?.apply(value);
@@ -2816,7 +3091,7 @@ async function loadAppearanceSettings() {
       document.documentElement.style.setProperty('--sidebar-width', `${value.sidebarWidth || 240}px`);
       document.documentElement.style.setProperty('--files-panel-width', `${value.filesPanelWidth || 300}px`);
     }
-    try { localStorage.setItem('iexa-theme', mode); localStorage.setItem('iexa-accent', accent); } catch { /* */ }
+    try { localStorage.setItem('iexa-theme', preference); localStorage.setItem('iexa-accent', accent); } catch { /* */ }
     try { localStorage.setItem('iexa-skin', JSON.stringify(window.IexaSkins?.snapshot() || {})); } catch { /* quota */ }
     applyHighlightTheme(mode);
     syncThemeUI();
@@ -2874,26 +3149,59 @@ function setMotionMode(value) {
   scheduleAppearanceSave();
 }
 
+const THEME_PREFERENCES = ['light', 'dark', 'auto'];
+
+/** What the operating system says right now. */
+function systemPrefersDark() {
+  try { return window.matchMedia?.('(prefers-color-scheme: dark)').matches === true; } catch { return false; }
+}
+
+/** The stored choice: a fixed mode, or `auto` to keep following the system. */
+function getThemePreference() {
+  const value = document.documentElement.getAttribute('data-theme-mode');
+  return THEME_PREFERENCES.includes(value) ? value : getThemeMode();
+}
+
+/** `data-theme` is always a concrete colour; stylesheets and skins never see
+ *  `auto`. Resolving late is what makes the system flip a repaint, not a save. */
+function resolveTheme(preference) {
+  if (preference === 'auto') return systemPrefersDark() ? 'dark' : 'light';
+  return preference === 'dark' ? 'dark' : 'light';
+}
+
 function getThemeMode() {
   return document.documentElement.getAttribute('data-theme') || 'light';
 }
 
 function getAccent() {
-  let a = document.documentElement.getAttribute('data-accent') || 'violet';
+  let a = document.documentElement.getAttribute('data-accent') || 'rose';
   if (a === 'opencode') a = 'amber';
   return a;
 }
 
-function setThemeMode(mode) {
-  const m = mode === 'dark' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', m);
+/**
+ * Paint a theme preference.
+ *
+ * `save` is false on two paths that are not user edits: the boot-time fallback
+ * and the system-change repaint. Writing an appearance record for either would
+ * turn "follow Windows" into a fixed colour the first time Windows flipped.
+ */
+function applyThemePreference(preference, save = true) {
+  const choice = THEME_PREFERENCES.includes(preference) ? preference : 'light';
+  const mode = resolveTheme(choice);
+  document.documentElement.setAttribute('data-theme-mode', choice);
+  document.documentElement.setAttribute('data-theme', mode);
   // A skin has a light and a dark palette; repaint before the next frame.
   window.IexaSkins?.apply();
-  try { localStorage.setItem('iexa-theme', m); } catch { /* */ }
-  applyHighlightTheme(m);
+  try { localStorage.setItem('iexa-theme', choice); } catch { /* */ }
+  applyHighlightTheme(mode);
   syncThemeUI();
   window.IexaAppearanceView?.sync?.();
-  scheduleAppearanceSave();
+  if (save) scheduleAppearanceSave();
+}
+
+function setThemeMode(mode) {
+  applyThemePreference(mode, true);
 }
 
 function applyHighlightTheme(mode) {
@@ -2925,6 +3233,18 @@ function renderAccentDots() {
   });
 }
 
+// Windows switching to dark while the app is open is invisible unless the app
+// says so; without this the palette just changes under the user's hands and
+// gets blamed on a bug. Same shape as the motion hint above.
+function syncThemeHint() {
+  const hint = document.getElementById('themeHelp');
+  if (!hint) return;
+  const base = IexaI18n.t('ui.300');
+  hint.textContent = getThemePreference() === 'auto'
+    ? `${base} ${IexaI18n.t('ui.299', { mode: IexaI18n.t(getThemeMode() === 'dark' ? 'ui.237' : 'ui.236') })}`
+    : base;
+}
+
 function syncThemeUI() {
   window.IexaUiScale?.sync();
   document.querySelectorAll('#motionSeg [data-motion-set]').forEach((button) => {
@@ -2940,10 +3260,15 @@ function syncThemeUI() {
     const state = collapseTools.closest('.appearance-switch')?.querySelector('.appearance-switch-state');
     if (state) state.textContent = collapseTools.checked ? state.dataset.on : state.dataset.off;
   }
-  const mode = getThemeMode();
+  const preference = getThemePreference();
   document.querySelectorAll('#themeSeg [data-theme-set]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.themeSet === mode);
+    // The selection is the choice, not the colour it currently resolves to, so
+    // "auto" stays lit while Windows flips underneath it.
+    const active = btn.dataset.themeSet === preference;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
   });
+  syncThemeHint();
   renderAccentDots();
 }
 
@@ -2962,6 +3287,14 @@ function initTheme() {
   const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
   if (motionQuery?.addEventListener) motionQuery.addEventListener('change', syncMotionHint);
   else motionQuery?.addListener?.(syncMotionHint);
+  // Windows can flip light/dark while the app is open. Repaint in place for
+  // `auto`; a fixed mode ignores the event, which is the whole point of fixing it.
+  const colorSchemeQuery = window.matchMedia?.('(prefers-color-scheme: dark)');
+  const followSystemTheme = () => {
+    if (getThemePreference() === 'auto') applyThemePreference('auto', false);
+  };
+  if (colorSchemeQuery?.addEventListener) colorSchemeQuery.addEventListener('change', followSystemTheme);
+  else colorSchemeQuery?.addListener?.(followSystemTheme);
   document.getElementById('collapseToolsToggle')?.addEventListener('change', (event) => setConsecutiveToolFold(event.target.checked));
 
   // Skins own their own controls; the page module keeps them in sync with the
@@ -2985,7 +3318,12 @@ function initTheme() {
 
   let accent = getAccent();
   if (accent === 'opencode') accent = 'violet';
-  if (!document.documentElement.getAttribute('data-theme')) setThemeMode('light');
+  // InitialAppearance resolves both attributes before first paint. A host page
+  // that skipped it (a bare embed, a test fixture) gets the same treatment here.
+  if (!document.documentElement.getAttribute('data-theme-mode')) {
+    document.documentElement.setAttribute('data-theme-mode', getThemeMode());
+  }
+  if (!document.documentElement.getAttribute('data-theme')) applyThemePreference(getThemePreference(), false);
   document.documentElement.setAttribute('data-accent', accent);
   applyHighlightTheme(getThemeMode());
 
@@ -2997,9 +3335,81 @@ function initTheme() {
 }
 
 // Start
+// Boots at most once. A phone that scans the pairing QR while this origin is
+// already open only gets a same-document fragment navigation, so
+// services/MobileBridge.js calls init() again once the token lands. The state
+// machine keeps that second call from doubling every listener, and appBootRetry
+// covers a scan that arrives while the first attempt is still awaiting the gate.
+let appBootState = 'idle';
+let appBootRetry = false;
+/* =============================================================================
+   开机自启
+   ============================================================================= */
+
+/**
+ * 侧栏「新聊天」上方那个开关。
+ *
+ * 状态只有一份：Windows 的 HKCU Run 项。开关不缓存自己的选择，每次展开都问
+ * 服务器读注册表，所以别的工具把自启关掉时，这里显示的是机器真正会做的事。
+ */
+async function initAutostartToggle() {
+  const input = document.getElementById('autostartToggle');
+  if (!input) return;
+  const label = input.closest('.sidebar-autostart');
+
+  const reflect = (state) => {
+    const supported = !state || state.supported !== false;
+    input.checked = !!(state && state.enabled);
+    input.disabled = !supported;
+    if (!label) return;
+    label.title = !supported
+      ? '仅 Windows 支持开机自启'
+      : (input.checked ? `开机时自动启动 iExA 服务` : '开机时自动启动 iExA 服务（当前关闭）');
+  };
+
+  try {
+    reflect(await fetch(`${API_BASE}/api/autostart`).then((response) => response.json()));
+  } catch {
+    /* 读不到就按关闭显示，点一下会再试 */
+  }
+
+  input.addEventListener('change', async () => {
+    const wanted = input.checked;
+    input.disabled = true;
+    try {
+      const response = await fetch(`${API_BASE}/api/autostart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: wanted }),
+      });
+      const state = await response.json().catch(() => ({}));
+      // 回读的结果才算数：注册表可能拒绝写入。
+      if (!response.ok || state.enabled !== wanted) throw new Error(state.error || '写入注册表失败');
+      reflect(state);
+      window.IexaDialogs?.toast?.(wanted ? '已设为开机自启' : '已取消开机自启');
+    } catch (error) {
+      input.checked = !wanted;
+      window.IexaDialogs?.toast?.(error.message || '开机自启设置失败');
+    } finally {
+      reflect(await fetch(`${API_BASE}/api/autostart`).then((response) => response.json()).catch(() => null));
+    }
+  });
+}
+
 async function init() {
-  if (!await verifyMobileAccess()) return;
+  installMobilePairWatch();
+  if (appBootState === 'done') return;
+  if (appBootState === 'running') { appBootRetry = true; return; }
+  appBootState = 'running';
+  if (!await verifyMobileAccess()) {
+    appBootState = 'idle';
+    if (appBootRetry) { appBootRetry = false; return init(); }
+    return;
+  }
+  appBootState = 'done';
+  appBootRetry = false;
   initTheme();
+  void initAutostartToggle();
   await loadAppearanceSettings();
   initPermissionModeUI();
   await loadPermissionMode();
@@ -3014,7 +3424,10 @@ async function init() {
   initBalanceView();
   initComposerHint();
   initShareConversation();
-  initSidebarNavigationScroll();
+  // The sidebar is one scroll container now (#sidebarScroll); the old
+  // "route the wheel to the nav rail and scroll the clicked button into view"
+  // helper went with the split scrollers, and its scrollIntoView was what yanked
+  // the list back to the top on every nav click.
   initMobileDrawers();
   initChatFocusMode();
   window.IexaPanelVisibility?.init();
@@ -3031,7 +3444,7 @@ document.addEventListener('click', (event) => {
 
 // ---- Command palette (Ctrl/Cmd+K) ----
 const COMMAND_PALETTE_ACTIONS = [
-  { id: 'new-session', key: 'palette.newSession', hint: 'Ctrl N', run: () => document.getElementById('newSessionBtn')?.click() },
+  { id: 'new-session', key: 'palette.newSession', run: () => document.getElementById('newSessionBtn')?.click() },
   { id: 'chat', key: 'palette.chat', run: () => document.querySelector('.nav-btn[data-view="chat"]')?.click() },
   { id: 'skills', key: 'palette.skills', run: () => document.querySelector('.nav-btn[data-view="skills"]')?.click() },
   { id: 'scheduled', key: 'palette.scheduled', run: () => document.querySelector('.nav-btn[data-view="scheduled"]')?.click() },
@@ -3180,6 +3593,23 @@ if (localeSelect) {
   initGoalBanner();
   void refreshGoalBanner();
   refreshScheduledBadge();
+
+  // 通知上点了「发送」：切到那条会话，把光标放进输入框。
+  //
+  // Windows 只在打包应用里把输入框的内容交还给程序；这里是非打包应用，
+  // protocol 激活只会带上 action 的 arguments，用户打的字到不了这边。所以
+  // 这一步只负责把人送到能打字的地方，不假装那条消息已经发出去了。
+  const toastReply = new URLSearchParams(location.search).get('reply');
+  if (toastReply) {
+    history.replaceState(null, '', location.pathname);
+    if (toastReply !== currentSessionId) {
+      try { await switchSession(toastReply, false); } catch { /* 会话可能已删 */ }
+    }
+    window.setTimeout(() => {
+      chatInput?.focus();
+      scrollToBottom();
+    }, 400);
+  }
 }
 
 init();

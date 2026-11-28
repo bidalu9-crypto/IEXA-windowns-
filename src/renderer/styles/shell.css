@@ -27,7 +27,7 @@
    file sits one level down, so it must step up or the wordmark silently falls
    back to Segoe UI. */
 @font-face {
-  font-family: 'IEXA Wordmark';
+  font-family: 'iExA Wordmark';
   src: url('../vendor/fonts/orbitron-latin-var.woff2') format('woff2');
   font-weight: 400 900;
   font-style: normal;
@@ -59,8 +59,51 @@
   object-fit: contain;
 }
 
+/* Unread counter for natural chat. Display only: it has no click handler and no
+   keyboard affordance, so it reads as a status pill rather than a button.
+   The badge is absolutely positioned so it can hang off the top-right corner
+   the way an iOS app badge does, without widening the pill. */
+.sidebar-unread {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  line-height: 1.5;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sidebar-unread[hidden] { display: none; }
+
+.sidebar-unread-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  /* iOS system red. Fixed on purpose: it must read as an alert in every theme. */
+  background: #ff3b30;
+  color: #fff;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  /* A ring in the sidebar's own colour separates the badge from the pill edge. */
+  box-shadow: 0 0 0 2px var(--bg-secondary);
+}
+
 .sidebar-header h1 {
-  font-family: 'IEXA Wordmark', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-family: 'iExA Wordmark', 'Segoe UI', 'Microsoft YaHei', sans-serif;
   font-size: calc(1.35rem * var(--ui-font-scale, 1));
   font-weight: 800;
   font-variation-settings: 'wght' 800;
@@ -246,9 +289,12 @@
 .session-project-heading:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 .session-project-heading:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 1px; }
 .session-project-heading .ui-icon { width: 13px; height: 13px; flex: 0 0 13px; }
-/* Expanded points down, folded points right. Transform only: no layout shift. */
-.session-project-heading .ui-icon-chevron-right { transform: rotate(90deg); transition: transform 140ms ease; }
-.session-project-group.is-collapsed .session-project-heading .ui-icon-chevron-right { transform: rotate(0deg); }
+/* Expanded points down, folded points right. Both glyphs are in the DOM and
+   only the class on the group decides which one paints, so folding works
+   without a re-render and without rotating a 13px box. */
+.session-project-heading .session-chevron-closed { display: none; }
+.session-project-group.is-collapsed .session-project-heading .session-chevron-open { display: none; }
+.session-project-group.is-collapsed .session-project-heading .session-chevron-closed { display: block; }
 .session-project-heading span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-project-heading b { margin-left: auto; min-width: 18px; text-align: center; font-size: .62rem; font-weight: 600; }
 .session-project-items { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -370,6 +416,62 @@ html[data-motion="system"] .session-item.is-running::before {
   50% { opacity: .42; transform: scale(.76); }
 }
 
+/* She is speaking on her own.
+   The running ring above travels around the pill, which reads as "working".
+   An unprompted line is the opposite kind of activity - nothing is being
+   computed for the user - so it gets a breath instead: a still ring that swells
+   and fades in place, plus a three-bar level meter where the running dot sits. */
+.session-item.is-natural-speaking { position: relative; }
+.session-item.is-natural-speaking::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 52%, transparent),
+    0 0 10px 1px color-mix(in srgb, var(--accent) 26%, transparent);
+  animation: session-speaking-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes session-speaking-breathe {
+  0%, 100% { opacity: .3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.008); }
+}
+
+.session-speaking-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 9px;
+  flex: 0 0 auto;
+  margin-right: 1px;
+}
+
+.session-speaking-bars b {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  transform-origin: bottom;
+  animation: session-speaking-bar 900ms ease-in-out infinite;
+}
+
+.session-speaking-bars b:nth-child(1) { height: 5px; animation-delay: 0ms; }
+.session-speaking-bars b:nth-child(2) { height: 9px; animation-delay: 150ms; }
+.session-speaking-bars b:nth-child(3) { height: 6px; animation-delay: 300ms; }
+
+@keyframes session-speaking-bar {
+  0%, 100% { transform: scaleY(.4); opacity: .5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+html[data-motion="reduced"] .session-item.is-natural-speaking::before,
+html[data-motion="system"] .session-item.is-natural-speaking::before,
+html[data-motion="reduced"] .session-speaking-bars b,
+html[data-motion="system"] .session-speaking-bars b {
+  animation: none;
+}
+
 /* One dots trigger per row; the menu itself is mounted on <body>. */
 .session-item-more {
   flex: 0 0 24px;
@@ -432,7 +534,30 @@ html[data-motion="system"] .session-item.is-running::before {
   color: var(--error);
   background: color-mix(in srgb, var(--error) 12%, transparent);
 }
+/* 锁定的会话：删除项还在原位，但不可点。留在菜单里而不是藏起来，
+   这样「为什么不能删」看得见，不用去猜。 */
+.session-menu-item.is-disabled,
+.session-menu-item:disabled {
+  color: var(--text-tertiary, #8a8a8e);
+  opacity: .5;
+  cursor: default;
+  pointer-events: none;
+}
 .session-menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
+
+/* Section caption above the category radio rows. */
+.session-menu-label {
+  padding: 4px 9px 2px;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+/* The row that matches the conversation's current category. */
+.session-menu-item.is-checked {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 
 .session-item-title.is-marquee {
   text-overflow: clip;

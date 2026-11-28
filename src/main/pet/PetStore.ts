@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA - Desktop pet store
+// iExA - Desktop pet store
 //
 // One sprite plus a small behaviour config per workspace. The sprite is the
 // already-cut-out PNG the renderer produced; this module never touches pixels,

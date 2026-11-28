@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Question broker
+// iExA PC - Question broker
 // Bridges an ask_user runtime wait to HTTP/SSE without exposing tool internals.
 // Mirrors PermissionBroker: subscribe -> pending -> resolve from the UI.
 // =============================================================================

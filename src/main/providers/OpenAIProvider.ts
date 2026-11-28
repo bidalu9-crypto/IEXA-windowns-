@@ -1,7 +1,7 @@
 import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
 import { ProviderError } from './ProviderError';
 // =============================================================================
-// IEXA PC - OpenAI Provider
+// iExA PC - OpenAI Provider
 // Mirrors iOS OpenAIProvider.swift + OpenAIAgentProvider.swift
 // Uses OpenAI Chat Completions API with SSE streaming + tool calls
 // =============================================================================

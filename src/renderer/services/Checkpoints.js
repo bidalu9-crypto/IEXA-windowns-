@@ -47,15 +47,27 @@ function positionCheckpointPopover() {
   const popover = document.getElementById('checkpointPopover');
   const button = document.getElementById('checkpointBtn');
   if (!popover || !button || popover.hidden) return;
-  const anchor = button.getBoundingClientRect();
   const width = Math.min(360, window.innerWidth - CHECKPOINT_POPOVER_MARGIN * 2);
   popover.style.width = `${Math.round(width)}px`;
-  const height = popover.offsetHeight;
-  const left = Math.min(
-    Math.max(CHECKPOINT_POPOVER_MARGIN, anchor.right - width),
-    Math.max(CHECKPOINT_POPOVER_MARGIN, window.innerWidth - width - CHECKPOINT_POPOVER_MARGIN),
+  // Shares the composer panel placement: centred on the conversation column and
+  // flush with the chat box's top border.
+  if (globalThis.IexaComposerMenu) {
+    // Measure the panel at its natural height first, then show two thirds of
+    // it. A fixed pixel cap guessed at the design height, which clipped the
+    // list far more than two thirds once the header was subtracted.
+    popover.style.maxHeight = 'none';
+    const natural = popover.getBoundingClientRect().height;
+    popover.style.maxHeight = '';
+    const cap = Math.max(120, Math.round(Math.min(natural, window.innerHeight - 24) * 2 / 3));
+    globalThis.IexaComposerMenu.open('checkpointPopover', 'checkpointBtn', cap);
+    return;
+  }
+  const left = Math.max(
+    CHECKPOINT_POPOVER_MARGIN,
+    Math.round((window.innerWidth - width) / 2),
   );
-  let top = anchor.top - height - CHECKPOINT_POPOVER_GAP;
+  const height = popover.offsetHeight;
+  let top = button.getBoundingClientRect().top - height - CHECKPOINT_POPOVER_GAP;
   if (top < CHECKPOINT_POPOVER_MARGIN) {
     // Not enough room above the toolbar: open downwards instead, still clamped.
     top = Math.min(anchor.bottom + CHECKPOINT_POPOVER_GAP, window.innerHeight - height - CHECKPOINT_POPOVER_MARGIN);
@@ -74,7 +86,10 @@ function setCheckpointOpen(open) {
       document.body.appendChild(popover);
     }
     popover.hidden = !open;
-    if (open) positionCheckpointPopover();
+    if (open) {
+      globalThis.IexaComposerMenu?.closeOthers('checkpointPopover');
+      positionCheckpointPopover();
+    }
   }
   if (button) button.setAttribute('aria-expanded', String(open));
   // The list is fetched, so its final height is only known after it renders.

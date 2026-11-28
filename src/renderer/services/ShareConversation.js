@@ -185,7 +185,7 @@ function shareFormatPlainText(payload) {
   const exchange = payload.exchange || {};
   const reply = exchange.reply || {};
 
-  lines.push('IEXA 对话分享');
+  lines.push('iExA 对话分享');
   if (meta.title) lines.push('会话：' + meta.title);
   if (meta.model) lines.push('模型：' + meta.model);
   if (meta.project) lines.push('项目：' + meta.project);

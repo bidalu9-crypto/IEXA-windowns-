@@ -1,7 +1,7 @@
 import { readDiagnosticResponse } from '../encoding/DiagnosticDecoder';
 import { ProviderError } from './ProviderError';
 // =============================================================================
-// IEXA PC - Anthropic Provider
+// iExA PC - Anthropic Provider
 // Mirrors iOS AnthropicAgentProvider.swift + AnthropicProvider.swift
 // Uses Anthropic Messages API with SSE streaming
 // =============================================================================

@@ -1,10 +1,10 @@
 import { ChildProcess } from 'child_process';
 
-// Only pipes created by this IEXA process are owned here. Never kill by image name.
+// Only pipes created by this iExA process are owned here. Never kill by image name.
 const children = new Set<ChildProcess>();
 let shuttingDown = false;
 export function assertDesktopHelpersOpen(): void {
-  if (shuttingDown) throw new Error('IEXA is closing; desktop helper startup cancelled.');
+  if (shuttingDown) throw new Error('iExA is closing; desktop helper startup cancelled.');
 }
 export function trackDesktopHelper(child: ChildProcess): void {
   if (!child.stdin) throw new Error('Desktop helper requires an owner lifetime pipe.');
@@ -17,7 +17,7 @@ export function trackDesktopHelper(child: ChildProcess): void {
   if (shuttingDown) child.stdin.destroy();
 }
 /** Synchronous EOF: also works during Electron's final process-exit phase.
- * If IEXA crashes, Windows closes these same handles without a JS callback. */
+ * If iExA crashes, Windows closes these same handles without a JS callback. */
 export function closeDesktopHelpers(): void {
   shuttingDown = true;
   for (const child of children) child.stdin?.destroy();

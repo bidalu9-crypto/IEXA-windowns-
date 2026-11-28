@@ -10,6 +10,7 @@
 // =============================================================================
 let mobileBridgeState = null;
 let mobileBridgeExpiryTimer = null;
+let mobilePinExpiryTimer = null;
 
 function mobileDeviceName() {
   const ua = navigator.userAgent || '';
@@ -17,6 +18,40 @@ function mobileDeviceName() {
   if (/iPad/i.test(ua)) return 'iPad';
   if (/Android/i.test(ua)) return 'Android 手机';
   return '移动浏览器';
+}
+
+/**
+ * The pairing QR opens https://host/#pair=<token>. When that exact origin is
+ * already open the browser only performs a same-document fragment navigation:
+ * no reload, no second init(), so the gate would keep asking to scan. Watch the
+ * fragment and resume the normal boot once a token arrives.
+ */
+let mobilePairWatchInstalled = false;
+
+function installMobilePairWatch() {
+  if (mobilePairWatchInstalled) return;
+  mobilePairWatchInstalled = true;
+  const hasPairToken = () => Boolean(new URLSearchParams(location.hash.slice(1)).get('pair'));
+  window.addEventListener('hashchange', () => {
+    if (hasPairToken()) void resumeAfterPairing();
+  });
+  window.addEventListener('pageshow', (event) => {
+    // Back from the bfcache (iOS restores the page instead of re-fetching).
+    if (event.persisted && hasPairToken()) void resumeAfterPairing();
+  });
+  document.addEventListener('visibilitychange', () => {
+    // Returning to the tab is the last moment Safari may have swapped in the
+    // fragment without a hashchange reaching this document.
+    if (document.visibilityState === 'visible' && hasPairToken()) void resumeAfterPairing();
+  });
+}
+
+async function resumeAfterPairing() {
+  if (typeof init !== 'function') return;
+  // init() owns the pairing exchange and the boot sequence. When an earlier
+  // attempt already bailed out at the gate it starts over; when it is still
+  // running it queues a retry for the moment that attempt finishes.
+  await init();
 }
 
 async function verifyMobileAccess() {
@@ -39,17 +74,37 @@ async function verifyMobileAccess() {
     if (status.authenticated) {
       document.body.dataset.mobileClient = status.local ? 'desktop' : 'paired';
       document.body.dataset.mobileCapability = status.capability || 'full';
+      // A previous attempt may have parked the page in the pairing layout; the
+      // cookie now proves this device is known, so drop that state.
+      document.body.classList.remove('is-pairing');
       gate.hidden = true;
       return true;
     }
     gate.hidden = false;
     document.body.classList.add('is-pairing');
+    // Two ways in, and the phone may use either: a scanned token in the URL
+    // fragment, or the four digits the desktop is showing right now.
+    const pinForm = document.getElementById('mobilePinForm');
+    const pinInput = document.getElementById('mobilePinInput');
+    const pinError = document.getElementById('mobilePinError');
+    const pinSubmit = document.getElementById('mobilePinSubmit');
+    if (pinForm && pinInput && pinError) {
+      pinForm.hidden = !status.bridgeEnabled;
+      if (status.bridgeEnabled && !token) {
+        message.textContent = '扫描电脑上的二维码，或在下方输入电脑显示的验证码。';
+        retry.hidden = true;
+        installMobilePinForm({ pinForm, pinInput, pinError, pinSubmit, message, gate });
+      }
+    }
     if (!token) {
-      message.textContent = status.bridgeEnabled ? '请在电脑端“设备与桥接”页面重新扫描配对二维码。' : '电脑端的手机桥接当前已关闭。';
+      if (status.bridgeEnabled) return false;
+      message.textContent = '电脑端的手机桥接当前已关闭。';
+      if (pinForm) pinForm.hidden = true;
       retry.hidden = true;
       return false;
     }
     message.textContent = '正在建立安全连接…';
+    if (pinForm) pinForm.hidden = true;
     const response = await fetch(`${API_BASE}/api/mobile-bridge/pair`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, name: mobileDeviceName() }),
@@ -68,6 +123,54 @@ async function verifyMobileAccess() {
     retry.onclick = () => location.reload();
     return false;
   }
+}
+
+/**
+ * Wire the four-digit form once. Pairing succeeds through the same store as the
+ * QR path, so the app boots exactly the same way afterwards.
+ */
+let mobilePinWired = false;
+
+function installMobilePinForm({ pinForm, pinInput, pinError, pinSubmit, message, gate }) {
+  if (mobilePinWired) return;
+  mobilePinWired = true;
+  const showError = (text) => {
+    pinError.hidden = !text;
+    pinError.textContent = text || '';
+  };
+  // Digits only: iOS numeric keypad still allows paste and stray characters.
+  pinInput.addEventListener('input', () => {
+    const digits = pinInput.value.replace(/\D/g, '').slice(0, 4);
+    if (pinInput.value !== digits) pinInput.value = digits;
+    showError('');
+  });
+  pinForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const code = pinInput.value.replace(/\D/g, '');
+    if (code.length !== 4) { showError('请输入四位数字验证码。'); return; }
+    pinSubmit.disabled = true;
+    showError('');
+    message.textContent = '正在验证验证码…';
+    try {
+      const response = await fetch(`${API_BASE}/api/mobile-bridge/pair-pin`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, name: mobileDeviceName() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '验证码不正确。');
+      document.body.dataset.mobileClient = 'paired';
+      document.body.dataset.mobileCapability = data.device?.capability || 'chat';
+      document.body.classList.remove('is-pairing');
+      gate.hidden = true;
+      pinInput.value = '';
+      await resumeAfterPairing();
+    } catch (error) {
+      showError(error.message || String(error));
+      message.textContent = '连接 iExA';
+      pinSubmit.disabled = false;
+      pinInput.select?.();
+    }
+  });
 }
 
 function formatMobileTime(value) {
@@ -163,6 +266,35 @@ async function createMobilePairCode() {
   finally { button.disabled = false; }
 }
 
+/** Four digits as an alternative to the camera: same TTL, same single use. */
+async function createMobilePin() {
+  const button = document.getElementById('mobileBridgePinBtn');
+  try {
+    button.disabled = true;
+    const response = await fetch(`${API_BASE}/api/mobile-bridge/pin`, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '验证码生成失败。');
+    const shell = document.getElementById('mobileBridgePin');
+    const code = document.getElementById('mobileBridgePinCode');
+    const countdown = document.getElementById('mobileBridgePinExpiry');
+    shell.hidden = false;
+    code.textContent = data.code;
+    if (mobilePinExpiryTimer) clearInterval(mobilePinExpiryTimer);
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((data.expiresAt - Date.now()) / 1000));
+      countdown.textContent = seconds ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} 后失效` : '已失效';
+      if (!seconds) {
+        clearInterval(mobilePinExpiryTimer);
+        code.textContent = '----';
+      }
+    };
+    update();
+    mobilePinExpiryTimer = setInterval(update, 1000);
+    showMobileBridgeResult('验证码已生成。在手机网页上输入这四个数字即可配对。');
+  } catch (error) { showMobileBridgeResult(error.message || String(error), true); }
+  finally { button.disabled = false; }
+}
+
 async function revokeMobileDevice(id) {
   const response = await fetch(`${API_BASE}/api/mobile-bridge/devices/${encodeURIComponent(id)}`, { method: 'DELETE' });
   const data = await response.json();
@@ -196,6 +328,7 @@ function initMobileBridge() {
     catch (error) { showMobileBridgeResult(error.message || String(error), true); }
   });
   document.getElementById('mobileBridgePairBtn')?.addEventListener('click', createMobilePairCode);
+  document.getElementById('mobileBridgePinBtn')?.addEventListener('click', createMobilePin);
   document.getElementById('mobileBridgeRevokeAll')?.addEventListener('click', async () => {
     if (!(await window.IexaDialogs.confirm('移除全部已配对设备？这些手机需要重新扫码才能连接。'))) return;
     await fetch(`${API_BASE}/api/mobile-bridge/devices`, { method: 'DELETE' });

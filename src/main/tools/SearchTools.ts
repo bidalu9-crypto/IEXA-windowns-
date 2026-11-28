@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Local code search tools (grep / glob)
+// iExA PC - Local code search tools (grep / glob)
 //
 // Both tools are read-only and share one bounded walker:
 //   - never follows symlinks/junctions

@@ -30,7 +30,9 @@ export class LocalApiAuth {
     let url: URL;
     try { url = new URL(`${isTLS(req) ? 'https' : 'http'}://${host}`); } catch { throw new HttpError(403, 'Host 校验失败。'); }
     const allowed = new Set(['localhost', '127.0.0.1', '[::1]']);
-    for (const items of Object.values(os.networkInterfaces())) for (const item of items || []) allowed.add(item.family === 'IPv6' ? `[${item.address}]` : item.address);
+    // new URL() lowercases the hostname; networkInterfaces() returns IPv6 in
+    // uppercase hex, so both sides are normalized before comparing.
+    for (const items of Object.values(os.networkInterfaces())) for (const item of items || []) allowed.add((item.family === 'IPv6' ? `[${item.address}]` : item.address).toLowerCase());
     if (url.username || url.password || url.pathname !== '/' || !allowed.has(url.hostname.toLowerCase()) || Number(url.port || (isTLS(req) ? 443 : 80)) !== req.socket.localPort || url.host.toLowerCase() !== host.toLowerCase()) throw new HttpError(403, 'Host 校验失败。');
     const origin = req.headers.origin;
     const scopedOpaqueRead = opaqueAssetRead && req.method === 'GET' && /^\/plugin-assets\/[a-f0-9]{48}\//.test(req.url || '');

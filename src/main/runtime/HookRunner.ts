@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Tool lifecycle hooks
+// iExA PC - Tool lifecycle hooks
 //
 // Workspace-level configuration in `<workspace>/.iexa-hooks.json`:
 //
@@ -119,7 +119,7 @@ function runOne(spec: HookSpec, payload: HookPayload, cwd: string, signal: Abort
       windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      // In a packaged build process.execPath is IEXA-WIN.exe. Without this flag
+      // In a packaged build process.execPath is iExA-WIN.exe. Without this flag
       // Electron boots a second full application for every hook invocation —
       // a window, a GPU process and a black flash per tool call. The flag makes
       // the child a plain node process, which is all a hook needs.

@@ -5,11 +5,19 @@
     var saved = window.iexaDesktop && window.iexaDesktop.initialAppearance;
     window.IexaUiScale?.apply({fontScale:saved?.fontScale ?? localStorage.getItem('iexa-font-scale') ?? 100,iconScale:saved?.iconScale ?? localStorage.getItem('iexa-icon-scale') ?? 100},false);
     var theme = saved && saved.theme || localStorage.getItem('iexa-theme') || 'light';
-    var accent = saved && saved.accent || localStorage.getItem('iexa-accent') || 'violet';
+    var accent = saved && saved.accent || localStorage.getItem('iexa-accent') || 'rose';
     var motion = saved && saved.motion || localStorage.getItem('iexa-motion') || 'system';
     document.documentElement.setAttribute('data-motion', ['system', 'full', 'reduced'].includes(motion) ? motion : 'system');
     if (accent === 'opencode') accent = 'amber';
-    document.documentElement.setAttribute('data-theme', theme);
+    // "auto" is a choice, not a colour: resolve it against the OS before the
+    // first frame, or the app paints the wrong palette and then flips. Both
+    // attributes go down - data-theme-mode keeps the choice, data-theme is what
+    // the stylesheet and the skins actually paint.
+    if (['light', 'dark', 'auto'].indexOf(theme) < 0) theme = 'dark';
+    var systemDark = false;
+    try { systemDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (_) {}
+    document.documentElement.setAttribute('data-theme-mode', theme);
+    document.documentElement.setAttribute('data-theme', theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme);
     document.documentElement.setAttribute('data-accent', accent);
     document.documentElement.setAttribute('data-collapse-tools', (saved && saved.collapseConsecutiveTools === true) || localStorage.getItem('iexa-collapse-tools') === 'on' ? 'on' : 'off');
     // Liquid Glass layer. On by default; `styles/glass.css` turns itself into a

@@ -16,7 +16,9 @@ export interface AppearanceSettings {
   fontScale: number;
   iconScale: number;
   motion: 'system' | 'full' | 'reduced';
-  theme: 'light' | 'dark';
+  /** The stored choice, never the resolved colour: `auto` follows the operating
+   *  system and is re-resolved by the renderer whenever Windows flips. */
+  theme: 'light' | 'dark' | 'auto';
   accent: 'amber' | 'violet' | 'blue' | 'green' | 'rose' | 'mono';
   /** Interface language. Mirrored server-side so a new renderer origin (a random
    *  port, a fresh profile) does not silently fall back to the system language. */
@@ -64,18 +66,18 @@ export function normalizeAppearance(value: unknown): AppearanceSettings {
   return {
     fontScale: width(source.fontScale, 100, 100, 180),
     iconScale: width(source.iconScale, 100, 100, 160),
-    theme: source.theme === 'light' ? 'light' : 'dark',
+    theme: source.theme === 'light' ? 'light' : source.theme === 'auto' ? 'auto' : 'dark',
     motion: source.motion === 'system' || source.motion === 'reduced' ? source.motion : 'full',
     accent: ACCENTS.includes(String(source.accent) as typeof ACCENTS[number])
       ? String(source.accent) as AppearanceSettings['accent']
-      : 'mono',
+      : 'rose',
     sidebarWidth: width(source.sidebarWidth, 240, 180, 460),
     filesPanelWidth: width(source.filesPanelWidth, 300, 220, 560),
     collapseConsecutiveTools: source.collapseConsecutiveTools === true,
     locale: LOCALES.includes(String(source.locale) as typeof LOCALES[number])
       ? String(source.locale) as AppearanceSettings['locale']
       : 'zh-CN',
-    skinPreset: SKIN_PRESETS.includes(String(source.skinPreset)) ? String(source.skinPreset) : 'graphite',
+    skinPreset: SKIN_PRESETS.includes(String(source.skinPreset)) ? String(source.skinPreset) : 'rose',
     customSkin: {
       light: normalizeSkinPalette(custom.light, DEFAULT_SKIN.light),
       dark: normalizeSkinPalette(custom.dark, DEFAULT_SKIN.dark),

@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA - Desktop pet routes
+// iExA - Desktop pet routes
 //
 //   GET    /api/pet                  snapshot: sprite size, version, config
 //   GET    /api/pet/sprite           the cut-out PNG (cache-busted by version)

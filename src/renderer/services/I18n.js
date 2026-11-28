@@ -8,11 +8,11 @@
   'use strict';
 
   const zh = {
-    'nav.newTask': '新建任务',
+    'nav.newTask': '新聊天',
     'nav.chat': '对话',
     'nav.skills': '技能',
     'nav.scheduled': '定时任务',
-    'nav.more': '设置与拓展',
+    'nav.more': '更多',
     'nav.appearance': '外观',
   'nav.pet': '桌面宠物',
   'nav.doc': '文档',
@@ -84,11 +84,11 @@
   };
 
   const en = {
-    'nav.newTask': 'New task',
+    'nav.newTask': 'New chat',
     'nav.chat': 'Chat',
     'nav.skills': 'Skills',
     'nav.scheduled': 'Scheduled',
-    'nav.more': 'Settings & extensions',
+    'nav.more': 'More',
     'nav.appearance': 'Appearance',
   'nav.pet': 'Desktop pet',
   'nav.doc': 'Documents',

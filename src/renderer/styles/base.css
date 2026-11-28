@@ -6,7 +6,7 @@
  */
 
 /* =============================================================================
-   IEXA PC - Styles · light default · switchable themes
+   iExA PC - Styles · light default · switchable themes
    ============================================================================= */
 
 :root,
@@ -44,10 +44,12 @@
   --link-hover: #12508f;
   --radius: 12px;
   --radius-sm: 8px;
-  /* default accent: second preset light blue */
-  --accent: #60a5fa;
-  --accent-hover: #3b82f6;
-  --accent-light: rgba(96, 165, 250, 0.16);
+  /* default accent: the rose the app is shipped with. Kept identical to the
+     rose skin below, so the first frame (plain CSS), the resolved accent
+     (data-accent) and the applied skin all land on the same pink. */
+  --accent: #c2426a;
+  --accent-hover: #a83658;
+  --accent-light: rgba(194, 66, 106, 0.12);
   --thinking-sheen: rgba(255, 255, 255, 0.92);
   --thinking-sheen-soft: rgba(255, 255, 255, 0.18);
   /* Brand block: system line is a saturated blue, bold, in both themes. */
@@ -90,9 +92,10 @@
   --success: #6bcf8e;
   --error: #e57373;
   --warning: #e6b84d;
-  --accent: #7dd3fc;
-  --accent-hover: #bae6fd;
-  --accent-light: rgba(125, 211, 252, 0.18);
+  /* Same rose, lifted for the dark canvas: 6.1:1 on #211e1e. */
+  --accent: #f08aa8;
+  --accent-hover: #f5a8bf;
+  --accent-light: rgba(240, 138, 168, 0.16);
   --thinking-sheen: rgba(0, 0, 0, 0.9);
   --thinking-sheen-soft: rgba(0, 0, 0, 0.2);
   /* Lighter blue keeps the bold system line legible on the dark sidebar. */
@@ -157,16 +160,16 @@
 }
 
 [data-accent="rose"] {
-  --accent: #e11d48;
-  --accent-hover: #be123c;
-  --accent-light: rgba(225, 29, 72, 0.12);
+  --accent: #c2426a;
+  --accent-hover: #a83658;
+  --accent-light: rgba(194, 66, 106, 0.12);
   --on-accent: #ffffff;
 }
 [data-theme="dark"][data-accent="rose"] {
-  --accent: #fb7185;
-  --accent-hover: #fda4af;
-  --accent-light: rgba(251, 113, 133, 0.16);
-  --on-accent: #4c0519;
+  --accent: #f08aa8;
+  --accent-hover: #f5a8bf;
+  --accent-light: rgba(240, 138, 168, 0.16);
+  --on-accent: #3a0d1d;
 }
 
 [data-accent="mono"] {

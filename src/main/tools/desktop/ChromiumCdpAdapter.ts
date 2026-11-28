@@ -162,7 +162,7 @@ export class ChromiumCdpAdapter {
     const previous = this.snapshot; this.snapshot = undefined;
     if (previous) { try { await this.command('Runtime.releaseObject', {objectId:previous.objectId}, signal); } catch { cancelled(signal); } }
     const tree = await this.command('Page.getFrameTree', {}, signal);
-    const world = await this.command('Page.createIsolatedWorld', {frameId:tree.frameTree.frame.id, worldName:'IEXA snapshot', grantUniveralAccess:false}, signal);
+    const world = await this.command('Page.createIsolatedWorld', {frameId:tree.frameTree.frame.id, worldName:'iExA snapshot', grantUniveralAccess:false}, signal);
     const token = randomUUID();
     const remote = await this.command('Runtime.evaluate', {expression:`${CREATE_PAGE_SNAPSHOT}(${JSON.stringify(token)})`, contextId:world.executionContextId, returnByValue:false, userGesture:false}, signal);
     if (remote.exceptionDetails || !remote.result?.objectId) throw new Error('Chromium observation context was not created.');
@@ -288,7 +288,7 @@ export class ChromiumCdpAdapter {
         while (Date.now() < deadline) {
           cancelled(signal);
           const tree = await this.command('Page.getFrameTree',{},signal);
-          const world = await this.command('Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'IEXA snapshot'},signal);
+          const world = await this.command('Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'iExA snapshot'},signal);
           const found = this.value(await this.command('Runtime.evaluate',{expression:`document.body?.innerText?.includes(${JSON.stringify(String(args.text||''))})`,contextId:world.executionContextId,returnByValue:true},signal));
           if (found) return this.result(action,{found:true},started);
           await new Promise(resolve=>setTimeout(resolve,50));

@@ -1,6 +1,6 @@
 /** Captured from the locally installed Codex 0.153.0 against a loopback
  * Responses fixture (no external model request). This is its VS Code/exec UA,
- * not a claim that IEXA is an official Codex application or desktop build.
+ * not a claim that iExA is an official Codex application or desktop build.
  * Pinning avoids depending on an installed Codex binary during normal startup.
  */
 export const CODEX_COMPAT_USER_AGENT = 'codex_vscode/0.153.0 (Windows 10.0.19045; x86_64) dumb (codex_exec; 0.153.0)';

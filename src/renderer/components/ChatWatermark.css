@@ -25,6 +25,9 @@
   pointer-events: none;
   user-select: none;
   transition: opacity 0.45s ease;
+  /* Temporarily off. Everything above is kept intact so deleting this single
+     line brings the centre watermark back exactly as it was. */
+  display: none;
 }
 
 /* The outline mark is a bright cyan; on the dark canvas it needs a touch more

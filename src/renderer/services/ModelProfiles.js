@@ -171,10 +171,7 @@ function setThinkingMenuOpen(open) {
   if (!btn || !menu) return;
   menu.style.display = open ? 'flex' : 'none';
   btn.classList.toggle('is-open', !!open); btn.setAttribute('aria-expanded', String(!!open));
-  if (open) {
-    menu.style.left = '0px'; const rect = menu.getBoundingClientRect();
-    if (rect.right > window.innerWidth - 12) menu.style.left = `${Math.min(0, window.innerWidth - 12 - rect.right)}px`;
-  }
+  if (open) globalThis.IexaComposerMenu?.open('thinkingLevelMenu', 'thinkingLevelBtn');
 }
 
 async function setThinkingLevel(level, opts) {
@@ -269,6 +266,7 @@ function setModelMenuOpen(open) {
   menu.style.display = open ? 'flex' : 'none';
   btn.classList.toggle('is-open', open);
   btn.setAttribute('aria-expanded', String(open));
+  if (open) globalThis.IexaComposerMenu?.open('modelSelectorMenu', 'modelSelector');
 }
 
 async function selectModelProfile(id) {
@@ -531,6 +529,7 @@ function setContextCompactionMenuOpen(open) {
   // so it would paint over the open panel. Raise this wrapper only while open.
   if (wrap) wrap.classList.toggle('is-open', open);
   if (menu) menu.style.display = open ? 'block' : 'none';
+  if (open) globalThis.IexaComposerMenu?.open('contextCompactionMenu', 'contextCompactionBtn');
   // Each open starts from the presets: the custom field is a disclosure, and
   // leaving it expanded with no chip marker reads as a broken panel.
   if (!open) {

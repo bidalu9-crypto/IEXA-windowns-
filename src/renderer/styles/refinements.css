@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Late overrides across features: drag shield, composer chips, file-type icons,
  * usage dashboard and the mobile bridge panel.
  *
@@ -988,6 +988,74 @@ body {
 .mobile-pair-dialog h1 { width: 100%; margin: 14px 0 8px; font-size: calc(1.25rem * var(--ui-font-scale, 1)); line-height: 1.3; text-align: center; }
 .mobile-pair-dialog p { width: 100%; margin: 0 0 18px; padding: 0 10px; color: var(--text-secondary); font-size: calc(.86rem * var(--ui-font-scale, 1)); line-height: 1.55; text-align: center; text-wrap: balance; }
 
+/* PIN entry. The gate is a flex column, so the form only needs its own width. */
+.mobile-pin-form[hidden] { display: none; }
+.mobile-pin-form {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.mobile-pin-label {
+  color: var(--text-secondary);
+  font-size: calc(.78rem * var(--ui-font-scale, 1));
+  text-align: center;
+}
+.mobile-pin-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Spacing the digits keeps a 4-digit code readable at arm's length. */
+  font-size: calc(1.85rem * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .42em;
+  text-align: center;
+  text-indent: .42em;
+}
+.mobile-pin-input:focus { border-color: var(--accent); outline: none; }
+.mobile-pin-form .btn-primary { width: 100%; }
+.mobile-pin-form .btn-primary:disabled { opacity: .6; }
+.mobile-pin-error {
+  width: 100%;
+  color: var(--error);
+  font-size: calc(.78rem * var(--ui-font-scale, 1));
+  line-height: 1.45;
+  text-align: center;
+}
+.mobile-pin-error[hidden] { display: none; }
+
+/* Desktop side of the PIN path: one button, one big readable number. */
+.mobile-pin-card {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+.mobile-pin-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mobile-pin-card-head strong { font-size: calc(.82rem * var(--ui-font-scale, 1)); }
+.mobile-pin-display {
+  display: flex;
+  margin-top: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-pin-display[hidden] { display: none; }
+.mobile-pin-display code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(1.9rem * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .28em;
+  color: var(--accent);
+}
+.mobile-pin-countdown { color: var(--text-secondary); font-size: calc(.76rem * var(--ui-font-scale, 1)); }
+
 @media (max-width: 760px) {
   body { height: 100dvh; }
   .app { height: 100dvh; }
@@ -1064,15 +1132,271 @@ body {
   .mobile-bridge-qr-shell { width: min(190px, 100%); margin: 0 auto; }
   .mobile-bridge-heading { align-items: flex-start; }
   .mobile-bridge-heading .sync-desc { font-size: calc(.72rem * var(--ui-font-scale, 1)); }
-  body[data-mobile-client="paired"] .nav-btn[data-view="appearance"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="skills"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="soul"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="mcp"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="plugins"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="settings"],
-  body[data-mobile-client="paired"] .nav-btn[data-view="sync"] { display: none; }
+  /* Every section stays reachable from a paired phone. This list used to hide
+     appearance, skills, soul, MCP, extensions, settings and the bridge panel,
+     which left "设置与拓展" with only doc / pet / insights / about in it. A
+     device paired with full capability may already read files, run shell and
+     drive the agent, so hiding navigation from it protected nothing - it only
+     made the drawer look incomplete. */
   body[data-mobile-capability="chat"] .nav-btn[data-view="jobs"] { display: none; }
+
+  /* ---- Phone transcript: vertical only, metadata wraps onto its own lines ----
+     A response's receipt (tokens in / out / cache / rate / duration / clock) is
+     a single nowrap inline row that is far wider than a phone. Laid out on one
+     line it widened the bubble, which made the whole transcript pan sideways.
+     Wrapping it into two or three rows keeps the digits readable and lets the
+     bubble stay inside the viewport. */
+  .message,
+  .message.assistant,
+  .message-content,
+  .assistant-message-footer,
+  .message-usage { min-width: 0; max-width: 100%; }
+
+  .message-content { overflow-wrap: anywhere; }
+
+  .message-usage {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 6px;
+    row-gap: 3px;
+    line-height: 1.35;
+  }
+
+  /* Actions drop to their own row instead of being squeezed by wrapped digits. */
+  .assistant-message-footer { flex-wrap: wrap; row-gap: 2px; }
+
+  /* The separators exist to space a single line; once the row wraps they turn
+     into stray dots at line ends, so the gap above does their job instead. */
+  .message-usage > i { display: none; }
+
+  .message-usage span,
+  .message-usage .message-usage-time,
+  .message-usage .message-usage-duration { white-space: normal; }
+
+  /* Keep the elapsed time and clock on their own trailing row. */
+  .message-usage .message-usage-time,
+  .message-usage .message-usage-duration { margin-left: 0; }
+}
+
+/* ---- No auto-zoom on focus ----
+   iOS Safari magnifies the whole page whenever the focused control renders
+   below 16px, and every input here is ~11.5px (.72rem). Raising just the
+   text-entry controls to a 16px floor stops the jump while leaving pinch zoom
+   available, so the layout stays exactly where the user put it. Keyed on touch
+   capability rather than width so tablets get it too. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  textarea,
+  select {
+    font-size: max(16px, calc(1rem * var(--ui-font-scale, 1))) !important;
+  }
 }
 .streaming-markdown { overflow-wrap: anywhere; }
+
+/* Natural chat is a person talking, not a run being measured. The per-turn
+   receipt (tokens in/out, cache share, tok/s, elapsed) belongs to the workbench
+   surface, so it is dropped here rather than shown under every line. The footer
+   that would otherwise hold nothing is removed too, so the bubble closes on the
+   text itself. */
+body[data-chat-mode="natural"] .message-usage { display: none; }
+body[data-chat-mode="natural"] .assistant-message-footer:not(:has(.assistant-message-actions)) { display: none; }
+
+/* Natural chat deletes a line, it does not regenerate one.
+   A reply here is a burst of short lines, so "regenerate" would re-roll the whole
+   turn and scatter the ones already read; the per-line delete is the operation
+   that actually fits. Translate, share and open-in-editor are workbench
+   operations too - a chat line has nothing to hand off. What stays is copy,
+   speak and delete. The workbench keeps every button. */
+body[data-chat-mode="natural"] .assistant-message-action[data-action="retry"],
+body[data-chat-mode="natural"] .assistant-message-action[data-action="translate"],
+body[data-chat-mode="natural"] .assistant-message-action[data-action="share"],
+body[data-chat-mode="natural"] .assistant-message-action[data-action="doc"] { display: none; }
+
+/* 朗读按钮两种模式都不显示。
+   语音合成在中文长句上断句很生硬，读出来像念稿，和聊天页的样子差太远。
+   按钮留在 DOM 里（处理器照常绑定），只是不画——哪天真要用，删这两行就回来。 */
+.assistant-message-action[data-action="speak"] { display: none; }
+.assistant-message-action[data-action="delete"] { display: none; }
+body[data-chat-mode="natural"] .assistant-message-action[data-action="delete"] { display: inline-flex; }
+
+body[data-chat-mode="natural"] .chat-messages {
+  /* Even rhythm: the gap below one message's control row matches the gap above
+     it, so a reply reads as one block with equal breathing room on both sides. */
+  gap: 18px;
+  padding-top: 28px;
+}
+
+/* 一轮对话之间的时间分隔。微信的做法：居中小字，上下各留一段空白，
+   不需要分割线——空档本身就说明了这是另一轮。 */
+.chat-time-divider {
+  display: block;
+  align-self: center;
+  margin: 10px 0 4px;
+  color: var(--text-tertiary, #8a8a8e);
+  font-size: calc(11.5px * var(--ui-font-scale, 1));
+  line-height: 1.4;
+  letter-spacing: .02em;
+  text-align: center;
+  user-select: none;
+  pointer-events: none;
+}
+
+.chat-time-divider:first-child { margin-top: 0; }
+/* dock.css reserves a guessed 160px for a message the browser has not laid out
+   yet. Natural chat's bubbles are short and uneven, so the guess overlapped the
+   control row of the message above; real layout is cheap at this size. */
+body[data-chat-mode="natural"] .message {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
+/* Natural chat reads as two people messaging, so the assistant speaks from a
+   bubble instead of laying text flat on the page. The fill is the theme accent
+   mixed into the surface colour, which keeps it visibly "the other side"
+   against the user's neutral bubble while following whatever theme is active.
+
+   The reply is a two-column grid: avatar, then bubble and controls stacked in
+   the second column. Every row is real height, so the gap below one message is
+   measured from its control row rather than from a guessed bubble height. */
+body[data-chat-mode="natural"] .message.assistant:not(.is-filtered-out) {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  width: fit-content;
+  max-width: min(88%, 640px);
+  box-sizing: border-box;
+  /* Never narrower than the avatar column plus the five 25px controls, or the
+     button row would spill past the bubble on a one-word reply. */
+  min-width: calc(44px + 10px + 152px);
+}
+/* Swap src/renderer/avatar.png to change the picture; the path resolves
+   relative to this stylesheet. */
+body[data-chat-mode="natural"] .message.assistant::before {
+  content: '';
+  grid-column: 1;
+  grid-row: 1 / -1;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: url("../avatar.png") center / cover no-repeat;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+body[data-chat-mode="natural"] .message.assistant > * {
+  grid-column: 2;
+  min-width: 0;
+}
+/* The name label would repeat what the avatar already says. */
+body[data-chat-mode="natural"] .message.assistant .message-label { display: none; }
+body[data-chat-mode="natural"] .message.assistant .message-content {
+  grid-row: 1;
+  /* A grid item stretches to its column by default, so the bubble filled the
+     whole width the control row needed and left a long empty tail after a short
+     line. Sizing to content keeps the bubble hugging the text. */
+  justify-self: start;
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+body[data-chat-mode="natural"] .message.assistant .assistant-message-footer {
+  grid-row: 2;
+  margin-top: 18px;
+  min-height: 25px;
+  flex-wrap: wrap;
+}
+/* The timestamp trails the control row. Hidden everywhere else: the workbench
+   transcript already carries the turn's own timing line. */
+.message-time { display: none; }
+body[data-chat-mode="natural"] .message.assistant .message-time {
+  display: inline-block;
+  align-self: center;
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: calc(10.5px * var(--ui-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: .72;
+}
+/* While the turn is waiting the rotating label *is* the message: no text has
+   been written yet, so the empty bubble renders as a thin bar and pushes the
+   control row - and its timestamp - onto a second line far below the avatar.
+   Show the label alone, on the avatar's line. */
+body[data-chat-mode="natural"] .message.assistant:has(.waiting-indicator) .message-content { display: none; }
+body[data-chat-mode="natural"] .message.assistant:has(.waiting-indicator) .assistant-message-footer { display: none; }
+body[data-chat-mode="natural"] .message.assistant:has(.waiting-indicator) .waiting-indicator {
+  grid-row: 1;
+  align-self: center;
+}
+
+/* An assistant content block that never received text is the placeholder
+   addMessage creates before the stream starts. When the turn also produced
+   reasoning or tool steps, ensureAnswerContentEl creates a second content block
+   for the answer and this first one stays empty forever. It is invisible in the
+   standard transcript (transparent background, only padding) but reads as a
+   blank bubble once natural chat gives content blocks a fill and a border.
+   Keyed on :empty so the block that actually holds the answer is untouched. */
+.message.assistant .message-content:empty { display: none; }
+
+/* A message that consisted only of phrases from non-display.txt. Kept in the
+   DOM so the mounted-count baseline still matches the store, but never shown. */
+.message.is-filtered-out { display: none; }
+
+/* ---- Session mode switch (standard / natural) ---- */
+.session-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 0 0 8px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+.session-mode-btn {
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.session-mode-btn:hover { color: var(--text-secondary); }
+.session-mode-btn.is-active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+/* Natural chat is one continuous thread: there is nothing to search, nothing to
+   file, and at most one conversation to list, so the block that exists to manage
+   many of them is hidden. Hidden, not removed - the markup is untouched and
+   deleting these rules brings the console straight back.
+   The header row itself stays: it carries the thread's name, and keeping its
+   buttons in the layout (visibility, not display) is what stops the mode switch
+   below from jumping up when the two modes are compared. */
+body[data-chat-mode="natural"] .session-project-head,
+body[data-chat-mode="natural"] .sidebar-sessions .search-box,
+body[data-chat-mode="natural"] .sidebar-sessions .sessions-list { display: none; }
+body[data-chat-mode="natural"] #newSessionBtn,
+body[data-chat-mode="natural"] #archiveManagerBtn,
+body[data-chat-mode="natural"] #shellNewCategory { display: none; }
+/* The row keeps the height those buttons gave it, or the switch below rides up. */
+body[data-chat-mode="natural"] .sessions-header { min-height: calc(32px * var(--ui-icon-scale, 1)); }
+/* One line, never two: wrapped, the heading would grow the row the switch sits under. */
+body[data-chat-mode="natural"] .sidebar-sessions .sessions-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The search renderer writes display:block inline, which a plain rule loses to. */
+body[data-chat-mode="natural"] .sidebar-sessions .search-results { display: none !important; }
+#naturalChatBtn.is-active { color: var(--accent); }
+
 .text-pager { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .text-pager button { color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }

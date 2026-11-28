@@ -40,6 +40,13 @@ export interface ChatMessage {
   attachments?: ChatAttachmentMeta[];
   /** A follow-up the user injected into the turn while it was still running. */
   steered?: boolean;
+  /**
+   * An assistant line the natural-chat pulse produced on its own, with no user
+   * message behind it. Recorded so the next unprompted turn can tell the model
+   * "these were mine, the user had not replied" instead of letting it infer a
+   * user turn that never happened.
+   */
+  unprompted?: boolean;
   /** Set while a turn never reached a terminal event; `interrupted` can be continued. */
   status?: 'running' | 'paused' | 'interrupted';
   timestamp: number;

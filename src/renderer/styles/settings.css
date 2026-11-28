@@ -470,6 +470,80 @@
   z-index: 55;
 }
 
+/* 主动模式：放在模型选择器左边，外观跟它一致，点开是一个两项的列表。
+   只控制她会不会主动开口，别的什么都不动。 */
+.proactive-mode-wrap {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 55;
+}
+
+/* 热情 / 安静 只属于小楠。标准聊天是工作会话，没有「主不主动找你」这回事，
+   控件留在那儿只会让人以为它管着什么。默认隐藏，只有小楠模式才出现。 */
+body:not([data-chat-mode="natural"]) #proactiveModeWrap { display: none; }
+
+/* 小楠这边不显示思考强度和检查点。
+   她的回复是聊天，不是推理任务——档位调了也不会让一句「爸爸你回来啦」变好，
+   只会让人以为该调。检查点同理：那是任务回退用的，她没有任务可回退。 */
+body[data-chat-mode="natural"] #thinkingLevelWrap,
+body[data-chat-mode="natural"] .checkpoint-wrap { display: none; }
+
+/* 访问权限管的是工具怎么执行：要不要批准、能不能改文件。小楠那边没有这层，
+   摆在那里只会让人以为她随时准备动系统。隐藏，不删——切回 Agent 原样回来。 */
+body[data-chat-mode="natural"] #permissionModeWrap { display: none; }
+
+.proactive-mode-btn { padding: 0 10px; }
+
+/* 菜单的定位参照是整个输入框，不是那个按钮。
+   wrap 改成 static，绝对定位的 offsetParent 就落到 .chat-input-area（它本身
+   已经是 relative）：left:50% 是输入框水平居中，bottom:100% 是贴在输入框
+   上方——跟点其他选择器时一样，菜单从中间弹出来，不会因为按钮靠左就溢出。 */
+.model-selector-wrap,
+.proactive-mode-wrap { position: static; }
+
+/* 菜单跟模型选择器一样，居中在输入框上方。定位由 IexaComposerMenu 统一接管
+   （position: fixed + 计算坐标）；下面这行是没走到管理器时的兜底。
+
+   选择器必须写成两段：这个元素同时带着 .model-selector-menu，而那条规则在本
+   文件里排在后面。单个 .proactive-mode-menu 权重相同、位置更靠前，padding 会
+   被它的 padding: 0 覆盖掉——写在这里的 8px 从来没生效过。 */
+.model-selector-menu.proactive-mode-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  padding: 8px 6px;
+}
+
+/* 两条之间的缝。用 margin 而不是 gap：gap 只在 flex/grid 容器上生效，而这个
+   元素的 display 是内联样式（setProactiveMenuOpen 里写的），任何一处把它写成
+   block，gap 就静默失效，两条直接贴在一起。margin 不看容器布局模式，一定生效。
+   6px 是照模型选择器那份菜单量出来的间距。 */
+.model-selector-option.proactive-mode-option + .model-selector-option.proactive-mode-option {
+  margin-top: 6px;
+}
+
+/* 选项同理：.model-selector-option 也排在后面，单类名的 padding 会被盖掉。 */
+.model-selector-option.proactive-mode-option {
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.proactive-mode-option[aria-checked="true"] {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.proactive-mode-option[aria-checked="true"] .model-selector-option-desc {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+}
+
+.proactive-mode-option[aria-checked="true"] .model-selector-option-check {
+  display: block;
+}
+
+/* 按钮上写的就是当前模式，用主题色标出来，不用点开也看得见现在是哪个。 */
+.proactive-mode-btn { color: var(--accent); }
+
 .model-selector {
   display: inline-flex;
   align-items: center;
@@ -526,10 +600,20 @@
   transform: rotate(225deg);
 }
 
+/* 主动模式按钮自己再写一份：它复用了 .model-selector，但展开状态由自己的
+   is-open 维护。上面那条已经能匹配，这里显式声明是为了不受后续样式影响。 */
+.proactive-mode-btn.is-open .model-selector-chevron {
+  margin-top: 3px;
+  transform: rotate(225deg);
+}
+
 .model-selector-menu {
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 0;
+  /* 相对 .chat-input-area 水平居中：菜单比按钮宽得多，跟着按钮走会整块偏向
+     一边，靠左时还会溢出屏幕。 */
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   min-width: 260px;
@@ -813,6 +897,10 @@
 }
 
 .chat-input-area {
+  /* 模型 / 主动模式菜单的定位参照。skills.css 里也写了 relative，这里再写一次，
+     保证不管样式表加载顺序都不会退化成 static——一旦 static，菜单会以
+     viewport 为参照跑到屏幕角落去。 */
+  position: relative;
   overflow: visible;
 }
 

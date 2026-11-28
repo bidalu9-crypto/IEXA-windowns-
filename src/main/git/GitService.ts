@@ -86,7 +86,7 @@ export class GitService {
       };
     } catch (error) {
       const message = (error as Error).message;
-      if (/ENOENT/i.test(message)) return { available: false, repository: false, files: [], error: '未找到 Git。请安装 Git 并重新打开 IEXA。' };
+      if (/ENOENT/i.test(message)) return { available: false, repository: false, files: [], error: '未找到 Git。请安装 Git 并重新打开 iExA。' };
       return { available: true, repository: false, files: [], error: message };
     }
   }

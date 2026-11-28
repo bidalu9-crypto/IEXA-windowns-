@@ -204,9 +204,16 @@ body.chat-focus-mode .message.user {
   padding: 0 4px;
 }
 
+.files-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .files-recent-item {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   text-align: left;
   background: none;
   border: none;
@@ -223,6 +230,43 @@ body.chat-focus-mode .message.user {
 .files-recent-item:hover {
   background: var(--accent-light);
   color: var(--accent);
+}
+
+/* The remove control sits beside each row. It stays visible rather than
+   appearing on hover: a hidden control is what made the recent list look like
+   it had no way to forget an entry. */
+.files-recent-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: none;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .12s, color .12s, background .12s;
+}
+
+.files-recent-remove .ui-icon { width: 12px; height: 12px; }
+
+.files-recent-row:hover .files-recent-remove,
+.files-recent-row:focus-within .files-recent-remove { opacity: 1; }
+
+.files-recent-remove:hover {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+.files-recent-remove:disabled { opacity: .35; cursor: default; }
+
+/* Touch devices have no hover, so the control must be permanently visible. */
+@media (hover: none) {
+  .files-recent-remove { opacity: 1; }
 }
 
 .files-path {
@@ -639,6 +683,9 @@ body.chat-focus-mode .message.user {
 .chat-messages {
   height: 100%;
   overflow-y: auto;
+  /* Vertical reading only. A single wide child must never turn the transcript
+     into a horizontally pannable surface on a phone. */
+  overflow-x: hidden;
   overflow-anchor: none;
   padding: 28px 24px 32px;
   display: flex;
@@ -695,6 +742,9 @@ body.chat-focus-mode .message.user {
 .message {
   max-width: min(85%, 720px);
   width: fit-content;
+  /* Flex items default to min-width:auto, so a nowrap metadata row could force
+     the bubble wider than the column and pan the whole transcript sideways. */
+  min-width: 0;
   animation: fadeIn 0.3s ease;
 }
 

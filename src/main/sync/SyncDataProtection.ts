@@ -166,12 +166,12 @@ export async function remoteEntries(client: WebDAVClient, remote: string): Promi
 
 export function remotePathForKey(key: string): string {
   const fixed: Record<string, string> = { settings: 'settings.json', sessions_index: 'sessions-store.json', skills_index: 'skills-index.json' };
-  if (Object.hasOwn(fixed, key)) return `/IEXA/${fixed[key]}`;
+  if (Object.hasOwn(fixed, key)) return `/iExA/${fixed[key]}`;
   const colon = key.indexOf(':');
   const kind = key.slice(0, colon), name = key.slice(colon + 1);
   assertRemoteBasename(name);
-  if (kind === 'session' && name.endsWith('.json')) return `/IEXA/sessions/${name}`;
-  if (kind === 'memory' && name.endsWith('.md')) return `/IEXA/memory/${name}`;
-  if (kind === 'skill') return `/IEXA/skills/${name}/SKILL.md`;
+  if (kind === 'session' && name.endsWith('.json')) return `/iExA/sessions/${name}`;
+  if (kind === 'memory' && name.endsWith('.md')) return `/iExA/memory/${name}`;
+  if (kind === 'skill') return `/iExA/skills/${name}/SKILL.md`;
   throw invalid();
 }

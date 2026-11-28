@@ -53,6 +53,7 @@ function setPermissionMenuOpen(open) {
   menu.style.display = open ? 'flex' : 'none';
   button.classList.toggle('is-open', open);
   button.setAttribute('aria-expanded', String(open));
+  if (open) globalThis.IexaComposerMenu?.open('permissionModeMenu', 'permissionModeBtn');
 }
 
 async function setPermissionMode(mode) {

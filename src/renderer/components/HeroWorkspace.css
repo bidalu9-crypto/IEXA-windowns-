@@ -191,6 +191,50 @@
   background: var(--border);
 }
 
+/* ---- Recent project rows with their forget control ----------------------- */
+
+.hero-workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.hero-workspace-row .hero-workspace-item { flex: 1; min-width: 0; }
+
+.hero-workspace-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s, color .12s, background .12s;
+}
+
+.hero-workspace-remove .ui-icon { width: 12px; height: 12px; }
+
+.hero-workspace-row:hover .hero-workspace-remove,
+.hero-workspace-row:focus-within .hero-workspace-remove { opacity: 1; }
+
+.hero-workspace-remove:is(:hover, :focus-visible) {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  outline: none;
+}
+
+.hero-workspace-remove:disabled { opacity: .35; cursor: default; }
+
+@media (hover: none) {
+  .hero-workspace-remove { opacity: 1; }
+}
+
 /* ---- Hero headline ------------------------------------------------------- */
 
 .welcome-head {

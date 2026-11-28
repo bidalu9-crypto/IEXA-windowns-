@@ -1,4 +1,4 @@
-/* IEXA Workbench. Local, neutral desktop skin; no runtime/library dependency.
+/* iExA Workbench. Local, neutral desktop skin; no runtime/library dependency.
    Keep this last: overrides the legacy material layer without deleting it. */
 .workbench-shell {
   --bg-primary: #fff;
@@ -52,22 +52,74 @@
 .workbench-shell .sidebar-header h1 { margin: 0; font-size: calc(16px * var(--ui-font-scale, 1)); line-height: 1.1; font-weight: 800; letter-spacing: .2px; color: var(--text-primary); }
 .workbench-shell .brand-logo { width: 20px; height: 20px; flex: 0 0 20px; margin: 0 0 0 3px; order: 2; }
 .workbench-shell .version { display: inline-flex; align-items: center; min-height: 18px; padding: 2px 8px; border-radius: 6px; font-size: calc(10px * var(--ui-font-scale, 1)); line-height: 1.2; font-weight: 700; color: #5f6368; background: #e7e7e9; }
-.workbench-shell .sidebar-header { margin-bottom: 8px; }
+/* Matches the scroll column's 6px inset so the brand, the switch and the rows
+   below all end on the same vertical line. */
+.workbench-shell .sidebar-header { margin-bottom: 8px; padding-right: 6px; }
 [data-theme="dark"] .workbench-shell .version { color: #c7c7cc; background: #343438; }
+/* 开机自启开关：坐在新聊天上方，滚动条留给列表。 */
+.sidebar-autostart { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; padding: 0 2px 0 9px; height: 26px; color: var(--text-secondary); font-size: calc(11.5px * var(--ui-font-scale, 1)); cursor: pointer; user-select: none; }
+.sidebar-autostart-label { letter-spacing: .2px; }
+/* 真 input 留一个像素在流里，但视觉上完全交给 track：键盘和读屏仍然拿得到。 */
+.sidebar-autostart-input { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sidebar-autostart-track { position: relative; flex: 0 0 auto; width: 32px; height: 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-tertiary); transition: background 160ms ease, border-color 160ms ease; }
+.sidebar-autostart-thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); transition: transform 160ms cubic-bezier(.32,.72,0,1), background 160ms ease; }
+.sidebar-autostart-input:checked + .sidebar-autostart-track { background: var(--accent); border-color: var(--accent); }
+.sidebar-autostart-input:checked + .sidebar-autostart-track .sidebar-autostart-thumb { background: var(--bg-primary); transform: translateX(14px); }
+.sidebar-autostart:hover .sidebar-autostart-track { border-color: var(--border-strong); }
+.sidebar-autostart-input:focus-visible + .sidebar-autostart-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar-autostart-input:disabled + .sidebar-autostart-track { opacity: .45; }
+@media (hover: none) { .sidebar-autostart { height: 30px; } }
 .shell-new-thread { display: flex; align-items: center; justify-content: flex-start; gap: 9px; width: 100%; height: 38px; margin-top: 16px; padding: 0 9px 0 7px; border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border)); border-radius: 10px; background: var(--bg-tertiary); color: var(--text-primary); cursor: pointer; font: inherit; font-size: calc(12.5px * var(--ui-font-scale, 1)); font-weight: 550; text-align: left; transition: background 160ms ease, border-color 160ms ease, transform 100ms ease; }
 .shell-new-thread-icon { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-light); color: var(--accent); transition: background 160ms ease, transform 160ms ease; }
 .shell-new-thread-icon .ui-icon { width: 16px; height: 16px; stroke-width: 1.7; }
-.shell-new-thread kbd { margin-left: auto; padding: 1px 5px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-secondary); font-family: inherit; font-size: calc(9.5px * var(--ui-font-scale, 1)); line-height: 1.4; color: var(--text-muted); white-space: nowrap; }
 .shell-new-thread:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--text-primary) 6%, var(--bg-tertiary)); border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
 .shell-new-thread:is(:hover, :focus-visible) .shell-new-thread-icon { background: color-mix(in srgb, var(--accent) 18%, transparent); transform: scale(1.04); }
 .shell-new-thread:active { transform: translateY(1px); }
 .shell-new-thread:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (hover: none) { .shell-new-thread kbd { display: none; } }
+/* 小楠只有一条对话。按钮留在原位，但压暗、点不动。
+   Painted after the hover rules on purpose: same specificity, so these win. */
+.shell-new-thread:disabled { background: var(--bg-tertiary); border-color: var(--border); color: var(--text-muted); opacity: .55; cursor: not-allowed; }
+.shell-new-thread:disabled .shell-new-thread-icon { background: var(--bg-secondary); color: var(--text-muted); }
 @media (max-width: 760px) {
   .shell-new-thread { height: 42px; }
   .shell-new-thread-icon { width: 28px; height: 28px; flex-basis: 28px; }
 }
-.workbench-shell .sidebar-nav { flex: 0 1 auto; min-height: 36px; max-height: 46%; margin: 0; padding: 0; overflow-y: auto; gap: 2px; }
+/* One scrollbar for the whole lower sidebar. Nav and the session list are plain
+   flow now: expanding 「更多」 pushes the list down and the shared scroller
+   absorbs it, instead of squeezing the list into its own shrinking box. */
+.workbench-shell .sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  /* The gutter is reserved so rows never shift when it appears, and the box is
+     pulled 8px past the content edge so the bar runs as close to the pane's
+     border as the drag handle (which starts 4px inside the seam) allows.
+     The 6px of padding is what keeps the rows off the bar. */
+  margin-right: -8px;
+  padding-right: 6px;
+}
+.workbench-shell .sidebar-scroll::-webkit-scrollbar { width: 10px; }
+.workbench-shell .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.workbench-shell .sidebar-scroll::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 74%, transparent);
+  background-clip: padding-box;
+}
+.workbench-shell .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--accent) 62%, var(--border-strong));
+  background-clip: padding-box;
+}
+/* A flex column must not squeeze the button: it shrinks to its text height and
+   turns into a pancake the moment the column overflows. */
+.workbench-shell .sidebar-scroll > .shell-new-thread { flex: 0 0 auto; margin-top: 8px; }
+.workbench-shell .sidebar-nav { flex: 0 0 auto; min-height: 0; max-height: none; margin: 16px 0 0; padding: 0; overflow: visible; gap: 2px; }
 .sidebar-primary, .sidebar-secondary { display: grid; gap: 2px; }
 .workbench-shell .nav-btn { min-height: 34px; padding: 8px 10px; border: 0; border-radius: 7px; font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 450; color: var(--text-secondary); background: transparent; box-shadow: none; gap: 10px; margin: 0; }
 .workbench-shell .nav-btn.active { color: var(--text-primary); background: var(--shell-hover); box-shadow: none; font-weight: 600; }
@@ -80,16 +132,43 @@
 .sidebar-more[open] summary::after { transform: rotate(45deg); }
 .sidebar-more summary:hover { background: var(--shell-hover); }
 .sidebar-secondary { padding-left: 8px; margin-left: 17px; border-left: 1px solid var(--border); }
+/* The expanded 「更多」 list keeps its own scroll window so eleven destinations
+   never push the sessions off screen. The wheel only feeds it while the pointer
+   is inside it; anywhere else it scrolls the sidebar as a whole. */
+.sidebar-more > .sidebar-secondary {
+  /* Four rows at a time. It is a shortcut list, not a second sidebar: at eight
+     rows it read as one. 34px is .nav-btn's min-height, 2px the grid gap. */
+  max-height: calc(136px * var(--ui-font-scale, 1) + 6px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  /* 8px, not 0: that puts the bar centred under the 「更多」 summary's chevron
+     (which ends 10px inside the row), so the nested list reads as a column
+     hanging off that arrow. It still clears the sidebar's own bar by 14px. */
+  margin-right: 8px;
+  /* `.sidebar-nav` sets scrollbar-width/color for its own bar and both inherit;
+     any non-auto value makes Chromium drop ::-webkit-scrollbar for descendants
+     and fall back to the system scrollbar, so reset them here. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+.sidebar-more > .sidebar-secondary::-webkit-scrollbar { width: 8px; }
+.sidebar-more > .sidebar-secondary::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border-strong) 64%, transparent);
+  background-clip: padding-box;
+}
 .sidebar-project { padding-top: 20px; flex: 0 0 auto; }
 .sidebar-section-label, .workbench-shell .sessions-title { display: block; padding: 0 10px; font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 500; color: var(--text-muted); }
 .shell-project-button { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 7px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); text-align: left; cursor: pointer; }
 #shellProjectName { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-shell .sidebar-sessions { flex: 1 1 120px; min-height: 90px; margin: 18px 0 0; overflow: hidden; display: flex; flex-direction: column; }
+.workbench-shell .sidebar-sessions { flex: 0 0 auto; min-height: 0; margin: 18px 0 0; overflow: visible; display: flex; flex-direction: column; }
 .workbench-shell .sessions-header { border: 0; padding: 0; margin-bottom: 8px; }
 .workbench-shell .sessions-new-btn { width: 26px; height: 26px; box-shadow: none; }
 .workbench-shell .search-box { margin: 0 0 8px; }
 .workbench-shell .search-input { font-size: calc(11px * var(--ui-font-scale, 1)); min-height: 29px; padding: 6px 9px; border-radius: 7px; border-color: transparent; background: var(--bg-tertiary); box-shadow: none; }
-.workbench-shell .sessions-list { flex: 1; min-height: 0; overflow: auto; }
+.workbench-shell .sessions-list { flex: 0 0 auto; min-height: 0; overflow: visible; }
 .workbench-shell .session-item { padding: 9px 10px; border: 0; border-radius: 7px; box-shadow: none; }
 .workbench-shell .session-item.active { background: var(--shell-hover); border: 0; box-shadow: none; }
 .workbench-shell .session-item:hover { background: var(--shell-hover); box-shadow: none; }
@@ -100,6 +179,11 @@
 .workbench-header { height: 54px; flex: 0 0 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 22px; border-bottom: 1px solid var(--border); background: var(--bg-primary); }
 .workbench-breadcrumb { min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
 #shellProjectCrumb { max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* 小楠模式：这里显示的是她的名字，不是一段路径。加粗、提亮，跟「工作区 / 视图」
+   那种淡灰的定位文字区分开。 */
+#shellProjectCrumb.is-natural { color: var(--text-primary); font-weight: 700; }
+/* 名字后面挂的「对方正在输入」比名字淡一档，不抢主语。 */
+#shellProjectCrumb .breadcrumb-typing { color: var(--text-muted); font-weight: 400; }
 .workbench-breadcrumb strong { color: var(--text-primary); font-weight: 550; white-space: nowrap; }
 .breadcrumb-divider { color: var(--border-strong); }
 .workbench-header-actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -782,6 +866,26 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 .workbench-shell :is(.shell-toolbar-button, .shell-project-button, .nav-btn):is(:hover, :active, :focus-visible) > .ui-icon { transform: none; filter: none; }
 .workbench-shell .sidebar-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding-right: 2px; }
 .workbench-shell .sidebar-section-header .sidebar-section-label { font-size: calc(12px * var(--ui-font-scale, 1)); }
+/* Category row: its "+" creates a group and never opens a folder. */
+.workbench-shell .sidebar-category-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; margin-top: 14px; padding-right: 2px; }
+.workbench-shell .sidebar-category-header .sidebar-section-label { font-size: calc(12px * var(--ui-font-scale, 1)); }
+/* Group header plus its hover-revealed rename/delete controls. */
+.workbench-shell .session-project-head { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.workbench-shell .session-project-head .session-project-heading { flex: 1; min-width: 0; }
+.workbench-shell .session-project-tool {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex: 0 0 20px; padding: 0;
+  border: 0; border-radius: 5px; color: var(--text-muted); background: none;
+  cursor: pointer; opacity: .55; transition: opacity .12s, color .12s, background .12s;
+}
+.workbench-shell .session-project-tool .ui-icon { width: 12px; height: 12px; }
+.workbench-shell .session-project-head:hover .session-project-tool,
+.workbench-shell .session-project-head:focus-within .session-project-tool { opacity: 1; }
+.workbench-shell .session-project-tool:is(:hover, :focus-visible) { color: var(--text-secondary); background: var(--bg-tertiary); }
+.workbench-shell .session-project-tool.is-danger:is(:hover, :focus-visible) { color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+@media (hover: none) {
+  .workbench-shell .session-project-tool { opacity: 1; }
+}
 .workbench-shell .shell-project-button { min-height: 40px; margin-top: 2px; gap: 10px; border-radius: 9px; font-size: calc(13px * var(--ui-font-scale, 1)); }
 .workbench-shell .shell-project-button .project-row-chevron { width: 14px; height: 14px; flex: 0 0 14px; color: var(--text-muted); }
 .workbench-shell .sessions-header { min-height: 32px; gap: 2px; padding-right: 2px; }
@@ -912,7 +1016,6 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 [data-ui-scaled="true"] .workbench-shell { --control-size:calc(32px * var(--ui-icon-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.shell-new-thread,.shell-project-button,.session-item,.quick-btn,.files-item) { height:auto; min-height:calc(34px * var(--ui-font-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell :is(.nav-btn,.quick-btn) { white-space:normal; }
-[data-ui-scaled="true"] .workbench-shell .sidebar-nav { max-height:46%; }
 [data-ui-scaled="true"] .workbench-shell .shell-toolbar-button { min-height:calc(32px * var(--ui-icon-scale,1)); min-width:calc(32px * var(--ui-icon-scale,1)); padding:0 8px; }
 [data-ui-scaled="true"] .workbench-shell :is(#sendBtn,#voiceBtn) { width:calc(32px * var(--ui-icon-scale,1)); height:calc(32px * var(--ui-icon-scale,1)); flex-shrink:0; }
 [data-ui-scaled="true"] .workbench-shell :is(.file-type-icon,.files-item-icon) { width:calc(18px * var(--ui-icon-scale,1)); height:calc(18px * var(--ui-icon-scale,1)); flex-basis:calc(18px * var(--ui-icon-scale,1)); }
@@ -921,7 +1024,6 @@ html[data-motion="reduced"] .stream-reveal { animation: none; }
 [data-ui-scaled="true"] .workbench-shell :is(input:not([type="range"]):not([type="checkbox"]),select) { min-height:calc(32px * var(--ui-font-scale,1)); }
 [data-ui-scaled="true"] .workbench-shell #chatInput { font-size:calc(14px * var(--ui-font-scale,1)); line-height:1.55; }
 [data-ui-scaled="true"] .workbench-shell .workbench-header { min-height:max(54px,calc(34px * var(--ui-font-scale,1)),calc(34px * var(--ui-icon-scale,1))); height:auto; flex-basis:max(54px,calc(34px * var(--ui-font-scale,1)),calc(34px * var(--ui-icon-scale,1))); }
-[data-ui-scaled="true"] .shell-new-thread kbd { flex: 0 0 auto; }
 [data-ui-scaled="true"] .workbench-shell .sessions-title { white-space:nowrap; padding-left:4px; }
 [data-ui-scaled="true"] .workbench-shell .sessions-header { height:auto; min-height:calc(32px * var(--ui-icon-scale,1)); flex-wrap:wrap; gap:4px; }
 [data-ui-scaled="true"] .workbench-shell .sidebar-sessions { margin-top:12px; }

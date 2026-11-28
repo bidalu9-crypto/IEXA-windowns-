@@ -26,6 +26,17 @@ interface PairTokenRecord {
   expiresAt: number;
 }
 
+/**
+ * One short numeric code at a time, so a phone can pair without a camera.
+ * Only the HMAC is kept: a reload cannot recover the digits, and a stolen
+ * store file cannot either.
+ */
+interface PairPinRecord {
+  hash: string;
+  expiresAt: number;
+  attempts: number;
+}
+
 export interface MobileBridgeDevice {
   id: string;
   name: string;
@@ -36,6 +47,9 @@ export interface MobileBridgeDevice {
 
 const PAIR_TOKEN_TTL_MS = 5 * 60 * 1000;
 const ACTIVE_WRITE_INTERVAL_MS = 60 * 1000;
+/** Four digits is 10k combinations, so a wrong guess spends a try. */
+const PAIR_PIN_ATTEMPTS = 5;
+const PAIR_PIN_LENGTH = 4;
 
 function randomToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('base64url');
@@ -68,22 +82,59 @@ function normalizeStore(value: unknown): MobileBridgeStore {
   };
 }
 
+/** Proxy/tunnel fakes that phones can never route to (Clash TUN uses 198.18.0.0/15). */
+function isUnroutableFromLan(address: string): boolean {
+  if (address.startsWith('169.254.')) return true;
+  if (/^198\.1[89]\./.test(address)) return true;
+  return false;
+}
+
+/**
+ * Mirror of the listener's IPv6 filter. A residential prefix renumbers whenever
+ * PPPoE reconnects, so pairing codes have to follow whatever address the router
+ * is currently advertising instead of a literal baked into start.bat. The
+ * rotating RFC 4941 temporary address is still excluded (it is the /128); a
+ * code pointing at it would expire within hours.
+ */
+function isUnusableIpv6(address: string, netmask?: string): boolean {
+  const ip = address.toLowerCase();
+  if (ip.startsWith('fe80:')) return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(ip)) return true;
+  if (netmask && /^ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff$/i.test(netmask)) return true;
+  return false;
+}
+
 function networkAddresses(): string[] {
   const addresses = new Set<string>();
   for (const entries of Object.values(os.networkInterfaces())) {
     for (const entry of entries || []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue;
-      if (entry.address.startsWith('169.254.')) continue;
-      addresses.add(entry.address);
+      if (!entry || entry.internal) continue;
+      if (entry.family === 'IPv4') {
+        if (isUnroutableFromLan(entry.address)) continue;
+        addresses.add(entry.address);
+        continue;
+      }
+      if (entry.family !== 'IPv6') continue;
+      if (isUnusableIpv6(entry.address, entry.netmask)) continue;
+      addresses.add(entry.address.toLowerCase());
     }
   }
   return [...addresses];
+}
+
+/** Real LAN addresses first so pairing codes never default to a tunnel IP. */
+function preferredAddress(): string | undefined {
+  const all = networkAddresses();
+  return all.find((address) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address))
+    || all.find((address) => address.includes(':'))
+    || all[0];
 }
 
 export class MobileBridgeManager {
   private readonly store: JsonStore<MobileBridgeStore>;
   private state: MobileBridgeStore;
   private pairTokens = new Map<string, PairTokenRecord>();
+  private pairPin: PairPinRecord | null = null;
   private port = 0;
 
   constructor(workspaceDir: string) {
@@ -113,7 +164,7 @@ export class MobileBridgeManager {
   configure(input: { enabled?: unknown; defaultCapability?: unknown }): ReturnType<MobileBridgeManager['status']> {
     if (typeof input.enabled === 'boolean') this.state.enabled = input.enabled;
     if (input.defaultCapability !== undefined) this.state.defaultCapability = normalizeCapability(input.defaultCapability);
-    if (!this.state.enabled) this.pairTokens.clear();
+    if (!this.state.enabled) { this.pairTokens.clear(); this.pairPin = null; }
     this.save();
     return this.status();
   }
@@ -125,10 +176,53 @@ export class MobileBridgeManager {
     const id = crypto.createHash('sha256').update(token).digest('hex').slice(0, 24);
     const expiresAt = Date.now() + PAIR_TOKEN_TTL_MS;
     this.pairTokens.set(id, { hash: this.hash(`pair:${token}`), expiresAt });
-    const host = address || networkAddresses()[0];
-    if (host && ![...networkAddresses(), '127.0.0.1', 'localhost'].includes(host)) throw new Error('配对地址不属于本机。');
+    const host = String(address || preferredAddress() || '').replace(/^\[|\]$/g, '');
+    if (host && ![...networkAddresses(), '127.0.0.1', 'localhost', '::1'].includes(host)) throw new Error('配对地址不属于本机。');
     if (!host || !this.port) throw new Error('没有检测到可用的局域网地址。');
-    return { token, expiresAt, url: `https://${host}:${this.port}/#pair=${encodeURIComponent(token)}` };
+    // An IPv6 literal must be bracketed in a URL (RFC 3986); 443 is implicit.
+    const authority = host.includes(':') ? `[${host}]` : host;
+    const portPart = this.port === 443 ? '' : `:${this.port}`;
+    return { token, expiresAt, url: `https://${authority}${portPart}/#pair=${encodeURIComponent(token)}` };
+  }
+
+  /** Four digits, uniform, no leading-zero bias. Replaces any previous code. */
+  createPairPin(): { code: string; expiresAt: number; ttlMs: number } {
+    if (!this.state.enabled) throw new Error('请先开启手机桥接。');
+    const expiresAt = Date.now() + PAIR_TOKEN_TTL_MS;
+    let code = '';
+    // crypto.randomInt is rejection-sampled, so every 0000-9999 value is equally
+    // likely; Math.random() would leak a modulo bias.
+    for (let i = 0; i < PAIR_PIN_LENGTH; i += 1) code += String(crypto.randomInt(0, 10));
+    this.pairPin = { hash: this.hash(`pin:${code}`), expiresAt, attempts: 0 };
+    return { code, expiresAt, ttlMs: PAIR_TOKEN_TTL_MS };
+  }
+
+  /** Whether a usable code exists, without ever revealing it. */
+  pairPinState(): { active: boolean; expiresAt: number } {
+    this.prunePin();
+    return { active: Boolean(this.pairPin), expiresAt: this.pairPin?.expiresAt || 0 };
+  }
+
+  /** Null on success, otherwise the reason so the phone can show it. */
+  pairWithPin(code: string, name: string): { device: MobileBridgeDevice; sessionToken: string } | { error: string } {
+    if (!this.state.enabled) return { error: '电脑端的手机桥接当前已关闭。' };
+    this.prunePin();
+    const pin = this.pairPin;
+    if (!pin) return { error: '验证码已失效，请在电脑端重新生成。' };
+    const digits = String(code || '').replace(/\D/g, '').slice(0, PAIR_PIN_LENGTH);
+    if (digits.length !== PAIR_PIN_LENGTH) return { error: '请输入完整的四位数字验证码。' };
+    if (!this.secureEqual(pin.hash, this.hash(`pin:${digits}`))) {
+      // Burn a try so 10k guesses cannot be walked in five minutes.
+      pin.attempts += 1;
+      if (pin.attempts >= PAIR_PIN_ATTEMPTS) {
+        this.pairPin = null;
+        return { error: '验证码错误次数过多，请在电脑端重新生成。' };
+      }
+      return { error: `验证码不正确，还可尝试 ${PAIR_PIN_ATTEMPTS - pin.attempts} 次。` };
+    }
+    // A code is single-use: it dies the moment it succeeds.
+    this.pairPin = null;
+    return this.registerDevice(name);
   }
 
   pair(token: string, name: string): { device: MobileBridgeDevice; sessionToken: string } | null {
@@ -138,7 +232,11 @@ export class MobileBridgeManager {
     const record = this.pairTokens.get(id);
     if (!record || record.expiresAt < Date.now() || !this.secureEqual(record.hash, this.hash(`pair:${token}`))) return null;
     this.pairTokens.delete(id);
+    return this.registerDevice(name);
+  }
 
+  /** Shared tail of both pairing paths: mint a session and store the device. */
+  private registerDevice(name: string): { device: MobileBridgeDevice; sessionToken: string } {
     const now = Date.now();
     const sessionToken = randomToken(36);
     const device: PairedDeviceRecord = {
@@ -154,6 +252,9 @@ export class MobileBridgeManager {
     this.save();
     return { device: this.publicDevice(device), sessionToken };
   }
+
+  /** Forget the current code, e.g. when the desktop panel regenerates it. */
+  revokePairPin(): void { this.pairPin = null; }
 
   authenticate(sessionToken: string): MobileBridgeDevice | null {
     if (!this.state.enabled || !sessionToken) return null;
@@ -217,6 +318,10 @@ export class MobileBridgeManager {
   private pruneTokens(): void {
     const now = Date.now();
     for (const [id, token] of this.pairTokens) if (token.expiresAt < now) this.pairTokens.delete(id);
+  }
+
+  private prunePin(): void {
+    if (this.pairPin && this.pairPin.expiresAt < Date.now()) this.pairPin = null;
   }
 
   private save(): void {

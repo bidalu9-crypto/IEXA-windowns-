@@ -82,7 +82,7 @@ export class McpManager {
     this.setState(id, { status: 'connecting', error: undefined, tools: [], resources: [], logs: [] });
     try {
       const initialize = await this.request(config, 'initialize', {
-        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'IEXA-WIN', version: '1.0.0' },
+        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'iExA-WIN', version: '1.0.0' },
       });
       await this.notify(config, 'notifications/initialized', {});
       const listed = await this.request(config, 'tools/list', {});

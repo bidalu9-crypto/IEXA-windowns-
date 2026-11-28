@@ -400,10 +400,12 @@ function ensureAssistantMessage() {
 
 function showWaitingIndicator() {
   // A cancel request can race with late tool/stream events. Once stopping has
-  // started, the old turn must never recreate the "IEXA正在处理..." surface.
+  // started, the old turn must never recreate the "iExA正在处理..." surface.
   const runtime = currentSessionId ? runtimeForSession(currentSessionId) : null;
   if (runtime?.turnStopPending) return;
   const msg = ensureAssistantMessage();
+  // The bubble may still carry the hidden flag from an earlier empty state.
+  msg.classList.remove('is-filtered-out');
   if (msg.querySelector('.waiting-indicator')) return;
   const indicator = window.IexaChatActivity.createWaiting();
   const footer = assistantFooterAnchor(msg);

@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Tool Definitions
+// iExA PC - Tool Definitions
 // Mirrors iOS AIChatViewModel+ToolDefinitions.swift
 // =============================================================================
 

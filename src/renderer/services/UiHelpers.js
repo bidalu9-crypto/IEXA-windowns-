@@ -20,6 +20,40 @@ function transcriptNextIndex(consume) {
   }
   return chatMessages.querySelectorAll('.message:not(.is-queued):not(.is-steering)').length;
 }
+/**
+ * 微信式时间分隔：一轮对话开始前，居中一行小字。
+ *
+ * 伴侣聊天里她的回复是十几条短气泡，中间没有分界，滚起来分不清哪句是
+ * 上一轮、哪句是这一轮。给每一轮开头加一个时间戳，间隔就出来了。
+ */
+function formatChatDividerTime(ts) {
+  const value = Number(ts);
+  const date = Number.isFinite(value) && value > 0 ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  // 用界面语言格式化，否则「星期几」会跟着系统区域变成英文。
+  const locale = (typeof window !== 'undefined' && window.IexaI18n?.getLocale?.()) || 'zh-CN';
+  const clock = date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86400000);
+  if (days === 0) return clock;
+  if (days === 1) return `昨天 ${clock}`;
+  if (days < 7) return `${date.toLocaleDateString(locale, { weekday: 'long' })} ${clock}`;
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${clock}`;
+}
+
+/** 在聊天区末尾追加一个时间分隔，返回元素（用于插入位置判断）。 */
+function appendChatTimeDivider(ts) {
+  if (typeof chatMessages === 'undefined' || !chatMessages) return null;
+  const label = formatChatDividerTime(ts);
+  if (!label) return null;
+  const el = document.createElement('div');
+  el.className = 'chat-time-divider';
+  el.textContent = label;
+  el.setAttribute('role', 'separator');
+  chatMessages.appendChild(el);
+  return el;
+}
+
 function addMessage(role, content, attachments, opts) {
   const queued = !!(opts && opts.queued);
   const queueId = (opts && opts.queueId) || '';
@@ -34,7 +68,33 @@ function addMessage(role, content, attachments, opts) {
   if (role === 'assistant') {
     msg._assistantText = String(content || '');
     if (opts && Number.isInteger(opts.messageIndex)) msg.dataset.messageIndex = String(opts.messageIndex);
-    if (opts && opts.streaming) msg.classList.add('is-streaming');
+    // A stored assistant message with nothing to paint is hidden so it does not
+    // sit in the transcript as an empty bubble. "Nothing" has to include the
+    // tool steps and reasoning: a turn interrupted mid-flight has empty content
+    // but real progress, and hiding it left only the paused banner with no sign
+    // of what had already run.
+    const hasBody = Boolean(String(content || '').trim())
+      || Boolean(opts && (opts.hasToolCalls || opts.hasThinking));
+    if (!hasBody && opts && Number.isInteger(opts.messageIndex)) {
+      msg.classList.add('is-filtered-out');
+    }
+    if (opts && opts.streaming) {
+      msg.classList.add('is-streaming');
+      // Natural chat suppresses the streamed text and paints the reply as short
+      // bursts afterwards, so this bubble is only a placeholder. Tagging it lets
+      // that code remove exactly this node later without guessing from content.
+      //
+      // Keyed on the conversation, not the UI mode: while natural chat is open a
+      // standard conversation can still be streaming in the background, and its
+      // bubble must never be tagged - the natural-chat cleanup would delete it.
+      // `sessionsCache` is a top-level `let` in app.js, so it is referenced
+      // directly (a `window.` prefix would read undefined) and guarded because
+      // this file loads first.
+      const session = (typeof sessionsCache !== 'undefined' && Array.isArray(sessionsCache))
+        ? sessionsCache.find((entry) => entry.id === currentSessionId)
+        : null;
+      if (session && session.natural === true) msg.dataset.naturalPlaceholder = 'true';
+    }
   }
   if (role === 'user' && !queued && !steering) {
     // Index in the persisted session timeline, used by “重置到此处”.
@@ -59,6 +119,16 @@ function addMessage(role, content, attachments, opts) {
     enhanceCodeBlocks(contentDiv);
     enhanceTables(contentDiv);
     window.IexaChart?.enhance(contentDiv);
+    // Hide the bubble only when it has content that paints nothing: a line made
+    // entirely of filtered phrases, or one that is whitespace and zero-width
+    // characters. An empty bubble is a turn that has not produced text yet, so
+    // it stays mounted and is hidden by `is-empty-bubble` until something lands.
+    // `innerHTML` rather than `textContent`: an image-only reply renders to
+    // `<img>` with no text at all, and testing textContent marked it empty and
+    // hid the whole message. innerHTML is empty only when nothing was painted.
+    const painted = String(contentDiv.innerHTML || '').trim();
+    const filteredOut = window.IexaNonDisplay?.isEmpty(content) === true;
+    if (String(content || '').trim() && (!painted || filteredOut)) msg.classList.add('is-filtered-out');
   }
 
   msg.appendChild(label);
@@ -215,12 +285,66 @@ function appendAssistantMessageActions(messageEl) {
     event.stopPropagation();
     window.IexaSpeech?.toggle(messageEl, this);
   });
+  // Natural chat removes a line instead of regenerating it: the conversation is
+  // a thread of separate messages, so a wrong one is deleted, not rewritten.
+  actions.insertAdjacentHTML('beforeend',
+    `<button type="button" class="assistant-message-action" data-action="delete" title="${IexaI18n.t('msg.deleteMessage')}" aria-label="${IexaI18n.t('msg.deleteMessage')}">${uiIcon('trash')}</button>`);
+  actions.querySelector('[data-action="delete"]').addEventListener('click', function (event) {
+    event.preventDefault();
+    event.stopPropagation();
+    deleteAssistantMessage(messageEl, this);
+  });
   footer.appendChild(actions);
+  // Per-message timestamp. Hidden unless natural chat is active, so the standard
+  // transcript keeps its compact control row unchanged.
+  const stampMs = Number(messageEl.dataset.timestamp) || Date.now();
+  const stamp = document.createElement('time');
+  stamp.className = 'message-time';
+  stamp.dateTime = new Date(stampMs).toISOString();
+  stamp.textContent = formatMessageStamp(stampMs);
+  footer.appendChild(stamp);
   messageEl.appendChild(footer);
+}
+
+/** 2026/11/14/20:31 - the date and clock a phone message list would show. */
+function formatMessageStamp(ms) {
+  const date = new Date(Number(ms) || Date.now());
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** Remove one assistant line from the conversation (natural chat). */
+async function deleteAssistantMessage(messageEl, button) {
+  if (!messageEl || !currentSessionId) return;
+  const content = messageEl.querySelector('.message-content');
+  const text = String(content?.textContent || '').trim();
+  if (!text) return;
+  const ok = await window.IexaDialogs?.confirm?.(IexaI18n.t('msg.deleteMessageConfirm'));
+  if (!ok) return;
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(currentSessionId)}/messages/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || IexaI18n.t('msg.deleteMessageFailed'));
+    messageEl.remove();
+    const runtime = runtimeForSession(currentSessionId);
+    runtime.mountedMessageCount = Math.max(0, (Number(runtime.mountedMessageCount) || 1) - 1);
+  } catch (error) {
+    if (button) button.disabled = false;
+    addError(error.message || String(error));
+  }
 }
 
 function finalizeAssistantMessage(messageEl) {
   if (!messageEl) return;
+  // The streamed text may be nothing but filtered phrases; the bubble had to
+  // exist while it streamed, but there is no reason to keep an empty box.
+  if (window.IexaNonDisplay) {
+    messageEl.classList.toggle('is-filtered-out', window.IexaNonDisplay.isEmpty(messageEl._assistantText || ''));
+  }
   freezeTurnDuration(messageEl);
   flushStreamUpdates(currentSessionId);
   if (messageEl === currentAssistantMsg) renderDeliverables(messageEl, collectLiveDeliverables());
@@ -363,6 +487,13 @@ async function refreshCurrentSessionHistory(sessionId) {
   if (!sessionId || sessionId !== currentSessionId) return;
   const runtime = sessionRuntimes.get(sessionId);
   if (runtime?.isProcessing || isProcessing) return;
+  // Returning to the window, regaining focus or the 1.5s poll can all ask for a
+  // rebuild when the store holds nothing new. A rebuild tears the transcript
+  // down and paints the loading row again, which is the flash that reads as the
+  // chat reloading itself. Compare against the count this view already mounted
+  // and skip the work entirely when they agree.
+  const storeCount = sessionsCache.find((session) => session.id === sessionId)?.messageCount;
+  if (Number.isInteger(storeCount) && runtime?.mountedMessageCount === storeCount) return;
   // During a cold start the first history layout is still being positioned.
   // A metadata refresh can race that work, observe scrollTop=0, and restore
   // the top of the transcript after reload. Keep the startup latest-position
@@ -373,6 +504,8 @@ async function refreshCurrentSessionHistory(sessionId) {
   const savedScrollTop = visibleChatMessages.scrollTop;
   await reloadSessionView(sessionId);
   if (sessionId !== currentSessionId) return;
+  const mounted = sessionRuntimes.get(sessionId);
+  if (mounted && Number.isInteger(storeCount)) mounted.mountedMessageCount = storeCount;
   if (positioningHistory || keepAtBottom || forceHistoryLatest) scrollHistoryToLatest(sessionId);
   else {
     visibleChatMessages.scrollTop = savedScrollTop;
@@ -740,6 +873,11 @@ function isChatUserScrollActive() {
   return chatPointerScrollActive || chatTouchScrollActive || chatWheelScrollActive;
 }
 
+/** Wheel or touch actually driving the transcript - a click on it is not a scroll. */
+function isChatGestureScrolling() {
+  return chatWheelScrollActive || chatTouchScrollActive;
+}
+
 function stopFollowingLatestMessage() {
   isNearChatBottom = false;
   chatBottomFollowRequested = false;
@@ -770,26 +908,44 @@ let turnAnchor = null;
 function restoreTurnAnchorPadding() {
   if (!turnAnchor) return;
   const { container, basePadding } = turnAnchor;
-  if (container && container.isConnected) container.style.paddingBottom = basePadding;
   turnAnchor = null;
+  if (!container || !container.isConnected) return;
+  /* Giving the borrowed room back shrinks scrollHeight by up to a full viewport.
+     The browser answers a shrinking container by clamping scrollTop, and with
+     the padding gone there is often no real content left below the fold: the
+     transcript lands back on its first message, which reads as the view
+     refusing to scroll anywhere but the top. Carry the offset across so the
+     content under the viewport stays exactly where the reader left it. */
+  const heightBefore = container.scrollHeight;
+  const topBefore = container.scrollTop;
+  container.style.paddingBottom = basePadding;
+  const heightAfter = container.scrollHeight;
+  if (heightAfter !== heightBefore) {
+    container.scrollTop = Math.max(0, topBefore - (heightBefore - heightAfter));
+  }
 }
 
 function clearTurnAnchor() {
   restoreTurnAnchorPadding();
 }
 
-/* Sending pins the prompt to the top, and then leaves the layout completely
-   alone until the reply outgrows the borrowed room.
+/* Sending pins the prompt to the top, and the reply is then allowed to grow
+   underneath it for as long as the borrowed room lasts.
 
-   The first version shrank the padding every frame to mirror the growth. That
-   is what produced the shimmer: each frame read scrollHeight (forcing layout),
-   wrote padding (invalidating it) and then clamped scrollTop to the new bottom.
-   Three layout passes per token cannot stay in step with a tokenizer, so the
-   message visibly wobbled by a pixel.
+   An earlier version shrank the padding every frame to mirror the growth, and it
+   shimmered: each frame read scrollHeight (forcing layout), wrote padding and
+   then clamped scrollTop to the new bottom. Three layout passes per token cannot
+   stay in step with a tokenizer.
 
-   Nothing actually needs to move. The prompt sits above the growing content, so
-   its position is already stable while padding stays fixed. Read-only check per
-   frame, zero writes. */
+   The fix is not to stop giving the room back - it is to stop touching scrollTop
+   while doing it. Padding is synced once per paint, in the same task that wrote
+   the text, and scrollHeight therefore stays constant: scrollTop never needs a
+   clamp, the prompt never moves a pixel, and the moment the reply outgrows the
+   room the padding is already at its base value, so releasing it changes
+   nothing. Holding a fixed viewport of padding instead (the version before this
+   one) grew scrollHeight with the reply and then dropped up to a full viewport in
+   a single step, which left the browser clamping the reader back onto the first
+   message. */
 function anchorTurnAtTop(messageEl) {
   restoreTurnAnchorPadding();
   if (!messageEl || currentSessionId !== visibleSessionId) return;
@@ -803,10 +959,15 @@ function anchorTurnAtTop(messageEl) {
   const basePadding = container.style.paddingBottom || getComputedStyle(container).paddingBottom;
   const base = parseFloat(basePadding) || 0;
   container.style.paddingBottom = (base + room) + 'px';
-  const top = rect.top - box.top + container.scrollTop;
+  turnAnchor = { el: messageEl, container, room, base, basePadding };
+  // Anything already under the prompt - an empty reply bubble, an error line -
+  // has already claimed part of the room. Settle it before pinning, or the first
+  // streamed frame hands that much back and the transcript shifts by it.
+  syncTurnAnchorPadding();
+  const pinnedRect = messageEl.getBoundingClientRect();
+  const top = pinnedRect.top - box.top + container.scrollTop;
   container.scrollTop = Math.max(0, top - 16);
   isNearChatBottom = true;
-  turnAnchor = { el: messageEl, container, room, basePadding };
   updateScrollToBottomButton();
 }
 
@@ -819,21 +980,46 @@ function releaseTurnAnchorIfFull() {
   isNearChatBottom = true;
 }
 
-/* Read-only: is everything below the prompt still shorter than the borrowed room?
-   Measuring the whole tail rather than the immediate sibling keeps this correct
-   when an error line or a tool card sits between prompt and reply. */
+/* Give back exactly what the text took. The prompt sits above the growing
+   content, so holding scrollHeight constant holds the prompt still: no scroll
+   write, no clamp, nothing to wobble. */
+function syncTurnAnchorPadding() {
+  if (!turnAnchor) return;
+  const remaining = Math.max(0, turnAnchor.room - turnAnchorContentBelow());
+  const target = (turnAnchor.base + remaining) + 'px';
+  if (turnAnchor.container.style.paddingBottom !== target) turnAnchor.container.style.paddingBottom = target;
+}
+
+/* Everything below the prompt. Measuring from the prompt's bottom (not its top)
+   keeps `room` and the borrowed padding on the same ruler: `room` is the space
+   below the prompt inside the viewport, so the first sync right after sending
+   must be a no-op. Measuring the whole tail rather than the immediate sibling
+   keeps this correct when an error line or a tool card sits between prompt and
+   reply. */
+function turnAnchorContentBelow() {
+  if (!turnAnchor) return 0;
+  const { el, container } = turnAnchor;
+  if (!el.isConnected || !container.isConnected) return 0;
+  const last = container.lastElementChild;
+  if (!last || last === el) return 0;
+  const prompt = el.getBoundingClientRect();
+  return last.getBoundingClientRect().bottom - prompt.bottom;
+}
+
 function turnAnchorHolds() {
   if (!turnAnchor) return false;
   if (!turnAnchor.el.isConnected || !chatViewIsActive()) { restoreTurnAnchorPadding(); return false; }
   const last = turnAnchor.container.lastElementChild;
   if (!last || last === turnAnchor.el) return true;
-  const promptTop = turnAnchor.el.getBoundingClientRect().top;
-  return (last.getBoundingClientRect().bottom - promptTop) < turnAnchor.room;
+  return turnAnchorContentBelow() < turnAnchor.room;
 }
 function scrollToBottom(force, followLatest) {
   if (currentSessionId !== visibleSessionId) return;
   if (force) clearTurnAnchor();
   else if (turnAnchor) {
+    // Give the borrowed room back in step with the reply, then decide whether any
+    // of it is still needed.
+    syncTurnAnchorPadding();
     if (turnAnchorHolds()) return;
     releaseTurnAnchorIfFull();
   }

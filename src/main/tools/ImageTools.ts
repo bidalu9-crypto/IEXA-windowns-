@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Local image reader (native vision input)
+// iExA PC - Local image reader (native vision input)
 //
 // Returns the original bytes as a ToolExecutionResult.imageData, which AgentLoop
 // forwards as an independent `imageData` part. Every provider adapter already

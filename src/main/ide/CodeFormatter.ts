@@ -156,7 +156,7 @@ export class CodeFormatter {
         if (!(error instanceof IDEFormatError) || !['IDE_FORMAT_START', 'IDE_FORMAT_PROBE_TIMEOUT'].includes(error.code)) throw error;
       }
     }
-    throw new IDEFormatError('IDE_FORMAT_ENVIRONMENT', '未找到可用的 Python 格式化器。请在项目环境运行 python -m pip install ruff（或 black），或重新安装含 Ruff 的 IEXA-WIN；也可配置 IEXA_RUFF_EXECUTABLE / IEXA_PYTHON_EXECUTABLE。');
+    throw new IDEFormatError('IDE_FORMAT_ENVIRONMENT', '未找到可用的 Python 格式化器。请在项目环境运行 python -m pip install ruff（或 black），或重新安装含 Ruff 的 iExA-WIN；也可配置 IEXA_RUFF_EXECUTABLE / IEXA_PYTHON_EXECUTABLE。');
   }
 
   private findExecutable(name: string): string | undefined {

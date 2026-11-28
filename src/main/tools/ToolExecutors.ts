@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Tool Executors
+// iExA PC - Tool Executors
 // Shell, File, Memory, Browser operations
 // =============================================================================
 
@@ -567,9 +567,19 @@ export class MemoryTools {
       try {
         const root = await this.verifyRoot();
         await this.verifyMemoryFiles(root);
-        const today = new Date().toISOString().split('T')[0];
+        // 本地时间，不是 UTC。
+        //
+        // 原来用的是 toISOString()，它永远返回 UTC：北京时间凌晨 0 点写的记忆，
+        // 会被记成前一天 16 点，文件也落进前一天的名字里。她读回来的时候看到
+        // 的时间和实际发生的时间差 8 小时，跟对话里说的对不上。
+        //
+        // 不带毫秒：记忆是给人看的，`05:39:05` 比 `05:39:05.669` 干净，
+        // 同一秒内两条记录也分得开——正文本身就能区分。
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        const timestamp = `${today} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
         const filePath = path.join(root, `${today}.md`);
-        const timestamp = new Date().toISOString();
         const entry = `\n### ${timestamp}\n${content}\n`;
         let exists = false;
         try {

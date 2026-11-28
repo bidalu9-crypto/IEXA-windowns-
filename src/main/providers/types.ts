@@ -1,6 +1,6 @@
 import type { ToolExecutionStatus, ToolLifecycleEvent } from '../runtime/ToolLifecycle';
 // =============================================================================
-// IEXA PC - Core Types
+// iExA PC - Core Types
 // Mirrors iOS AgentProvider.swift + LLMTypes.swift + ChatModels.swift
 // =============================================================================
 

@@ -134,7 +134,7 @@ export function convertTobsDescriptor(input: unknown): BotPackage {
   return { format: 'iexa-bot', version: 1, bot: { name, description, persona: '', allowedTools: [] } };
 }
 
-/** Native IEXA personas; no DSH process, protocol or credentials involved. */
+/** Native iExA personas; no DSH process, protocol or credentials involved. */
 export class BotStore {
   private readonly store: JsonStore<{ bots: BotProfile[] }>;
   constructor(readonly root: string) {

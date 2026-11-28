@@ -205,27 +205,6 @@ function initPanelResizers() {
   bind(filesResizer, 'files');
 }
 
-function initSidebarNavigationScroll() {
-  const sidebar = document.getElementById('sidebar');
-  const navigation = sidebar?.querySelector('.sidebar-nav');
-  if (!sidebar || !navigation) return;
-
-  // When the pointer is over non-scrollable sidebar chrome, route the wheel
-  // to the function rail. The conversation list and the rail keep their own
-  // native scrolling when the pointer is directly over either one.
-  sidebar.addEventListener('wheel', (event) => {
-    if (navigation.scrollHeight <= navigation.clientHeight || navigation.contains(event.target)) return;
-    const sessions = event.target.closest?.('.sessions-list, .search-results');
-    if (sessions && sessions.scrollHeight > sessions.clientHeight) return;
-    navigation.scrollTop += event.deltaY;
-    event.preventDefault();
-  }, { passive: false });
-
-  navigation.querySelectorAll('.nav-btn').forEach((button) => {
-    button.addEventListener('click', () => button.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
-  });
-}
-
 function closeMobileDrawers() {
   document.body.classList.remove('mobile-sidebar-open', 'mobile-files-open');
   const backdrop = document.getElementById('mobileDrawerBackdrop');

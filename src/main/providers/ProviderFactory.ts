@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - Provider Factory
+// iExA PC - Provider Factory
 // Mirrors iOS ProviderFactory.swift + LLMProviderFactory
 // =============================================================================
 

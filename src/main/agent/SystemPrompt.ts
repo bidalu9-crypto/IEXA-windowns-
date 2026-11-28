@@ -1,5 +1,5 @@
 // =============================================================================
-// IEXA PC - System Prompt Builder
+// iExA PC - System Prompt Builder
 // Mirrors iOS baseSystemPrompt in AIChatViewModel.swift
 // =============================================================================
 
@@ -93,6 +93,7 @@ export function buildSystemPrompt(ctx: SystemPromptContext | boolean = true): st
   const toolAppendix = Array.isArray(options.tools) && options.tools.length
     ? `${buildToolAppendix(options.tools)}\n${TOOL_PLAYBOOK}`
     : '';
+
 
   const skillsAuthoringSection = skillsDir
     ? `## 创建 / 管理 Skill（可给模型执行）

@@ -218,7 +218,7 @@
     const form = element('form', 'bots-form');
     const title = element('h2', '', bot ? '编辑 Bot' : '创建 Bot');
     title.id = 'bots-editor-title';
-    const intro = element('p', 'bots-editor-intro', 'Bot 身份定义它如何回应；长期记忆仅保存你在这里明确填写的内容。工具访问与审批继承 IEXA 现有权限，不构成隔离沙箱。');
+    const intro = element('p', 'bots-editor-intro', 'Bot 身份定义它如何回应；长期记忆仅保存你在这里明确填写的内容。工具访问与审批继承 iExA 现有权限，不构成隔离沙箱。');
     const fieldset = element('fieldset', 'bots-fields');
     const fields = {};
     function addField(key, label, kind, help) {
@@ -248,7 +248,7 @@
     addField('description', '简介', 'textarea', '简要说明适合交给这个 Bot 的任务。');
     addField('persona', 'Bot 身份 / 回应方式', 'textarea', '例如：你是一位代码审查助手，先给结论，再列证据与可执行修改。身份设置不改变工具权限。');
     addField('memory', '显式长期记忆', 'textarea', '填写需要长期保留的事实、偏好与约定；这里不表示自动记忆或独立数据沙箱。');
-    const select = addField('profileId', '新聊天的模型配置', 'select', '此配置仅用于新聊天；留空时在新建聊天时使用 IEXA 当前模型。已有聊天保持原模型绑定，不会随此处修改而改变。');
+    const select = addField('profileId', '新聊天的模型配置', 'select', '此配置仅用于新聊天；留空时在新建聊天时使用 iExA 当前模型。已有聊天保持原模型绑定，不会随此处修改而改变。');
     const addOption = (value, label) => {
       const option = element('option', '', label);
       option.value = value;
@@ -259,7 +259,7 @@
     const existingId = text(bot?.profileId);
     if (existingId && !profiles.some((profile) => profile.id === existingId)) addOption(existingId, `保留原模型配置（当前不可用）：${existingId}`);
     select.value = existingId;
-    fieldset.append(element('p', 'bots-field-hint', '工具权限默认不勾选（无工具）。授权仍受 IEXA 审批约束；授予 shell 意味着可执行程序，不等于沙箱。'));
+    fieldset.append(element('p', 'bots-field-hint', '工具权限默认不勾选（无工具）。授权仍受 iExA 审批约束；授予 shell 意味着可执行程序，不等于沙箱。'));
     const toolPicker = element('fieldset', 'bots-tool-picker');
     toolPicker.append(element('legend', '', '允许使用的工具'));
     const selectedTools = toolNames(bot?.allowedTools);
@@ -381,7 +381,7 @@
       preview.append(element('dt', '', label), element('dd', '', content));
     }
     const unknown = pkg.bot.allowedTools.filter((name) => !tools.some((tool) => tool.name === name));
-    body.append(preview, element('p', 'bots-field-hint', '仅支持 IEXA 原生 iexa-bot v1 包。请核对身份与工具权限。shell 授权允许执行程序，不等于沙箱。'));
+    body.append(preview, element('p', 'bots-field-hint', '仅支持 iExA 原生 iexa-bot v1 包。请核对身份与工具权限。shell 授权允许执行程序，不等于沙箱。'));
     const label = element('label', 'bots-field', '选择本机模型配置（必选）');
     const select = element('select', 'bots-input');
     select.name = 'importProfileId';
@@ -679,7 +679,7 @@
     const page = element('div', 'bots-page');
     const header = element('header', 'bots-header');
     const heading = element('div', 'bots-heading');
-    heading.append(element('p', 'bots-eyebrow', 'IEXA · 原生 Bot'), element('h2', '', 'Bot 团队'), element('p', 'bots-subtitle', '为每位 Bot 保存身份、显式长期记忆与模型配置。'));
+    heading.append(element('p', 'bots-eyebrow', 'iExA · 原生 Bot'), element('h2', '', 'Bot 团队'), element('p', 'bots-subtitle', '为每位 Bot 保存身份、显式长期记忆与模型配置。'));
     const actions = element('div', 'bots-header-actions');
     refreshButton = button('刷新', '', refresh);
     createButton = button('创建 Bot', 'bots-primary', () => openEditor());
@@ -690,7 +690,7 @@
     fileInput.addEventListener('change', () => { void importFile(fileInput); });
     actions.append(button('内置模板', '', openCatalog), button('导入 JSON', '', () => fileInput.click()), button('导入 Tobs 描述', '', openTobsImport), fileInput, refreshButton, createButton);
     header.append(heading, actions);
-    const note = element('p', 'bots-permission-note', '工具调用受各 Bot 白名单和 IEXA 审批双重限制；身份与记忆设置不是隔离沙箱。每次“开始聊天”创建一段 Bot 对话。');
+    const note = element('p', 'bots-permission-note', '工具调用受各 Bot 白名单和 iExA 审批双重限制；身份与记忆设置不是隔离沙箱。每次“开始聊天”创建一段 Bot 对话。');
     const toolbar = element('div', 'bots-toolbar');
     count = element('span', 'bots-count', '尚未加载');
     status = element('p', 'bots-status');
