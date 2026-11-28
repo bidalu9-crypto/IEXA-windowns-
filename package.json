@@ -1,7 +1,7 @@
 {
   "name": "iexa-win",
-  "version": "1.0.7",
-  "description": "IEXA-WIN - Your private Windows AI agent",
+  "version": "1.1.0",
+  "description": "iExA-WIN - Your private Windows AI agent",
   "main": "electron-entry.js",
   "scripts": {
     "build": "npm run vendor:renderer && tsc",

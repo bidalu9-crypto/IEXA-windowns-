@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="./docs/logo.png" width="96" alt="IEXA-WIN" />
+<img src="./docs/logo.png" width="96" alt="iExA-WIN" />
 
-# IEXA-WIN
+# iExA-WIN
 
 **把 AI 代理放进 Windows 桌面。**
 模型在云端，手脚在本地：读写文件、执行命令、抓网页、操作桌面，全部在你的机器上完成。
@@ -132,8 +132,8 @@
 
 | 文件 | 用法 |
 |---|---|
-| `IEXA-WIN-Setup-x.y.z.exe` | 安装到本机，带开始菜单与桌面快捷方式，可在「应用和功能」卸载 |
-| `IEXA-WIN-Portable-x.y.z.exe` | **单文件便携版**：放到桌面直接双击，不写注册表。数据存在 `%APPDATA%\IEXA-WIN\workspace`，**不会在桌面留文件夹** |
+| `iExA-WIN-Setup-x.y.z.exe` | 安装到本机，带开始菜单与桌面快捷方式，可在「应用和功能」卸载 |
+| `iExA-WIN-Portable-x.y.z.exe` | **单文件便携版**：放到桌面直接双击，不写注册表。数据存在 `%APPDATA%\iExA-WIN\workspace`，**不会在桌面留文件夹** |
 
 也可以本地构建：
 
@@ -142,16 +142,16 @@ build-installer.bat
 npm run dist:portable
 ```
 
-产物分别在 `release\IEXA-Setup.exe` 与 `release\IEXA-WIN-Portable-<版本>.exe`。
+产物分别在 `release\iExA-Setup.exe` 与 `release\iExA-WIN-Portable-<版本>.exe`。
 
 **让打包版共用已有的会话与配置**
 
-打包版默认把数据放在 `%APPDATA%\IEXA-WIN\workspace`。如果想让 exe 直接读源码目录里那份
+打包版默认把数据放在 `%APPDATA%\iExA-WIN\workspace`。如果想让 exe 直接读源码目录里那份
 `workspace\`（例如从源码用惯了，不想复制几百 MB），新建一个指针文件：
 
 ```bat
-mkdir "%APPDATA%\IEXA-WIN"
-echo E:\IEXA-WIN\workspace> "%APPDATA%\IEXA-WIN\workspace-path.txt"
+mkdir "%APPDATA%\iExA-WIN"
+echo E:\iExA-WIN\workspace> "%APPDATA%\iExA-WIN\workspace-path.txt"
 ```
 
 指针里的路径必须以 `\.iexa-sessions.json` 存在为前提，否则会被忽略并回退到默认位置。
@@ -168,7 +168,7 @@ cd IEXA-windowns-
 npm ci
 ```
 
-然后双击 **`start-electron.bat`**。脚本会自动检查依赖、下载并校验 Electron 运行时、编译 TypeScript，再打开窗口；**窗口出现后控制台会自动隐藏**，关掉 IEXA 时它也随之退出。
+然后双击 **`start-electron.bat`**。脚本会自动检查依赖、下载并校验 Electron 运行时、编译 TypeScript，再打开窗口；**窗口出现后控制台会自动隐藏**，关掉 iExA 时它也随之退出。
 
 想在浏览器里用：
 
