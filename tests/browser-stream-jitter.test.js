@@ -100,7 +100,6 @@ test('real browser: the pinned prompt does not move while the reply streams', { 
     let reply = container.querySelector('.message.assistant.is-streaming');
     if (!reply) reply = addMessage('assistant', '', undefined, { streaming: true });
     const body = reply.querySelector('.message-content');
-    const borrowed = parseFloat(getComputedStyle(container).paddingBottom);
     const token = '流式输出的一段文字，用来模拟 token 逐个到达的过程。';
     const frames = [];
     let released = false;
@@ -110,10 +109,10 @@ test('real browser: the pinned prompt does not move while the reply streams', { 
       await new Promise((r) => requestAnimationFrame(() => r()));
       // Second frame: this is the painted position.
       await new Promise((r) => requestAnimationFrame(() => r()));
-      const padding = parseFloat(getComputedStyle(container).paddingBottom);
-      // Past release the prompt is allowed to scroll away; measuring there would
-      // only measure follow-latest.
-      if (padding < borrowed - 1) { released = true; break; }
+      // The anchor retires once the reply has claimed the whole borrowed room.
+      // Past that point the prompt is allowed to scroll away, so measuring there
+      // would only measure follow-latest.
+      if (typeof turnAnchor === 'undefined' || turnAnchor === null) { released = true; break; }
       frames.push(Math.round(target.getBoundingClientRect().top * 100) / 100);
     }
     const first = frames[0];

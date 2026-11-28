@@ -1,7 +1,12 @@
-// Real-browser proof of the send anchor: the prompt is pinned near the top and
+﻿// Real-browser proof of the send anchor: the prompt is pinned near the top and
 // the reply starts directly beneath it, then the viewport holds still while the
 // reply grows. The earlier spacer version passed a position check while leaving
 // a half-screen hole between prompt and reply, so adjacency is asserted too.
+//
+// The borrowed room is given back in step with the reply rather than held at
+// full size, so nothing has to be clamped when it is returned.
+// `tests/browser-turn-anchor-fresh.test.js` covers the release itself, in the
+// fresh conversation where it used to throw the reader back to the first message.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
@@ -113,8 +118,8 @@ test('real browser: a sent prompt sits at the top with the reply right under it'
   assert.ok(sent.gap !== null && sent.gap <= 60, 'the reply starts right under the prompt: ' + JSON.stringify(sent));
   assert.ok(sent.padding > 100, 'the transcript borrowed room to allow the scroll: ' + JSON.stringify(sent));
 
-  // While the reply is shorter than the borrowed room the padding must not move
-  // at all: any per-frame adjustment is what used to make the prompt wobble.
+  // While the reply is shorter than the borrowed room the padding is given back
+  // in step with the text, so the prompt never moves.
   const frames = [];
   for (let step = 0; step < 4; step += 1) {
     await evaluate(`(() => {
@@ -132,7 +137,6 @@ test('real browser: a sent prompt sits at the top with the reply right under it'
   const firstTop = frames[0].top;
   const lastTop = frames[frames.length - 1].top;
   assert.ok(Math.abs(lastTop - firstTop) <= 1, 'the prompt holds its place: ' + firstTop + ' -> ' + lastTop);
-  assert.ok(frames.every((frame) => frame.padding === sent.padding), 'no padding write while anchored');
   const stale = frames.filter((frame) => frame.gap !== null && frame.gap > 60);
   assert.deepEqual(stale, [], 'the reply stays attached while it grows');
 
