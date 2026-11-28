@@ -1,0 +1,1037 @@
+"use strict";
+// =============================================================================
+// iExA PC - Agent Loop
+// Mirrors iOS AIChatViewModel.runAgentLoop()
+// =============================================================================
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.AgentLoop = exports.STREAM_RATE_VERSION = void 0;
+exports.compactToolResultForContext = compactToolResultForContext;
+/**
+ * Version of the persisted streaming-rate bookkeeping. Version 1 divided output
+ * tokens by the whole stream (prefill included), so those records must not be
+ * rendered as a rate.
+ */
+exports.STREAM_RATE_VERSION = 2;
+/** Events that carry model output; the first one ends the prefill wait. */
+function isStreamedToken(event) {
+    return event.type === 'textDelta'
+        || event.type === 'thinkingDelta'
+        || event.type === 'reasoningContent'
+        || event.type === 'toolInputDelta'
+        || event.type === 'contentBlockStart';
+}
+const SystemPrompt_1 = require("./SystemPrompt");
+const naturelove_1 = require("./naturelove");
+const ToolProtocols_1 = require("./ToolProtocols");
+const ProjectInstructions_1 = require("./ProjectInstructions");
+const ContextCompactor_1 = require("./ContextCompactor");
+const ContextManager_1 = require("../context/ContextManager");
+const RetryManager_1 = require("../runtime/RetryManager");
+const ProviderError_1 = require("../providers/ProviderError");
+const AbortWait_1 = require("../runtime/AbortWait");
+/** Keep live tool evidence useful without letting build logs dominate context. */
+const MAX_TOOL_RESULT_CHARS = 2400;
+const TOOL_RESULT_COMPACT_AT = 1800;
+/** Restart recovery is bounded by the model window, not by a fixed slice. */
+const MAX_REHYDRATED_HISTORY_TOKENS = 24000;
+const MAX_REHYDRATED_TEXT_CHARS = 6000;
+const MAX_REHYDRATED_TOOL_RESULTS_PER_TURN = 16;
+function compactToolResultForContext(output, toolName) {
+    if (toolName === 'desktop_control') {
+        // Desktop selectors and observation tokens are capabilities, not generic log
+        // lines. Do not cut arbitrary head/middle/tail fragments through them.
+        const max = 16000;
+        if (output.length <= max)
+            return output;
+        const note = '\n[Desktop observation truncated at a complete line; controls may be omitted. Re-observe with a narrower scope, never guess missing selectors.]';
+        const end = output.lastIndexOf('\n', max - note.length);
+        if (end < 0)
+            return '[Desktop output exceeds context limit; request compact observation instead of raw JSON. No partial selector was retained.]';
+        return output.slice(0, end) + note;
+    }
+    if (toolName === 'file_read') {
+        // File reads arrive as line-oriented pages whose trailing [Paged] hint marks
+        // where to continue. Keep them intact within a generous context budget and
+        // cut only at a complete line so offset/lines continuation stays coherent.
+        const max = 16000;
+        if (output.length <= max)
+            return output;
+        const note = '\n[File read truncated for context at a line boundary; re-request the remainder with file_read offset/lines windows.]';
+        const end = output.lastIndexOf('\n', Math.max(0, max - note.length));
+        return (end > 0 ? output.slice(0, end) : output.slice(0, Math.max(0, max - note.length))) + note;
+    }
+    if (output.length <= TOOL_RESULT_COMPACT_AT)
+        return output;
+    const marker = `[... tool output compacted: ${output.length.toLocaleString()} chars total ...]`;
+    const available = Math.max(240, MAX_TOOL_RESULT_CHARS - marker.length - 24);
+    const headSize = Math.floor(available * 0.42);
+    const tailSize = Math.floor(available * 0.30);
+    const middleSize = Math.max(120, available - headSize - tailSize);
+    const head = output.slice(0, headSize);
+    const tail = output.slice(-tailSize);
+    // Preserve a central diagnostic region when a compiler/runtime reported one.
+    const signal = /(?:error|failed|exception|traceback|warn|错误|失败)/i;
+    const middleAt = output.search(signal);
+    const middle = middleAt >= 0
+        ? output.slice(Math.max(0, middleAt - Math.floor(middleSize / 3)), Math.min(output.length, middleAt + middleSize))
+        : output.slice(Math.max(0, Math.floor(output.length / 2) - Math.floor(middleSize / 2)), Math.floor(output.length / 2) + Math.floor(middleSize / 2));
+    return `${head}
+
+${marker}
+
+${middle}
+
+[... end compacted output ...]
+
+${tail}`.slice(0, MAX_TOOL_RESULT_CHARS);
+}
+/**
+ * Combine the run's abort signal with the per-completion one so a steer can
+ * stop the current answer without cancelling the turn. Runtimes without
+ * AbortSignal.any fall back to the run signal (steer then waits for the next
+ * step boundary, which is the old behaviour).
+ */
+function steerableSignal(run, completion) {
+    const factory = AbortSignal.any;
+    return factory ? factory([run, completion]) : run;
+}
+function clipHistoryText(text, limit) {
+    if (text.length <= limit)
+        return text;
+    const marker = `\n\n[... historical text compacted from ${text.length.toLocaleString()} chars ...]\n\n`;
+    const available = Math.max(160, limit - marker.length);
+    const head = Math.ceil(available * 0.7);
+    return (text.slice(0, head) + marker + text.slice(-(available - head))).slice(0, limit);
+}
+class AgentLoop {
+    config;
+    agentHistory = [];
+    isCancelled = false;
+    callbacks = null;
+    /** Durable per-session anchors supplied by the server after rehydration. */
+    sessionContext = '';
+    /** Memory log handed to natural chat; its only app-supplied input. */
+    naturalMemory = '';
+    /**
+     * 'message' (default): drift-prone anchors ride the newest user message so
+     * the request head stays stable for provider-side prompt caching.
+     * 'system': envelopes written once and stable for the runtime's whole life
+     * (sub-agent identity) keep the original system-prompt placement.
+     */
+    sessionContextPlacement = 'message';
+    /** Codex-style compaction engine; kept as a field so the server can persist the summary. */
+    compactor = null;
+    /** Read per request, so a settings change applies without rebuilding the loop. */
+    compactionThresholdRatio;
+    /** Summary can be loaded from disk before run() creates a request compactor. */
+    pendingCompactorSummary = '';
+    /**
+     * Request size carried across a process restart. A reopened session must
+     * keep counting from the context it already has instead of re-estimating
+     * from zero, which is what made the meter reset on every relaunch.
+     */
+    pendingContextUsage = 0;
+    retryManager = new RetryManager_1.RetryManager();
+    /** Restored checkpoints must become model-visible once, not once per turn. */
+    restoredSummaryInjected = false;
+    compactionController = null;
+    /** User messages waiting for the next model step inside the live turn. */
+    pendingSteers = [];
+    /** Aborts only the in-flight completion when a steer arrives. */
+    completionAbort = null;
+    /** A pause was requested and has not been honoured yet. */
+    pauseRequested = false;
+    /** The turn is parked at a safe boundary; its history is still live. */
+    paused = false;
+    /** Display text and model-step count carried across a pause. */
+    progress = { displayText: '', turnCount: 0 };
+    /** Decode time only: first streamed token to stream end. Prefill excluded. */
+    generationMs = 0;
+    /** Sum of per-step waits before the first token (prompt prefill), in ms. */
+    firstTokenMs = 0;
+    constructor(config) {
+        this.config = config;
+        this.compactionThresholdRatio = config.compactionThresholdRatio;
+    }
+    async initialize() {
+        await this.config.toolRuntime.initialize();
+    }
+    cancel() {
+        this.isCancelled = true;
+        this.compactionController?.abort();
+        this.completionAbort?.abort();
+    }
+    /**
+     * Park the turn at the next safe boundary. The in-flight completion is
+     * aborted (its partial text is discarded, since the step will be re-asked on
+     * resume), but completed tool results stay in history. Returns false when no
+     * turn is live or it is already parked.
+     */
+    pause() {
+        if (!this.callbacks || this.paused)
+            return false;
+        this.pauseRequested = true;
+        // Stop the current stream now instead of waiting for a long completion.
+        // Tools keep running: their results are the state we must carry forward.
+        this.completionAbort?.abort();
+        return true;
+    }
+    isPaused() { return this.paused; }
+    /** True once cancel() has been called for the live turn. */
+    isCancelledNow() { return this.isCancelled; }
+    /** Continue a paused turn from the exact step where it stopped. */
+    async resume(tools, callbacks) {
+        if (!this.paused)
+            return;
+        this.paused = false;
+        this.pauseRequested = false;
+        await this.run('', tools, callbacks, undefined, { resume: true });
+    }
+    enterPause(callbacks, displayText, turnCount) {
+        this.progress = { displayText, turnCount };
+        this.paused = true;
+        this.pauseRequested = false;
+        this.completionAbort = null;
+        try {
+            callbacks.onPaused?.();
+        }
+        catch { /* observer must not break the pause */ }
+    }
+    /**
+     * Decode time this turn: from the first streamed token to the end of each
+     * stream. Prompt prefill, tool execution, permission waits and user input are
+     * excluded, so output tokens / seconds is the actual streaming rate.
+     */
+    /**
+     * Change the compaction trigger without rebuilding the loop. The next request
+     * builds its compactor with this ratio, so a saved setting takes effect on the
+     * very next turn instead of waiting for the session to be recreated.
+     */
+    setCompactionThresholdRatio(ratio) {
+        this.compactionThresholdRatio = ratio;
+    }
+    getGenerationMs() {
+        return this.generationMs;
+    }
+    /** Prompt-prefill wait this turn: stream start to first token, summed. */
+    getTimeToFirstTokenMs() {
+        return this.firstTokenMs;
+    }
+    /**
+     * Queue a user message into the turn that is currently streaming. The
+     * message is committed at the next step boundary (after the in-flight
+     * completion and its tool results), so completed work is never discarded.
+     * Returns false when no turn is live.
+     */
+    steer(input) {
+        if (!this.callbacks || this.isCancelled)
+            return false;
+        const text = String(input?.text ?? '');
+        if (!text.trim() && !(input?.attachments && input.attachments.length > 0))
+            return false;
+        this.pendingSteers.push({ id: String(input.id || ''), text, attachments: input.attachments });
+        // Take effect now, not after a possibly minutes-long completion. The loop
+        // treats this abort as "append the message and continue", not as an error.
+        this.completionAbort?.abort();
+        return true;
+    }
+    getPendingSteerCount() { return this.pendingSteers.length; }
+    /** Settle a finished run: anything still queued can no longer be applied. */
+    endRun() {
+        this.completionAbort = null;
+        this.paused = false;
+        this.pauseRequested = false;
+        this.progress = { displayText: '', turnCount: 0 };
+        this.dropPendingSteers('turn_ended');
+        this.callbacks = null;
+    }
+    dropPendingSteers(reason) {
+        if (this.pendingSteers.length === 0)
+            return;
+        const pending = this.pendingSteers.splice(0);
+        for (const item of pending) {
+            try {
+                this.callbacks?.onSteerDropped?.({ id: item.id, reason });
+            }
+            catch { /* teardown must not throw */ }
+        }
+    }
+    /** Commit every waiting steer as a protocol-valid user message. */
+    drainPendingSteers() {
+        if (this.pendingSteers.length === 0)
+            return false;
+        const pending = this.pendingSteers.splice(0);
+        for (const item of pending) {
+            this.agentHistory.push({ role: 'user', parts: this.buildUserParts(item.text, item.attachments) });
+            try {
+                this.callbacks?.onSteerApplied?.({ id: item.id, text: item.text });
+            }
+            catch { /* observer must not break the turn */ }
+        }
+        return true;
+    }
+    /** Build a user message from text plus attachment notes (shared by run/steer). */
+    buildUserParts(userMessage, attachments) {
+        const parts = [];
+        let text = userMessage || '';
+        if (attachments && attachments.length > 0) {
+            const notes = [];
+            for (const att of attachments) {
+                if (att.kind === 'image' && att.data) {
+                    parts.push({ type: 'imageData', data: att.data, mimeType: att.mime || 'image/png' });
+                    const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+                    notes.push(`[User image attached as original pixels: ${att.name}${dimensions}${att.savedPath ? `; saved as ${att.savedPath}` : ''}. Inspect the attached pixels, not a UI thumbnail. If you identify a point or region, use original-image coordinates with (0,0) at the top-left.]`);
+                }
+                else if (att.kind === 'image') {
+                    const dimensions = att.width && att.height ? `; original pixel size ${att.width}x${att.height}` : '';
+                    notes.push(`[User image requires visual inspection: ${att.name}${dimensions}${att.savedPath ? `; absolute path: ${att.savedPath}` : ''}. Call read_image with this exact path before answering about the image. Do not guess from its filename, chat thumbnail, or an earlier image. Ask the vision tool to transcribe visible text and locate relevant regions using original-image coordinates from the top-left.]`);
+                }
+                else if (att.kind === 'text' && att.text != null) {
+                    const clipped = att.text.length > 80000
+                        ? att.text.substring(0, 80000) + '\n\n... (truncated)'
+                        : att.text;
+                    notes.push(`[Attached file: ${att.name}${att.savedPath ? ` → ${att.savedPath}` : ''}]\n` +
+                        '```\n' + clipped + '\n```');
+                }
+                else {
+                    notes.push(`[Attached binary file: ${att.name}` +
+                        `${att.savedPath ? ` → saved to workspace as ${att.savedPath}` : ''}` +
+                        ` (${att.mime || 'application/octet-stream'})]`);
+                }
+            }
+            if (notes.length) {
+                text = (text ? text + '\n\n' : '') + notes.join('\n\n');
+            }
+        }
+        if (text) {
+            parts.unshift({ type: 'text', text });
+        }
+        else if (parts.length === 0) {
+            parts.push({ type: 'text', text: '' });
+        }
+        return parts;
+    }
+    get isAborted() { return this.isCancelled || this.config.getAbortSignal()?.aborted === true; }
+    reset() {
+        this.agentHistory = [];
+        this.pendingSteers = [];
+        this.completionAbort = null;
+        this.isCancelled = false;
+        this.compactor = null;
+        this.pendingCompactorSummary = '';
+        this.pendingContextUsage = 0;
+        this.restoredSummaryInjected = false;
+    }
+    /** Bounded textual reference: never forks unresolved tool calls or binary attachments. */
+    contextSnapshot() {
+        return this.agentHistory.slice(-20).map(message => `${message.role}: ` + message.parts.map(part => part.type === 'text' ? part.text : part.type === 'toolResult' ? `[${part.name}] ${part.content}` : '').filter(Boolean).join('\n')).join('\n\n').slice(-32000);
+    }
+    setSessionContext(context, placement = 'message') {
+        this.sessionContext = typeof context === 'string' ? context.trim() : '';
+        this.sessionContextPlacement = placement === 'system' ? 'system' : 'message';
+    }
+    /**
+     * What she has written down, handed to natural chat as its only companion.
+     *
+     * Her persona is the whole system prompt; the app contributes nothing else. The
+     * memory log is the one exception, because forgetting him is the one failure the
+     * persona cannot describe its way out of.
+     */
+    setNaturalMemory(memory) {
+        this.naturalMemory = typeof memory === 'string' ? memory.trim() : '';
+    }
+    /** Current Codex-style compaction summary (persisted across restarts). */
+    getCompactorSummary() {
+        return this.compactor ? this.compactor.summary() : this.pendingCompactorSummary;
+    }
+    /** Restore a persisted compaction summary after restart. */
+    setCompactorSummary(summary) {
+        const restored = typeof summary === 'string' ? summary.trim() : '';
+        if (restored !== this.pendingCompactorSummary)
+            this.restoredSummaryInjected = false;
+        this.pendingCompactorSummary = restored;
+        this.compactor?.restoreSummary(restored);
+    }
+    /** Restore the request size the session had when it was last saved. */
+    restoreContextUsage(usedTokens) {
+        const seeded = Math.max(0, Math.floor(Number(usedTokens) || 0));
+        this.pendingContextUsage = Number.isFinite(seeded) ? seeded : 0;
+        this.compactor?.restoreUsage(this.pendingContextUsage);
+    }
+    /**
+     * Rehydrate a compact working set from saved chat messages. The on-disk
+     * transcript remains lossless for the renderer, while the provider gets
+     * only recent, protocol-valid evidence within the caller's budget.
+     *
+     * `budgetTokens` comes from the model window (see rehydrateBudgetForWindow):
+     * a large-window model must replay the conversation it actually had, or a
+     * reopen silently becomes a smaller, different context.
+     */
+    /**
+     * 把她自己说过的「收尾句」从活动历史里洗掉。
+     *
+     * 再水化只发生在 agent 创建后的第一次请求。之后每条新回复都追加进
+     * agentHistory，里面全是她刚说过的回避句；下一轮原样回到模型眼前，
+     * 她照着再说一遍，越积越紧。窗口层的清洗管不到这一层——这就是
+     * 长度守卫没能打破循环的原因。
+     */
+    scrubAssistantText(scrub) {
+        const next = [];
+        for (const message of this.agentHistory) {
+            if (message.role !== 'assistant' || !Array.isArray(message.parts)) {
+                next.push(message);
+                continue;
+            }
+            let hasNonText = false;
+            let hasText = false;
+            const parts = message.parts.map((part) => {
+                if (part.type !== 'text') {
+                    hasNonText = true;
+                    return part;
+                }
+                const text = scrub(part.text);
+                if (text.trim())
+                    hasText = true;
+                return { ...part, text };
+            });
+            // 只剩空文本、又没有工具调用的消息，整条丢掉。
+            if (!hasText && !hasNonText)
+                continue;
+            next.push({ ...message, parts });
+        }
+        this.agentHistory = next;
+    }
+    seedHistoryFromChat(msgs, options = {}) {
+        this.agentHistory = [];
+        this.restoredSummaryInjected = false;
+        const requested = Math.floor(Number(options.budgetTokens) || 0);
+        const budget = requested > 0
+            ? Math.max(MAX_REHYDRATED_HISTORY_TOKENS, requested)
+            : MAX_REHYDRATED_HISTORY_TOKENS;
+        const turns = [];
+        let currentTurn = [];
+        for (const message of msgs) {
+            if (message.role === 'user' && currentTurn.length > 0) {
+                turns.push(currentTurn);
+                currentTurn = [];
+            }
+            currentTurn.push(message);
+        }
+        if (currentTurn.length > 0)
+            turns.push(currentTurn);
+        let retainedTokens = 0;
+        for (let index = turns.length - 1; index >= 0; index--) {
+            const hydrated = this.hydrateSavedTurn(turns[index]);
+            if (hydrated.length === 0)
+                continue;
+            const turnTokens = (0, ContextCompactor_1.estimateMessageTokens)(hydrated);
+            if (retainedTokens > 0 && retainedTokens + turnTokens > budget)
+                break;
+            this.agentHistory.unshift(...hydrated);
+            retainedTokens += turnTokens;
+        }
+    }
+    hydrateSavedTurn(messages) {
+        const hydrated = [];
+        for (const m of messages) {
+            const text = (m.content || '').trim();
+            if (m.role === 'user') {
+                const attachmentNotes = (m.attachments || [])
+                    .map((a) => `[Previously attached file: ${a.name || 'file'}${a.savedPath ? ` -> ${a.savedPath}` : ''}${a.mime ? ` (${a.mime})` : ''}]`)
+                    .join('\n');
+                const combined = clipHistoryText([text, attachmentNotes].filter(Boolean).join('\n\n'), MAX_REHYDRATED_TEXT_CHARS);
+                if (!combined)
+                    continue;
+                hydrated.push({
+                    role: 'user',
+                    parts: [{ type: 'text', text: combined }],
+                });
+            }
+            else if (m.role === 'assistant') {
+                // Retain the newest completed calls from a saved turn. Keeping a call
+                // always means keeping its paired result, which preserves provider
+                // tool protocol while avoiding replaying an unbounded task trace.
+                const completedCalls = (m.toolCalls || [])
+                    .filter((tc) => tc.id && tc.name && tc.result)
+                    .slice(-MAX_REHYDRATED_TOOL_RESULTS_PER_TURN);
+                if (this.config.provider.name === 'anthropic' && completedCalls.length > 0) {
+                    // Persisted transcripts do not contain Anthropic's signed thinking.
+                    // Replaying synthetic tool_use without that signature can be rejected;
+                    // retain the result as bounded history text instead of a live tool call.
+                    const summary = completedCalls.map(tc => `[Previously completed ${tc.name}: ${tc.result?.success === false ? 'failed' : 'ok'}] ${compactToolResultForContext(String(tc.result?.output || ''), tc.name)}`).join('\n');
+                    hydrated.push({ role: 'assistant', parts: [{ type: 'text', text: clipHistoryText(summary, MAX_REHYDRATED_TEXT_CHARS) }] });
+                }
+                else {
+                    const toolParts = completedCalls
+                        .map((tc) => ({ type: 'toolUse', id: tc.id, name: tc.name, input: tc.args || {} }));
+                    if (toolParts.length > 0)
+                        hydrated.push({ role: 'assistant', parts: toolParts });
+                    if (completedCalls.length > 0) {
+                        hydrated.push({
+                            role: 'user',
+                            parts: completedCalls.map((tc) => ({
+                                type: 'toolResult',
+                                id: tc.id,
+                                name: tc.name,
+                                content: compactToolResultForContext(String(tc.result?.output || ''), tc.name),
+                                isError: tc.result?.success === false,
+                            })),
+                        });
+                    }
+                }
+                if (text) {
+                    hydrated.push({
+                        role: 'assistant',
+                        parts: [{ type: 'text', text: clipHistoryText(text, MAX_REHYDRATED_TEXT_CHARS) }],
+                    });
+                }
+            }
+        }
+        return hydrated;
+    }
+    getHistoryLength() {
+        return this.agentHistory.length;
+    }
+    async run(userMessage, tools, callbacks, attachments, options) {
+        const resuming = options?.resume === true;
+        // Write the plugin protocol into every tool schema the model receives this
+        // turn. Placement matters: the rule is read at call time, next to the
+        // parameters it governs, not in a paragraph far above the tool list.
+        tools = (0, ToolProtocols_1.applyToolProtocols)(tools, this.config.pluginProtocols);
+        this.callbacks = callbacks;
+        this.isCancelled = false;
+        if (!resuming) {
+            this.generationMs = 0;
+            this.firstTokenMs = 0;
+            this.progress = { displayText: '', turnCount: 0 };
+        }
+        this.compactionController = new AbortController();
+        const externalSignal = this.config.getAbortSignal();
+        const signal = externalSignal
+            ? AbortSignal.any([externalSignal, this.compactionController.signal])
+            : this.compactionController.signal;
+        if (signal.aborted) {
+            callbacks.onCancelled();
+            return;
+        }
+        // Carry forward the newest checkpoint, not just the one loaded at startup.
+        if (this.compactor)
+            this.pendingCompactorSummary = this.compactor.summary();
+        // A resumed turn continues the existing history: no new user message is
+        // appended, and the durable anchors were already delivered on the first
+        // run. Re-sending them would duplicate the request head.
+        if (!resuming) {
+            const parts = this.buildUserParts(userMessage, attachments);
+            // A persisted checkpoint must be model-visible after restart, just as a
+            // Harness compaction checkpoint replaces an older conversation surface.
+            // Prepend it once to the next user message, preserving valid role order.
+            if (this.pendingCompactorSummary && !this.restoredSummaryInjected) {
+                const checkpoint = `<context-summary>\n${this.pendingCompactorSummary}\n</context-summary>\n\nRestored context checkpoint; continue directly from the request below.\n\n`;
+                parts.unshift({ type: 'text', text: checkpoint });
+                this.restoredSummaryInjected = true;
+            }
+            // Durable session anchors ride the newest user message, never the system
+            // prompt: the request head must stay byte-identical across calls so
+            // provider-side prefix caching re-uses system+tools+history and only the
+            // genuinely new tail is billed at full rate.
+            //
+            // The goal follows the same rule for the same reason, and is re-read from
+            // the store on every turn so compaction can never age it out.
+            const goalBlock = this.config.naturalChat === true
+                ? ''
+                : (this.config.goalStore?.promptBlock(this.config.sessionId) || '');
+            if (goalBlock)
+                parts.unshift({ type: 'text', text: `<current-goal>\n${goalBlock}\n</current-goal>` });
+            // Natural chat reads none of the app's task scaffolding: not the goal, not
+            // the durable technical digest. Both describe a work session, and reading
+            // them is what made one reply sound briefed and the next sound like her.
+            if (this.config.naturalChat !== true && this.sessionContext && this.sessionContextPlacement === 'message') {
+                parts.unshift({ type: 'text', text: `<durable-session-context>\n${this.sessionContext}\n</durable-session-context>` });
+            }
+            // 自然聊天不塞时钟。
+            //
+            // 自然聊天不注入时钟。
+            //
+            // 原来每条用户消息前面都挂一句「现在是 2026年11月20日 星期五 22:56（晚上）」，
+            // 她的回复里就反复出现「都快零点了」「这个点还没睡」这类话，把一个正在发生
+            // 的对话变成了带时间戳的日志。她不需要知道钟点，需要知道的是他刚才说了什么。
+            // 本意是防止模型把下午说成今晚。代价是她会照着这句话办事——晚上十点往后
+            // 就开始「都十点多了」「你该歇着了」「回我两个字就行：睡了」，一句接一句
+            // 把话往外推。他明确说过「不要老是和我说时间 我知道 我能看到时间」。
+            // 时钟留在消息时间戳里，需要时她自己能看，不用每轮喂给她。
+            const userMsg = {
+                role: 'user',
+                parts,
+            };
+            this.agentHistory.push(userMsg);
+        }
+        let projectInstructions = '';
+        if (this.config.hasProject) {
+            try {
+                projectInstructions = ProjectInstructions_1.ProjectInstructions.format(await (0, AbortWait_1.awaitOrAbort)(new ProjectInstructions_1.ProjectInstructions(this.config.workspaceDir).resolve('.', 'directory'), signal));
+            }
+            catch (error) {
+                projectInstructions = `Project instruction loading failed: ${error.message}. Use project_instructions to inspect the scope before editing.`;
+            }
+        }
+        if (this.isAborted) {
+            callbacks.onCancelled();
+            return;
+        }
+        const baseSystemPrompt = (0, SystemPrompt_1.buildSystemPrompt)({
+            projectInstructions,
+            projectScope: this.config.projectScope,
+            memoryEnabled: this.config.memoryEnabled,
+            workspaceDir: this.config.workspaceDir,
+            hasProject: !!this.config.hasProject,
+            projectName: this.config.projectName || null,
+            skillFragment: this.config.skillFragment || null,
+            systemSkillFragment: this.config.systemSkillFragment || null,
+            pluginSystemFragment: this.config.pluginSystemFragment || null,
+            pluginProtocols: this.config.pluginProtocols || null,
+            skillsDir: this.config.skillsDir || null,
+            soul: this.config.soul || null,
+            sessionTools: this.config.toolRuntime?.registry?.has?.('shell_session') === true,
+            tools,
+        });
+        // Natural chat leads with her own persona, ahead of the shared envelope.
+        // The block states its own precedence, and putting it first is what makes
+        // that true in practice - a rule buried under a page of tool instructions is
+        // a rule the model weighs less. Standard conversations never see it.
+        //
+        // The shared envelope opens with the client identity contract ("你是 iExA，
+        // 运行在 Windows PC 桌面端的 AI 助手") and calls it 首要身份. Keeping that
+        // beside her own block left two identities in one request, and the answer
+        // came back stiff and defensive - an assistant being briefed rather than her
+        // talking. Only the operational part survives: those are real constraints,
+        // the identity is hers.
+        // Natural chat is hers alone.
+        //
+        // Anything else the app adds - the client identity contract, the tool
+        // catalogue, the workspace digest, the technical session summary - pulls the
+        // voice back toward "assistant answering a request". That is exactly what the
+        // user kept hearing: a stiff first reply and a warm follow-up, from the same
+        // conversation. The follow-up never saw any of it.
+        //
+        // So this path gets her persona and her memory, nothing more. Tools still
+        // reach the model through the request's own tool definitions, so she can
+        // still write things down.
+        const personaPrompt = this.config.naturalChat === true
+            ? [naturelove_1.NATURE_LOVE_PROMPT, this.naturalMemory].filter(Boolean).join('\n\n')
+            : baseSystemPrompt;
+        // Prefix stability (prompt caching): indexes that drift between turns
+        // (root-session anchors) must not sit in the system prompt — a changed
+        // request head makes prefix-caching providers re-bill the entire
+        // conversation on every user turn. They travel as the leading block of the
+        // newest user message instead (see the parts assembly above). Contexts
+        // written once and stable for the whole runtime (sub-agent identity) keep
+        // the original system-prompt placement.
+        const systemPrompt = this.sessionContext && this.sessionContextPlacement === 'system'
+            ? `${personaPrompt}\n\n<durable-session-context>\n${this.sessionContext}\n</durable-session-context>`
+            : personaPrompt;
+        const contextWindow = this.config.contextWindow != null
+            ? this.config.contextWindow
+            : (0, ContextCompactor_1.contextWindowForModel)(this.config.provider.model, this.config.provider.name);
+        // A resumed turn reuses the live compactor: it already holds the summary
+        // and the measured request size, and rebuilding it would reset the context
+        // meter mid-turn.
+        const compactor = resuming && this.compactor ? this.compactor : new ContextManager_1.ContextManager(this.config.provider, contextWindow, tools, systemPrompt, this.config.maxTokens || this.config.provider.defaultMaxTokens, { thresholdRatio: this.compactionThresholdRatio });
+        this.compactor = compactor;
+        if (!resuming) {
+            if (this.pendingCompactorSummary)
+                compactor.restoreSummary(this.pendingCompactorSummary);
+            if (this.pendingContextUsage > 0)
+                compactor.restoreUsage(this.pendingContextUsage);
+        }
+        // Display history spans all provider/tool cycles in this user run.
+        // assistantText below stays per-provider-cycle for the model protocol.
+        // Both counters survive a pause so the resumed turn looks like one turn.
+        let displayText = this.progress.displayText;
+        let turnCount = this.progress.turnCount;
+        let streamRetryAttempt = 0;
+        let contextOverflowRetryAttempt = 0;
+        let retryingTurn = false;
+        const retryDelays = [2000, 5000, 10000];
+        const maxTurns = this.config.toolRuntime.getBudget().maxTurns;
+        while ((turnCount < maxTurns || retryingTurn) && !this.isAborted) {
+            // Pause is honoured only at a step boundary: completed tool results are
+            // already in history, so resuming re-asks the model with full context.
+            if (this.pauseRequested) {
+                this.enterPause(callbacks, displayText, turnCount);
+                return;
+            }
+            if (!retryingTurn) {
+                turnCount++;
+                try {
+                    this.config.toolRuntime.beginTurn();
+                    callbacks.onTurnStart?.(turnCount);
+                }
+                catch (error) {
+                    callbacks.onError(error.message);
+                    return;
+                }
+            }
+            retryingTurn = false;
+            // Compact completed transactions, retaining the latest user request and
+            // a protocol-valid live tail, then continue this same agent turn.
+            try {
+                const beforeCompaction = compactor.status(this.agentHistory);
+                const compactedHistory = await compactor.compact(this.agentHistory, (status) => callbacks.onContext(status), signal);
+                // A real replacement is a visible checkpoint in the transcript; the
+                // unchanged path (below threshold) must not print one.
+                if (compactedHistory !== this.agentHistory) {
+                    this.agentHistory = compactedHistory;
+                    callbacks.onCompacted?.({
+                        before: beforeCompaction.usedTokens,
+                        after: compactor.status(compactedHistory).usedTokens,
+                    });
+                }
+                this.pendingCompactorSummary = compactor.summary();
+                if (this.pendingCompactorSummary)
+                    this.restoredSummaryInjected = true;
+                if (this.isAborted) {
+                    callbacks.onCancelled();
+                    return;
+                }
+            }
+            catch (error) {
+                const err = error;
+                if (this.isAborted) {
+                    callbacks.onCancelled();
+                    return;
+                }
+                if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
+                    const delayMs = retryDelays[streamRetryAttempt++];
+                    callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'context compaction interrupted');
+                    await this.retryManager.sleep(delayMs, signal);
+                    if (this.isAborted) {
+                        callbacks.onCancelled();
+                        return;
+                    }
+                    retryingTurn = true;
+                    continue;
+                }
+                callbacks.onError(ProviderError_1.ProviderError.from(err).userMessage || 'Context compaction failed');
+                return;
+            }
+            // A steer belongs to the turn that is running: commit it after the
+            // previous completion (and any tool results) so the protocol stays
+            // toolUse → toolResult → user, never a splice inside a step.
+            this.drainPendingSteers();
+            const messages = [...this.agentHistory];
+            // A steer aborts only this completion, never the turn: the text already
+            // said is kept, the partial answer is not executed, and the next loop
+            // iteration commits the new user message.
+            let assistantText = '';
+            const toolCalls = [];
+            let reasoningContent = '';
+            const thinkingBlocks = [];
+            let stopReason = 'endTurn';
+            let usage;
+            const completionAbort = new AbortController();
+            this.completionAbort = completionAbort;
+            const streamSignal = steerableSignal(signal, completionAbort.signal);
+            try {
+                // Stream from provider
+                // Inspection is opt-in and must never change or break the actual request.
+                try {
+                    this.config.onPromptRequest?.({ sessionId: this.config.sessionId, provider: this.config.provider.name, model: this.config.provider.model, systemPrompt, messages, tools });
+                }
+                catch { /* diagnostic capture is best effort */ }
+                const generationStartedAt = Date.now();
+                let firstTokenAt = 0;
+                const stream = this.config.provider.streamMessage(messages, systemPrompt, tools, this.config.maxTokens || this.config.provider.defaultMaxTokens, streamSignal);
+                const iterator = stream[Symbol.asyncIterator]();
+                let streamFinished = false;
+                try {
+                    while (true) {
+                        // A steer can fire inside next() just before an already-produced
+                        // delta resolves. Drain that one microtask before interrupting so
+                        // the displayed partial answer remains in history.
+                        const next = await (0, AbortWait_1.awaitOrAbort)(iterator.next(), streamSignal, 1);
+                        if (next.done) {
+                            streamFinished = true;
+                            break;
+                        }
+                        const event = next.value;
+                        if (!firstTokenAt && isStreamedToken(event))
+                            firstTokenAt = Date.now();
+                        if (this.isAborted) {
+                            callbacks.onCancelled();
+                            return;
+                        }
+                        switch (event.type) {
+                            case 'contentBlockStart':
+                                if (event.block.type === 'toolUse') {
+                                    callbacks.onToolCallStart(event.block.id, event.block.name);
+                                }
+                                break;
+                            case 'textDelta':
+                                assistantText += event.text;
+                                displayText += event.text;
+                                callbacks.onTextDelta(event.text, displayText);
+                                break;
+                            case 'thinkingDelta':
+                                callbacks.onThinkingDelta(event.text);
+                                break;
+                            case 'reasoningContent':
+                                reasoningContent += event.content;
+                                break;
+                            case 'thinkingBlockComplete':
+                                thinkingBlocks.push(event.block);
+                                break;
+                            case 'toolInputDelta':
+                                callbacks.onToolInputDelta(event.name, event.accumulated, event.id);
+                                break;
+                            case 'toolCallComplete':
+                                toolCalls.push({
+                                    id: event.id,
+                                    name: event.name,
+                                    args: event.args,
+                                    parseError: event.parseError,
+                                });
+                                callbacks.onToolCallComplete(event.id, event.name, event.args);
+                                break;
+                            case 'usage':
+                                usage = event.usage;
+                                callbacks.onUsage(event.usage);
+                                compactor.recordInputTokens(event.usage.inputTokens, messages);
+                                this.config.toolRuntime.recordInputTokens(event.usage.inputTokens);
+                                callbacks.onContext(compactor.status(this.agentHistory));
+                                break;
+                            case 'done':
+                                stopReason = event.stopReason;
+                                break;
+                        }
+                        if (streamSignal.aborted) {
+                            const interrupted = new Error('Completion interrupted.');
+                            interrupted.name = 'AbortError';
+                            throw interrupted;
+                        }
+                    }
+                }
+                finally {
+                    // Some SDKs await their pending next() inside return(). Never await
+                    // that cleanup on the path that acknowledges a user's stop.
+                    if (!streamFinished) {
+                        try {
+                            void Promise.resolve(iterator.return?.(undefined)).catch(() => { });
+                        }
+                        catch { /* SDK cleanup is best effort */ }
+                    }
+                }
+                if (firstTokenAt) {
+                    this.generationMs += Date.now() - firstTokenAt;
+                    this.firstTokenMs += firstTokenAt - generationStartedAt;
+                }
+                // A pause aborts the stream; the half-written step is discarded and
+                // re-asked on resume, so history never holds a partial tool call.
+                if (this.pauseRequested) {
+                    this.enterPause(callbacks, displayText, turnCount);
+                    return;
+                }
+                if (this.isAborted) {
+                    callbacks.onCancelled();
+                    return;
+                }
+                this.completionAbort = null;
+                // A complete provider turn succeeded; transient retry budget is reset.
+                streamRetryAttempt = 0;
+                // Build assistant message
+                const assistantParts = [];
+                if (assistantText) {
+                    assistantParts.push({ type: 'text', text: assistantText });
+                }
+                for (const tc of toolCalls) {
+                    assistantParts.push({
+                        type: 'toolUse',
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.args,
+                    });
+                }
+                const assistantMsg = {
+                    role: 'assistant',
+                    parts: assistantParts,
+                    ...(thinkingBlocks.length ? { thinkingBlocks } : {}),
+                    ...(reasoningContent ? { reasoningContent } : {}),
+                };
+                this.agentHistory.push(assistantMsg);
+                // A provider may report `stop`/`endTurn` even when it emitted a
+                // function call (notably Gemini and several OpenAI-compatible relays).
+                // The presence of a complete call is the authoritative execution
+                // signal; do not silently discard it based on stopReason.
+                if (toolCalls.length === 0) {
+                    // A steer that arrived during the final completion must still be
+                    // answered by the same running turn instead of being dropped.
+                    if (this.drainPendingSteers())
+                        continue;
+                    callbacks.onDone(stopReason);
+                    return;
+                }
+                // Execute tools
+                const toolResults = [];
+                let toolIndex = 0;
+                while (toolIndex < toolCalls.length) {
+                    if (this.isAborted) {
+                        // Resolve every emitted call in cached history before the next
+                        // user turn. Unstarted calls must not survive as dangling toolUse.
+                        for (const tc of toolCalls.slice(toolIndex)) {
+                            const result = { output: 'Tool cancelled before execution.', success: false, cancelled: true, executionStatus: 'cancelled' };
+                            callbacks.onToolResult(tc.id, result);
+                            toolResults.push({ type: 'toolResult', id: tc.id, name: tc.name, content: result.output, isError: true });
+                        }
+                        break;
+                    }
+                    const first = toolCalls[toolIndex];
+                    let batchEnd = toolIndex;
+                    if (this.config.toolRuntime.isParallelSafe(first.name)) {
+                        while (batchEnd < toolCalls.length && this.config.toolRuntime.isParallelSafe(toolCalls[batchEnd].name))
+                            batchEnd++;
+                    }
+                    else {
+                        batchEnd++;
+                    }
+                    const batch = toolCalls.slice(toolIndex, batchEnd);
+                    const batchResults = await Promise.all(batch.map(async (tc) => {
+                        const result = tc.parseError
+                            ? { output: `Tool arguments could not be parsed: ${tc.parseError}. The tool was not executed.`, success: false }
+                            : await this.executeTool(tc.id, tc.name, tc.args);
+                        callbacks.onToolResult(tc.id, result);
+                        return { tc, result };
+                    }));
+                    for (const { tc, result } of batchResults) {
+                        toolResults.push({
+                            type: 'toolResult',
+                            id: tc.id,
+                            name: tc.name,
+                            content: tc.name === 'project_instructions' ? result.output : compactToolResultForContext(result.output, tc.name),
+                            isError: !result.success,
+                            imageData: result.imageData,
+                            imageMimeType: result.imageMimeType,
+                        });
+                        // Provider adapters serialize images as model-visible user input.
+                        // Keeping pixels only as toolResult metadata made desktop frames
+                        // visible in the iExA UI but invisible to the model itself.
+                        const images = result.images?.length ? result.images
+                            : result.imageData && result.imageMimeType ? [{ data: result.imageData, mimeType: result.imageMimeType }] : [];
+                        for (const image of images) {
+                            toolResults.push({ type: 'imageData', data: image.data, mimeType: image.mimeType });
+                        }
+                    }
+                    toolIndex += batch.length;
+                }
+                // Add tool results as a user message to history
+                this.agentHistory.push({
+                    role: 'user',
+                    parts: toolResults,
+                });
+                // Continue so the model can inspect tool results even when the
+                // provider used a non-standard stop reason alongside the call.
+            }
+            catch (error) {
+                const err = error;
+                if (this.pauseRequested) {
+                    this.completionAbort = null;
+                    this.enterPause(callbacks, displayText, turnCount);
+                    return;
+                }
+                const steeredMidStream = completionAbort.signal.aborted && !this.isAborted;
+                this.completionAbort = null;
+                if (steeredMidStream) {
+                    // Keep what the model had already said so the transcript and history
+                    // agree, drop incomplete tool calls, and let the loop commit the
+                    // steer at the top of the next iteration.
+                    if (assistantText) {
+                        this.agentHistory.push({ role: 'assistant', parts: [{ type: 'text', text: assistantText }] });
+                    }
+                    retryingTurn = true;
+                    continue;
+                }
+                if (this.isAborted) {
+                    callbacks.onCancelled();
+                    return;
+                }
+                // Harness-style overflow recovery: only retry after a successful,
+                // model-visible replacement has reduced the current history.
+                if (this.isContextWindowExceededError(err) && contextOverflowRetryAttempt < 1 && !this.isCancelled) {
+                    const beforeHistory = this.agentHistory;
+                    try {
+                        const beforeCompaction = compactor.status(beforeHistory);
+                        const compacted = await compactor.recover(beforeHistory, (status) => callbacks.onContext(status), signal);
+                        if (this.isAborted) {
+                            callbacks.onCancelled();
+                            return;
+                        }
+                        if (compacted !== beforeHistory) {
+                            this.agentHistory = compacted;
+                            callbacks.onCompacted?.({
+                                before: beforeCompaction.usedTokens,
+                                after: compactor.status(compacted).usedTokens,
+                            });
+                            this.pendingCompactorSummary = compactor.summary();
+                            this.restoredSummaryInjected = true;
+                            contextOverflowRetryAttempt++;
+                            callbacks.onRetry?.(contextOverflowRetryAttempt, 0, '上下文超限，已压缩历史后重试');
+                            retryingTurn = true;
+                            continue;
+                        }
+                    }
+                    catch (compactionError) {
+                        if (this.isAborted) {
+                            callbacks.onCancelled();
+                            return;
+                        }
+                        callbacks.onError(compactionError.message || '上下文超限后的压缩恢复失败');
+                        return;
+                    }
+                }
+                if (this.retryManager.isRetryable(err) && streamRetryAttempt < retryDelays.length && !this.isCancelled) {
+                    const delayMs = retryDelays[streamRetryAttempt++];
+                    callbacks.onRetry?.(streamRetryAttempt, delayMs, err.message || 'stream interrupted');
+                    await this.retryManager.sleep(delayMs, signal);
+                    if (this.isAborted) {
+                        callbacks.onCancelled();
+                        return;
+                    }
+                    retryingTurn = true;
+                    continue;
+                }
+                callbacks.onError(ProviderError_1.ProviderError.from(err).userMessage || 'Unknown error in agent loop');
+                return;
+            }
+        }
+        if (this.isAborted) {
+            callbacks.onCancelled();
+            return;
+        }
+        // Max turns reached
+        if (turnCount >= maxTurns) {
+            callbacks.onError(`Reached maximum agent turns (${maxTurns}). The task may be too complex.`);
+        }
+    }
+    isContextWindowExceededError(error) {
+        const message = String(error?.message || error || '').toLowerCase();
+        return /context.{0,48}(length|window|limit|exceed)|maximum.{0,48}context|too many tokens|prompt is too long/.test(message);
+    }
+    async executeTool(id, name, args) {
+        const signal = this.config.getAbortSignal();
+        const callbacks = this.callbacks;
+        if (!signal)
+            return { output: 'Tool runtime is not active.', success: false };
+        try {
+            return await this.config.toolRuntime.execute(name, args, { signal, sessionId: this.config.sessionId, toolCallId: id, workspaceDir: this.config.workspaceDir,
+                onToolState: event => {
+                    callbacks?.onToolState?.(event);
+                    if (event.status === 'running' && !event.desktop && !signal.aborted)
+                        callbacks?.onToolExecutionStart?.(id, name, args);
+                },
+            });
+        }
+        catch (error) {
+            return { output: error.message || 'Tool execution failed.', success: false };
+        }
+    }
+}
+exports.AgentLoop = AgentLoop;
+//# sourceMappingURL=AgentLoop.js.map

@@ -1,0 +1,365 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CACHE_LIMIT_BYTES = exports.DEFAULT_TTS_VOICE = void 0;
+exports.trimCache = trimCache;
+exports.splitForSpeech = splitForSpeech;
+exports.stripForSpeech = stripForSpeech;
+exports.handleTtsRoute = handleTtsRoute;
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
+const crypto = __importStar(require("crypto"));
+const child_process_1 = require("child_process");
+/**
+ * Read replies aloud with the same neural voices the intro film used.
+ *
+ * The synthesis itself is delegated to `python -m edge_tts` rather than
+ * reimplemented here: the service validates a `Sec-MS-GEC` token whose second
+ * half comes from a modified SHA-256 with a salt-dependent initial state. I
+ * verified against the live service that a plain SHA-256 gets HTTP 403, so
+ * hand-porting that hash would be a 600-line liability that breaks whenever
+ * Microsoft rotates it. The CLI is version-pinned in the docs and gives one
+ * clear failure mode when Python is absent.
+ */
+const VOICES = new Set([
+    'zh-CN-XiaoxiaoNeural', 'zh-CN-XiaoyiNeural', 'zh-CN-YunjianNeural', 'zh-CN-YunxiNeural',
+    'zh-CN-YunxiaNeural', 'zh-CN-YunyangNeural',
+    'zh-CN-liaoning-XiaobeiNeural', 'zh-CN-shaanxi-XiaoniNeural',
+    'en-US-AriaNeural', 'en-US-GuyNeural', 'ja-JP-NanamiNeural', 'ja-JP-KeitaNeural',
+]);
+exports.DEFAULT_TTS_VOICE = 'zh-CN-YunyangNeural';
+const DEFAULT_RATE = '-4%';
+const MAX_CHARS = 20000;
+const SPAWN_TIMEOUT_MS = 90_000;
+/**
+ * `edge_tts` stops at 600 s of audio — 3,600,000 bytes, measured by calling the
+ * CLI directly: 1500 characters gave 290 s, 3000 gave 579 s, 6000 gave exactly
+ * 600 s at twice the speaking rate, i.e. truncated. So a long reply is split at
+ * sentence boundaries and synthesized piece by piece; the client plays the
+ * pieces back to back and hears the whole thing.
+ */
+const CHUNK_CHARS = 1100;
+const PARALLEL_CHUNKS = 3;
+// Audio is disposable: it can always be synthesized again. A reply that is read
+// once should not cost disk forever, so the cache is capped and the oldest files
+// go first. Reading an evicted reply simply pays the synthesis cost again.
+exports.CACHE_LIMIT_BYTES = 200 * 1024 * 1024;
+/**
+ * Drop the oldest cached clips until the directory fits the budget.
+ *
+ * Runs after a synthesis finishes rather than on a timer: the only moment the
+ * size changes is when something is written, and a background sweeper would need
+ * its own lifecycle for no gain.
+ */
+function trimCache(cacheDir, limitBytes = exports.CACHE_LIMIT_BYTES) {
+    let entries;
+    try {
+        entries = fs.readdirSync(cacheDir)
+            .filter((name) => name.endsWith('.mp3'))
+            .map((name) => {
+            const file = path.join(cacheDir, name);
+            const stat = fs.statSync(file);
+            // atime is often disabled on Windows; mtime is rewritten on every cache
+            // hit by the route, so it represents "last used" well enough here.
+            return { file, size: stat.size, atime: stat.mtimeMs };
+        });
+    }
+    catch {
+        return 0;
+    }
+    let total = entries.reduce((sum, entry) => sum + entry.size, 0);
+    if (total <= limitBytes)
+        return 0;
+    entries.sort((a, b) => a.atime - b.atime);
+    let removed = 0;
+    for (const entry of entries) {
+        if (total <= limitBytes)
+            break;
+        try {
+            fs.unlinkSync(entry.file);
+            total -= entry.size;
+            removed += 1;
+        }
+        catch { /* another process may have taken it */ }
+    }
+    return removed;
+}
+/** Split prose into chunks that respect sentence boundaries. */
+function splitForSpeech(text, limit = CHUNK_CHARS) {
+    const source = String(text || '').trim();
+    if (!source)
+        return [];
+    if (source.length <= limit)
+        return [source];
+    const chunks = [];
+    // Split after sentence-ending punctuation, keeping the mark with its sentence.
+    const sentences = source.match(/[^。！？!?；;\n]+[。！？!?；;]?|\n+/g) || [source];
+    let current = '';
+    for (const sentence of sentences) {
+        if (!sentence)
+            continue;
+        if (current && current.length + sentence.length > limit) {
+            chunks.push(current.trim());
+            current = '';
+        }
+        // A single sentence longer than the limit is cut by force.
+        let rest = sentence;
+        while (rest.length > limit) {
+            chunks.push(rest.slice(0, limit).trim());
+            rest = rest.slice(limit);
+        }
+        current += rest;
+    }
+    if (current.trim())
+        chunks.push(current.trim());
+    return chunks.filter(Boolean);
+}
+/** One synthesis at a time: each call pays a Python start plus a websocket leg. */
+let queue = Promise.resolve();
+function reply(res, status, body) {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(payload);
+}
+/**
+ * Markdown read aloud is mostly noise: fence contents, tables and link targets
+ * are not sentences. Keep the prose, drop the scaffolding.
+ */
+function stripForSpeech(markdown) {
+    let text = String(markdown || '');
+    text = text.replace(/```[\s\S]*?```/g, ' '); // fenced blocks
+    text = text.replace(/~~~[\s\S]*?~~~/g, ' ');
+    text = text.replace(/`([^`]*)`/g, '$1'); // inline code keeps its text
+    text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1'); // images -> alt text
+    text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'); // links -> label
+    text = text.replace(/^\s*\|.*\|\s*$/gm, ' '); // table rows
+    text = text.replace(/^\s*[-*+]\s+/gm, ''); // bullets
+    text = text.replace(/^\s*#{1,6}\s+/gm, ''); // headings
+    text = text.replace(/^\s*>\s?/gm, ''); // quotes
+    text = text.replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, '$1');
+    text = text.replace(/<\/?[a-zA-Z][^>]*>/g, ' '); // stray html
+    text = text.replace(/\r/g, '');
+    text = text.replace(/[ \t]+/g, ' ');
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trim();
+}
+function pythonCandidates() {
+    const override = process.env.IEXA_TTS_PYTHON;
+    if (override)
+        return [[override]];
+    return [['python'], ['py', '-3']];
+}
+/** Run one synthesis. Resolves with the produced file path. */
+function synthesize(textFile, outFile, voice, rate) {
+    return new Promise((resolve, reject) => {
+        const attempts = pythonCandidates();
+        let index = 0;
+        const run = () => {
+            const [exe, ...prefix] = attempts[index];
+            const args = [...prefix, '-m', 'edge_tts', '-f', textFile, '-v', voice, '--rate', rate,
+                '--no-progress', '--write-media', outFile];
+            const child = (0, child_process_1.spawn)(exe, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+            let stderr = '';
+            let settled = false;
+            const finish = (error) => {
+                if (settled)
+                    return;
+                settled = true;
+                clearTimeout(timer);
+                if (error)
+                    reject(error);
+                else
+                    resolve();
+            };
+            const timer = setTimeout(() => {
+                try {
+                    child.kill();
+                }
+                catch { /* already gone */ }
+                finish(new Error('语音合成超时'));
+            }, SPAWN_TIMEOUT_MS);
+            child.stderr.on('data', (chunk) => { stderr += chunk; });
+            child.on('error', (error) => {
+                // "not found" means this interpreter does not exist; try the next one.
+                if (error.code === 'ENOENT' && index + 1 < attempts.length) {
+                    index += 1;
+                    settled = true;
+                    clearTimeout(timer);
+                    run();
+                    return;
+                }
+                finish(error);
+            });
+            child.on('close', (code) => {
+                if (code === 0 && fs.existsSync(outFile) && fs.statSync(outFile).size > 512)
+                    return finish();
+                const detail = stderr.split('\n').filter(Boolean).slice(-2).join(' ').slice(0, 200);
+                finish(new Error(detail || `edge-tts 退出码 ${code}`));
+            });
+        };
+        run();
+    });
+}
+/**
+ * @returns true when the request was handled here.
+ */
+async function handleTtsRoute(req, res, url, ctx) {
+    const cacheDir = path.join(ctx.workspaceDir, '.iexa-tts');
+    if (url.pathname === '/api/tts/voices' && req.method === 'GET') {
+        reply(res, 200, { voices: [...VOICES], defaultVoice: exports.DEFAULT_TTS_VOICE, rate: DEFAULT_RATE });
+        return true;
+    }
+    if (url.pathname === '/api/tts/speak' && req.method === 'POST') {
+        let body = '';
+        for await (const chunk of req) {
+            body += chunk;
+            if (body.length > 200_000) {
+                reply(res, 413, { error: '请求过大' });
+                return true;
+            }
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(body || '{}');
+        }
+        catch {
+            reply(res, 400, { error: '请求不是有效 JSON' });
+            return true;
+        }
+        const voice = String(parsed.voice || exports.DEFAULT_TTS_VOICE);
+        if (!VOICES.has(voice)) {
+            reply(res, 400, { error: '不支持的语音' });
+            return true;
+        }
+        const spoken = stripForSpeech(parsed.text || '');
+        if (!spoken) {
+            reply(res, 400, { error: '这条回复没有可朗读的文字' });
+            return true;
+        }
+        if (spoken.length > MAX_CHARS) {
+            reply(res, 413, { error: `文字过长（上限 ${MAX_CHARS} 字）` });
+            return true;
+        }
+        const chunks = splitForSpeech(spoken);
+        const segments = chunks.map((chunk) => {
+            const hash = crypto.createHash('sha1').update(`${voice}|${DEFAULT_RATE}|${chunk}`).digest('hex').slice(0, 20);
+            return { text: chunk, file: path.join(cacheDir, `${hash}.mp3`), url: `/api/tts/audio/${hash}.mp3` };
+        });
+        const missing = segments.filter((segment) => !(fs.existsSync(segment.file) && fs.statSync(segment.file).size > 512));
+        const payload = (cached) => ({
+            ok: true,
+            url: segments[0].url,
+            segments: segments.map((segment) => segment.url),
+            chars: spoken.length,
+            chunks: segments.length,
+            voice,
+            cached,
+        });
+        if (!missing.length) {
+            // Touch every served clip so "oldest" in trimCache really means least
+            // recently used, not least recently created.
+            const now = new Date();
+            for (const segment of segments) {
+                try {
+                    fs.utimesSync(segment.file, now, now);
+                }
+                catch { /* gone */ }
+            }
+            reply(res, 200, payload(true));
+            return true;
+        }
+        const job = queue.then(async () => {
+            fs.mkdirSync(cacheDir, { recursive: true });
+            // Three at a time: each call pays a Python start plus a websocket leg, and
+            // the service tolerates a short burst without throttling.
+            for (let index = 0; index < missing.length; index += PARALLEL_CHUNKS) {
+                const batch = missing.slice(index, index + PARALLEL_CHUNKS);
+                await Promise.all(batch.map(async (segment) => {
+                    const textFile = path.join(cacheDir, `${path.basename(segment.file, '.mp3')}.txt`);
+                    fs.writeFileSync(textFile, segment.text, 'utf8');
+                    try {
+                        await synthesize(textFile, segment.file, voice, DEFAULT_RATE);
+                    }
+                    finally {
+                        try {
+                            fs.unlinkSync(textFile);
+                        }
+                        catch { /* already removed */ }
+                    }
+                }));
+            }
+            trimCache(cacheDir);
+            return payload(false);
+        });
+        // Keep the chain alive even when this call fails, or one error blocks speech.
+        queue = job.catch(() => undefined);
+        try {
+            reply(res, 200, await job);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            reply(res, 503, {
+                error: '语音合成失败',
+                detail: message,
+                hint: '需要本机安装 Python 3 与 edge-tts：pip install edge-tts（可用 IEXA_TTS_PYTHON 指定解释器）',
+            });
+        }
+        return true;
+    }
+    if (url.pathname.startsWith('/api/tts/audio/') && req.method === 'GET') {
+        const name = path.basename(url.pathname);
+        if (!/^[0-9a-f]{20}\.mp3$/.test(name)) {
+            reply(res, 400, { error: '无效的音频名' });
+            return true;
+        }
+        const file = path.join(cacheDir, name);
+        if (!fs.existsSync(file)) {
+            reply(res, 404, { error: '音频不存在或已过期' });
+            return true;
+        }
+        // One clip is tens of KB; reading it whole avoids stream plumbing and lets a
+        // plain object stand in for the response in tests.
+        const audio = fs.readFileSync(file);
+        res.writeHead(200, {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': audio.length,
+            'Cache-Control': 'private, max-age=86400',
+        });
+        res.end(audio);
+        return true;
+    }
+    return false;
+}
+//# sourceMappingURL=TtsRoutes.js.map

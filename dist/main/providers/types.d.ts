@@ -1,0 +1,245 @@
+import type { ToolExecutionStatus, ToolLifecycleEvent } from '../runtime/ToolLifecycle';
+export interface AgentToolDefinition {
+    name: string;
+    description: string;
+    parameters: Record<string, AgentToolParam>;
+    required: string[];
+    propertyOrdering?: string[];
+}
+export interface AgentToolParam {
+    type: 'string' | 'integer' | 'boolean' | 'array' | 'object';
+    description: string;
+    enumValues?: string[];
+    minimum?: number;
+    maximum?: number;
+    items?: AgentToolParam;
+    properties?: Record<string, AgentToolParam>;
+    required?: string[];
+}
+export declare function toolParamSchema(param: AgentToolParam): Record<string, unknown>;
+export type AgentContentPart = {
+    type: 'text';
+    text: string;
+} | {
+    type: 'toolUse';
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+} | {
+    type: 'toolResult';
+    id: string;
+    name: string;
+    content: string;
+    isError: boolean;
+    imageData?: Buffer;
+    imageMimeType?: string;
+    pageURL?: string;
+} | {
+    type: 'imageData';
+    data: Buffer;
+    mimeType: string;
+};
+export interface AgentMessage {
+    role: 'user' | 'assistant';
+    parts: AgentContentPart[];
+    isInterrupted?: boolean;
+    reasoningContent?: string;
+    /** Signed Anthropic thinking blocks, retained only in the in-memory message loop. */
+    thinkingBlocks?: Array<{
+        type: 'thinking';
+        thinking: string;
+        signature: string;
+    } | {
+        type: 'redacted_thinking';
+        data: string;
+    }>;
+}
+export type AgentStopReason = 'endTurn' | 'toolUse' | 'maxTokens' | 'refusal';
+export type AgentStreamEvent = {
+    type: 'contentBlockStart';
+    block: {
+        type: 'text';
+    } | {
+        type: 'toolUse';
+        id: string;
+        name: string;
+    };
+} | {
+    type: 'textDelta';
+    text: string;
+} | {
+    type: 'toolInputDelta';
+    name: string;
+    accumulated: string;
+    id?: string;
+} | {
+    type: 'toolCallComplete';
+    id: string;
+    name: string;
+    args: Record<string, unknown>;
+    parseError?: string;
+} | {
+    type: 'thinkingDelta';
+    text: string;
+} | {
+    type: 'reasoningContent';
+    content: string;
+} | {
+    type: 'thinkingBlockComplete';
+    block: {
+        type: 'thinking';
+        thinking: string;
+        signature: string;
+    } | {
+        type: 'redacted_thinking';
+        data: string;
+    };
+} | {
+    type: 'usage';
+    usage: LLMUsage;
+} | {
+    type: 'done';
+    stopReason: AgentStopReason;
+};
+/** Context capacity state emitted before/after each model request. */
+export interface ContextUsage {
+    contextWindow: number;
+    usedTokens: number;
+    estimated: boolean;
+    compactThreshold: number;
+    state: 'ok' | 'near-limit' | 'compacting' | 'compacted' | 'exhausted';
+}
+export interface LLMUsage {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+}
+export interface ToolExecutionResult {
+    pluginUI?: import('../plugins/PluginPresentation').PluginPresentation;
+    executionStatus?: ToolExecutionStatus;
+    cancelled?: boolean;
+    output: string;
+    exitCode?: number;
+    success: boolean;
+    durationMs?: number;
+    summary?: string;
+    error?: string;
+    metadata?: Record<string, unknown>;
+    toolTitle?: string;
+    imageData?: Buffer;
+    imageMimeType?: string;
+    /** Ordered tool images; legacy imageData/imageMimeType preview the first only. */
+    images?: Array<{
+        data: Buffer;
+        mimeType: string;
+    }>;
+    pageURL?: string;
+    timedOut?: boolean;
+    /** Structured artifact metadata for Codex-style UI rendering. */
+    fileChange?: {
+        /** Display path supplied to the model (relative when the call used one). */
+        path: string;
+        /** Canonical local path for native open/reveal actions; never model-facing. */
+        absolutePath?: string;
+        before: string;
+        after: string;
+        added: number;
+        removed: number;
+        previewTruncated?: boolean;
+        undoUnavailable?: string;
+        /** Bounded byte-exact snapshot, persisted with the trusted tool result. */
+        rollback?: {
+            version: 1;
+            beforeExists: boolean;
+            beforeBase64: string;
+            afterSha256: string;
+        };
+    };
+    /** Structured task-plan snapshot emitted by todo_write. */
+    todos?: Array<{
+        content: string;
+        status: 'pending' | 'in_progress' | 'completed';
+    }>;
+    artifacts?: Array<{
+        kind: 'image' | 'audio' | 'video' | 'file';
+        path: string;
+        mimeType: string;
+        size: number;
+        url?: string;
+    }>;
+}
+export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'openrouter' | 'xai' | 'deepseek' | 'custom';
+export interface ProviderConfig {
+    /** Per-profile model API User-Agent; empty uses the Codex-compatible default. */
+    userAgent?: string;
+    type: ProviderType;
+    name: string;
+    apiKey: string;
+    baseURL?: string;
+    model: string;
+    maxTokens?: number;
+    thinkingLevel?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+    /** Codex Fast wire mode: sends service_tier: priority when the endpoint opted in. */
+    fastMode?: boolean;
+    /** OpenAI-compatible request envelope selected by the model profile. */
+    apiMode?: 'chat_completions' | 'responses' | 'anthropic_messages';
+}
+export interface ModelInfo {
+    id: string;
+    displayName: string;
+    provider: string;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    supportsVision?: boolean;
+    supportsReasoning?: boolean;
+}
+export interface StreamResult {
+    text: string;
+    toolCalls: Array<{
+        id: string;
+        name: string;
+        args: Record<string, unknown>;
+    }>;
+    stopReason: AgentStopReason;
+    usage?: LLMUsage;
+    reasoningContent?: string;
+}
+export interface AgentLoopCallbacks {
+    onToolState?: (event: ToolLifecycleEvent) => void;
+    onTextDelta: (text: string, fullText: string) => void;
+    onThinkingDelta: (text: string) => void;
+    onToolCallStart: (id: string, name: string) => void;
+    onToolInputDelta: (name: string, accumulated: string, id?: string) => void;
+    onToolCallComplete: (id: string, name: string, args: Record<string, unknown>) => void;
+    /** Model has finished emitting the call and the executor is about to start it. */
+    onToolExecutionStart?: (id: string, name: string, args: Record<string, unknown>) => void;
+    /** A new model/tool execution turn has started. */
+    onTurnStart?: (turn: number) => void;
+    onToolResult: (id: string, result: ToolExecutionResult) => void;
+    /** A transient provider/stream failure is being retried on the same model. */
+    onRetry?: (attempt: number, delayMs: number, error: string) => void;
+    onUsage: (usage: LLMUsage) => void;
+    onContext: (context: ContextUsage) => void;
+    onError: (error: string) => void;
+    onDone: (stopReason: AgentStopReason) => void;
+    onCancelled: () => void;
+    /** The turn stopped at a safe boundary and can be resumed later. */
+    onPaused?: () => void;
+    /** A steered user message was committed into the running turn's history. */
+    onSteerApplied?: (event: {
+        id: string;
+        text: string;
+    }) => void;
+    /** A steered message could not be committed before the turn settled. */
+    onSteerDropped?: (event: {
+        id: string;
+        reason: string;
+    }) => void;
+    /** Older history was replaced by a checkpoint; the transcript marks the spot. */
+    onCompacted?: (event: {
+        before: number;
+        after: number;
+    }) => void;
+}
+//# sourceMappingURL=types.d.ts.map

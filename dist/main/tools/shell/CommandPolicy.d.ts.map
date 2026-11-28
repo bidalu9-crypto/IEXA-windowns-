@@ -1,0 +1,1 @@
+{"version":3,"file":"CommandPolicy.d.ts","sourceRoot":"","sources":["../../../../src/main/tools/shell/CommandPolicy.ts"],"names":[],"mappings":"AACA,MAAM,MAAM,WAAW,GAAG,KAAK,GAAG,QAAQ,GAAG,MAAM,CAAC;AAEpD,uEAAuE;AACvE,qBAAa,aAAa;IACxB,QAAQ,CAAC,OAAO,EAAE,MAAM,GAAG,WAAW;IACtC,aAAa,CAAC,OAAO,EAAE,MAAM,GAAG,IAAI;CAIrC"}

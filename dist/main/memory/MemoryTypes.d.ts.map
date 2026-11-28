@@ -1,0 +1,1 @@
+{"version":3,"file":"MemoryTypes.d.ts","sourceRoot":"","sources":["../../../src/main/memory/MemoryTypes.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,SAAS;IACxB,IAAI,EAAE,MAAM,CAAC;IACb,OAAO,EAAE,MAAM,CAAC;IAChB,KAAK,EAAE,MAAM,CAAC;IACd,SAAS,EAAE,MAAM,CAAC;CACnB;AAED,MAAM,WAAW,mBAAmB;IAClC,KAAK,CAAC,EAAE,MAAM,CAAC;IACf,QAAQ,CAAC,EAAE,MAAM,CAAC;IAClB,cAAc,CAAC,EAAE,MAAM,CAAC;CACzB"}

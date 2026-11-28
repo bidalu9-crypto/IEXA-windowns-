@@ -1,0 +1,846 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.OpenAIProvider = void 0;
+const DiagnosticDecoder_1 = require("../encoding/DiagnosticDecoder");
+const ProviderError_1 = require("./ProviderError");
+// =============================================================================
+// iExA PC - OpenAI Provider
+// Mirrors iOS OpenAIProvider.swift + OpenAIAgentProvider.swift
+// Uses OpenAI Chat Completions API with SSE streaming + tool calls
+// =============================================================================
+const types_1 = require("./types");
+const stream_utils_1 = require("./stream-utils");
+const ModelCapabilities_1 = require("./ModelCapabilities");
+class OpenAIProvider {
+    name;
+    model;
+    apiKey;
+    userAgent;
+    baseURL;
+    thinkingLevel;
+    /** True only after server-side model/endpoint capability validation. */
+    fastMode;
+    apiMode;
+    /** Cache per-provider/model wire capability after a gateway rejects an
+     * optional reasoning field. This prevents repeating a known-bad request. */
+    reasoningWireMode = 'full';
+    defaultMaxTokens = 64000;
+    constructor(config) {
+        this.name = config.name || 'openai';
+        this.model = config.model;
+        this.apiKey = config.apiKey;
+        this.userAgent = config.userAgent;
+        this.baseURL = config.baseURL || 'https://api.openai.com';
+        this.thinkingLevel = config.thinkingLevel || 'medium';
+        this.fastMode = config.fastMode === true;
+        this.apiMode = config.apiMode === 'responses' ? 'responses' : 'chat_completions';
+    }
+    async *streamMessage(messages, systemPrompt, tools, maxTokens = 64000, signal) {
+        if (this.apiMode === 'responses') {
+            yield* this.streamResponses(messages, systemPrompt, tools, maxTokens, signal);
+            return;
+        }
+        yield* this.streamChatCompletions(messages, systemPrompt, tools, maxTokens, signal);
+    }
+    async *streamChatCompletions(messages, systemPrompt, tools, maxTokens = 64000, signal) {
+        const openaiMessages = this.convertMessages(messages, systemPrompt);
+        const openaiTools = this.convertTools(tools);
+        const body = {
+            model: this.model,
+            max_tokens: maxTokens,
+            messages: openaiMessages,
+            stream: true,
+            stream_options: { include_usage: true },
+        };
+        // iOS-style thinking / reasoning effort for OpenAI-compatible APIs
+        // (o-series, GPT-5, Grok reasoning, many Chinese reverse proxies)
+        this.applyThinkingLevel(body);
+        // Codex CLI Fast Mode uses the real wire value `priority`, not `fast`.
+        // It is injected only when the session profile explicitly declared endpoint
+        // support; unsupported gateways must reject it visibly rather than silently
+        // pretending the request ran in Fast mode.
+        if (this.fastMode)
+            body.service_tier = 'priority';
+        if (openaiTools.length > 0) {
+            body.tools = openaiTools;
+            body.tool_choice = 'auto';
+        }
+        // Normalize base URL
+        const apiURL = this.apiBaseURL();
+        let response = await (0, stream_utils_1.fetchWithRetry)(`${apiURL}/chat/completions`, {
+            method: 'POST',
+            userAgent: this.userAgent,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal,
+        });
+        if (!response.ok) {
+            let errorText = await (0, DiagnosticDecoder_1.readDiagnosticResponse)(response);
+            if (this.shouldFallbackReasoning(response.status, errorText, body)) {
+                this.disableReasoningFields(body);
+                response = await (0, stream_utils_1.fetchWithRetry)(`${apiURL}/chat/completions`, {
+                    method: 'POST',
+                    userAgent: this.userAgent,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.apiKey}`,
+                    },
+                    body: JSON.stringify(body),
+                    signal,
+                });
+                if (response.ok) {
+                    // The gateway accepted the same request after removing optional
+                    // reasoning fields; keep the successful mode cached for this profile.
+                }
+                else {
+                    errorText = await (0, DiagnosticDecoder_1.readDiagnosticResponse)(response);
+                }
+            }
+            if (!response.ok) {
+                if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+                    throw new ProviderError_1.ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+                }
+                throw ProviderError_1.ProviderError.http(response.status, errorText, 'OpenAI');
+            }
+        }
+        const reader = response.body?.getReader();
+        if (!reader)
+            throw new Error('No response body');
+        let currentToolId = null;
+        let currentToolName = null;
+        let currentToolArgs = '';
+        let inputTokens = 0;
+        let outputTokens = 0;
+        let startedText = false;
+        let reasoningContent = '';
+        let emittedReasoningContent = false;
+        // Wait for the terminal [DONE]/stream close: usage may arrive after the
+        // chunk that contains finish_reason.
+        let pendingStopReason = null;
+        // Track tool calls by index
+        const toolCalls = new Map();
+        try {
+            for await (const frame of (0, stream_utils_1.readSSEFrames)(reader, signal)) {
+                const data = frame.data;
+                if (data === '[DONE]') {
+                    for (const [, entry] of toolCalls) {
+                        if (!entry.id || !entry.name || entry.completed)
+                            continue;
+                        entry.completed = true;
+                        let args = {};
+                        let parseError;
+                        try {
+                            const parsed = JSON.parse(entry.args || '{}');
+                            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                                throw new Error('tool arguments must be a JSON object');
+                            args = parsed;
+                        }
+                        catch (error) {
+                            parseError = error.message || 'invalid JSON';
+                        }
+                        yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
+                    }
+                    if (reasoningContent && !emittedReasoningContent) {
+                        emittedReasoningContent = true;
+                        yield { type: 'reasoningContent', content: reasoningContent };
+                    }
+                    yield { type: 'done', stopReason: pendingStopReason || 'endTurn' };
+                    return;
+                }
+                try {
+                    const event = JSON.parse(data);
+                    ProviderError_1.ProviderError.throwIfErrorFrame(event, frame.event);
+                    // OpenAI-compatible APIs commonly put cumulative usage in the final
+                    // SSE frame with an empty `choices` array. Process usage before
+                    // ignoring non-content frames so it reaches the persistent ledger.
+                    if (event.usage) {
+                        const reportedInput = Number(event.usage.prompt_tokens || event.usage.input_tokens || 0);
+                        outputTokens = event.usage.completion_tokens || event.usage.output_tokens || 0;
+                        // Cache receipts: DeepSeek reports prompt_cache_hit_tokens; OpenAI
+                        // and most compatible gateways use prompt_tokens_details.cached_tokens.
+                        // Surfacing the number end-to-end makes a dead prefix cache visible
+                        // instead of silently re-billing the full prompt on every call.
+                        const cacheHint = event.usage.prompt_cache_hit_tokens
+                            ?? event.usage.prompt_tokens_details?.cached_tokens
+                            ?? event.usage.cache_read_input_tokens;
+                        if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
+                            // inputTokens is the WHOLE prompt with the cached span inside it,
+                            // which is the same meaning Anthropic is normalised to, so the
+                            // cache share is simply cache / input.
+                            const cacheRead = Math.min(cacheHint, reportedInput || cacheHint);
+                            inputTokens = reportedInput;
+                            yield { type: 'usage', usage: { inputTokens, outputTokens, cacheReadInputTokens: cacheRead } };
+                        }
+                        else {
+                            inputTokens = reportedInput;
+                            yield { type: 'usage', usage: { inputTokens, outputTokens } };
+                        }
+                    }
+                    const choice = event.choices?.[0];
+                    if (!choice)
+                        continue;
+                    const delta = choice.delta || {};
+                    // Handle tool calls — emit contentBlockStart ASAP so UI shows a live step
+                    // (mirrors iOS ToolCapsule / contentBlockStart.toolUse behaviour).
+                    if (delta.tool_calls) {
+                        for (const tc of delta.tool_calls) {
+                            const idx = tc.index;
+                            if (!toolCalls.has(idx)) {
+                                const provisionalId = tc.id || ('openai_tool_' + idx + '_' + Date.now());
+                                toolCalls.set(idx, {
+                                    id: provisionalId,
+                                    name: tc.function?.name || '',
+                                    args: '',
+                                    started: false,
+                                    completed: false,
+                                });
+                            }
+                            const entry = toolCalls.get(idx);
+                            // Freeze id after the live step is created so UI can bind continuously.
+                            if (tc.id && !entry.started)
+                                entry.id = tc.id;
+                            if (tc.function?.name)
+                                entry.name = tc.function.name;
+                            // Fire start once we know the tool name
+                            if (!entry.started && entry.name) {
+                                entry.started = true;
+                                yield {
+                                    type: 'contentBlockStart',
+                                    block: { type: 'toolUse', id: entry.id, name: entry.name },
+                                };
+                            }
+                            if (tc.function?.arguments) {
+                                entry.args += tc.function.arguments;
+                                if (!entry.started && entry.name) {
+                                    entry.started = true;
+                                    yield {
+                                        type: 'contentBlockStart',
+                                        block: { type: 'toolUse', id: entry.id, name: entry.name },
+                                    };
+                                }
+                                if (entry.name) {
+                                    yield {
+                                        type: 'toolInputDelta',
+                                        name: entry.name,
+                                        accumulated: entry.args,
+                                        id: entry.id,
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    // Legacy Chat Completions gateways stream a single function call
+                    // as `delta.function_call` instead of the newer tool_calls array.
+                    // Normalize it into the same index-0 accumulator so old models
+                    // still execute through the common AgentLoop path.
+                    if (delta.function_call) {
+                        const fc = delta.function_call;
+                        if (!toolCalls.has(0)) {
+                            toolCalls.set(0, {
+                                id: 'openai_function_' + Date.now(),
+                                name: fc.name || '',
+                                args: '',
+                                started: false,
+                                completed: false,
+                            });
+                        }
+                        const entry = toolCalls.get(0);
+                        if (fc.name)
+                            entry.name = fc.name;
+                        if (!entry.started && entry.name) {
+                            entry.started = true;
+                            yield { type: 'contentBlockStart', block: { type: 'toolUse', id: entry.id, name: entry.name } };
+                        }
+                        if (fc.arguments) {
+                            entry.args += fc.arguments;
+                            if (entry.name)
+                                yield { type: 'toolInputDelta', name: entry.name, accumulated: entry.args, id: entry.id };
+                        }
+                    }
+                    // Reasoning / thinking deltas (OpenAI o-series, DeepSeek-R1, Grok, proxies)
+                    const reasoningText = (typeof delta.reasoning_content === 'string' && delta.reasoning_content) ||
+                        (typeof delta.reasoning === 'string' && delta.reasoning) ||
+                        (typeof delta.thinking === 'string' && delta.thinking) ||
+                        '';
+                    if (typeof delta.reasoning_content === 'string')
+                        reasoningContent += delta.reasoning_content;
+                    else if (typeof delta.reasoning === 'string')
+                        reasoningContent += delta.reasoning;
+                    else if (typeof delta.thinking === 'string')
+                        reasoningContent += delta.thinking;
+                    // Some OpenAI-compatible gateways emit reasoning_content even when
+                    // their disable flag is ignored. "off" is a local hard boundary:
+                    // never forward that stream to the application/UI.
+                    if (reasoningText && this.thinkingLevel !== 'off') {
+                        yield { type: 'thinkingDelta', text: reasoningText };
+                    }
+                    // Handle text content
+                    if (delta.content) {
+                        if (!startedText) {
+                            startedText = true;
+                            yield { type: 'contentBlockStart', block: { type: 'text' } };
+                        }
+                        yield { type: 'textDelta', text: delta.content };
+                    }
+                    // Handle finish
+                    if (choice.finish_reason) {
+                        if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call') {
+                            // Emit toolCallComplete for each completed tool call
+                            for (const [, entry] of toolCalls) {
+                                if (entry.id && entry.name && !entry.completed) {
+                                    entry.completed = true;
+                                    let args = {};
+                                    let parseError;
+                                    try {
+                                        const parsed = JSON.parse(entry.args || '{}');
+                                        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                                            throw new Error('tool arguments must be a JSON object');
+                                        args = parsed;
+                                    }
+                                    catch (error) {
+                                        parseError = error.message || 'invalid JSON';
+                                    }
+                                    yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
+                                }
+                            }
+                        }
+                        // Do not end the generator here. With `include_usage`, many
+                        // OpenAI-compatible APIs send usage in the following empty-choice
+                        // SSE frame. It is handled above before this stream terminates.
+                        pendingStopReason = 'endTurn';
+                        if (choice.finish_reason === 'tool_calls' || choice.finish_reason === 'function_call')
+                            pendingStopReason = 'toolUse';
+                        else if (choice.finish_reason === 'length')
+                            pendingStopReason = 'maxTokens';
+                    }
+                }
+                catch (e) {
+                    if (e instanceof SyntaxError)
+                        continue;
+                    throw e;
+                }
+            }
+            // Gracefully handle providers that close the stream without [DONE].
+            for (const [, entry] of toolCalls) {
+                if (!entry.id || !entry.name || entry.completed)
+                    continue;
+                entry.completed = true;
+                let args = {};
+                let parseError;
+                try {
+                    const parsed = JSON.parse(entry.args || '{}');
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                        throw new Error('tool arguments must be a JSON object');
+                    args = parsed;
+                }
+                catch (error) {
+                    parseError = error.message || 'invalid JSON';
+                }
+                yield { type: 'toolCallComplete', id: entry.id, name: entry.name, args, ...(parseError ? { parseError } : {}) };
+            }
+            if (reasoningContent && !emittedReasoningContent) {
+                emittedReasoningContent = true;
+                yield { type: 'reasoningContent', content: reasoningContent };
+            }
+            if (pendingStopReason)
+                yield { type: 'done', stopReason: pendingStopReason };
+            else
+                throw new ProviderError_1.ProviderError('STREAM_TERMINATED', 'Provider stream terminated before completion', true);
+        }
+        finally {
+            reader.releaseLock();
+        }
+    }
+    /** OpenAI Responses API (/v1/responses) serializer + SSE parser.
+     * This is a separate wire protocol, not a renamed Chat Completions route. */
+    async *streamResponses(messages, systemPrompt, tools, maxTokens, signal) {
+        const body = {
+            model: this.model,
+            input: this.convertResponsesInput(messages),
+            stream: true,
+            store: false,
+            parallel_tool_calls: true,
+        };
+        if (systemPrompt)
+            body.instructions = systemPrompt;
+        if (maxTokens > 0)
+            body.max_output_tokens = maxTokens;
+        if (this.fastMode)
+            body.service_tier = 'priority';
+        this.applyResponsesThinkingLevel(body);
+        const responseTools = this.convertResponsesTools(tools);
+        if (responseTools.length) {
+            body.tools = responseTools;
+            body.tool_choice = 'auto';
+        }
+        let response = await (0, stream_utils_1.fetchWithRetry)(`${this.apiBaseURL()}/responses`, {
+            method: 'POST',
+            userAgent: this.userAgent,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+            body: JSON.stringify(body),
+            signal,
+        });
+        if (!response.ok) {
+            let errorText = await (0, DiagnosticDecoder_1.readDiagnosticResponse)(response);
+            if (this.shouldFallbackReasoning(response.status, errorText, body)) {
+                this.disableReasoningFields(body);
+                response = await (0, stream_utils_1.fetchWithRetry)(`${this.apiBaseURL()}/responses`, {
+                    method: 'POST',
+                    userAgent: this.userAgent,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.apiKey}` },
+                    body: JSON.stringify(body),
+                    signal,
+                });
+                if (!response.ok)
+                    errorText = await (0, DiagnosticDecoder_1.readDiagnosticResponse)(response);
+            }
+            if (!response.ok) {
+                if (this.fastMode && [400, 422].includes(response.status) && /service[_ ]?tier|priority|tier/i.test(errorText)) {
+                    throw new ProviderError_1.ProviderError(`HTTP_${response.status}`, `Fast 模式请求被当前模型端点拒绝（service_tier: priority）：${errorText}`, false, response.status);
+                }
+                throw ProviderError_1.ProviderError.http(response.status, errorText, 'OpenAI Responses');
+            }
+        }
+        const reader = response.body?.getReader();
+        if (!reader)
+            throw new Error('No response body');
+        let startedText = false;
+        let emittedDone = false;
+        // A completed reasoning item repeats the entire summary after streaming
+        // deltas. Retain this flag to use it only as a fallback, not duplicate UI.
+        let sawReasoningDelta = false;
+        const calls = new Map();
+        const ensureCall = (item) => {
+            const id = String(item.item_id || item.id || item.call_id || `response_call_${calls.size}_${Date.now()}`);
+            let call = calls.get(id);
+            if (!call) {
+                call = { id, callId: String(item.call_id || id), name: String(item.name || ''), args: '', started: false, completed: false };
+                calls.set(id, call);
+            }
+            if (typeof item.call_id === 'string')
+                call.callId = item.call_id;
+            if (typeof item.name === 'string')
+                call.name = item.name;
+            return call;
+        };
+        const finishCall = async function* (call) {
+            if (call.completed || !call.name)
+                return;
+            call.completed = true;
+            let args = {};
+            let parseError;
+            try {
+                const parsed = JSON.parse(call.args || '{}');
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+                    throw new Error('tool arguments must be a JSON object');
+                args = parsed;
+            }
+            catch (error) {
+                parseError = error.message || 'invalid JSON';
+            }
+            // callId is the Responses protocol link; preserve it as the tool ID for replay.
+            yield { type: 'toolCallComplete', id: call.callId, name: call.name, args, ...(parseError ? { parseError } : {}) };
+        };
+        try {
+            for await (const frame of (0, stream_utils_1.readSSEFrames)(reader, signal)) {
+                const eventType = frame.event;
+                const payload = frame.data;
+                if (!payload || payload === '[DONE]')
+                    continue;
+                let event;
+                try {
+                    event = JSON.parse(payload);
+                }
+                catch {
+                    continue;
+                }
+                ProviderError_1.ProviderError.throwIfErrorFrame(event, eventType);
+                const type = String(event.type || eventType || '');
+                if (type === 'response.output_text.delta') {
+                    const delta = String(event.delta || '');
+                    if (delta) {
+                        if (!startedText) {
+                            startedText = true;
+                            yield { type: 'contentBlockStart', block: { type: 'text' } };
+                        }
+                        yield { type: 'textDelta', text: delta };
+                    }
+                    continue;
+                }
+                if ((type === 'response.reasoning_summary_text.delta' || type === 'response.reasoning_text.delta') && this.thinkingLevel !== 'off') {
+                    const delta = String(event.delta || '');
+                    if (delta) {
+                        sawReasoningDelta = true;
+                        yield { type: 'thinkingDelta', text: delta };
+                    }
+                    continue;
+                }
+                if (type === 'response.output_item.added') {
+                    const item = (event.item || {});
+                    if (item.type === 'function_call') {
+                        const call = ensureCall(item);
+                        if (!call.started && call.name) {
+                            call.started = true;
+                            yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+                        }
+                    }
+                    continue;
+                }
+                if (type === 'response.function_call_arguments.delta') {
+                    const call = ensureCall(event);
+                    const delta = String(event.delta || '');
+                    call.args += delta;
+                    if (!call.started && call.name) {
+                        call.started = true;
+                        yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+                    }
+                    if (call.name)
+                        yield { type: 'toolInputDelta', id: call.callId, name: call.name, accumulated: call.args };
+                    continue;
+                }
+                if (type === 'response.function_call_arguments.done') {
+                    const call = ensureCall(event);
+                    if (typeof event.arguments === 'string')
+                        call.args = event.arguments;
+                    if (!call.started && call.name) {
+                        call.started = true;
+                        yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+                    }
+                    yield* finishCall(call);
+                    continue;
+                }
+                if (type === 'response.reasoning_summary_text.done' || type === 'response.reasoning_text.done') {
+                    // The done event normally repeats the text emitted by delta frames;
+                    // use it only when a gateway skipped streaming deltas entirely.
+                    const text = String(event.text || event.summary || event.delta || '');
+                    if (text && this.thinkingLevel !== 'off' && !sawReasoningDelta) {
+                        yield { type: 'thinkingDelta', text };
+                    }
+                    continue;
+                }
+                if (type === 'response.output_item.done') {
+                    const item = (event.item || {});
+                    if (item.type === 'reasoning' && this.thinkingLevel !== 'off' && !sawReasoningDelta) {
+                        const summary = Array.isArray(item.summary)
+                            ? item.summary.map((part) => String(part?.text || '')).filter(Boolean).join('\n')
+                            : String(item.summary || '');
+                        if (summary)
+                            yield { type: 'thinkingDelta', text: summary };
+                    }
+                    if (item.type === 'function_call') {
+                        const call = ensureCall(item);
+                        if (typeof item.arguments === 'string')
+                            call.args = item.arguments;
+                        if (!call.started && call.name) {
+                            call.started = true;
+                            yield { type: 'contentBlockStart', block: { type: 'toolUse', id: call.callId, name: call.name } };
+                        }
+                        yield* finishCall(call);
+                    }
+                    continue;
+                }
+                if (type === 'response.completed' || (type === 'response.incomplete' && event.response?.incomplete_details?.reason === 'max_output_tokens')) {
+                    const completed = (event.response || {});
+                    const usage = completed.usage || event.usage;
+                    if (usage) {
+                        const responsePromptTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
+                        const responseOutputTokens = Number(usage.output_tokens || usage.completion_tokens || 0);
+                        // Responses API exposes cache hits under input_tokens_details. Same
+                        // rule as the streaming path: inputTokens is the whole prompt and
+                        // the cached span is reported next to it.
+                        const cacheHint = usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens;
+                        if (typeof cacheHint === 'number' && Number.isFinite(cacheHint) && cacheHint >= 0) {
+                            const cacheRead = Math.min(cacheHint, responsePromptTokens || cacheHint);
+                            yield { type: 'usage', usage: { inputTokens: responsePromptTokens, outputTokens: responseOutputTokens, cacheReadInputTokens: cacheRead } };
+                        }
+                        else {
+                            yield { type: 'usage', usage: { inputTokens: responsePromptTokens, outputTokens: responseOutputTokens } };
+                        }
+                    }
+                    for (const call of calls.values())
+                        yield* finishCall(call);
+                    emittedDone = true;
+                    yield { type: 'done', stopReason: type === 'response.incomplete' ? 'maxTokens' : calls.size ? 'toolUse' : 'endTurn' };
+                    return;
+                }
+            }
+            if (!emittedDone)
+                throw new ProviderError_1.ProviderError('STREAM_TERMINATED', 'Responses stream terminated before completion', true);
+        }
+        finally {
+            reader.releaseLock();
+        }
+    }
+    apiBaseURL() {
+        let apiURL = this.baseURL.replace(/\/+$/, '');
+        if (!apiURL.endsWith('/v1'))
+            apiURL += '/v1';
+        return apiURL;
+    }
+    convertResponsesInput(messages) {
+        const result = [];
+        for (const message of messages) {
+            const text = [];
+            const images = [];
+            const calls = [];
+            const outputs = [];
+            for (const part of message.parts) {
+                if (part.type === 'text')
+                    text.push(part.text);
+                else if (part.type === 'imageData')
+                    images.push({ type: 'input_image', image_url: `data:${part.mimeType};base64,${part.data.toString('base64')}` });
+                else if (part.type === 'toolUse')
+                    calls.push({ type: 'function_call', call_id: part.id, name: part.name, arguments: JSON.stringify(part.input) });
+                else if (part.type === 'toolResult')
+                    outputs.push({ type: 'function_call_output', call_id: part.id, output: part.content });
+            }
+            // Function outputs must immediately follow their function calls. Any
+            // screenshot produced by that tool is a subsequent user image.
+            if (message.role === 'user')
+                result.push(...outputs);
+            if (text.length || images.length) {
+                const content = [];
+                if (text.length)
+                    content.push({ type: message.role === 'user' ? 'input_text' : 'output_text', text: text.join('') });
+                content.push(...images);
+                result.push({ role: message.role, content });
+            }
+            result.push(...calls);
+            if (message.role !== 'user')
+                result.push(...outputs);
+        }
+        return result;
+    }
+    convertResponsesTools(tools) {
+        return tools.map((tool) => ({
+            type: 'function', name: tool.name, description: tool.description,
+            parameters: { type: 'object', properties: Object.fromEntries(Object.entries(tool.parameters).map(([key, param]) => [key, (0, types_1.toolParamSchema)(param)])), required: tool.required },
+        }));
+    }
+    applyResponsesThinkingLevel(body) {
+        if (this.reasoningWireMode === 'plain' || this.thinkingLevel === 'off')
+            return;
+        const model = this.model.toLowerCase();
+        if (!(0, ModelCapabilities_1.isGptReasoningModel)(model) && !(0, ModelCapabilities_1.isGlm53FlashModel)(model) && !/o[1-9]|reason|codex/.test(model))
+            return;
+        const effort = { low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'high', ultra: 'high' };
+        // Responses does not stream a displayable reasoning trace by default. Ask
+        // for the model-produced summary so the UI can render a thinking block,
+        // without exposing the encrypted private chain of thought.
+        body.reasoning = { effort: effort[this.thinkingLevel] || 'medium', summary: 'auto' };
+    }
+    convertMessages(messages, systemPrompt) {
+        const result = [];
+        // System message
+        if (systemPrompt) {
+            result.push({ role: 'system', content: systemPrompt });
+        }
+        for (const msg of messages) {
+            if (msg.role === 'user') {
+                const contentParts = [];
+                const toolResults = [];
+                for (const part of msg.parts) {
+                    if (part.type === 'text') {
+                        contentParts.push({ type: 'text', text: part.text });
+                    }
+                    else if (part.type === 'toolResult') {
+                        toolResults.push({
+                            role: 'tool',
+                            tool_call_id: part.id,
+                            content: part.content,
+                        });
+                    }
+                    else if (part.type === 'imageData') {
+                        contentParts.push({
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:${part.mimeType};base64,${part.data.toString('base64')}`,
+                            },
+                        });
+                    }
+                }
+                for (const tr of toolResults) {
+                    result.push(tr);
+                }
+                if (contentParts.length > 0) {
+                    result.push({ role: 'user', content: contentParts });
+                }
+            }
+            else if (msg.role === 'assistant') {
+                // Build assistant message with potential tool_calls
+                const contentParts = [];
+                const toolCalls = [];
+                for (const part of msg.parts) {
+                    if (part.type === 'text') {
+                        contentParts.push(part.text);
+                    }
+                    else if (part.type === 'toolUse') {
+                        toolCalls.push({
+                            id: part.id,
+                            type: 'function',
+                            function: {
+                                name: part.name,
+                                arguments: JSON.stringify(part.input),
+                            },
+                        });
+                    }
+                }
+                const assistantMsg = {
+                    role: 'assistant',
+                    content: contentParts.join('') || null,
+                };
+                // Only DeepSeek/R1-style Chat Completions gateways require the opaque
+                // reasoning field to be echoed with a tool call. OpenAI's native
+                // Chat/Responses contracts reject unknown assistant fields, so do not
+                // replay it across unrelated model families.
+                if (msg.reasoningContent && /deepseek|(?:^|[-/])r1(?:[-/]|$)|reason(?:ing)?|thinking/.test(this.model.toLowerCase())) {
+                    assistantMsg.reasoning_content = msg.reasoningContent;
+                }
+                if (toolCalls.length > 0) {
+                    assistantMsg.tool_calls = toolCalls;
+                }
+                result.push(assistantMsg);
+            }
+        }
+        return result;
+    }
+    shouldFallbackReasoning(status, errorText, body) {
+        if (this.reasoningWireMode !== 'full' || ![400, 422].includes(status))
+            return false;
+        const hasReasoningFields = ['reasoning_effort', 'reasoning', 'thinking', 'enable_thinking', 'thinking_budget']
+            .some((key) => key in body);
+        return hasReasoningFields && /reasoning|thinking|enable_thinking|thinking_budget/i.test(errorText) &&
+            /unsupported|unknown|invalid|not supported|not allowed|unexpected|unrecognized|extra|parameter|field/i.test(errorText);
+    }
+    disableReasoningFields(body) {
+        delete body.reasoning_effort;
+        delete body.reasoning;
+        delete body.thinking;
+        delete body.enable_thinking;
+        delete body.thinking_budget;
+        this.reasoningWireMode = 'plain';
+    }
+    applyThinkingLevel(body) {
+        if (this.reasoningWireMode === 'plain')
+            return;
+        const level = this.thinkingLevel || 'medium';
+        const model = (this.model || '').toLowerCase();
+        const provider = (this.name || '').toLowerCase();
+        // DeepSeek-compatible gateways do not share one request contract. In
+        // particular, catalog-style ids such as `deepseek-ai/deepseek-v4-*` may
+        // reject the vendor-specific `enable_thinking` field even though the id
+        // contains "deepseek". Only send those fields for models with a known
+        // DeepSeek thinking contract; unknown variants remain standard chat.
+        const isKnownDeepSeekThinkingModel = /(^|[/:-])deepseek-(?:chat|reasoner|r1)(?:[/:-]|$)/.test(model) ||
+            /(^|[/:-])deepseek-ai[/:-]deepseek-(?:r1|v3)(?:[/:-]|$)/.test(model) ||
+            model.includes('deepseek-v4');
+        const isDeepSeekV4 = model.includes('deepseek-v4');
+        const isDeepSeekProvider = provider === 'deepseek';
+        const isGptReasoning = (0, ModelCapabilities_1.isGptReasoningModel)(model);
+        const isGlm53Flash = (0, ModelCapabilities_1.isGlm53FlashModel)(model);
+        // Only attach effort params on models/providers that actually reason.
+        // Avoid breaking plain GPT-4 / chat models that reject unknown fields.
+        const isReasoningModel = isGptReasoning ||
+            isGlm53Flash ||
+            /^o[1-9]/.test(model) ||
+            model.includes('gpt-5') ||
+            model.includes('o3') ||
+            model.includes('o4-mini') ||
+            model.includes('reason') ||
+            model.includes('thinking') ||
+            (model.includes('r1') && !model.includes('deepseek')) ||
+            (model.includes('think') && !model.includes('deepseek')) ||
+            model.includes('grok') ||
+            model.includes('qwq') ||
+            (model.includes('deepseek') && isKnownDeepSeekThinkingModel) ||
+            provider === 'xai' ||
+            (isDeepSeekProvider && isKnownDeepSeekThinkingModel);
+        if (!isReasoningModel)
+            return;
+        const budgetMap = {
+            off: 0,
+            low: 1024,
+            medium: 8192,
+            high: 16384,
+            xhigh: 32768,
+            max: 32768,
+            ultra: 32768,
+        };
+        const budget = budgetMap[level] ?? 8192;
+        // GLM 5.3 Flash uses the GLM-native thinking switch. Preserve the local
+        // effort selector as a sibling hint for OpenAI-compatible gateways while
+        // clamping extended client-only levels to this profile family's high cap.
+        if (isGlm53Flash) {
+            if (level === 'off') {
+                body.thinking = { type: 'disabled' };
+                body.reasoning_effort = 'none';
+            }
+            else {
+                body.thinking = { type: 'enabled' };
+                body.reasoning_effort = level === 'low' || level === 'medium' ? level : 'high';
+            }
+            return;
+        }
+        // DeepSeek V4 uses a root-level `thinking` switch plus a sibling
+        // `reasoning_effort`. Its OpenAI-compatible gateway rejects the Qwen-style
+        // `enable_thinking` field, so keep this branch ahead of the generic
+        // DeepSeek handling below.
+        if (isDeepSeekV4) {
+            if (level === 'off') {
+                body.thinking = { type: 'disabled' };
+            }
+            else {
+                const effort = level === 'low' || level === 'medium' ? 'high' : 'max';
+                body.thinking = { type: 'enabled' };
+                body.reasoning_effort = effort;
+            }
+            return;
+        }
+        // DeepSeek pre-V4 models (chat/reasoner/R1) determine reasoning from the
+        // model itself. iOS leaves their request body unchanged and only parses
+        // `reasoning_content` from the response stream.
+        if (isKnownDeepSeekThinkingModel)
+            return;
+        if (level === 'off') {
+            if (isKnownDeepSeekThinkingModel || ((model.includes('r1') || model.includes('think')) && !model.includes('deepseek'))) {
+                // DeepSeek-compatible Chat Completions gateways use this field. Do not
+                // attach a positive reasoning_effort in the off state.
+                body.enable_thinking = false;
+            }
+            else {
+                body.reasoning_effort = 'none';
+            }
+            return;
+        }
+        // OpenAI / xAI / many gateways
+        // iOS uses seven local levels; Ultra is a client label and maps to max on wire.
+        body.reasoning_effort = level === 'ultra' || level === 'max' ? 'max' : level; // low | medium | high | xhigh | max
+        // DeepSeek-R1 style proxies
+        if (isKnownDeepSeekThinkingModel || ((model.includes('r1') || model.includes('think')) && !model.includes('deepseek'))) {
+            body.enable_thinking = true;
+            body.thinking_budget = budget;
+        }
+    }
+    convertTools(tools) {
+        return tools.map((tool) => ({
+            type: 'function',
+            function: {
+                name: tool.name,
+                description: tool.description,
+                parameters: {
+                    type: 'object',
+                    properties: Object.fromEntries(Object.entries(tool.parameters).map(([key, param]) => [
+                        key,
+                        (0, types_1.toolParamSchema)(param),
+                    ])),
+                    required: tool.required,
+                },
+            },
+        }));
+    }
+}
+exports.OpenAIProvider = OpenAIProvider;
+//# sourceMappingURL=OpenAIProvider.js.map

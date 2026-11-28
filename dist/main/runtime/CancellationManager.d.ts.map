@@ -1,0 +1,1 @@
+{"version":3,"file":"CancellationManager.d.ts","sourceRoot":"","sources":["../../../src/main/runtime/CancellationManager.ts"],"names":[],"mappings":"AAAA,qBAAa,mBAAmB;IAC9B,OAAO,CAAC,WAAW,CAAsC;IACzD,KAAK,CAAC,SAAS,EAAE,MAAM,GAAG,WAAW;IAKrC,MAAM,CAAC,SAAS,EAAE,MAAM,GAAG,WAAW,GAAG,SAAS;IAClD,MAAM,CAAC,SAAS,EAAE,MAAM,GAAG,IAAI;IAC/B,MAAM,CAAC,SAAS,EAAE,MAAM,GAAG,IAAI;CAChC"}

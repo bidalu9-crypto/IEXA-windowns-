@@ -1,0 +1,470 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ToolRuntime = void 0;
+const path = __importStar(require("path"));
+const ProjectInstructions_1 = require("../agent/ProjectInstructions");
+const ToolExecutors_1 = require("../tools/ToolExecutors");
+const SearchTools_1 = require("../tools/SearchTools");
+const PathSandbox_1 = require("../security/PathSandbox");
+const PermissionManager_1 = require("../security/PermissionManager");
+const BudgetManager_1 = require("./BudgetManager");
+const ToolRegistry_1 = require("./ToolRegistry");
+const ToolScheduler_1 = require("./ToolScheduler");
+const ToolLifecycle_1 = require("./ToolLifecycle");
+const LoopDetector_1 = require("./LoopDetector");
+const ArtifactStore_1 = require("../context/ArtifactStore");
+const CommandPolicy_1 = require("../tools/shell/CommandPolicy");
+const DesktopAgent_1 = require("../tools/DesktopAgent");
+const DesktopHelperPath_1 = require("../tools/desktop/DesktopHelperPath");
+const ToolDefinitions_1 = require("../tools/ToolDefinitions");
+const QuestionBroker_1 = require("./QuestionBroker");
+const HookRunner_1 = require("./HookRunner");
+const AbortWait_1 = require("./AbortWait");
+const WorkspaceTools_1 = require("../tools/WorkspaceTools");
+/** A tool that was advertised but has no store behind it in this build. */
+function notWired(name) {
+    return { output: `${name} 在此会话不可用：服务端未装配对应的存储。`, success: false, executionStatus: 'failed' };
+}
+const risk = { project_instructions: 'low', todo_write: 'low', ask_user: 'low', shell_execute: 'high', shell_session: 'high', job_list: 'low', job_output: 'low', goal: 'low', file_read: 'low', file_write: 'medium', file_edit: 'medium', grep: 'low', glob: 'low', browser_fetch: 'low', web_search: 'low', display_file: 'medium', memory_write: 'medium', memory_get: 'low', bot_list: 'low', bot_create: 'medium', bot_delete: 'high', schedule_list: 'low', schedule_create: 'medium', schedule_manage: 'high' };
+class ToolRuntime {
+    config;
+    registry = new ToolRegistry_1.ToolRegistry();
+    scheduler = new ToolScheduler_1.ToolScheduler();
+    sandbox = new PathSandbox_1.PathSandbox();
+    permissions;
+    budget;
+    shell;
+    files = new ToolExecutors_1.FileTools(() => this.pathPolicy());
+    permissionMode;
+    memory;
+    browser = new ToolExecutors_1.BrowserFetch();
+    webSearch = new ToolExecutors_1.WebSearch();
+    search = new SearchTools_1.SearchTools();
+    desktop;
+    loopDetector = new LoopDetector_1.LoopDetector();
+    commandPolicy = new CommandPolicy_1.CommandPolicy();
+    artifacts;
+    botTools;
+    scheduleTools;
+    allowedTools = null;
+    lifecycle = new ToolLifecycle_1.ToolLifecycle();
+    activeExecutions = 0;
+    executions = new Map();
+    constructor(config) {
+        this.config = config;
+        this.permissionMode = config.permissionMode || 'risk';
+        this.permissions = new PermissionManager_1.PermissionManager(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), config.permissionResolver, config.permissionMode || 'risk');
+        this.budget = config.budget || new BudgetManager_1.BudgetManager();
+        this.shell = new ToolExecutors_1.ShellExecutor(config.workspaceDir);
+        this.memory = new ToolExecutors_1.MemoryTools(config.memoryDir);
+        this.desktop = new DesktopAgent_1.DesktopAgent((0, DesktopHelperPath_1.desktopApplicationRoot)(), config.desktopCaptureFrames === true, path.join(config.auditDir || path.join(config.workspaceDir, '.iexa-audit'), 'desktop'));
+        this.artifacts = new ArtifactStore_1.ArtifactStore(path.join(config.workspaceDir, '.iexa-artifacts'));
+        if (config.bots)
+            this.botTools = new WorkspaceTools_1.BotTools(config.bots.store, config.bots.callerTools, config.bots.defaultProfile);
+        if (config.scheduledTasks) {
+            this.scheduleTools = new WorkspaceTools_1.ScheduledTaskTools(config.scheduledTasks.scheduler, config.scheduledTasks.defaultProfile, config.scheduledTasks.defaultSession);
+        }
+    }
+    async initialize() { await this.memory.initialize(); }
+    grantPermission(sessionId, toolName) { this.permissions.grant(sessionId, toolName); }
+    setPermissionMode(mode) { this.permissionMode = mode; this.permissions.setMode(mode); }
+    pathPolicy() { return { permissionMode: this.permissionMode, mode: this.config.pathMode || 'workspace', roots: this.config.selectedRoots }; }
+    isParallelSafe(name) { return this.registry.get(name)?.parallelSafe === true; }
+    definitions() { return this.registry.list().map(({ execute: _execute, risk: _risk, parallelSafe: _parallelSafe, cancellable: _cancellable, requiresApproval: _approval, timeoutMs: _timeout, filesystemAccess: _fs, networkAccess: _net, ...definition }) => definition); }
+    async execute(name, args, context) {
+        // Alias resolution happens before validation and fingerprinting so `edit`
+        // and `file_edit` share permissions, dedupe and execution semantics.
+        name = (0, ToolRegistry_1.canonicalToolName)(name);
+        // Validate before fingerprinting/caching so malformed optional values cannot
+        // collapse to the same JSON fingerprint as an omitted, valid argument.
+        let repairs = [];
+        try {
+            repairs = this.registry.validate(name, args);
+        }
+        catch (error) {
+            return { output: error.message || 'Invalid tool arguments.', success: false, executionStatus: 'failed' };
+        }
+        // Retransmission of the same call ID must not execute a write/command twice.
+        // Clone separately from the canonical fingerprint: JSON round-tripping used to
+        // silently turn NaN/Infinity into null before schema validation.
+        let snapshot;
+        let fingerprint;
+        try {
+            snapshot = structuredClone(args);
+            fingerprint = JSON.stringify([name, snapshot], (_key, value) => {
+                if (typeof value === 'number' && !Number.isFinite(value))
+                    throw new Error('Tool arguments must contain only finite numbers.');
+                return value && typeof value === 'object' && !Array.isArray(value)
+                    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value;
+            });
+        }
+        catch (error) {
+            return { output: `Invalid tool arguments: ${error.message}`, success: false, executionStatus: 'failed' };
+        }
+        const key = JSON.stringify([context.sessionId, context.toolCallId]);
+        const existing = this.executions.get(key);
+        if (existing) {
+            if (existing.fingerprint !== fingerprint)
+                return { output: 'Tool call ID was reused with different arguments. No second execution was performed.', success: false, executionStatus: 'failed' };
+            return existing.result;
+        }
+        if (this.executions.size >= 4096)
+            return { output: 'Tool execution ledger limit reached.', success: false, executionStatus: 'failed' };
+        this.activeExecutions++;
+        const result = Promise.resolve()
+            .then(() => this.executeOnce(name, snapshot, context))
+            // Say what changed: a clamped value is still a request the caller should
+            // understand, and the note rides along with the cached result.
+            .then((value) => (repairs.length
+            ? { ...value, output: `${value.output}\n\n[arguments adjusted: ${repairs.join('; ')}]` }
+            : value))
+            .finally(() => { this.activeExecutions--; });
+        this.executions.set(key, { fingerprint, result });
+        return result;
+    }
+    async executeOnce(name, args, context) {
+        let current;
+        const emit = (status) => {
+            if (status === current)
+                return;
+            const event = this.lifecycle.transition(context.sessionId, context.toolCallId, name, status);
+            current = status;
+            try {
+                context.onToolState?.(event);
+            }
+            catch { /* Observers cannot change tool execution. */ }
+            return event;
+        };
+        emit('queued');
+        const onCancellation = () => { if (current === 'queued' || current === 'awaiting_approval' || current === 'running')
+            emit('cancelling'); };
+        context.signal.addEventListener('abort', onCancellation, { once: true });
+        let result;
+        try {
+            if (context.signal.aborted)
+                throw new Error('Tool cancelled before execution.');
+            if (this.allowedTools && !this.allowedTools.has(name))
+                throw new Error(`Tool ${name} is not available for this client permission level.`);
+            this.loopDetector.record(name, args);
+            const tool = this.registry.get(name);
+            const authorizedTool = name === 'shell_execute'
+                ? { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
+                : name === 'shell_session'
+                    ? String(args.action || '') !== 'send'
+                        ? { ...tool, risk: 'low', requiresApproval: false }
+                        : { ...tool, risk: this.commandPolicy.classify(String(args.command || '')), requiresApproval: true }
+                    : name === 'desktop_control' && !['list_windows', 'observe', 'frame', 'session_state', 'find_element', 'read_focused', 'wait', 'wait_change'].includes(String(args.action || 'observe'))
+                        ? { ...tool, requiresApproval: true }
+                        : tool;
+            const permissions = name === 'shell_execute'
+                ? new PermissionManager_1.PermissionManager(this.config.auditDir || path.join(this.config.workspaceDir, '.iexa-audit'), this.config.permissionResolver, this.permissionMode)
+                : this.permissions;
+            await (0, AbortWait_1.awaitOrAbort)(permissions.authorize({ sessionId: context.sessionId, tool: authorizedTool, args, signal: context.signal, toolCallId: context.toolCallId, runId: this.lifecycle.runId,
+                onAwaitingApproval: () => { if (!context.signal.aborted)
+                    emit('awaiting_approval'); } }), context.signal);
+            if (context.signal.aborted)
+                throw new Error('Tool cancelled after approval.');
+            this.budget.recordTool();
+            const hookSpecs = this.config.hooks?.() || [];
+            let blockedByHook;
+            if (hookSpecs.length) {
+                const pre = await (0, AbortWait_1.awaitOrAbort)((0, HookRunner_1.runHooks)(hookSpecs, { phase: 'preToolUse', tool: name, args, sessionId: context.sessionId }, this.config.workspaceDir, context.signal), context.signal);
+                if (pre.block)
+                    blockedByHook = { output: `Hook 阻止了 ${name}：${pre.reason || '未说明原因'}`, success: false, executionStatus: 'denied' };
+            }
+            if (context.signal.aborted)
+                throw new Error('Tool cancelled before execution.');
+            if (!blockedByHook)
+                emit('running');
+            result = blockedByHook || await this.scheduler.execute(tool, args, { ...context, onCancellation });
+            if (hookSpecs.length && !blockedByHook && !context.signal.aborted) {
+                try {
+                    await (0, AbortWait_1.awaitOrAbort)((0, HookRunner_1.runHooks)(hookSpecs, {
+                        phase: 'postToolUse', tool: name, args, sessionId: context.sessionId,
+                        result: { success: result.success, output: result.output, executionStatus: result.executionStatus },
+                    }, this.config.workspaceDir, context.signal), context.signal);
+                }
+                catch { /* a hook failure never changes a completed tool result */ }
+            }
+        }
+        catch (error) {
+            result = { output: error.message || 'Tool execution failed.', success: false,
+                executionStatus: error.code === 'PERMISSION_DENIED' ? 'denied' : 'failed' };
+        }
+        finally {
+            context.signal.removeEventListener('abort', onCancellation);
+        }
+        if (result.timedOut)
+            result = { ...result, success: false, executionStatus: 'timed_out' };
+        else if (context.signal.aborted || result.cancelled)
+            result = { ...result, success: false, cancelled: true, executionStatus: 'cancelled' };
+        else
+            result.executionStatus = result.success ? 'completed' : result.executionStatus === 'denied' ? 'denied' : 'failed';
+        // An optional output attachment failing does not undo an already successful command.
+        if (result.output.length > 24_000 && !context.signal.aborted) {
+            try {
+                const artifact = await (0, AbortWait_1.awaitOrAbort)(this.artifacts.put(result.output), context.signal);
+                result.artifacts = [...(result.artifacts || []), { kind: 'file', path: artifact.path, mimeType: 'text/plain', size: artifact.size }];
+            }
+            catch (error) {
+                result.metadata = { ...result.metadata, artifactError: error.message };
+            }
+        }
+        const terminal = emit(result.executionStatus);
+        result.durationMs ??= terminal?.durationMs ?? 0;
+        return result;
+    }
+    getToolExecutions() { return this.lifecycle.snapshot(); }
+    getBudget() { return this.budget.snapshot(); }
+    /** ask_user: render an interactive card and resolve once the user answers (or the wait ends). */
+    async askUser(args, context) {
+        if (!this.config.questionResolver)
+            return { output: 'ask_user 不可用：当前客户端没有交互界面，无法展示提问卡片。请直接改用普通文本向用户提问。', success: false };
+        let normalized;
+        try {
+            normalized = (0, QuestionBroker_1.normalizeAskUserArgs)(args);
+        }
+        catch (error) {
+            return { output: error.message || 'ask_user 参数无效。', success: false };
+        }
+        const answers = await this.config.questionResolver({
+            sessionId: context.sessionId, toolCallId: context.toolCallId, runId: this.lifecycle.runId,
+            title: normalized.title, questions: normalized.questions, signal: context.signal,
+        });
+        if (answers === null)
+            return { output: '提问未完成：用户关闭了提问卡片或本轮已取消，没有收到回答。不要重复发起同一提问；如果仍需要答案，请简要说明原因，或改用普通文本询问。', success: false };
+        return { output: (0, QuestionBroker_1.formatQuestionAnswers)(normalized.title, normalized.questions, answers), success: true, summary: '用户已回答提问' };
+    }
+    beginRun(allowedTools) {
+        if (this.activeExecutions)
+            throw new Error('Previous tool executions are still settling; wait before starting another run.');
+        this.executions.clear();
+        this.desktop.resetControl();
+        this.lifecycle = new ToolLifecycle_1.ToolLifecycle();
+        this.allowedTools = allowedTools ? new Set(allowedTools) : null;
+        this.budget.reset();
+        this.loopDetector.reset();
+    }
+    beginTurn() { this.budget.beginTurn(); }
+    recordInputTokens(tokens) { this.budget.recordInputTokens(tokens); }
+    registerDynamicTool(definition, execute, options = {}) {
+        if (this.registry.has(definition.name))
+            return;
+        this.registry.register({ ...definition, risk: 'medium', parallelSafe: false, cancellable: true, requiresApproval: true, ...options, execute });
+    }
+    registerDefaults(onSkillRead, onSkillWrite) {
+        const add = (definition, execute, options = {}) => this.registry.register({ ...definition, risk: options.risk || risk[definition.name] || 'medium', parallelSafe: options.parallelSafe ?? false, cancellable: options.cancellable ?? false, requiresApproval: options.requiresApproval ?? ((options.risk || risk[definition.name]) === 'high'), ...options, execute });
+        const todo = (args) => {
+            const raw = Array.isArray(args.todos) ? args.todos : null;
+            if (!raw || raw.length < 1 || raw.length > 24)
+                return { output: 'Error: todos must contain between 1 and 24 items.', success: false };
+            const seen = new Set();
+            let inProgress = 0;
+            const todos = [];
+            for (const item of raw) {
+                if (!item || typeof item !== 'object')
+                    return { output: 'Error: every todo must be an object.', success: false };
+                const content = String(item.content || '').trim();
+                const status = String(item.status || '');
+                if (!content || content.length > 240 || !['pending', 'in_progress', 'completed'].includes(status))
+                    return { output: 'Error: invalid todo item.', success: false };
+                if (seen.has(content.toLowerCase()))
+                    return { output: 'Error: duplicate todo content.', success: false };
+                seen.add(content.toLowerCase());
+                if (status === 'in_progress')
+                    inProgress++;
+                todos.push({ content, status: status });
+            }
+            if (inProgress > 1)
+                return { output: 'Error: at most one todo may be in_progress.', success: false };
+            const completed = todos.filter((t) => t.status === 'completed').length;
+            const active = todos.filter((t) => t.status === 'in_progress').length;
+            return { output: `Todo plan updated: ${todos.length - completed - active} pending, ${active} in progress, ${completed} completed.`, success: true, todos };
+        };
+        const surface = { shellSession: !!this.config.shellSessions, jobs: !!this.config.jobBridge, goal: !!this.config.goalStore, bots: !!this.config.bots, scheduledTasks: !!this.config.scheduledTasks };
+        for (const definition of (0, ToolDefinitions_1.makeAgentTools)(this.config.memoryEnabled !== false, surface)) {
+            add(definition, async (args, context) => {
+                if (definition.name === 'desktop_control')
+                    return this.desktop.execute(args, context.signal, {
+                        owner: context.sessionId, operationId: `${this.lifecycle.runId}:${context.toolCallId}`,
+                        onEvent: desktop => { if (!context.signal.aborted) {
+                            try {
+                                context.onToolState?.(this.lifecycle.progress(context.sessionId, context.toolCallId, desktop));
+                            }
+                            catch { }
+                        } },
+                    });
+                if (definition.name === 'todo_write')
+                    return todo(args);
+                // Bot roster and scheduled tasks. Both surfaces are optional: they are only
+                // advertised when server.ts wired the stores in, so reaching this branch
+                // without them means a stale tool list — say so instead of throwing.
+                if (definition.name === 'bot_list')
+                    return this.botTools ? this.botTools.list() : notWired('bot_list');
+                if (definition.name === 'bot_create')
+                    return this.botTools ? this.botTools.create(args) : notWired('bot_create');
+                if (definition.name === 'bot_delete')
+                    return this.botTools ? this.botTools.remove(args) : notWired('bot_delete');
+                if (definition.name === 'schedule_list')
+                    return this.scheduleTools ? this.scheduleTools.list() : notWired('schedule_list');
+                if (definition.name === 'schedule_create')
+                    return this.scheduleTools ? this.scheduleTools.create(args) : notWired('schedule_create');
+                if (definition.name === 'schedule_manage')
+                    return this.scheduleTools ? this.scheduleTools.manage(args) : notWired('schedule_manage');
+                if (definition.name === 'ask_user')
+                    return this.askUser(args, context);
+                if (definition.name === 'shell_execute') {
+                    const requestedShell = ['auto', 'cmd', 'powershell', 'pwsh'].includes(String(args.shell || 'auto'))
+                        ? String(args.shell || 'auto')
+                        : 'auto';
+                    return this.shell.execute(String(args.command || ''), Number(args.timeout) || 900, context.signal, requestedShell);
+                }
+                if (definition.name === 'project_instructions') {
+                    const result = await new ProjectInstructions_1.ProjectInstructions(this.config.workspaceDir).resolve(String(args.path || '.'), args.kind === 'directory' ? 'directory' : 'file');
+                    return { output: ProjectInstructions_1.ProjectInstructions.format(result), success: result.warnings.length === 0 };
+                }
+                if (definition.name === 'web_search')
+                    return this.webSearch.search(String(args.query || ''), Number(args.limit) || 8, Number(args.recency_days) || undefined, context.signal);
+                if (definition.name === 'browser_fetch')
+                    return this.browser.fetch(String(args.url || ''), Number(args.max_length) || 25000, context.signal);
+                if (definition.name === 'memory_write')
+                    return this.memory.writeMemory(String(args.content || ''));
+                if (definition.name === 'memory_get')
+                    return this.memory.getMemory(String(args.keywords || ''), Number(args.limit) || 20);
+                if (definition.name === 'grep')
+                    return this.search.grep(args, this.config.workspaceDir, this.pathPolicy(), context.signal);
+                if (definition.name === 'glob')
+                    return this.search.glob(args, this.config.workspaceDir, this.pathPolicy(), context.signal);
+                if (definition.name === 'shell_session')
+                    return this.config.shellSessions.execute(String(args.action || 'list'), args, context.sessionId, context.signal, context.workspaceDir);
+                if (definition.name === 'job_list')
+                    return this.listJobs(args, context.sessionId);
+                if (definition.name === 'job_output')
+                    return this.jobOutput(args, context.sessionId);
+                if (definition.name === 'goal')
+                    return this.goal(args, context.sessionId);
+                const filePath = String(args.path || '');
+                const resolved = await this.sandbox.resolve(filePath, { ...this.pathPolicy(), workspaceDir: this.config.workspaceDir, allowMissing: definition.name === 'file_write' });
+                if (definition.name === 'file_read') {
+                    const result = await this.files.readFile(resolved.path, this.config.workspaceDir, { offset: args.offset ? Number(args.offset) : undefined, lines: args.lines ? Number(args.lines) : undefined, maxLength: args.max_length ? Number(args.max_length) : undefined, direction: args.direction });
+                    if (result.success)
+                        onSkillRead?.(resolved.path);
+                    return result;
+                }
+                if (definition.name === 'file_write') {
+                    const result = await this.files.writeFile(resolved.path, String(args.content || ''), this.config.workspaceDir, { append: args.append === true, createDirs: args.create_dirs === true });
+                    if (result.success)
+                        onSkillWrite?.(resolved.path);
+                    return result;
+                }
+                if (definition.name === 'file_edit') {
+                    const result = await this.files.editFile(resolved.path, String(args.old_string || ''), String(args.new_string || ''), this.config.workspaceDir, args.replace_all === true);
+                    if (result.success)
+                        onSkillWrite?.(resolved.path);
+                    return result;
+                }
+                return (0, ToolExecutors_1.buildMediaDisplayResult)(resolved.path, this.config.workspaceDir, this.pathPolicy());
+            }, { risk: definition.name === 'desktop_control' ? 'medium' : risk[definition.name], parallelSafe: definition.name === 'project_instructions' || definition.name === 'file_read' || definition.name === 'memory_get' || definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'grep' || definition.name === 'glob' || definition.name === 'job_list' || definition.name === 'job_output', cancellable: definition.name === 'browser_fetch' || definition.name === 'web_search' || definition.name === 'shell_execute' || definition.name === 'shell_session' || definition.name === 'desktop_control' || definition.name === 'ask_user' || definition.name === 'grep' || definition.name === 'glob', requiresApproval: definition.name === 'desktop_control' ? false : risk[definition.name] === 'high' });
+        }
+    }
+    listJobs(args, sessionId) {
+        const bridge = this.config.jobBridge;
+        const limit = Math.min(Math.max(1, Number(args.limit) || 12), 50);
+        const jobs = bridge.list(sessionId, limit, String(args.tool || '').trim() || undefined);
+        if (!jobs.length)
+            return { output: '(本对话还没有任务记录)', success: true };
+        const rows = jobs.map(job => {
+            const duration = job.finishedAt && job.createdAt ? ((job.finishedAt - job.createdAt) / 1000).toFixed(1) + 's' : '—';
+            const callId = job.toolId && job.toolId !== job.id ? ` · ${job.toolId}` : '';
+            return `- ${job.id}${callId} · ${job.toolName || job.title} · ${job.status} · ${duration} · ${job.preview || '(无预览)'}`;
+        });
+        return { output: rows.join('\n'), success: true };
+    }
+    jobOutput(args, sessionId) {
+        const jobId = String(args.job_id || '').trim();
+        if (!jobId)
+            return { output: 'job_id 不能为空；先用 job_list 查任务 id。', success: false };
+        const found = this.config.jobBridge.output(sessionId, jobId);
+        if (!found)
+            return { output: `没有找到任务 ${jobId}（只支持本对话的任务）。先用 job_list 确认 id。`, success: false };
+        if (!found.recorded) {
+            return {
+                output: `任务 ${found.job.id}（${found.job.toolName || found.job.title}，${found.job.status}）的完整输出未被保留（应用重启或缓存已淘汰）。\n可用预览：\n${found.job.preview || '(无)'}`,
+                success: false,
+            };
+        }
+        const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+        const maxLength = Math.min(Math.max(1, Math.floor(Number(args.max_length) || 20_000)), 120_000);
+        const slice = found.output.slice(offset, offset + maxLength);
+        const remaining = found.output.length - (offset + slice.length);
+        const trailer = remaining > 0 ? `\n\n[... 还有 ${remaining} 字符；用 offset=${offset + slice.length} 继续读取 ...]` : '';
+        return { output: `${slice || '(空输出)'}${trailer}`, success: true };
+    }
+    goal(args, sessionId) {
+        const store = this.config.goalStore;
+        const action = String(args.action || 'get');
+        if (action === 'get') {
+            const record = store.get(sessionId);
+            return { output: record ? store.format(record) : '(当前对话没有设置目标)', success: true };
+        }
+        if (action === 'set') {
+            const objective = String(args.objective || '').trim();
+            if (!objective)
+                return { output: 'action=set 需要 objective。', success: false };
+            const record = store.set(sessionId, objective, String(args.done_when || ''));
+            return { output: `目标已记录（每轮自动注入，压缩后仍保留）：\n${store.format(record)}`, success: true };
+        }
+        if (action === 'update') {
+            const status = String(args.status || '');
+            if (status && !['active', 'done', 'blocked'].includes(status))
+                return { output: 'status 只能是 active / done / blocked。', success: false };
+            if (!store.get(sessionId))
+                return { output: '还没有目标，先用 action=set 建立。', success: false };
+            const record = store.update(sessionId, {
+                ...(status ? { status: status } : {}),
+                ...(args.note ? { note: String(args.note) } : {}),
+                ...(args.done_when !== undefined ? { doneWhen: String(args.done_when) } : {}),
+            });
+            return { output: `目标已更新：\n${store.format(record)}`, success: true };
+        }
+        if (action === 'clear') {
+            return { output: store.clear(sessionId) ? '目标已清除。' : '(当前对话没有设置目标)', success: true };
+        }
+        return { output: `未知 action: ${action}。可用 set / update / get / clear。`, success: false };
+    }
+}
+exports.ToolRuntime = ToolRuntime;
+//# sourceMappingURL=ToolRuntime.js.map
