@@ -2,7 +2,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-    IEXA-WIN 一键提交并推送：构建 → 敏感信息扫描 → 提交 → 推送 → 校验。
+    iExA-WIN 一键提交并推送：构建 → 敏感信息扫描 → 提交 → 推送 → 校验。
 
 .DESCRIPTION
     默认流程：

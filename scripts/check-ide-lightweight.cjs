@@ -238,7 +238,7 @@ if(!process.versions.electron&&!actual){
   async function ev(connection,expression){const result=await connection.send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(result.exceptionDetails)throw Error(JSON.stringify(result.exceptionDetails));return result.result?.value;}
   async function port(){return new Promise(resolve=>{const server=require('node:net').createServer();server.listen(0,'127.0.0.1',()=>{const value=server.address().port;server.close(()=>resolve(value));});});}
   async function bootActual(){
-    const directory=path.resolve(appRoot,'../..'),exe=path.join(directory,'IEXA.exe'),apiPort=await port(),inspectPort=await port(),cdpPort=await port();
+    const directory=path.resolve(appRoot,'../..'),exe=path.join(directory,'iExA.exe'),apiPort=await port(),inspectPort=await port(),cdpPort=await port();
     const env={...process.env,IEXA_WORKSPACE:fixture.data,IEXA_HEADLESS:'1',IEXA_PORT:String(apiPort)};delete env.ELECTRON_RUN_AS_NODE;
     const started=Date.now(),log=fs.openSync(path.join(output,'actual-exe.log'),'w');
     actualChild=spawn(exe,[`--inspect=127.0.0.1:${inspectPort}`,`--remote-debugging-port=${cdpPort}`,'--disable-renderer-backgrounding','--disable-background-timer-throttling'],{cwd:directory,env,windowsHide:true,stdio:['ignore',log,log]});fs.closeSync(log);

@@ -103,13 +103,13 @@ function rpc(child) {
 async function main() {
   const deferredReview = process.env.IEXA_POINTER_VISUAL_REVIEW === 'deferred';
   const visualReview = deferredReview || process.env.IEXA_POINTER_VISUAL_REVIEW === '1';
-  const packageRoot = path.resolve(process.env.IEXA_TEST_PACKAGE || path.join(root, 'release/IEXA-preview-20261109'));
+  const packageRoot = path.resolve(process.env.IEXA_TEST_PACKAGE || path.join(root, 'release/iExA-preview-20261109'));
   const appRoot = path.join(packageRoot, 'resources/app');
-  const sevenZip = process.env.IEXA_7ZIP_PATH || 'C:\\Program Files\\7-Zip\\7zFM.exe';
+  const sevenZip = process.env.iExA_7ZIP_PATH || 'C:\\Program Files\\7-Zip\\7zFM.exe';
   assert.ok(fs.existsSync(sevenZip), '7-Zip File Manager executable exists');
   const out = path.join(root, '.iexa-artifacts/desktop-comparison-20261110', 'regression-pointer-' + Date.now());
   const directory = path.join(out, 'task-files'); fs.mkdirSync(directory, { recursive: true });
-  const file = path.join(directory, 'tiny.txt'); fs.writeFileSync(file, 'IEXA pointer fixture\r\n', { flag: 'wx' });
+  const file = path.join(directory, 'tiny.txt'); fs.writeFileSync(file, 'iExA pointer fixture\r\n', { flag: 'wx' });
   const report = { status: 'running', startedAt: new Date().toISOString(), packageRoot,
     scope: visualReview ? 'Fixed GUI regression with direct visual oracle; not model autonomous pass' : 'Real semantic right click through packaged DesktopAgent; no model or file edits after fixture creation',
     oracleMode: deferredReview ? 'deferred-root-visual' : visualReview ? 'root-direct-visual-review' : 'automatic-menu-elements',
@@ -157,7 +157,7 @@ async function main() {
       });
     });
     const fd = fs.openSync(path.join(out, 'controller.log'), 'w'), started = Date.now();
-    child = spawn(path.join(packageRoot, 'IEXA.exe'), ['--max-old-space-size=384', workerScript, '__worker', appRoot, path.join(out, 'journal'), 'http://127.0.0.1:' + port],
+    child = spawn(path.join(packageRoot, 'iExA.exe'), ['--max-old-space-size=384', workerScript, '__worker', appRoot, path.join(out, 'journal'), 'http://127.0.0.1:' + port],
       { cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, stdio: ['ignore', fd, fd, 'ipc'] });
     fs.closeSync(fd); client = rpc(child);
     await supervisor.claimSpawn(child, workerScript, started);

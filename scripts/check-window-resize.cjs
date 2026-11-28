@@ -18,8 +18,8 @@ async function wait(fn, label) { const deadline = Date.now() + 18000; while (Dat
 const save = result => fs.writeFileSync(path.join(output, 'checks.json'), JSON.stringify({ checks, ...result }, null, 2));
 require('../electron-entry.js');
 app.whenReady().then(async () => {
-  await wait(() => BrowserWindow.getAllWindows().some(item => !item.isDestroyed() && item.getTitle() === 'IEXA-WIN'), 'production main window');
-  win = BrowserWindow.getAllWindows().find(item => item.getTitle() === 'IEXA-WIN');
+  await wait(() => BrowserWindow.getAllWindows().some(item => !item.isDestroyed() && item.getTitle() === 'iExA-WIN'), 'production main window');
+  win = BrowserWindow.getAllWindows().find(item => item.getTitle() === 'iExA-WIN');
   const evaluate = code => win.webContents.executeJavaScript(code, true);
   await wait(() => evaluate("!!window.iexaDesktop?.initialWindowState?.custom && document.querySelectorAll('.window-resize-handle').length===8"), 'eight renderer resize handles');
   const base = { x: 120, y: 100, width: 1200, height: 820 };

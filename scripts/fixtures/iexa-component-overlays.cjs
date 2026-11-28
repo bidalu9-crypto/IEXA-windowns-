@@ -1,6 +1,6 @@
 'use strict';
 
-// These scenarios control the actual IEXA overlays through DesktopAgent. The
+// These scenarios control the actual iExA overlays through DesktopAgent. The
 // only direct writes create/change owned fixture input files. CDP reads inspect
 // DOM state or make GET requests; no application mutation is evaluated here.
 const assert = require('node:assert/strict');
@@ -44,7 +44,7 @@ async function runOverlays(h) {
   const image = pngFixture();
   assert.equal(image.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
   fs.writeFileSync(imageFile, image, { flag: 'wx' });
-  const html = marker => '<!doctype html><html lang="en"><meta charset="utf-8"><title>IEXA overlay fixture</title><style>body{font:22px system-ui;padding:24px;background:#eef3ff;color:#253261}main{border:3px solid #6d63eb;padding:20px}strong{display:block}</style><main><strong>' + marker + '</strong><p>Actual isolated HTML preview input.</p></main></html>';
+  const html = marker => '<!doctype html><html lang="en"><meta charset="utf-8"><title>iExA overlay fixture</title><style>body{font:22px system-ui;padding:24px;background:#eef3ff;color:#253261}main{border:3px solid #6d63eb;padding:20px}strong{display:block}</style><main><strong>' + marker + '</strong><p>Actual isolated HTML preview input.</p></main></html>';
   fs.writeFileSync(htmlFile, html('COMPONENT_HTML_OVERLAY_INITIAL_' + token), { flag: 'wx' });
   Object.assign(h.report.fixture, { overlayImage: imageFile, overlayHtml: htmlFile }); h.save();
 
@@ -143,7 +143,7 @@ async function runOverlays(h) {
     assert.equal(await read("document.querySelector('#htmlPreviewLive').getAttribute('aria-pressed')"), 'false');
     const paused = await committedFrame();
     // Emulate an external editor changing only this owned input file. Automatic
-    // refresh is driven by IEXA's production stat poll, never an evaluated call.
+    // refresh is driven by iExA's production stat poll, never an evaluated call.
     fs.writeFileSync(htmlFile, html('COMPONENT_HTML_OVERLAY_LIVE_UPDATED_' + token));
     await h.pause(1200);
     assert.equal((await activeFrame()).src, paused.src, 'Paused preview does not reload after the fixture file changes');

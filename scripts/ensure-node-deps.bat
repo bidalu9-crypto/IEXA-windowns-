@@ -4,7 +4,7 @@ setlocal
 set "APP_DIR=%~1"
 if not defined APP_DIR set "APP_DIR=%~dp0.."
 for %%I in ("%APP_DIR%") do set "APP_DIR=%%~fI"
-set "PORTABLE_RUNTIME_ROOT=%LOCALAPPDATA%\IEXA\runtime"
+set "PORTABLE_RUNTIME_ROOT=%LOCALAPPDATA%\iExA\runtime"
 set "PORTABLE_NODE_DIR=%PORTABLE_RUNTIME_ROOT%\node"
 
 echo [Check] Looking for Node.js and npm...
@@ -38,7 +38,7 @@ if not defined NPM_VERSION (
 echo [OK] Node.js %NODE_VERSION%, npm %NPM_VERSION%
 cd /d "%APP_DIR%"
 if errorlevel 1 (
-    echo [ERROR] Could not open the IEXA directory: %APP_DIR%
+    echo [ERROR] Could not open the iExA directory: %APP_DIR%
     exit /b 15
 )
 

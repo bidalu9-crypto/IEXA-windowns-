@@ -405,7 +405,7 @@ async function runPluginChecks(h) {
   await h.check('plugins-installed-native-lifecycle', async () => {
     await nav('plugins');
     let plugin = (await get('/api/plugins')).plugins.find(p => p.id === f.plugin.id);
-    assert.ok(plugin, 'Root must first install prepared fixture through actual IEXA directory picker');
+    assert.ok(plugin, 'Root must first install prepared fixture through actual iExA directory picker');
     assert.equal(plugin.error, undefined, 'Installed fixture manifest is valid');
     const card = `.plugin-card[data-plugin-id="${plugin.id}"]`;
     await wait(() => exists(card), 'Installed plugin card rendered');

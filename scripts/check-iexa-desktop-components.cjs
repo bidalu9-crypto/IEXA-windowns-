@@ -9,27 +9,27 @@ const { createHarness } = require('./helpers/desktop-component-harness.cjs');
   try {
     await Promise.race([h.start(), h.failure]);
     await h.inventory('chat');
-    await h.check('Actual IEXA chat input and Send are controlled by DesktopAgent', async () => {
+    await h.check('Actual iExA chat input and Send are controlled by DesktopAgent', async () => {
       await h.type('chatInput', 'COMPONENT_DESKTOP_SEND'); await h.click('sendBtn');
       await h.until(() => h.read("!isProcessing&&document.querySelector('.chat-messages').textContent.includes('COMPONENT_REPLY_OK')"), 'Real provider reply');
       assert.ok(h.report.providerRequests.some(r => r.prompt.includes('COMPONENT_DESKTOP_SEND'))); return { reply: 'COMPONENT_REPLY_OK', provider: 'local fixture' };
     });
-    await h.check('DesktopAgent opens IEXA settings-and-extensions disclosure', async () => {
+    await h.check('DesktopAgent opens iExA settings-and-extensions disclosure', async () => {
       await h.click({ name: '设置与拓展' }); assert.equal(await h.read("document.querySelector('#sidebarMore').open"), true); return { open: true };
     });
     if (!baseline) {
       if (group === 'navigation' || group === 'all') {
         for (const view of ['chat','bots','skills','scheduled','appearance','doc','pet','soul','token-calculator','mcp','plugins','settings','sync','about']) {
-          await h.check('Desktop control navigates actual IEXA ' + view + ' page', async () => {
+          await h.check('Desktop control navigates actual iExA ' + view + ' page', async () => {
             await h.nav(view); const controls = await h.inventory(view); await h.screenshot('page-' + view); return { controls: controls.length, active: view };
           });
         }
       }
       if (['native','workbench','agent-features','overlays','crud','bots','window','all'].includes(group)) {
-        await h.check('Actual IEXA native folder picker cancellation preserves current project', async () => {
+        await h.check('Actual iExA native folder picker cancellation preserves current project', async () => {
           await h.nav('chat'); return h.chooseNativePath(() => h.clickSelector('#shellAddProject'), '', { cancel: true });
         });
-        await h.check('Actual IEXA native folder picker opens the fixture project', async () => {
+        await h.check('Actual iExA native folder picker opens the fixture project', async () => {
           const evidence = await h.chooseNativePath(() => h.clickSelector('#shellAddProject'), h.report.fixture.project);
           const canonical = fs.realpathSync.native(h.report.fixture.project);
           const actual = await h.until(async () => { const p = await h.read("fetch('/api/project').then(r=>r.json())"); return path.resolve(p.root || p.project?.root || '') === path.resolve(canonical) && p; }, 'Chosen exact project registered');
@@ -56,7 +56,7 @@ const { createHarness } = require('./helpers/desktop-component-harness.cjs');
         await pages.runPluginChecks(h);
       }
     }
-    await h.screenshot('final-IEXA');
+    await h.screenshot('final-iExA');
   } catch (e) { h.report.error = e.stack; h.save(); }
   finally { if (group === 'pages' || group === 'all') await require('./fixtures/iexa-component-pages.cjs').cleanupFixtures(h); const report = await h.finish(); console.log(JSON.stringify({ output: h.out, status: report.status, checks: report.checks.length, passed: report.checks.filter(c => c.passed).length })); if (report.status !== 'passed') process.exitCode = 1; }
 })().catch(e => { console.error(e); process.exitCode = 1; });

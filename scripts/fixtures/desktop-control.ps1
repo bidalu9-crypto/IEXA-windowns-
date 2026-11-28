@@ -1,4 +1,4 @@
-param([string]$Title = 'IEXA Desktop Control Fixture')
+param([string]$Title = 'iExA Desktop Control Fixture')
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $form = New-Object System.Windows.Forms.Form

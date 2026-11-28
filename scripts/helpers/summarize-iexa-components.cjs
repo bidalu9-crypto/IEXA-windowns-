@@ -31,7 +31,7 @@ function optionalJson(filename) {
 function optionsFrom(argv) {
   const root = path.resolve(__dirname, '../..');
   const artifacts = path.join(root, '.iexa-artifacts/desktop-components-20261109');
-  const options = { root, artifacts, package: path.join(root, 'release/IEXA'), buildReport: path.join(artifacts, 'package-final-watch/result.json'), coverage: path.join(artifacts, 'component-coverage-plan.json'), distribution: path.join(artifacts, 'distribution-final.json'), testsLog: path.join(artifacts, 'desktop-tests.log'), requiredGroups: GROUPS, refreshCoverage: false, strict: false };
+  const options = { root, artifacts, package: path.join(root, 'release/iExA'), buildReport: path.join(artifacts, 'package-final-watch/result.json'), coverage: path.join(artifacts, 'component-coverage-plan.json'), distribution: path.join(artifacts, 'distribution-final.json'), testsLog: path.join(artifacts, 'desktop-tests.log'), requiredGroups: GROUPS, refreshCoverage: false, strict: false };
   const paths = { artifacts: 'artifacts', package: 'package', 'build-report': 'buildReport', coverage: 'coverage', distribution: 'distribution', 'tests-log': 'testsLog' };
   for (const arg of argv) {
     if (arg === '--refresh-coverage') options.refreshCoverage = true;
@@ -62,7 +62,7 @@ function packageIdentity(options) {
   const hashes = {}, verifiedFiles = [];
   // Verify the immutable executable, controller, native bridge and changed voice
   // source against the manifest. Runtime debug.log is intentionally not hashed.
-  const names = ['IEXA.exe', ...CONTROLLERS.map(name => 'resources/app/dist/main/tools/' + name), 'resources/app/src/renderer/app.js', 'resources/app/desktop-agent/publish/Iexa.DesktopAgent.exe', 'resources/app/desktop-agent/publish/Iexa.DesktopAgent.dll'];
+  const names = ['iExA.exe', ...CONTROLLERS.map(name => 'resources/app/dist/main/tools/' + name), 'resources/app/src/renderer/app.js', 'resources/app/desktop-agent/publish/Iexa.DesktopAgent.exe', 'resources/app/desktop-agent/publish/Iexa.DesktopAgent.dll'];
   for (const name of names) {
     const expected = manifest.files?.[name];
     if (!/^[a-fA-F0-9]{64}$/.test(expected || '')) throw Error('Manifest lacks required artifact: ' + name);
@@ -73,7 +73,7 @@ function packageIdentity(options) {
   for (const name of CONTROLLERS) hashes[name] = manifest.files['resources/app/dist/main/tools/' + name].toLowerCase();
   const rendererManifestHashes = Object.fromEntries(Object.entries(manifest.files).filter(([name]) => name.startsWith('resources/app/src/renderer/') && !name.includes('/vendor/') && /\.(js|css|html)$/.test(name)));
   for (const [name, expected] of Object.entries(rendererManifestHashes)) if (sha(fs.readFileSync(path.join(options.package, name))) !== expected.toLowerCase()) throw Error('Current renderer file differs from build manifest: ' + name);
-  return { manifestPath: relative(options.root, manifestPath), manifestSha256: sha(bytes), manifestListedFiles: Object.keys(manifest.files).length, electron: manifest.electron, productionPackages: manifest.packages, packageRoot: options.package, appRoot, exe: path.join(options.package, 'IEXA.exe'), buildReport: relative(options.root, options.buildReport), buildCompletedAt: build.completedAt, buildReportSha256: sha(fs.readFileSync(options.buildReport)), verifiedFiles, controllerSha256: hashes, rendererManifestHashes, integrityScope: 'Verified listed executable, four controllers, native bridge and every non-vendor renderer JS/CSS/HTML file against the current manifest; this is not a fresh full distribution audit. Renderer hashes are current-manifest evidence, not historical per-run snapshots.' };
+  return { manifestPath: relative(options.root, manifestPath), manifestSha256: sha(bytes), manifestListedFiles: Object.keys(manifest.files).length, electron: manifest.electron, productionPackages: manifest.packages, packageRoot: options.package, appRoot, exe: path.join(options.package, 'iExA.exe'), buildReport: relative(options.root, options.buildReport), buildCompletedAt: build.completedAt, buildReportSha256: sha(fs.readFileSync(options.buildReport)), verifiedFiles, controllerSha256: hashes, rendererManifestHashes, integrityScope: 'Verified listed executable, four controllers, native bridge and every non-vendor renderer JS/CSS/HTML file against the current manifest; this is not a fresh full distribution audit. Renderer hashes are current-manifest evidence, not historical per-run snapshots.' };
 }
 
 function bindingReasons(report, identity) {

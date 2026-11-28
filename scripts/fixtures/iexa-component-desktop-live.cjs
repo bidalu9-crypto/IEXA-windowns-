@@ -1,6 +1,6 @@
 'use strict';
 
-// Real IEXA live-preview surfaces. Every mutation is a production DesktopAgent
+// Real iExA live-preview surfaces. Every mutation is a production DesktopAgent
 // control action; expressions below only read DOM or issue GET requests.
 const assert = require('node:assert/strict');
 
@@ -41,7 +41,7 @@ async function runDesktopLive(h) {
     await h.click('newSessionBtn');
     sessionId = await read("document.querySelector('.session-item.active')?.dataset.id || ''"); assert.ok(sessionId);
     const before = await status();
-    await h.type('chatInput', 'COMPONENT_DESKTOP_SELF 观察真实 IEXA 窗口，用于实况桌面组件验收。');
+    await h.type('chatInput', 'COMPONENT_DESKTOP_SELF 观察真实 iExA 窗口，用于实况桌面组件验收。');
     await h.click('sendBtn');
     await waitText('#chatMessages', 'COMPONENT_DESKTOP_SELF_OK');
     await h.until(async () => !(await visible('#stopBtn')) && await visible('#sendBtn'), 'Desktop self-observation chat settled', 22000);
@@ -140,9 +140,9 @@ async function runDesktopLive(h) {
       });
     });
 
-    await check('closed standalone target disappears and control returns to main IEXA', async () => {
+    await check('closed standalone target disappears and control returns to main iExA', async () => {
       await h.until(async () => !(await targets()).some(row => row.id === standaloneId), 'Closed desktop-live target absent from GET list', 12000);
-      assert.ok(['/', '/index.html'].includes(await read('location.pathname')), 'Returned to actual main IEXA page');
+      assert.ok(['/', '/index.html'].includes(await read('location.pathname')), 'Returned to actual main iExA page');
       await shown('#chatInput'); assert.equal(await visible(panel), false);
       assert.equal((await status()).paused, false);
       await h.screenshot('desktop-live-returned-main');

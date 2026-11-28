@@ -1,4 +1,4 @@
-/* Real Chromium motion regression. Isolated IEXA markup fixture, not a Codex reference. */
+/* Real Chromium motion regression. Isolated iExA markup fixture, not a Codex reference. */
 const {app,BrowserWindow}=require('electron');
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),renderer=path.join(root,'src/renderer');
@@ -27,7 +27,7 @@ app.whenReady().then(async()=>{
  await win.webContents.executeJavaScript(fs.readFileSync(path.join(renderer,'services/ChatActivityView.js'),'utf8'));
  await win.webContents.executeJavaScript(`(()=>{
   const f=document.createElement('section');f.id='motionFixture';f.style='position:fixed;left:310px;top:130px;width:550px;padding:24px;z-index:100;background:var(--bg-primary);border:1px solid var(--border)';
-  f.innerHTML='<h2>IEXA 动效回归夹具</h2><button id="motionSpinner"><svg class="ui-icon ui-icon-spin"><use href="#ui-refresh"/></svg>工具执行中</button>';
+  f.innerHTML='<h2>iExA 动效回归夹具</h2><button id="motionSpinner"><svg class="ui-icon ui-icon-spin"><use href="#ui-refresh"/></svg>工具执行中</button>';
   f.insertBefore(window.IexaChatActivity.createWaiting(), f.querySelector('button'));
   document.body.appendChild(f);
  })()`);

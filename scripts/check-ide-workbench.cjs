@@ -65,7 +65,7 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(project, 'index.html'), [
     '<!doctype html>', '<html lang="en">', '<head>', '  <meta charset="utf-8">',
     '  <title>IDE live preview</title>', '  <link rel="stylesheet" href="/style.css">', '</head>',
-    '<body>', '  <main>', '    <small>IEXA / LOCAL PROJECT</small>',
+    '<body>', '  <main>', '    <small>iExA / LOCAL PROJECT</small>',
     '    <h1>Build something<br>you can see.</h1>', '    <p id="message">Ready to edit.</p>',
     '    <a href="/second.html">Open second page →</a>', '  </main>',
     '  <script src="/src/app.js"></script>', '</body>', '</html>', '',

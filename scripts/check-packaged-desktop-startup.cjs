@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts/cross-app-preview-20261109','helper-startup-'+Date.now());
 fs.mkdirSync(out,{recursive:true});
-const app=path.join(root,'release/IEXA-preview-20261109/resources/app');
+const app=path.join(root,'release/iExA-preview-20261109/resources/app');
 const {DesktopAgent}=require(path.join(app,'dist/main/tools/DesktopAgent'));
 const {closeDesktopHelpers}=require(path.join(app,'dist/main/tools/desktop/DesktopHelperLifetime'));
 const report={status:'running',scope:'Packaged module loaded from unrelated cwd/workspace; normal helper cold start, idle restart and isolated helper startup; no app input',cases:[]};

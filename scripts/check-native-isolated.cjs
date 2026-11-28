@@ -29,7 +29,7 @@ async function main(){
  report.appRoot=appRoot;report.runtimeFiles=Object.fromEntries(['dist/main/tools/DesktopAgent.js','dist/main/tools/desktop/DesktopControlSession.js','dist/main/tools/desktop/DesktopLiveState.js','dist/main/tools/desktop/DesktopBackgroundAdapter.js'].map(file=>[file,createHash('sha256').update(fs.readFileSync(path.join(appRoot,file))).digest('hex')]));
  report.binary={path:exe,dllSha256:createHash('sha256').update(fs.readFileSync(exe.replace(/\.exe$/,'.dll'))).digest('hex')};
  const port=await new Promise(resolve=>{const server=require('node:net').createServer();server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});});
- const endpoint=`http://127.0.0.1:${port}`,document=path.join(out,'owned-note.txt');fs.writeFileSync(document,'IEXA baseline');
+ const endpoint=`http://127.0.0.1:${port}`,document=path.join(out,'owned-note.txt');fs.writeFileSync(document,'iExA baseline');
  launch('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/foreground-audit.ps1'),'-OutputDirectory',out]);
  report.focusInitial=await until(()=>json('focus-ready.json'),'Foreground hook readiness');
  if(process.argv.includes('--model')){
@@ -67,7 +67,7 @@ async function main(){
  assert.ok(observed.elements.some(e=>['edit','document'].includes(e.role)&&e.selector?.className==='Edit'),'Native editor exposes semantic UIA target');
  assert.deepEqual(focusEvents(),[],'Foreground changed before background input');
  const edits=observed.elements.filter(e=>['edit','document'].includes(e.role)&&e.selector?.className==='Edit');assert.equal(edits.length,1,'Use only unambiguous real editor');
- const text='IEXA native background '+randomUUID();report.expectedText=text;
+ const text='iExA native background '+randomUUID();report.expectedText=text;
  const typed=await run({action:'type_element',elementId:edits[0].id,text,background:true,verifyText:text});
  assert.equal(typed.verified,true);report.cases.push({name:'Real Notepad semantic background editing and post-action text verification',status:'passed'});
  const after=await run({action:'observe',handle:report.window.handle,background:true});

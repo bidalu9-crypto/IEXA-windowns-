@@ -26,7 +26,7 @@ async function main(){
  const appPort=await port(),cdpPort=await port();
  server=http.createServer(async(req,res)=>{
   if(req.url==='/submit'&&req.method==='POST'){let body='';for await(const chunk of req)body+=chunk;receipts.push(JSON.parse(body));save();res.end('ok');return;}
-  res.setHeader('content-type','text/html; charset=utf-8');res.end(`<!doctype html><title>IEXA CDP ${appPort}</title><label>Reference<input aria-label="Reference" id="reference"></label><button aria-label="Send" id="send">Send</button><p id="status">Ready</p><script>document.querySelector('#send').onclick=async()=>{const value=document.querySelector('#reference').value;await fetch('/submit',{method:'POST',body:JSON.stringify({value})});setTimeout(()=>document.querySelector('#status').textContent='Submitted '+value,240)};</script>`);
+  res.setHeader('content-type','text/html; charset=utf-8');res.end(`<!doctype html><title>iExA CDP ${appPort}</title><label>Reference<input aria-label="Reference" id="reference"></label><button aria-label="Send" id="send">Send</button><p id="status">Ready</p><script>document.querySelector('#send').onclick=async()=>{const value=document.querySelector('#reference').value;await fetch('/submit',{method:'POST',body:JSON.stringify({value})});setTimeout(()=>document.querySelector('#status').textContent='Submitted '+value,240)};</script>`);
  });await new Promise(resolve=>server.listen(appPort,'127.0.0.1',resolve));
  const url=`http://127.0.0.1:${appPort}/`;endpoint=`http://127.0.0.1:${cdpPort}`;
  if(visible){

@@ -1,7 +1,7 @@
 'use strict';
 // Read-only source/package comparison; only supplemental evidence is written.
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts/desktop-comparison-20261110'),packageRoot=path.join(root,'release/IEXA-preview-20261109');
+const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts/desktop-comparison-20261110'),packageRoot=path.join(root,'release/iExA-preview-20261109');
 const hash=f=>crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex');
 const read=f=>JSON.parse(fs.readFileSync(f,'utf8').replace(/^\uFEFF/,''));
 function verifyExactClose(original){

@@ -102,7 +102,7 @@ setTimeout(()=>process.exit(0),120000);
 }
 async function run() {
   const f = await createFixture();
-  const dist = path.join(root, 'release/IEXA'); const appRoot = mode === 'source' ? root : path.join(dist, 'resources/app'); const exe = mode === 'source' ? path.join(root, 'node_modules/electron/dist/electron.exe') : path.join(dist, 'IEXA.exe');
+  const dist = path.join(root, 'release/iExA'); const appRoot = mode === 'source' ? root : path.join(dist, 'resources/app'); const exe = mode === 'source' ? path.join(root, 'node_modules/electron/dist/electron.exe') : path.join(dist, 'iExA.exe');
   assert.ok(fs.existsSync(exe), exe); report.application = { exe, appRoot, rendererSHA256: hash(fs.readFileSync(path.join(appRoot, 'src/renderer/app.js'))), runtimeSHA256: hash(fs.readFileSync(path.join(appRoot, 'dist/main/runtime/AgentRuntime.js'))) };
   const manifest = path.join(dist, 'build-manifest.json'); if (mode !== 'source') report.application.manifestSHA256 = hash(fs.readFileSync(manifest));
   const apiPort = await port(), cdpPort = await port(), inspectPort = await port();

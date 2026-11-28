@@ -1,7 +1,7 @@
 'use strict';
 
 /* Inject runCurrentModelAcceptance.toString() into an ALREADY AUTHENTICATED
- * IEXA renderer. Every dependency used by the function is deliberately local.
+ * iExA renderer. Every dependency used by the function is deliberately local.
  * The browser supplies its existing HttpOnly session cookie to same-origin
  * fetch; this module never reads model settings, credentials or cookie values.
  *

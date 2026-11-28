@@ -25,7 +25,7 @@ async function main(){
  async function menu(id){await click('#ideRunMenu');await click('#'+id);}
  try{
   await h.start();assert.equal(h.report.window.visible,!hidden,'Expected test window visibility');
-  h.report.scope=(hidden?'Hidden':'Visible')+' production IEXA renderer and native WebContentsView; UI input through production DesktopAgent; DOM/disk/screenshot oracles; no model request';
+  h.report.scope=(hidden?'Hidden':'Visible')+' production iExA renderer and native WebContentsView; UI input through production DesktopAgent; DOM/disk/screenshot oracles; no model request';
   await click('[data-workbench-view="ide"]');await h.until(()=>read('IexaIDE.snapshot().workspaceId'),'IDE ready');
   await file('pelican-ride.html');
   await h.check('real Monaco cursor, total lines, edits and undo',async()=>{

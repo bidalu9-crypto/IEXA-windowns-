@@ -76,14 +76,14 @@ async function runMedia(h) {
       await shown('#grid .card');
       const sources = await read("Array.from(document.querySelectorAll('#grid .card')).map((e,index)=>({index,name:e.querySelector('.name')?.textContent,kind:e.querySelector('.kind')?.textContent,thumbnail:!!e.querySelector('.thumb')?.style.backgroundImage}))");
       const own = sources.filter(source => source.kind === '窗口' && source.name === mainTitle);
-      assert.equal(own.length, 1, 'Choose the actual IEXA main window by its exact observed title; no screen or other application fallback');
+      assert.equal(own.length, 1, 'Choose the actual iExA main window by its exact observed title; no screen or other application fallback');
       selected = own[0]; assert.equal(selected.thumbnail, true, 'Real desktopCapturer source has a thumbnail');
       await h.screenshot('media-capture-picker-own-window');
       await closePickerControl('#grid .card:nth-child(' + (selected.index + 1) + ')');
     });
     await h.until(async () => !(await pickerPages()).some(row => row.id === picker.targetId), 'Selected capture picker target disappeared');
     await shown('.shot-overlay.is-ready .shot-canvas');
-    return { ...picker, source: selected, scope: 'Actual IEXA application window; audio:false; no synthetic source' };
+    return { ...picker, source: selected, scope: 'Actual iExA application window; audio:false; no synthetic source' };
   }
 
   async function canvasReceipt(artifact) {

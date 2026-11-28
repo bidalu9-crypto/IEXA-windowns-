@@ -15,10 +15,10 @@ async function main(){
  // WPS cloud/plugin processes can intentionally outlive their document windows.
  // Explicit fixture cleanup is part of this benchmark, and remains audited.
  const supervisor=createSupervisor({output:out,maximumDurationMs:600000,allowFixtureCleanup:true,observeProcess:row=>String(row.CommandLine||'').toLowerCase().includes('d:\\mystudio\\wps office\\')});let app,helper,web,page,inspector,sessionId,appIdentity,helperIdentity;
- const appRoot=path.join(root,'release/IEXA-preview-20261109'),chrome='C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',wps='D:\\MyStudio\\WPS Office\\12.1.0.28505\\office6\\wps.exe';
+ const appRoot=path.join(root,'release/iExA-preview-20261109'),chrome='C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',wps='D:\\MyStudio\\WPS Office\\12.1.0.28505\\office6\\wps.exe';
  try{
   report.packageManifestSHA256=createHash('sha256').update(fs.readFileSync(path.join(appRoot,'build-manifest.json'))).digest('hex');save();
-  const existing=(await processTable()).filter(p=>/^(IEXA|electron|wps|et)\.exe$/i.test(p.Name));
+  const existing=(await processTable()).filter(p=>/^(iExA|electron|wps|et)\.exe$/i.test(p.Name));
   // Background preview/addon servers may be created through DCOM rather than
   // our parent tree. Observe their memory, never claim or terminate them.
   const background=existing.filter(p=>/^wps\.exe$/i.test(p.Name)&&(/\/Preview\s+-Embedding/i.test(p.CommandLine||'')||/\bRun\s+-Entry=EntryPoint\b/i.test(p.CommandLine||'')));
@@ -34,7 +34,7 @@ async function main(){
   try{await fetch('http://127.0.0.1:17891/health',{signal:AbortSignal.timeout(400)});throw Error('Desktop helper port is already occupied');}catch(error){if(error.message==='Desktop helper port is already occupied')throw error;}
   const receipt='REF_'+randomUUID().replace(/-/g,'').slice(0,14),marker='DONE_'+runId.slice(0,8),filename='delivery-'+runId.slice(0,8)+'.rtf',finalname='accepted-'+runId.slice(0,8)+'.rtf';
   const rtf='{\\rtf1\\ansi IEXA_REFERENCE '+receipt+'\\par STATUS PENDING\\par }';report.fixture={directory:fixture,receipt,marker,filename,finalname};
-  web=http.createServer((req,res)=>{if(req.url==='/delivery.rtf'){report.downloads=(report.downloads||0)+1;save();res.writeHead(200,{'Content-Type':'application/rtf','Content-Disposition':'attachment; filename="'+filename+'"'});res.end(rtf);return;}res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end('<!doctype html><meta charset="utf-8"><title>IEXA Desktop Acceptance '+runId.slice(0,8)+'</title><style>body{font:24px system-ui;padding:48px}a{display:block;padding:20px;background:#eee}</style><h1>Delivery document</h1><p>Reference: '+receipt+'</p><a href="/delivery.rtf" download="'+filename+'">Download delivery document</a>');});await new Promise(resolve=>web.listen(0,'127.0.0.1',resolve));
+  web=http.createServer((req,res)=>{if(req.url==='/delivery.rtf'){report.downloads=(report.downloads||0)+1;save();res.writeHead(200,{'Content-Type':'application/rtf','Content-Disposition':'attachment; filename="'+filename+'"'});res.end(rtf);return;}res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end('<!doctype html><meta charset="utf-8"><title>iExA Desktop Acceptance '+runId.slice(0,8)+'</title><style>body{font:24px system-ui;padding:48px}a{display:block;padding:20px;background:#eee}</style><h1>Delivery document</h1><p>Reference: '+receipt+'</p><a href="/delivery.rtf" download="'+filename+'">Download delivery document</a>');});await new Promise(resolve=>web.listen(0,'127.0.0.1',resolve));
   const pageURL='http://127.0.0.1:'+web.address().port+'/',cdpPort=await port(),inspectPort=await port();
   const start=(exe,args,log,env)=>{delete env.ELECTRON_RUN_AS_NODE;const fd=fs.openSync(path.join(out,log),'w');const p=spawn(exe,args,{cwd:path.dirname(exe),env,windowsHide:true,stdio:['ignore',fd,fd]});fs.closeSync(fd);return p;};
   // No helper is supplied by the harness: production must resolve and launch its
@@ -42,16 +42,16 @@ async function main(){
   let originalSessionId;
   if(backendOnly){
    const host=path.join(root,'scripts/helpers/model-backend-host.cjs'),fd=fs.openSync(path.join(out,'application.log'),'w'),began=Date.now();
-   app=spawn(path.join(appRoot,'IEXA.exe'),['--max-old-space-size=384',host,path.join(appRoot,'resources/app')],{cwd:root,windowsHide:true,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',IEXA_WORKSPACE:path.join(root,'workspace')},stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);
+   app=spawn(path.join(appRoot,'iExA.exe'),['--max-old-space-size=384',host,path.join(appRoot,'resources/app')],{cwd:root,windowsHide:true,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',IEXA_WORKSPACE:path.join(root,'workspace')},stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);
    let sequence=0;const pending=new Map();
    const ready=new Promise((resolve,reject)=>{app.on('error',reject);app.on('message',m=>{if(m.ready)return resolve(m);const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(m.error)):p.resolve({result:{value:m.value}});}else if(m.error)reject(Error(m.error));});});
    page={close(){},send(method,params){if(method!=='Runtime.evaluate')throw Error('Only acceptance evaluation is available in backend host');return new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error('Host timeout'));},20000);pending.set(id,{resolve,reject,timer});app.send({id,expression:params.expression});});}};
    appIdentity=await supervisor.claimSpawn(app,host,began);const info=await Promise.race([ready,supervisor.failure]);originalSessionId=info.originalSessionId;
-   report.app={pid:appIdentity.ProcessId,created:appIdentity.CreationDate,exe:path.join(appRoot,'IEXA.exe')};
+   report.app={pid:appIdentity.ProcessId,created:appIdentity.CreationDate,exe:path.join(appRoot,'iExA.exe')};
    report.acceptanceHost='Packaged standalone production server/provider/runtime; internal authenticated API; no Electron renderer or browser harness; app GUI benchmark is separate';
   }else{
-  let began=Date.now();app=start(path.join(appRoot,'IEXA.exe'),['--js-flags=--max-old-space-size=384','--disable-gpu','--remote-debugging-address=127.0.0.1','--remote-debugging-port='+cdpPort,'--inspect=127.0.0.1:'+inspectPort],'application.log',{...process.env,IEXA_PORT:'19840',IEXA_HEADLESS:'1'});appIdentity=await supervisor.claimSpawn(app,'--remote-debugging-port='+cdpPort,began);
-  report.app={pid:appIdentity.ProcessId,created:appIdentity.CreationDate,exe:path.join(appRoot,'IEXA.exe')};save();
+  let began=Date.now();app=start(path.join(appRoot,'iExA.exe'),['--js-flags=--max-old-space-size=384','--disable-gpu','--remote-debugging-address=127.0.0.1','--remote-debugging-port='+cdpPort,'--inspect=127.0.0.1:'+inspectPort],'application.log',{...process.env,IEXA_PORT:'19840',IEXA_HEADLESS:'1'});appIdentity=await supervisor.claimSpawn(app,'--remote-debugging-port='+cdpPort,began);
+  report.app={pid:appIdentity.ProcessId,created:appIdentity.CreationDate,exe:path.join(appRoot,'iExA.exe')};save();
   const mainTarget=await until(async()=>(await(await fetch('http://127.0.0.1:'+inspectPort+'/json/list')).json())[0],'Main inspector');inspector=await connect(mainTarget.webSocketDebuggerUrl);
   const target=await until(async()=>(await(await fetch('http://127.0.0.1:'+cdpPort+'/json/list')).json()).find(t=>t.type==='page'&&/^http:\/\/127\.0\.0\.1:19840\//.test(t.url)),'Logged-in app page');page=await connect(target.webSocketDebuggerUrl);
   await until(()=>evaluate(page,'typeof currentSessionId==="string"&&!!currentSessionId'),'App session ready');

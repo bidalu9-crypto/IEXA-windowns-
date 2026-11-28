@@ -9,7 +9,7 @@
     window open afterwards. This launcher owns the tail of the flow instead:
 
       1. start Electron and wait until it actually owns a window (not just a PID),
-      2. hide the console so the user only sees IEXA,
+      2. hide the console so the user only sees iExA,
       3. stay alive as a supervisor and exit when Electron exits, so a console we own
          disappears with the app instead of lingering.
 
@@ -116,7 +116,7 @@ function Hide-Console {
         return
     }
     [void][IexaLauncher.Native]::ShowWindow($console, 0)  # SW_HIDE
-    Write-Host "[Launch] Console hidden; it will close together with IEXA."
+    Write-Host "[Launch] Console hidden; it will close together with iExA."
 }
 
 function Restore-Console {
@@ -148,9 +148,9 @@ while ((Get-Date) -lt $deadline) {
 
 if (-not $windowSeen) {
     Restore-Console    if ($process.HasExited) {
-        Write-Host "[ERROR] IEXA exited before showing a window (code $($process.ExitCode))."
+        Write-Host "[ERROR] iExA exited before showing a window (code $($process.ExitCode))."
     } else {
-        Write-Host "[ERROR] IEXA did not show a window within $WindowTimeoutSeconds seconds."
+        Write-Host "[ERROR] iExA did not show a window within $WindowTimeoutSeconds seconds."
         try { $process.Kill() } catch { }
     }
     exit 1

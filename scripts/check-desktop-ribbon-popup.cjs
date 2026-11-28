@@ -15,7 +15,7 @@ function rpc(child){
  return {ready,request(args){return new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);child.connected&&child.send({cancel:true});reject(Error('GUI action timeout'));},25000);pending.set(id,{resolve,reject,timer});child.send({id,args},error=>{if(error){clearTimeout(timer);pending.delete(id);reject(error);}});});},dispose(){fail(Error('RPC disposed'));}};
 }
 async function main(){
- const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/IEXA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
+ const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/iExA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
  const out=path.join(root,'.iexa-artifacts/desktop-comparison-20261110','ribbon-popup-'+Date.now());fs.mkdirSync(out,{recursive:true});
  const report={status:'running',scope:'Fixed GUI: new blank Paint File ribbon popup entry and ESC return through production controller; no model',startedAt:new Date().toISOString(),packageRoot,actions:[],checks:[]};
  const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));save();
@@ -29,7 +29,7 @@ async function main(){
   report.workerSHA256=sha(worker);report.controllerSHA256=sha(path.join(appRoot,'dist/main/tools/DesktopAgent.js'));report.packageManifestSHA256=sha(path.join(packageRoot,'build-manifest.json'));save();
   const port=await new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const p=server.address().port;server.close(()=>resolve(p));});});
   const fd=fs.openSync(path.join(out,'controller.log'),'w'),spawnedAt=Date.now();
-  child=spawn(path.join(packageRoot,'IEXA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
+  child=spawn(path.join(packageRoot,'iExA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
   await supervisor.claimSpawn(child,worker,spawnedAt);
   timer=setTimeout(()=>{child?.connected&&child.send({cancel:true});deadlineReject(Error('Fixed GUI regression exceeded 90 seconds'));},90000);
   await Promise.race([client.ready,supervisor.failure,deadline]);

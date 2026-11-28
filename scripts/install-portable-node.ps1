@@ -16,7 +16,7 @@ function Assert-InRuntime([string]$Path) {
     $resolved = [IO.Path]::GetFullPath($Path)
     $prefix = $runtimeRoot.TrimEnd('\') + '\'
     if (-not $resolved.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to modify a path outside the IEXA runtime directory: $resolved"
+        throw "Refusing to modify a path outside the iExA runtime directory: $resolved"
     }
 }
 

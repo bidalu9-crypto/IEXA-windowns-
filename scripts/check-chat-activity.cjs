@@ -1,4 +1,4 @@
-/* Hidden offscreen Chromium: real IEXA CSS + activity renderer, synthetic content only. */
+/* Hidden offscreen Chromium: real iExA CSS + activity renderer, synthetic content only. */
 const {app,BrowserWindow}=require('electron');const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),renderer=path.join(root,'src/renderer'),out=path.join(root,'.iexa-artifacts/chat-activity-20260915');
 app.commandLine.appendSwitch('disable-features','CalculateNativeWinOcclusion');

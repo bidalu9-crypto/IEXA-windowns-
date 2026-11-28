@@ -42,7 +42,7 @@ async function main(kind){
  assert.ok(['wordpad','calculator'].includes(kind),'Usage: node scripts/check-desktop-keyboard-regression.cjs wordpad|calculator');
  const reuseHandle=kind==='calculator'&&process.env.IEXA_REUSE_CALCULATOR_HANDLE?Number(process.env.IEXA_REUSE_CALCULATOR_HANDLE):null;
  if(reuseHandle!==null)assert.ok(Number.isSafeInteger(reuseHandle)&&reuseHandle>0,'IEXA_REUSE_CALCULATOR_HANDLE must be an exact positive HWND');
- const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/IEXA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
+ const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/iExA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
  const out=path.join(root,'.iexa-artifacts/desktop-comparison-20261110','regression-'+kind+'-'+Date.now()),directory=path.join(out,'task-files');fs.mkdirSync(directory,{recursive:true});
  const token=randomUUID().slice(0,8),title='REFERENCE REF_'+token,marker='DONE_'+token,input=path.join(directory,'source-'+token+'.rtf'),output=path.join(directory,'result-'+token+'.rtf');
  if(kind==='wordpad')fs.writeFileSync(input,'{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\f0\\fs24 '+title+'\\par STATUS PENDING\\par}');
@@ -58,7 +58,7 @@ async function main(kind){
   report.controllerSHA256=hash(path.join(appRoot,'dist/main/tools/DesktopAgent.js'));save();
   const port=await new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const endpoint='http://127.0.0.1:'+port,fd=fs.openSync(path.join(out,'controller.log'),'w'),started=Date.now();
-  child=spawn(path.join(packageRoot,'IEXA.exe'),['--max-old-space-size=384',__filename,'__worker',appRoot,path.join(out,'journal'),endpoint],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
+  child=spawn(path.join(packageRoot,'iExA.exe'),['--max-old-space-size=384',__filename,'__worker',appRoot,path.join(out,'journal'),endpoint],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
   await supervisor.claimSpawn(child,__filename,started);await Promise.race([client.ready,supervisor.failure,new Promise((_,reject)=>setTimeout(()=>reject(Error('Controller readiness timed out')),15000))]);
   run=async(args,allowFailure=false,cleanup=false)=>{
    assert.ok(report.actions.length<70,'bounded GUI call count');

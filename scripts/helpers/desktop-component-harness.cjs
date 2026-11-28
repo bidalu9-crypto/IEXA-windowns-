@@ -26,26 +26,26 @@ async function createHarness(options = {}) {
   const runId = randomUUID(), out = path.resolve(options.output), fixture = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'iexa-components-'))), workspace = path.join(fixture, 'workspace');
   fs.mkdirSync(out, { recursive: true });
   fs.mkdirSync(workspace, { recursive: true }); fs.mkdirSync(path.join(out, 'screenshots'), { recursive: true }); fs.mkdirSync(path.join(fixture, 'temp'), { recursive: true });
-  const report = { runId, startedAt: new Date().toISOString(), scope: 'Actual IEXA window controlled through production DesktopAgent; read-only CDP oracle; isolated fixture provider; no autonomous online model claim', checks: [], actions: [], providerRequests: [], coverage: {}, fixture: { root: fixture, workspace } };
+  const report = { runId, startedAt: new Date().toISOString(), scope: 'Actual iExA window controlled through production DesktopAgent; read-only CDP oracle; isolated fixture provider; no autonomous online model claim', checks: [], actions: [], providerRequests: [], coverage: {}, fixture: { root: fixture, workspace } };
   const save = () => fs.writeFileSync(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
   const supervisor = createSupervisor({ output: out, maximumDurationMs: options.timeout || 600000, onStop: reason => { report.resourceStopReason = reason; save(); } });
   let child, main, page, agent, provider, target, endpoint, lockFd, nativeChild, nativeAgent, nativeEndpoint, appIdentity;
   const lock = path.join(root, '.iexa-artifacts', 'desktop-components.lock');
   const localEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|SYSTEMDRIVE|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMDATA|APPDATA|LOCALAPPDATA|USERPROFILE|USERNAME|HOMEDRIVE|HOMEPATH|PROCESSOR_ARCHITECTURE|NUMBER_OF_PROCESSORS|OS)$/i.test(key)));
-  const source = options.source === true, packageRoot = options.packageRoot ? path.resolve(options.packageRoot) : path.join(root, 'release/IEXA'), appRoot = source ? root : path.join(packageRoot, 'resources/app');
+  const source = options.source === true, packageRoot = options.packageRoot ? path.resolve(options.packageRoot) : path.join(root, 'release/iExA'), appRoot = source ? root : path.join(packageRoot, 'resources/app');
   async function start() {
     lockFd = fs.openSync(lock, 'wx'); fs.writeSync(lockFd, JSON.stringify({ pid: process.pid, runId, startedAt: report.startedAt }));
     if (!source) report.packageManifestSha256 = sha(fs.readFileSync(path.join(packageRoot, 'build-manifest.json')));
     await supervisor.begin();
     const project = path.join(fixture, 'project'); fs.mkdirSync(project, { recursive: true });
-    fs.writeFileSync(path.join(project, 'index.html'), '<!doctype html><title>IEXA component project</title><h1>COMPONENT_PREVIEW_RECEIPT</h1><input aria-label="Preview input"><button>Preview submit</button>');
+    fs.writeFileSync(path.join(project, 'index.html'), '<!doctype html><title>iExA component project</title><h1>COMPONENT_PREVIEW_RECEIPT</h1><input aria-label="Preview input"><button>Preview submit</button>');
     fs.writeFileSync(path.join(project, 'example.js'), "console.log('COMPONENT_NODE_RUN');\n");
     fs.writeFileSync(path.join(project, 'note.txt'), 'COMPONENT_FILE_ORIGINAL\n');
     options.prepareProject?.(project);
     execFileSync('git', ['init', '-q'], { cwd: project, windowsHide: true, timeout: 10000 });
     execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: project, windowsHide: true, timeout: 10000 });
     execFileSync('git', ['add', '.'], { cwd: project, windowsHide: true, timeout: 10000 });
-    execFileSync('git', ['-c', 'user.name=IEXA Component Fixture', '-c', 'user.email=fixture@localhost', 'commit', '-qm', 'Component fixture baseline'], { cwd: project, windowsHide: true, timeout: 10000 });
+    execFileSync('git', ['-c', 'user.name=iExA Component Fixture', '-c', 'user.email=fixture@localhost', 'commit', '-qm', 'Component fixture baseline'], { cwd: project, windowsHide: true, timeout: 10000 });
     fs.appendFileSync(path.join(project, 'note.txt'), 'COMPONENT_GIT_WORKTREE_CHANGE\n');
     const sid = 'component-' + runId, now = Date.now();
     fs.mkdirSync(path.join(workspace, '.iexa-sessions'), { recursive: true });
@@ -69,7 +69,7 @@ async function createHarness(options = {}) {
         if (tool) content = (prompt.includes('COMPONENT_DESKTOP_SELF') ? 'COMPONENT_DESKTOP_SELF_OK ' : 'COMPONENT_TOOL_READ_OK ') + String(tool.content).slice(-300);
         else {
           const self = prompt.includes('COMPONENT_DESKTOP_SELF'), name = self ? 'desktop_control' : 'file_read';
-          const args = self ? { action: 'observe', backend: 'chromium-cdp', cdpEndpoint: endpoint, cdpTargetId: target.id, controlMode: 'background', tool_title: '观察真实IEXA自身窗口' } : { path: 'note.txt', tool_title: '组件读取文件' };
+          const args = self ? { action: 'observe', backend: 'chromium-cdp', cdpEndpoint: endpoint, cdpTargetId: target.id, controlMode: 'background', tool_title: '观察真实iExA自身窗口' } : { path: 'note.txt', tool_title: '组件读取文件' };
           res.end('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'component-' + randomUUID(), type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] }) + '\n\ndata: ' + JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }) + '\n\ndata: [DONE]\n\n'); return;
         }
       }
@@ -84,14 +84,14 @@ async function createHarness(options = {}) {
       fs.writeFileSync(path.join(profile, 'Preferences'), JSON.stringify({ profile: { default_content_setting_values: { media_stream_mic: 2 } } }));
       report.microphoneFixture = 'Actual isolated Chromium profile microphone setting denied; no recorded audio fixture';
     }
-    const exe = source ? path.join(root, 'node_modules/electron/dist/electron.exe') : path.join(packageRoot, 'IEXA.exe');
+    const exe = source ? path.join(root, 'node_modules/electron/dist/electron.exe') : path.join(packageRoot, 'iExA.exe');
     const env = { ...localEnv, IEXA_WORKSPACE: workspace, IEXA_HEADLESS: '1', IEXA_PORT: String(apiPort), TEMP: path.join(fixture, 'temp'), TMP: path.join(fixture, 'temp') };
     const args = [...(source ? [root] : []), `--user-data-dir=${path.join(workspace, '.iexa-electron-profile')}`, `--remote-debugging-port=${cdpPort}`, `--inspect=127.0.0.1:${inspectPort}`, '--disable-renderer-backgrounding', '--disable-background-timer-throttling'];
     const started = Date.now(), fd = fs.openSync(path.join(out, 'application.log'), 'w'); child = spawn(exe, args, { cwd: path.dirname(exe), env, windowsHide: true, stdio: ['ignore', fd, fd] }); fs.closeSync(fd);
     const identity = await supervisor.claimSpawn(child, `--remote-debugging-port=${cdpPort}`, started); appIdentity = identity; report.application = { exe, appRoot, pid: identity.ProcessId, created: identity.CreationDate };
-    const mainTarget = await until(async () => (await (await fetch(`http://127.0.0.1:${inspectPort}/json/list`)).json())[0], 'IEXA main inspector'); main = await connect(mainTarget.webSocketDebuggerUrl);
+    const mainTarget = await until(async () => (await (await fetch(`http://127.0.0.1:${inspectPort}/json/list`)).json())[0], 'iExA main inspector'); main = await connect(mainTarget.webSocketDebuggerUrl);
     await evaluate(main, "globalThis.__componentElectron=(typeof require==='function'?require:process.mainModule.require.bind(process.mainModule))('electron');true");
-    target = await until(async () => (await (await fetch(endpoint + '/json/list')).json()).find(t => t.type === 'page' && t.url.startsWith(`http://127.0.0.1:${apiPort}`)), 'Actual IEXA page'); page = await connect(target.webSocketDebuggerUrl);
+    target = await until(async () => (await (await fetch(endpoint + '/json/list')).json()).find(t => t.type === 'page' && t.url.startsWith(`http://127.0.0.1:${apiPort}`)), 'Actual iExA page'); page = await connect(target.webSocketDebuggerUrl);
     await page.send('Runtime.enable'); await page.send('Log.enable');
     report.fixture.downloads = path.join(fixture, 'downloads'); fs.mkdirSync(report.fixture.downloads);
     await page.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: report.fixture.downloads });
@@ -99,7 +99,7 @@ async function createHarness(options = {}) {
       await page.send('Browser.setPermission', { permission: { name: 'microphone' }, setting: 'denied', origin: new URL(target.url).origin });
       report.microphonePermission = await read("navigator.permissions.query({name:'microphone'}).then(r=>r.state)");
     }
-    await until(() => read("typeof currentSessionId==='string'&&!!currentSessionId&&!!document.querySelector('#chatInput')"), 'IEXA ready');
+    await until(() => read("typeof currentSessionId==='string'&&!!currentSessionId&&!!document.querySelector('#chatInput')"), 'iExA ready');
     report.window = await evaluate(main, "(()=>{const e=globalThis.__componentElectron,w=e.BrowserWindow.getAllWindows()[0];w.setContentSize(1384,860);" + (options.hidden ? '' : 'w.showInactive();') + "return {visible:w.isVisible(),focused:w.isFocused(),handle:Number(w.getNativeWindowHandle().readBigUInt64LE()),userData:e.app.getPath('userData'),crashDumps:e.app.getPath('crashDumps')}})()");
     const controllerRoot = options.controllerRoot || appRoot;
     const { DesktopAgent } = require(path.join(controllerRoot, 'dist/main/tools/DesktopAgent.js'));
@@ -129,7 +129,7 @@ async function createHarness(options = {}) {
   async function bySelector(selector, hovered = false, stableAttempt = 0) {
     const snapshot = await observe();
     const info = await read(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return {id:e.id,tag:e.tagName,role:e.getAttribute('role'),name:e.getAttribute('aria-label')||e.title||e.textContent?.trim(),bounds:{left:r.left,top:r.top,width:r.width,height:r.height}}})()`);
-    assert.ok(info?.bounds.width > 1 && info?.bounds.height > 1, 'Visible actual IEXA selector ' + selector);
+    assert.ok(info?.bounds.width > 1 && info?.bounds.height > 1, 'Visible actual iExA selector ' + selector);
     let matches = snapshot.elements.filter(e => e.selector && (!info.id || e.selector.automationId === info.id) && e.bounds && ['left','top','width','height'].every(key => Math.abs(e.bounds[key] - info.bounds[key]) < 2));
     if (matches.length > 1) {
       const role = info.role || (info.tag === 'INPUT' ? await read(`document.querySelector(${JSON.stringify(selector)}).type`) : ({ BUTTON:'button', A:'link', TEXTAREA:'edit', SELECT:'combobox', SUMMARY:'button' })[info.tag]);
@@ -197,7 +197,7 @@ async function createHarness(options = {}) {
       const data = await nativeRun({ action: 'list_windows' });
       const windows = data.windows.filter(w => w.handle !== report.window.handle);
       if (windows.length === 1) return windows[0]; return false;
-    }, 'Actual IEXA native dialog', 12000);
+    }, 'Actual iExA native dialog', 12000);
   }
   async function chooseNativePath(trigger, selectedPath, { cancel = false } = {}) {
     await startNative();
@@ -227,7 +227,7 @@ async function createHarness(options = {}) {
     const pick = snapshot.elements.filter(e => e.role === 'button' && e.selector?.automationId === '1' && e.enabled !== false);
     if (pick.length === 1) await closingAction({ action: 'click', target: { elementId: pick[0].id } });
     else { throw Error('Native dialog has no unique observed enabled default action button'); }
-    await until(async () => { const d = await nativeRun({ action: 'list_windows' }); return !d.windows.some(w => w.handle === dialog.handle); }, 'IEXA dialog closed', 8000);
+    await until(async () => { const d = await nativeRun({ action: 'list_windows' }); return !d.windows.some(w => w.handle === dialog.handle); }, 'iExA dialog closed', 8000);
     return { selectedPath, dialog };
   }
   async function screenshot(name) {
@@ -253,11 +253,11 @@ async function createHarness(options = {}) {
     const nested = !['chat','bots','skills','scheduled'].includes(view);
     if (nested && !await read("document.querySelector('#sidebarMore').open")) await selectorAction('click', '#sidebarMore > summary');
     await selectorAction('click', `.nav-btn[data-view="${view}"]`);
-    await until(() => read(`document.querySelector('#view-${view}')?.classList.contains('active') || (document.querySelector('.nav-btn.active')?.dataset.view===${JSON.stringify(view)} && document.querySelector('#view-${view}')?.getBoundingClientRect().height>0)`), 'Actual IEXA navigation ' + view);
+    await until(() => read(`document.querySelector('#view-${view}')?.classList.contains('active') || (document.querySelector('.nav-btn.active')?.dataset.view===${JSON.stringify(view)} && document.querySelector('#view-${view}')?.getBoundingClientRect().height>0)`), 'Actual iExA navigation ' + view);
     await pause(120);
   }
   async function withTarget(urlPart, fn) {
-    const next = await until(async () => (await (await fetch(endpoint + '/json/list')).json()).find(t => t.type === 'page' && t.url.includes(urlPart)), 'Actual IEXA secondary page ' + urlPart);
+    const next = await until(async () => (await (await fetch(endpoint + '/json/list')).json()).find(t => t.type === 'page' && t.url.includes(urlPart)), 'Actual iExA secondary page ' + urlPart);
     const previous = { page, target }; target = next; page = await connect(next.webSocketDebuggerUrl); await page.send('Runtime.enable');
     try { return await fn(); } finally { (report.secondaryRuntimeErrors ||= []).push(...page.exceptions.map(error => ({ ...error, targetUrl: next.url }))); page.close(); page = previous.page; target = previous.target; await observe(); }
   }
@@ -268,7 +268,7 @@ async function createHarness(options = {}) {
       try { await evaluate(main, 'globalThis.__componentElectron.app.quit();true'); } catch {}
     }
     main?.close(); page?.close();
-    if (child) { try { await until(() => child.exitCode !== null || child.signalCode !== null, 'IEXA normal exit', 12000); } catch (e) { report.exitError = e.message; } report.applicationExitCode = child.exitCode; }
+    if (child) { try { await until(() => child.exitCode !== null || child.signalCode !== null, 'iExA normal exit', 12000); } catch (e) { report.exitError = e.message; } report.applicationExitCode = child.exitCode; }
     if (provider) { provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve)); }
     if (nativeChild?.exitCode === null) { try { await fetch(nativeEndpoint + '/shutdown', { method: 'POST', signal: AbortSignal.timeout(1500) }); await until(() => nativeChild.exitCode !== null, 'Native helper normal exit', 5000); } catch (e) { report.nativeExitError = e.message; } }
     try { report.resources = await supervisor.finish(); } catch (e) { report.resourceError = e.message; }

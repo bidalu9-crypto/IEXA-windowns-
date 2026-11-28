@@ -21,25 +21,25 @@ async function main() {
    fs.writeFileSync(path.join(out,'native-checks.json'),JSON.stringify(evidence,null,2)); return r;
  }
  const listed=await run({action:'list_windows',pid:fixture.pid}); assert.equal(listed.success,true,listed.output);
- const activated=await run({action:'activate',pid:fixture.pid,window:'IEXA Desktop Control Fixture'}); assert.equal(activated.success,true,activated.output);
+ const activated=await run({action:'activate',pid:fixture.pid,window:'iExA Desktop Control Fixture'}); assert.equal(activated.success,true,activated.output);
  const observed=await run({action:'observe',includeElements:true,limit:100}); assert.equal(observed.success,true,observed.output);
  const elements=JSON.parse(observed.output).data.elements;
  assert.ok(elements.some(e=>e.selector?.automationId==='FixtureInput'),JSON.stringify(elements));
- const typed=await run({action:'type',target:{automationId:'FixtureInput'},text:'IEXA-CONTROL-OK',verifyText:'IEXA-CONTROL-OK',timeoutMs:15000}); assert.equal(typed.success,true,typed.output); assert.equal(typed.metadata.desktop.verified,true);
- const clicked=await run({action:'click',target:{automationId:'FixtureApply'},verifyText:'Applied IEXA-CONTROL-OK'}); assert.equal(clicked.success,true,clicked.output); assert.equal(clicked.metadata.desktop.verified,true);
+ const typed=await run({action:'type',target:{automationId:'FixtureInput'},text:'iExA-CONTROL-OK',verifyText:'iExA-CONTROL-OK',timeoutMs:15000}); assert.equal(typed.success,true,typed.output); assert.equal(typed.metadata.desktop.verified,true);
+ const clicked=await run({action:'click',target:{automationId:'FixtureApply'},verifyText:'Applied iExA-CONTROL-OK'}); assert.equal(clicked.success,true,clicked.output); assert.equal(clicked.metadata.desktop.verified,true);
  const image=await run({action:'frame'}); assert.equal(image.success,true,image.output); fs.writeFileSync(path.join(out,'native-fixture.png'),image.imageData);
  const denied=await run({action:'type',text:'FOREIGN-OWNER'},'other-agent'); assert.equal(denied.success,false);
  // A newly opened disposable window takes foreground without rebinding the helper.
- takeoverFixture=spawn('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/desktop-control.ps1'),'-Title','IEXA Desktop Takeover Fixture'],{windowsHide:true,stdio:'ignore'});
+ takeoverFixture=spawn('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/desktop-control.ps1'),'-Title','iExA Desktop Takeover Fixture'],{windowsHide:true,stdio:'ignore'});
  await wait(1500);
- const takeoverWindows=JSON.parse((await run({action:'list_windows',pid:takeoverFixture.pid,window:'IEXA Desktop Takeover Fixture',includeHidden:true})).output).data.windows;
+ const takeoverWindows=JSON.parse((await run({action:'list_windows',pid:takeoverFixture.pid,window:'iExA Desktop Takeover Fixture',includeHidden:true})).output).data.windows;
  assert.equal(takeoverWindows.length,1,'Takeover fixture window must exist');
  const takeoverWindow=takeoverWindows[0];
  const focus=JSON.parse(execFileSync('powershell.exe',['-NoProfile','-File',path.join(__dirname,'fixtures/desktop-perturb.ps1'),'-Action','foreground','-Handle',String(takeoverWindow.handle),'-ExpectedPid',String(takeoverWindow.pid)],{windowsHide:true,encoding:'utf8'}));
  assert.equal(focus.after,takeoverWindow.handle,'Actual foreground switch is mandatory');
  const lostFocus=await run({action:'type',text:'MUST-NOT-BE-TYPED'});assert.equal(lostFocus.success,false,lostFocus.output);assert.equal(lostFocus.metadata.desktop.userTakeover,true);
  takeoverFixture.kill();takeoverFixture=undefined;
- assert.equal((await run({action:'activate',pid:fixture.pid,window:'IEXA Desktop Control Fixture'})).success,true);
+ assert.equal((await run({action:'activate',pid:fixture.pid,window:'iExA Desktop Control Fixture'})).success,true);
  // Native pause simulates the user's stop button; managed input must report takeover.
  await fetch(endpoint+'/pause',{method:'POST'});
  const paused=await run({action:'click',target:{automationId:'FixtureApply'}}); assert.equal(paused.success,false); assert.equal(paused.metadata.desktop.userTakeover,true);

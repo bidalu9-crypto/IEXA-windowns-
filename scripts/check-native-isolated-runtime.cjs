@@ -6,7 +6,7 @@ const assert=require('node:assert/strict');
 const {AgentRuntime}=require('../dist/main/runtime/AgentRuntime');
 const root=path.resolve(__dirname,'..'),out=path.join(root,'.iexa-artifacts','native-isolated-runtime',`${Date.now()}-${randomUUID().slice(0,8)}`);
 const workspaceDir=path.join(root,'workspace'),document=path.join(out,'owned-note.txt');
-const reference=`IEXA AgentRuntime ${randomUUID()}`;
+const reference=`iExA AgentRuntime ${randomUUID()}`;
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const report={scope:'real Win32 Notepad control through production AgentRuntime stack; scripted fixture provider, NOT LLM autonomy',reference,actions:[],results:[],states:[]};
 const children=[];let runtime,host,monitor;
@@ -29,7 +29,7 @@ function fixtureProvider(){let request=0;const tool=(id,args)=>({type:'toolCallC
  yield {type:'textDelta',text:'已在隔离 Notepad 中编辑并保存；最终界面读回包含目标文本。'};yield {type:'done',stopReason:'endTurn'};
  }};}
 async function main(){
- fs.mkdirSync(out,{recursive:true});fs.mkdirSync(workspaceDir,{recursive:true});fs.writeFileSync(document,'IEXA baseline');save();
+ fs.mkdirSync(out,{recursive:true});fs.mkdirSync(workspaceDir,{recursive:true});fs.writeFileSync(document,'iExA baseline');save();
  monitor=launch('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/foreground-audit.ps1'),'-OutputDirectory',out]);
  report.focusInitial=await waitFor(()=>{try{return JSON.parse(fs.readFileSync(path.join(out,'focus-ready.json'),'utf8'));}catch{return null;}},'Foreground monitor readiness');
  const config={sessionId:`runtime-e2e-${randomUUID()}`,workspaceDir,memoryDir:path.join(out,'memory'),auditDir:path.join(out,'audit'),memoryEnabled:false,permissionMode:'full',contextWindow:128000,provider:fixtureProvider()};

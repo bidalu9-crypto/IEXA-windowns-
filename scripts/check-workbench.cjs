@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
       document.documentElement.dataset.theme = ${JSON.stringify(theme)};
       document.getElementById('modelSelectorLabel').textContent = '已配置模型';
       document.getElementById('sessionsList').innerHTML = '<div class="session-item active"><div class="session-item-info"><span class="session-item-title">构建项目工作台</span><span class="session-item-time">刚刚</span></div></div><div class="session-item"><div class="session-item-info"><span class="session-item-title">检查测试与代码质量</span><span class="session-item-time">10 分钟前</span></div></div>';
-      document.getElementById('filesPanelTitle').textContent='IEXA-WIN';
+      document.getElementById('filesPanelTitle').textContent='iExA-WIN';
       document.getElementById('filesList').innerHTML='<div class="files-item"><span class="files-item-icon">▸</span><span class="files-item-name">src</span></div><div class="files-item"><span class="files-item-icon">▸</span><span class="files-item-name">tests</span></div><div class="files-item"><span class="files-item-icon">▸</span><span class="files-item-name">docs</span></div><div class="files-item"><span class="files-item-name">package.json</span></div><div class="files-item"><span class="files-item-name">AGENTS.md</span></div>';
     `);
     if (!baseline) await window.webContents.executeJavaScript(fs.readFileSync(path.join(renderer,'services/WorkbenchShell.js'),'utf8'));

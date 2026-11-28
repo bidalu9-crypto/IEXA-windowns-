@@ -6,20 +6,20 @@ const root=path.resolve(__dirname,'..'),sleep=ms=>new Promise(r=>setTimeout(r,ms
 async function main(){
  const runId=randomUUID(),out=path.join(root,'.iexa-artifacts/desktop-autonomy-20261110','sevenzip-'+Date.now()),fixture=path.join(out,'task-files'),source=path.join(fixture,'payload'),restored=path.join(fixture,'restored'),archive=path.join(fixture,'bundle-'+runId.slice(0,8)+'.zip');
  fs.mkdirSync(path.join(source,'子目录'),{recursive:true});
- const payload={'说明.txt':'IEXA archive acceptance\nREF_'+randomUUID()+'\n中文文件内容应完整保留。\n','numbers.csv':'item,quantity\nalpha,17\nbeta,29\n','子目录/nested.txt':'NESTED_'+randomUUID()+'\n'};
+ const payload={'说明.txt':'iExA archive acceptance\nREF_'+randomUUID()+'\n中文文件内容应完整保留。\n','numbers.csv':'item,quantity\nalpha,17\nbeta,29\n','子目录/nested.txt':'NESTED_'+randomUUID()+'\n'};
  const originals=Object.entries(payload).map(([name,text])=>{const bytes=Buffer.from(text);fs.writeFileSync(path.join(source,name),bytes);return{name,bytes:bytes.length,sha256:hash(bytes)};});
  const report={runId,status:'running',startedAt:new Date().toISOString(),scope:'Current selected model; packaged production backend; desktop_control only; real 7-Zip GUI creates/tests/extracts ZIP; independent read-only byte oracle',fixture:{source,restored,archive,originals}};
  const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));save();
- const appRoot=path.join(root,'release/IEXA-preview-20261109'),exe='C:\\Program Files\\7-Zip\\7zFM.exe';
+ const appRoot=path.join(root,'release/iExA-preview-20261109'),exe='C:\\Program Files\\7-Zip\\7zFM.exe';
  const supervisor=createSupervisor({output:out,maximumDurationMs:600000,allowFixtureCleanup:true,observeProcess:p=>/^7z(?:FM|G)?\.exe$/i.test(p.Name)});
  let app,evaluate,sessionId,pending=new Map();
  try{
-  const existing=(await processTable()).filter(p=>/^(IEXA|electron|7zFM|7zG)\.exe$/i.test(p.Name));if(existing.length)throw Error('Existing application prevents exclusive acceptance: '+existing.map(p=>p.Name+':'+p.ProcessId));
+  const existing=(await processTable()).filter(p=>/^(iExA|electron|7zFM|7zG)\.exe$/i.test(p.Name));if(existing.length)throw Error('Existing application prevents exclusive acceptance: '+existing.map(p=>p.Name+':'+p.ProcessId));
   await supervisor.begin();
   try{await fetch('http://127.0.0.1:17891/health',{signal:AbortSignal.timeout(400)});throw Error('Desktop helper port occupied');}catch(e){if(e.message==='Desktop helper port occupied')throw e;}
   report.packageManifestSHA256=hash(fs.readFileSync(path.join(appRoot,'build-manifest.json')));
   const host=path.join(root,'scripts/helpers/model-backend-host.cjs'),fd=fs.openSync(path.join(out,'application.log'),'w'),started=Date.now();
-  app=spawn(path.join(appRoot,'IEXA.exe'),['--max-old-space-size=384',host,path.join(appRoot,'resources/app')],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',IEXA_WORKSPACE:path.join(root,'workspace')},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);
+  app=spawn(path.join(appRoot,'iExA.exe'),['--max-old-space-size=384',host,path.join(appRoot,'resources/app')],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',IEXA_WORKSPACE:path.join(root,'workspace')},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);
   let sequence=0;
   const ready=new Promise((resolve,reject)=>{app.once('error',reject);app.on('message',m=>{if(m.ready)return resolve(m);const p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(m.error)):p.resolve(m.value);}else if(m.error)reject(Error(m.error));});});
   evaluate=expression=>new Promise((resolve,reject)=>{const id=++sequence,timer=setTimeout(()=>{pending.delete(id);reject(Error('Acceptance host timeout'));},20000);pending.set(id,{resolve,reject,timer});app.send({id,expression});});

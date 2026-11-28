@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 
 // Fixture data lives only beneath the harness's isolated run directory. It is
 // never copied into the installed plugin directory by this module: installation
-// must be performed through IEXA's real directory picker.
+// must be performed through iExA's real directory picker.
 async function prepareData(h) {
   const fixtureRoot = path.resolve(h.report.fixture.root);
   const source = path.join(fixtureRoot, 'component-plugin-source');
@@ -14,7 +14,7 @@ async function prepareData(h) {
   fs.mkdirSync(source, { recursive: true });
   const plugin = { id: 'component-pages-fixture', name: 'Component Pages Fixture', version: '1.0.0', description: 'Local desktop acceptance fixture', ui: 'panel.html', tools: [] };
   fs.writeFileSync(path.join(source, 'iexa-plugin.json'), JSON.stringify(plugin, null, 2));
-  fs.writeFileSync(path.join(source, 'panel.html'), '<!doctype html><meta charset="utf-8"><title>Component Fixture</title><h1>PLUGIN_COMPONENT_RECEIPT</h1><p>Installed through the actual IEXA plugin picker.</p>');
+  fs.writeFileSync(path.join(source, 'panel.html'), '<!doctype html><meta charset="utf-8"><title>Component Fixture</title><h1>PLUGIN_COMPONENT_RECEIPT</h1><p>Installed through the actual iExA plugin picker.</p>');
   const requests = [];
   let origin;
   const server = http.createServer(async (req, res) => {

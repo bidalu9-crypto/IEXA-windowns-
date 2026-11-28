@@ -3,7 +3,7 @@
 
 // Read-only verification of the directory assembled by build-dist.js. Hashing
 // is streamed and serial, using the same marker exclusions as the build itself.
-// Usage: node scripts/check-distribution.cjs --package release/IEXA --output report.json
+// Usage: node scripts/check-distribution.cjs --package release/iExA --output report.json
 const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
@@ -40,7 +40,7 @@ function inspectDirectories(directory, report, current = directory) {
   }
 }
 
-async function verifyDistribution({ sourceRoot = ROOT, directory = path.join(ROOT, 'release/IEXA') } = {}) {
+async function verifyDistribution({ sourceRoot = ROOT, directory = path.join(ROOT, 'release/iExA') } = {}) {
   const started = Date.now();
   sourceRoot = path.resolve(sourceRoot); directory = path.resolve(directory);
   const report = {
@@ -129,7 +129,7 @@ async function verifyDistribution({ sourceRoot = ROOT, directory = path.join(ROO
 }
 
 async function main(argv = process.argv.slice(2)) {
-  let directory = path.join(ROOT, 'release/IEXA'), output;
+  let directory = path.join(ROOT, 'release/iExA'), output;
   for (let i = 0; i < argv.length; i++) {
     if (!['--package', '--output'].includes(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) throw Error('Usage: node scripts/check-distribution.cjs [--package directory] [--output report.json]');
     const flag = argv[i++], value = path.resolve(argv[i]);

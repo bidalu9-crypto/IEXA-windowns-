@@ -12,8 +12,8 @@ async function nativeIsolatedModel({root,out,exe,document}){
  const reference='Native autonomous '+require('node:crypto').randomUUID();
  const report={status:'running',scope:'Real configured model autonomously launches, edits and saves actual Windows Notepad through the production native-isolated backend',model:{provider:profile.provider,model:profile.model,apiMode:profile.apiMode},reference,actions:[],results:[],states:[],usages:[],prewrittenActionsProvided:false};
  const save=()=>fs.writeFileSync(path.join(out,'native-model-report.json'),redact(JSON.stringify(report,null,2)));
- const workspace=fs.mkdtempSync(path.join(os.tmpdir(),'IEXA-desktop-model-'));
- const taskDocument=path.join(workspace,'owned-note.txt');fs.writeFileSync(taskDocument,'IEXA baseline');
+ const workspace=fs.mkdtempSync(path.join(os.tmpdir(),'iExA-desktop-model-'));
+ const taskDocument=path.join(workspace,'owned-note.txt');fs.writeFileSync(taskDocument,'iExA baseline');
  const runtime=new ToolRuntime({workspaceDir:workspace,memoryDir:path.join(workspace,'memory'),memoryEnabled:false,permissionMode:'risk',desktopCaptureFrames:false,budget:new BudgetManager({maxTurns:16,maxToolCalls:24,maxRuntimeMs:300000,maxInputTokens:160000}),permissionResolver:async request=>request.tool.name==='desktop_control'?'allow_once':'deny'});
  // Select the freshly built binary only; no fake transport or preprogrammed task executor.
  runtime.desktop.close();runtime.desktop=new DesktopAgent(root,false,path.join(out,'journal'),undefined,{executable:exe});
@@ -61,7 +61,7 @@ async function nativeIsolatedModel({root,out,exe,document}){
   if(report.host?.directory)for(let i=0;i<60;i++){try{report.hostEnded=JSON.parse(fs.readFileSync(path.join(report.host.directory,'ended.json'),'utf8'));break;}catch{await new Promise(r=>setTimeout(r,100));}}
   report.durationMs=Date.now()-started;report.settingsUnchanged=JSON.stringify(before)===JSON.stringify(fingerprints());
   if(!report.settingsUnchanged||!report.hostEnded?.desktopClosed||!report.hostEnded?.workerExited)report.status='failed';
-  if(path.dirname(path.resolve(workspace))===path.resolve(os.tmpdir())&&path.basename(workspace).startsWith('IEXA-desktop-model-'))fs.rmSync(workspace,{recursive:true,force:true});
+  if(path.dirname(path.resolve(workspace))===path.resolve(os.tmpdir())&&path.basename(workspace).startsWith('iExA-desktop-model-'))fs.rmSync(workspace,{recursive:true,force:true});
   report.metrics={toolCalls:report.actions.length,failedTools:report.results.filter(r=>!r.success).length,cost:null,costReason:'Configured gateway pricing not supplied.'};save();
  }
  return JSON.parse(redact(JSON.stringify(report)));

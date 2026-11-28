@@ -40,7 +40,7 @@ async function main(input){
  assert.ok(Date.parse(app.created)>=Date.parse(original.startedAt),'Target process must have started during this run');
  const originalText=JSON.stringify(original.events||[]);
  assert.ok(originalText.includes('\\"processId\\":'+app.pid),'Successful report must link the UIA Calculator controls to the observed PID');
- const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/IEXA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
+ const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/iExA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
  const out=path.join(source,'gui-cleanup-'+Date.now());fs.mkdirSync(out,{recursive:true});
  const report={status:'running',scope:'One exact run-launched Calculator HWND; GUI ALT+F4 only; no target PID ownership or termination',sourceReport,sourceSHA256:sha(sourceReport),watchdogSHA256:sha(watchdogFile),launch,app,actions:[],startedAt:new Date().toISOString()};
  const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));save();
@@ -52,7 +52,7 @@ async function main(input){
   report.workerSHA256=sha(worker);report.packageManifestSHA256=sha(path.join(packageRoot,'build-manifest.json'));report.controllerSHA256=sha(path.join(appRoot,'dist/main/tools/DesktopAgent.js'));
   const port=await new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const value=server.address().port;server.close(()=>resolve(value));});});
   const fd=fs.openSync(path.join(out,'controller.log'),'w'),started=Date.now();
-  child=spawn(path.join(packageRoot,'IEXA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
+  child=spawn(path.join(packageRoot,'iExA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
   await supervisor.claimSpawn(child,worker,started);await Promise.race([client.ready,supervisor.failure]);
   const run=async args=>{
    assert.ok(report.actions.length<8,'Cleanup bounded to eight GUI calls');

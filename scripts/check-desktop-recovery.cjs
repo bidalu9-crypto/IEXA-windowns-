@@ -21,7 +21,7 @@ async function main(){
    report.receipts.push({body:JSON.parse(body),receivedAt:Date.now()});save();res.end('committed');committed();return;
   }
   res.setHeader('content-type','text/html; charset=utf-8');
-  res.end(`<!doctype html><title>IEXA Recovery ${appPort}</title><label>Reference<input aria-label="Reference" id="reference"></label><button aria-label="Send" id="send">Send</button><p role="status" id="status">Ready</p><script>
+  res.end(`<!doctype html><title>iExA Recovery ${appPort}</title><label>Reference<input aria-label="Reference" id="reference"></label><button aria-label="Send" id="send">Send</button><p role="status" id="status">Ready</p><script>
   document.querySelector('#send').onclick=()=>{
     const value=document.querySelector('#reference').value;
     const xhr=new XMLHttpRequest();xhr.open('POST','/submit',false);xhr.send(JSON.stringify({value}));

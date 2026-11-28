@@ -34,7 +34,7 @@ async function main() {
  const native=launch(exe,[],{...process.env,IEXA_DESKTOP_PORT:String(port)});
  const health=await until(async()=>{try{const r=await fetch(endpoint+'/health',{signal:AbortSignal.timeout(400)});return r.ok?await r.json():null;}catch{return null;}},'Native readiness');
  assert.equal(health.pid,native.pid);assert.equal(path.normalize(health.executablePath).toLowerCase(),path.normalize(exe).toLowerCase());report.health=health;
- const title='IEXA Background Audit '+randomBytes(4).toString('hex');
+ const title='iExA Background Audit '+randomBytes(4).toString('hex');
  const fixture=launch('powershell.exe',['-NoProfile','-STA','-WindowStyle','Hidden','-File',path.join(__dirname,'fixtures/desktop-background-audit.ps1'),'-Title',title,'-OutputDirectory',out]);
  const ready=await until(()=>readJson('ready.json'),'Nonactivating fixture readiness');report.initial=ready;
  await until(()=>readJson('state.json'),'Foreground monitor readiness');

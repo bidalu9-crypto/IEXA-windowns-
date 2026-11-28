@@ -1,9 +1,9 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict'),{spawn}=require('node:child_process');
 const {createSupervisor}=require('./helpers/acceptance-supervisor.cjs');
-const root=path.resolve(__dirname,'..'),source=process.argv.includes('--source'),dist=path.join(root,'release/IEXA'),appRoot=source?root:path.join(dist,'resources/app'),out=path.resolve(process.env.IEXA_LAYOUT_TEST_OUTPUT||path.join(root,'.iexa-artifacts/ide-layout-20261109',source?'source':'packaged'));fs.mkdirSync(out,{recursive:true});
+const root=path.resolve(__dirname,'..'),source=process.argv.includes('--source'),dist=path.join(root,'release/iExA'),appRoot=source?root:path.join(dist,'resources/app'),out=path.resolve(process.env.IEXA_LAYOUT_TEST_OUTPUT||path.join(root,'.iexa-artifacts/ide-layout-20261109',source?'source':'packaged'));fs.mkdirSync(out,{recursive:true});
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex'),wait=ms=>new Promise(r=>setTimeout(r,ms));
-const report={scope:'Actual packaged IEXA.exe, empty app workspace and profile, first project selection and first Monaco model; only the native folder-picker return is a fixture',checks:[],diagnostics:[]};
+const report={scope:'Actual packaged iExA.exe, empty app workspace and profile, first project selection and first Monaco model; only the native folder-picker return is a fixture',checks:[],diagnostics:[]};
 let child,main,page,fixture,originalSession='',originalSessionRoot=null;
 const supervisor=createSupervisor({output:out,maximumDurationMs:Number(process.env.IEXA_LAYOUT_ACCEPTANCE_TIMEOUT_MS||300000),onStop:reason=>{report.resourceStopReason=reason;save();}});const save=()=>fs.writeFileSync(path.join(out,'packaged-first-open-report.json'),JSON.stringify(report,null,2));
 const record=(name,evidence)=>{report.checks.push({name,passed:true,evidence});save();};
@@ -53,7 +53,7 @@ async function runCodeTask(kind,label,exitCode=0,timeout=60000){
 }
 async function mainTask(){
  if(!source){const manifest=JSON.parse(fs.readFileSync(path.join(dist,'build-manifest.json')));for(const [file,digest]of Object.entries(manifest.files))assert.equal(hash(fs.readFileSync(path.join(dist,file))),digest,file);report.manifest={sha256:hash(fs.readFileSync(path.join(dist,'build-manifest.json'))),files:Object.keys(manifest.files).length};}
- report.package={exe:source?path.join(root,'node_modules/electron/dist/electron.exe'):path.join(dist,'IEXA.exe'),source,rendererSHA256:hash(fs.readFileSync(path.join(appRoot,'src/renderer/services/IDEWorkspace.js'))),cssSHA256:hash(fs.readFileSync(path.join(appRoot,'src/renderer/components/IDEWorkspace.css')))};
+ report.package={exe:source?path.join(root,'node_modules/electron/dist/electron.exe'):path.join(dist,'iExA.exe'),source,rendererSHA256:hash(fs.readFileSync(path.join(appRoot,'src/renderer/services/IDEWorkspace.js'))),cssSHA256:hash(fs.readFileSync(path.join(appRoot,'src/renderer/components/IDEWorkspace.css')))};
  fixture=fs.realpathSync.native(fs.mkdtempSync(path.join(require('node:os').tmpdir(),'iexa-packaged-first-open-')));const workspace=path.join(fixture,'app-data'),first=path.join(fixture,'first-project'),second=path.join(fixture,'second-project');
  for(const dir of [workspace,first,second])fs.mkdirSync(dir,{recursive:true});
  fs.writeFileSync(path.join(first,'index.html'),'<!doctype html><title>First project</title><h1 id="first-proof">FIRST OPEN BASELINE</h1>\n');

@@ -57,7 +57,7 @@ function rpc(child){
  return{ready,dispose:()=>dispose(Error('RPC disposed')),request(args){return new Promise((resolve,reject)=>{const current=++id,timer=setTimeout(()=>{pending.delete(current);if(child.connected)child.send({cancel:true});reject(Error('Action timed out; no replay'));},20000);pending.set(current,{resolve,reject,timer});child.send({id:current,args},error=>{if(error){clearTimeout(timer);pending.delete(current);reject(error);}});});}};
 }
 async function main(){
- const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/IEXA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
+ const packageRoot=path.resolve(process.env.IEXA_TEST_PACKAGE||path.join(root,'release/iExA-preview-20261109')),appRoot=path.join(packageRoot,'resources/app');
  const out=path.join(root,'.iexa-artifacts/desktop-comparison-20261110','authorized-calculator-close-'+Date.now());fs.mkdirSync(out,{recursive:true});
  const report={status:'running',startedAt:new Date().toISOString(),authorization:{pid:authorizedPid,createdUtc:authorizedCreated,process:'CalculatorApp.exe',action:'GUI close only; no process termination or ownership claim'},actions:[]};
  const save=()=>fs.writeFileSync(path.join(out,'report.json'),JSON.stringify(report,null,2));save();
@@ -69,7 +69,7 @@ async function main(){
   report.packageManifestSHA256=hash(path.join(packageRoot,'build-manifest.json'));report.controllerSHA256=hash(path.join(appRoot,'dist/main/tools/DesktopAgent.js'));save();
   const port=await new Promise(resolve=>{const server=net.createServer();server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const fd=fs.openSync(path.join(out,'controller.log'),'w'),started=Date.now();
-  child=spawn(path.join(packageRoot,'IEXA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
+  child=spawn(path.join(packageRoot,'iExA.exe'),['--max-old-space-size=384',worker,'__worker',appRoot,path.join(out,'journal'),'http://127.0.0.1:'+port],{cwd:root,env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},windowsHide:true,stdio:['ignore',fd,fd,'ipc']});fs.closeSync(fd);client=rpc(child);
   await supervisor.claimSpawn(child,worker,started);
   let readyTimer;try{await Promise.race([client.ready,supervisor.failure,new Promise((_,reject)=>{readyTimer=setTimeout(()=>reject(Error('Controller readiness timed out')),15000);})]);}finally{clearTimeout(readyTimer);}
   const run=async (args,allowFailure=false)=>{

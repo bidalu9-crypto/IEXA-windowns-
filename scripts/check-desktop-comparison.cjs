@@ -1,7 +1,7 @@
 'use strict';
 
 // One decision-maker per run. Business actions are supplied by the selected
-// IEXA model or live Codex session; this harness contains no GUI action plan.
+// iExA model or live Codex session; this harness contains no GUI action plan.
 const fs = require('node:fs'), path = require('node:path'), http = require('node:http');
 const { spawn } = require('node:child_process');
 const { randomUUID, randomBytes, createHash, timingSafeEqual } = require('node:crypto');
@@ -157,12 +157,12 @@ async function run(mode, kind) {
   const out = path.join(root, '.iexa-artifacts/desktop-comparison-20261110', `${mode}-${kind}-${Date.now()}`);
   fs.mkdirSync(out, { recursive: true });
   const task = createTask(kind, out), runId = randomUUID();
-  const appRoot = path.join(root, 'release/IEXA-preview-20261109'), packagedRoot = path.join(appRoot, 'resources/app');
+  const appRoot = path.join(root, 'release/iExA-preview-20261109'), packagedRoot = path.join(appRoot, 'resources/app');
   let goal = authorizedHandle ? `这是用户授权的现有计算器窗口独立复测，唯一授权窗口handle=${authorizedHandle}，不是新窗口同条件对比。先使用desktop_control action=observe、handle=${authorizedHandle}确认计算器，再必要时action=activate同一个精确handle；若句柄失效或不是计算器，立即停止并如实报告。禁止launch启动新应用，禁止操作其他窗口，禁止关闭或最小化此窗口，保留现有历史记录。通过该计算器界面依次计算 (137 + 289) × 7 − 53，以及144的平方根。每次读取实际显示结果并截图；打开历史记录核对两次结果仍在记录中。不要在消息里心算后冒充应用结果。可以在开始和最后只清当前显示，禁止清除历史。全部业务仅使用desktop_control，backend=native、controlMode=foreground，必要时focusPolicy=activate；不使用shell、脚本或文件工具代做业务。不要传window/process/pid等其他定位条件，只用该精确handle和当前观察的控件。原生key/hotkey不要传target。完成后保留窗口和历史并正常给出最终结果。最多60次工具调用、8分钟。`
     : task.goal + '\n两边统一约束：仅使用 desktop_control 操作真实应用界面。backend=native，controlMode=foreground，允许 focusPolicy=activate；截图和当前控件用于定位，禁止脚本或文件工具代做业务。仅操作本轮测试文件及自启动窗口，不修改用户设置。最多60次工具调用、8分钟。完成后关闭测试窗口并正常给出最终结果。';
   if (verifyAsyncClose) goal += '\n本轮追加异步关闭验收：完成计算和历史核对后，关闭前通过实际观察记录本轮计算器的精确窗口 handle 原值。最终关闭动作显式设置 expectWindowClosed:true；核对真实关闭回执，不凭派发或失焦推断成功。关闭后再独立调用 desktop_control action=list_windows，handle=关闭前记录的原值，includeHidden:true，limit:1，不附加 pid/process/title 过滤，确认 windows 空列表。若回执失败或窗口仍存在，如实报告，不重放关闭输入、不将事后清理当作模型成功。';
   const report = { runId, mode, kind, status: 'running', phase: 'preflight', startedAt: new Date().toISOString(), goal,
-    scope: mode === 'iexa' ? 'Current selected IEXA model; packaged production backend; desktop_control only' : 'Codex current session decisions through the same packaged DesktopAgent; not native Codex app computer-use tools',
+    scope: mode === 'iexa' ? 'Current selected iExA model; packaged production backend; desktop_control only' : 'Codex current session decisions through the same packaged DesktopAgent; not native Codex app computer-use tools',
     comparisonMode: authorizedHandle ? 'authorized-existing' : 'fresh-application', sameInitialConditions: !authorizedHandle,
     ...(authorizedHandle ? {authorizedExisting:{handle:authorizedHandle,preserveWindow:true,preserveHistory:true,baselineProcesses:[]}} : {}),
     ...(verifyAsyncClose ? {asyncCloseAcceptance:true,acceptanceVariant:'fresh-calculator-explicit-close-proof'} : {}),
@@ -217,7 +217,7 @@ async function run(mode, kind) {
     // finish() must classify preflight blockers as baseline, never run leaks.
     // This grants no ownership and still runs before spawning the controller.
     await supervisor.begin();
-    const existing = (await processTable()).filter(row => names.has(String(row.Name).toLowerCase()) || /^(IEXA|electron)\.exe$/i.test(row.Name));
+    const existing = (await processTable()).filter(row => names.has(String(row.Name).toLowerCase()) || /^(iExA|electron)\.exe$/i.test(row.Name));
     const blockers = existing.filter(row => !authorizedHandle || !names.has(String(row.Name).toLowerCase()));
     if (blockers.length) throw Error('Existing application prevents exclusive acceptance: ' + blockers.map(p => `${p.Name}:${p.ProcessId}`).join(', '));
     if (authorizedHandle) {
@@ -232,7 +232,7 @@ async function run(mode, kind) {
     const host = mode === 'iexa' && !authorizedHandle ? path.join(root, 'scripts/helpers/model-backend-host.cjs') : __filename;
     const args = authorizedHandle ? [host, '__scoped-model-host', packagedRoot, String(authorizedHandle)] : mode === 'iexa' ? [host, packagedRoot] : [host, '__controller-worker', packagedRoot, path.join(out, 'journal')];
     const fd = fs.openSync(path.join(out, 'application.log'), 'w'), started = Date.now();
-    child = spawn(path.join(appRoot, 'IEXA.exe'), ['--max-old-space-size=384', ...args], { cwd: root,
+    child = spawn(path.join(appRoot, 'iExA.exe'), ['--max-old-space-size=384', ...args], { cwd: root,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', IEXA_WORKSPACE: path.join(root, 'workspace') }, windowsHide: true, stdio: ['ignore', fd, fd, 'ipc'] });
     fs.closeSync(fd); rpc = rpcChild(child);
     const identity = await supervisor.claimSpawn(child, host, started);
